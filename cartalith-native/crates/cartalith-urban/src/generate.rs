@@ -78,7 +78,7 @@ use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, b
 use crate::blocks::{Block, Parcel, build_blocks, build_parcels};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::courtyard::build_courtyard_rings;
-use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys, remove_water_crossings};
+use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys};
 use crate::districts::{
     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
 };
@@ -196,6 +196,14 @@ pub struct GenOpts {
     /// every JS-captured golden and every other `GenOpts` literal is unmoved by
     /// control flow.
     pub riverbank: bool,
+    /// **Not the reference** -- Ruling FE item 2 (owner, 2026-11-15:
+    /// *"Villages: rows along the road"*): a settlement under
+    /// [`crate::plaza::PLAZA_MARKET_POP`] on the organic plan is laid out as a
+    /// street village ([`crate::village`]): no 1 600 m street floor, lanes only
+    /// by the roads, the green at the market point and tofts lining the roads.
+    /// `false` is the reference, byte for byte, so every JS-captured golden and
+    /// every other `GenOpts` literal is unmoved by control flow.
+    pub street_village: bool,
 }
 
 // ------------------------------------------------------------------- output --
@@ -342,9 +350,13 @@ pub struct Town {
     /// switch off.
     pub both_banks: bool,
     /// **Not the reference** -- which of `generate`'s layouts this town is
-    /// ([`RiverbankPass`]); `None` with the switch off (the reference's one
-    /// layout).
+    /// ([`RiverbankPass`]); `None` with both `urban_riverbank` and
+    /// `urban_street_village` off (the reference's one layout).
     pub riverbank_pass: Option<RiverbankPass>,
+    /// **Not the reference** -- whether this town was laid out as a street
+    /// village ([`crate::village`], Ruling FE item 2): `GenOpts::street_village`
+    /// on, under `PLAZA_MARKET_POP`, the organic plan. `false` with it off.
+    pub street_village: bool,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -417,6 +429,11 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
     // inhabitant; the floor keeps a hamlet a crossroads cluster (M-AMEN-2).
     let target_len = js_max(1600.0, js_min(42000.0, pop_target * 2.1));
     let max_rf = js_min(720.0, (pop_target * 21.0).sqrt() * 1.35 + 80.0);
+    // **Not the reference** (Ruling FE item 2, `crate::village`): a street
+    // village. Organic plan only (the radial plan lays its own rings).
+    let street_village = opts.street_village && pop_target < crate::plaza::PLAZA_MARKET_POP && profile.planning != "radial";
+    // Its lanes: a quarter of a town's street a head, with no floor.
+    let target_len = if street_village { pop_target * crate::village::STREET_PER_HEAD_M } else { target_len };
     let (wm, hm) = (SITE_WM, SITE_HM);
     let site_kind = or_str(opts.site.as_deref(), "river").to_string();
 
@@ -552,7 +569,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         }
         // BEFORE `grow`: the market square's three streets are in the graph
         // before the epoch loop, so the town accretes around it.
-        plaza = build_plaza(seed, &site, &anchors, &mut g, pop_target);
+        // A street village's green at the market point (`build_plaza_with`).
+        plaza = crate::plaza::build_plaza_with(seed, &site, &anchors, &mut g, pop_target, street_village);
         harbour_outcome = build_harbour(seed, &site, &anchors, &mut g, Some(&harbour_opts));
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
@@ -580,6 +598,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
             // the radial branch sets a wet moat.
             wet_moat: false,
             pop: pop_target,
+            // A street village's lanes start by the roads only.
+            road_reach: street_village.then_some(crate::village::ROAD_REACH_M),
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -628,7 +648,10 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         }
     }
     // No street may run through the channel; only bridges and the quay do.
-    remove_water_crossings(&site, &mut g);
+    // A street village keeps its market's road (Ruling FE item 2,
+    // `crate::cleanup::prune_keeping`); every other town prunes as the
+    // reference does.
+    crate::cleanup::remove_water_crossings_keeping(&site, &mut g, street_village.then_some(anchors.market));
     // **Not the reference** (2026-11-15, `crate::riverbank`): the river town's
     // embankment, after the last street pass and before the faces become
     // blocks, so the riverside blocks it closes are platted like any other.
@@ -636,6 +659,14 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
+    // **Not the reference** (Ruling FE item 2, `crate::village::plat_tofts`): a
+    // street village's roads are lined with tofts up to its target, after the
+    // block lots (which they never overlap) and before the wall hug, so a
+    // walled village's wall is fitted round them too.
+    if street_village {
+        let tofts = crate::village::plat_tofts(seed, &g, &site, &blocks, &parcels, anchors.market, max_rf, pop_target, epochs, terrain_aware);
+        parcels.extend(tofts);
+    }
     // **Not the reference** (Ruling EW item 1, `crate::wallhug`): the wall is
     // refitted to the platted town, so no wide empty band stands between it and
     // the first buildings. After the street lots exist (the mass it fits) and
@@ -671,7 +702,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
     // the street lots they always did; organic plan only, so the Venus
     // warehouse belt is untouched. A block that is not converted keeps its
     // strip lots, ids and draws.
-    if profile.planning != "radial" {
+    // Not for a street village (Ruling FE item 2: *"not the towns' courtyard
+    // blocks of Rulings H and AD"*): its few blocks keep their strip lots.
+    if profile.planning != "radial" && !street_village {
         build_courtyard_rings(seed, &g, &blocks, &mut parcels, anchors.market, epochs, &site);
     }
 
@@ -706,7 +739,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
     // the remainder; every other layout's count is untrimmed, which is what
     // `second_pass` and `fit_village` judge. Before the places of
     // worship, which claim lots of their own.
-    if riverbank && pop_target < BOTH_BANKS_MIN_POP && matches!(pass, RiverbankPass::Village { trim: true, .. }) {
+    if (riverbank || street_village) && pop_target < BOTH_BANKS_MIN_POP && matches!(pass, RiverbankPass::Village { trim: true, .. }) {
         crate::riverbank::trim_overbuilt(&mut lots, &mut buildings, anchors.market, pop_target, wall_state.ring.as_deref());
     }
 
@@ -1053,7 +1086,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         riverbank,
         town_bridge,
         both_banks,
-        riverbank_pass: riverbank.then_some(pass),
+        riverbank_pass: (riverbank || street_village).then_some(pass),
+        street_village,
         embankment,
         pop,
         metrics,

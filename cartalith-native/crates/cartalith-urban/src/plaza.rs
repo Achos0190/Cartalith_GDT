@@ -148,31 +148,95 @@ pub fn riverbank_square(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f
     if site.river.len() < 2 {
         return None;
     }
-    let mkt_side = site.bank_side(anchors.market);
-    let clear = site.river_w / 2.0 + SQUARE_RIVER_CLEAR_M;
-    let ok = |p: Vec2| !site.is_water(p) && site.bank_side(p) == mkt_side && site.river_dist(p) >= clear;
+    square_near_market(site, anchors, g, l, wd, SQUARE_RIVER_CLEAR_M)
+}
+
+/// How far a street village's green keeps from the river's channel edge,
+/// metres ([`square_near_market`] from [`build_plaza_with`]). **A labelled
+/// judgement**: an embankment's width (`crate::riverbank::EMBANKMENT_W`, 4 m),
+/// so the green may come down to the landing (Ruling FE item 2: *"green at the
+/// landing"*), where a chartered town's square keeps a row of lots between it
+/// and the water ([`SQUARE_RIVER_CLEAR_M`]). Measured on the census at 384
+/// with the town's 15 m: 287 of 647 greens found no room by a village road
+/// that runs along its bank and fell back 300 m away.
+pub const GREEN_RIVER_CLEAR_M: f64 = 4.0;
+/// How near a live primary a village green's road-side corner must stand for
+/// a short primary edge to carry it ([`square_near`] with `village`), metres.
+/// **A labelled judgement**: half the 6-7 m primary's width, so the corner is
+/// on the carriageway of a road that runs on straight past the edge's end.
+pub const ROAD_ON_M: f64 = 3.0;
+
+/// [`riverbank_square`]'s search on any site (2026-11-15, Ruling FE item 2's
+/// street village, `crate::village`): the square nearest the market point on
+/// a live primary, its corners dry and, where the site has a river or shore
+/// line (two or more points), on the market's side of it and `clear_m` off
+/// the channel's edge. Without one only the
+/// dryness test applies (a landlocked site's water is its lakes). Draws
+/// nothing. Must never place a square over water or across the river.
+pub fn square_near_market(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f64, clear_m: f64) -> Option<(Vec2, Vec2)> {
+    square_near(site, anchors, g, l, wd, clear_m, true, false)
+}
+
+/// [`square_near_market`], with `same_bank` false letting the square stand on
+/// either bank (still dry and `clear_m` off the channel): a street village
+/// whose market point is the end of its road across the river from its
+/// houses (the real-water market is pinned at the box centre, 2026-11-15,
+/// seed 246371 #104 at 384) has its green at the bridge's other foot, not
+/// 300 m up the road. Draws nothing.
+///
+/// `village` (a street village's green, Ruling FE item 2) relaxes two tests
+/// written for a town's square: the road-side corners need only be dry and on
+/// the bank (the road is already there; the far corners keep `clear_m`), and
+/// a primary edge shorter than the square counts where the road runs on
+/// straight past its ends (both road-side corners within [`ROAD_ON_M`] of a
+/// live primary). Why: a village road along its bank is cut into short edges
+/// by the lanes joining it and stands near the water, and every green on such
+/// a road fell back 300-400 m away (seed 483920 #15 at 384 x 288, 2026-11-15).
+#[allow(clippy::too_many_arguments)]
+pub fn square_near(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f64, clear_m: f64, same_bank: bool, village: bool) -> Option<(Vec2, Vec2)> {
+    let has_line = site.river.len() >= 2;
+    let mkt_side = if has_line { site.bank_side(anchors.market) } else { 1.0 };
+    let clear = site.river_w / 2.0 + clear_m;
+    // Off the channel too, whatever `clear_m`: on a site the riverbank
+    // geometry did not take, `is_water` reads the stamped mask, which can call
+    // a bridge deck dry, and a village green with one corner on each bank
+    // laid its far street across the river (census at 384, 2026-11-15).
+    let in_channel = |p: Vec2| has_line && site.river_dist(p) < site.river_w / 2.0 + 1.0;
+    let bank_ok = |p: Vec2| !site.is_water(p) && !in_channel(p) && (!has_line || !same_bank || site.bank_side(p) == mkt_side);
+    let ok = |p: Vec2| bank_ok(p) && (!has_line || site.river_dist(p) >= clear);
+    let on_road = |p: Vec2| {
+        g.edges.iter().any(|e| e.alive && e.cls == "primary" && dist_pt_seg(p, g.nodes[e.a].pt(), g.nodes[e.b].pt()) <= ROAD_ON_M)
+    };
     let mut best: Option<(f64, Vec2, Vec2)> = None;
     for e in g.edges.iter().filter(|e| e.alive && e.cls == "primary") {
         let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
         let len = a.dist(b);
-        if len < l {
+        if len < l && !(village && len >= SQUARE_SLIDE_M) {
             continue;
         }
         let dir = (b - a).norm();
         let nl = dir.rot90();
-        let t0 = (anchors.market - a).dot(dir).clamp(l / 2.0, len - l / 2.0);
+        // A short edge (village only) slides its square's middle along the
+        // edge itself; the road-side corners are then held to the road.
+        let (t_lo, t_hi) = if len >= l { (l / 2.0, len - l / 2.0) } else { (0.0, len) };
+        let t0 = (anchors.market - a).dot(dir).clamp(t_lo, t_hi);
         let steps = (len / SQUARE_SLIDE_M).ceil() as i64;
         for k in 0..=steps {
             let mut found = false;
             for t in [t0 + k as f64 * SQUARE_SLIDE_M, t0 - k as f64 * SQUARE_SLIDE_M] {
-                if t < l / 2.0 || t > len - l / 2.0 {
+                if t < t_lo || t > t_hi {
                     continue;
                 }
                 let mid = a + dir * t;
                 let side = if site.river_dist(mid + nl * 20.0) > site.river_dist(mid + nl * -20.0) { 1.0 } else { -1.0 };
                 let (p1, p2) = (mid + dir * (-l / 2.0), mid + dir * (l / 2.0));
                 let (q1, q2) = (p1 + nl * (side * wd), p2 + nl * (side * wd));
-                if [p1, p2, q1, q2, mid].into_iter().all(ok) {
+                let fits = if village {
+                    [p1, p2, mid].into_iter().all(bank_ok) && [q1, q2].into_iter().all(ok) && (len >= l || (on_road(p1) && on_road(p2)))
+                } else {
+                    [p1, p2, q1, q2, mid].into_iter().all(ok)
+                };
+                if fits {
                     let c = poly_centroid(&[p1, p2, q2, q1]);
                     let d = c.dist(anchors.market);
                     if best.is_none_or(|(bd, _, _)| d < bd) {
@@ -211,6 +275,16 @@ pub fn riverbank_square(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f
 /// realised `pop` [`crate::hinterland::build_details`] reads. It decides
 /// [`PlazaKind`] only; the geometry above this point does not read it.
 pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64) -> Option<Plaza> {
+    build_plaza_with(seed, site, anchors, g, pop, false)
+}
+
+/// [`build_plaza`], with `green_at_market` (**not the reference**; Ruling FE
+/// item 2, 2026-11-15, `crate::village`): a street village's green is widened
+/// on the primary at the point nearest the market point
+/// ([`square_near_market`]), the landing or the crossroads, instead of at the
+/// nearest primary's middle. `false` is [`build_plaza`] exactly. The two draws
+/// are the same either way, so no other stream moves.
+pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64, green_at_market: bool) -> Option<Plaza> {
     let mut r = stream(seed, "plaza");
 
     // Nearest live primary edge to the market. Strict `<`, so a tie keeps the
@@ -246,6 +320,19 @@ pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop
     if site.riverbank()
         && pop >= PLAZA_MARKET_POP
         && let Some((d, m)) = riverbank_square(site, anchors, g, l, wd)
+    {
+        dir = d;
+        mid = m;
+    }
+    // Ruling FE item 2 (see `build_plaza_with`): a street village's green at
+    // the market point. The street budget changes with it
+    // (`crate::village::STREET_PER_HEAD_M`) and the tofts fill to the target
+    // (`crate::village::plat_tofts`), which is what the recorded attempt above
+    // lacked: it moved the green alone and the old growth followed it.
+    if green_at_market
+        && pop < PLAZA_MARKET_POP
+        && let Some((d, m)) = square_near(site, anchors, g, l, wd, GREEN_RIVER_CLEAR_M, true, true)
+            .or_else(|| square_near(site, anchors, g, l, wd, GREEN_RIVER_CLEAR_M, false, true))
     {
         dir = d;
         mid = m;

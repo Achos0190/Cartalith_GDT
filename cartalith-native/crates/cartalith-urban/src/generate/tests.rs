@@ -255,6 +255,7 @@ fn opt_str(s: &str) -> Option<String> {
 /// the case itself — so the two matrices cannot drift apart.
 fn opts_for(c: &golden::Case) -> GenOpts {
     GenOpts {
+        street_village: false,
         culture: opt_str(c.o_culture),
         rules: match c.o_rules {
             1 => Some(rules_patch()),

@@ -1108,7 +1108,11 @@ pub struct WorldParams {
     /// unrealistic"*). On, a generated town layout refits its wall to the
     /// platted lots (`cartalith_urban::wallhug`, reached through
     /// `cartalith_civ::urban_adapter::PlaceOverrides::wall_hug`) instead of
-    /// the reference's growth-reserve circuit.
+    /// the reference's growth-reserve circuit. Since Ruling FE item 1
+    /// (2026-11-15: *"Wall: taut"*) the refitted circuit is straight curtain
+    /// runs between towers, not a traced outline (`wallhug::tauten`); a world
+    /// saved with the switch on between 2026-11-13 and that change redraws its
+    /// walls taut, as Ruling FE asked of the switch.
     ///
     /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p):
     /// the reference has no such step, so every JS-captured urban golden keeps
@@ -1174,6 +1178,21 @@ pub struct WorldParams {
     /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the towns it was
     /// saved with.
     pub urban_riverbank: bool,
+    /// **Street villages** (owner Ruling FE item 2, 2026-11-15: *"Villages:
+    /// rows along the road"*; `TOWN_GENERATOR_JUDGEMENT.md` change 2): a
+    /// settlement under the chartered-town line is laid out as houses lining
+    /// its roads with the green at the market point, not as a small town's
+    /// blocks grown from the reference's 1 600 m street floor
+    /// (`cartalith_urban::village`). Every village, river or not, so it is its
+    /// own switch rather than `urban_riverbank`'s.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p): the
+    /// urban goldens pin the reference's layouts. Read fresh each time a layout
+    /// is asked for (never stored), so it moves no generated field and needs no
+    /// regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the villages it
+    /// was saved with.
+    pub urban_street_village: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1402,6 +1421,7 @@ impl WorldParams {
             // Off: the reference's doubled half-width on a real river. On at the
             // app boundary (2026-11-15) -- see the field's own doc comment.
             urban_riverbank: false,
+            urban_street_village: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

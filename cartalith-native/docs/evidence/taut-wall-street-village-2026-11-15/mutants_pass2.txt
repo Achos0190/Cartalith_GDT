@@ -1,0 +1,14 @@
+min run down -> KILLED by wallhug::tests::runs_under_forty_metres_are_merged
+max turn up -> KILLED by wallhug::tests::a_sharp_tip_is_not_extended_into_a_spike
+merge without forward test -> SURVIVED
+fill never blocked -> SURVIVED
+no strict pass -> SURVIVED
+spans branch chaikin -> SURVIVED
+all-land branch chaikin -> SURVIVED
+one-bank no taut simplify -> KILLED by wallhug::tests::a_taut_wall_is_straight_runs_between_towers
+no other-bank green -> SURVIVED
+same_bank ignored -> KILLED by riverbank::tests::a_village_green_stands_at_the_landing
+green channel guard off -> SURVIVED
+road on up -> SURVIVED
+no short edges -> KILLED by riverbank::tests::a_village_green_stands_at_the_landing
+toft channel guard off -> SURVIVED

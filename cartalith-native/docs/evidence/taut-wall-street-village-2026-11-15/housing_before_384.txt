@@ -1,0 +1,688 @@
+  #  1 off: riverthrough bld  2472 housed  11872/ 20000 ( 59.4 %) wet 0 | on: riverthrough bld  2781 housed  13224/ 20000 ( 66.1 %) wet 0
+  #  2 off: riverthrough bld  1491 housed   6796/  9546 ( 71.2 %) wet 0 | on: riverthrough bld  2257 housed  10364/  9546 (108.6 %) wet 0
+  #  3 off:        river bld    80 housed    395/   464 ( 85.1 %) wet 0 | on:        river bld    90 housed    468/   464 (100.9 %) wet 0
+  #  4 off: riverthrough bld  1769 housed   8497/ 20000 ( 42.5 %) wet 0 | on: riverthrough bld  1844 housed   9012/ 20000 ( 45.1 %) wet 0
+  #  5 off:        river bld   122 housed    614/   400 (153.5 %) wet 0 | on:        river bld    96 housed    494/   400 (123.5 %) wet 0
+  #  6 off: riverthrough bld   377 housed   1602/  2352 ( 68.1 %) wet 0 | on: riverthrough bld   569 housed   2798/  2352 (119.0 %) wet 0
+  #  7 off:        river bld  4430 housed  19516/ 19654 ( 99.3 %) wet 0 | on:        river bld  4170 housed  19126/ 19654 ( 97.3 %) wet 0
+  #  8 off: riverthrough bld  4124 housed  18403/ 17984 (102.3 %) wet 0 | on: riverthrough bld  4051 housed  18247/ 17984 (101.5 %) wet 0
+  #  9 off: riverthrough bld    79 housed    395/  1922 ( 20.6 %) wet 0 | on: riverthrough bld   353 housed   1394/  1922 ( 72.5 %) wet 0
+  # 10 off:        river bld  3383 housed  15252/ 20000 ( 76.3 %) wet 0 | on:        river bld  3912 housed  18538/ 20000 ( 92.7 %) wet 0
+  # 11 off:        river bld   120 housed    624/   400 (156.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 12 off:        river bld    60 housed    312/   400 ( 78.0 %) wet 0 | on:        river bld    74 housed    374/   400 ( 93.5 %) wet 0
+  # 13 off:        river bld    41 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  # 14 off:        river bld   127 housed    624/   400 (156.0 %) wet 0 | on:        river bld   115 housed    499/   400 (124.8 %) wet 0
+  # 15 off:        river bld   132 housed    681/   400 (170.2 %) wet 0 | on:        river bld    88 housed    452/   400 (113.0 %) wet 0
+  # 16 off:        river bld   115 housed    593/   400 (148.2 %) wet 0 | on:        river bld    93 housed    484/   400 (121.0 %) wet 0
+  # 17 off: riverthrough bld   113 housed    530/   483 (109.7 %) wet 0 | on: riverthrough bld   116 housed    603/   483 (124.8 %) wet 0
+  # 18 off:        river bld  1475 housed   6744/  7492 ( 90.0 %) wet 0 | on:        river bld  1895 housed   8731/  7492 (116.5 %) wet 0
+  # 19 off:        river bld  3053 housed  13666/  8838 (154.6 %) wet 0 | on:        river bld  2700 housed  12402/  8838 (140.3 %) wet 0
+  # 20 off:        river bld   162 housed    744/   600 (124.0 %) wet 0 | on:        river bld    78 housed    395/   600 ( 65.8 %) wet 0
+  # 21 off:        river bld   151 housed    702/   400 (175.5 %) wet 0 | on:        river bld    95 housed    484/   400 (121.0 %) wet 0
+  # 22 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    78 housed    390/   400 ( 97.5 %) wet 0
+  # 23 off:        river bld    31 housed    156/   469 ( 33.3 %) wet 0 | on:        river bld    60 housed    307/   469 ( 65.5 %) wet 0
+  # 24 off:        river bld   154 housed    744/   400 (186.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 25 off:        river bld    41 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld    84 housed    385/   400 ( 96.2 %) wet 0
+  # 26 off:        river bld    14 housed     73/   400 ( 18.2 %) wet 0 | on:        river bld    35 housed    182/   400 ( 45.5 %) wet 0
+  # 27 off:        river bld   164 housed    676/   400 (169.0 %) wet 0 | on:        river bld    89 housed    463/   400 (115.8 %) wet 0
+  # 28 off:        river bld   213 housed    827/   400 (206.8 %) wet 0 | on:        river bld    71 housed    338/   400 ( 84.5 %) wet 0
+  # 29 off:        river bld   196 housed    744/   400 (186.0 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  # 30 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   112 housed    499/   400 (124.8 %) wet 0
+  # 31 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   133 housed    499/   400 (124.8 %) wet 0
+  # 32 off:        river bld   117 housed    478/   400 (119.5 %) wet 0 | on:        river bld    86 housed    432/   400 (108.0 %) wet 0
+  # 33 off:        river bld   211 housed    759/   400 (189.8 %) wet 0 | on:        river bld   102 housed    499/   400 (124.8 %) wet 0
+  # 34 off:        river bld    56 housed    291/   400 ( 72.8 %) wet 0 | on:        river bld    94 housed    473/   400 (118.2 %) wet 0
+  # 35 off:        river bld   239 housed   1004/   400 (251.0 %) wet 0 | on:        river bld   108 housed    385/   400 ( 96.2 %) wet 0
+  # 36 off:        river bld   116 housed    411/   400 (102.8 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  # 37 off:        river bld    79 housed    406/   400 (101.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 38 off:        river bld   177 housed    614/   400 (153.5 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  # 39 off:        river bld    21 housed    109/   400 ( 27.2 %) wet 0 | on:        river bld   107 housed    499/   400 (124.8 %) wet 0
+  # 40 off: riverthrough bld   135 housed    541/   400 (135.2 %) wet 0 | on: riverthrough bld   117 housed    447/   400 (111.8 %) wet 0
+  # 41 off:        river bld    91 housed    411/   400 (102.8 %) wet 0 | on:        river bld   110 housed    499/   400 (124.8 %) wet 0
+  # 42 off:        river bld    15 housed     78/   400 ( 19.5 %) wet 0 | on:        river bld    64 housed    333/   400 ( 83.2 %) wet 0
+  # 43 off:        river bld   157 housed    650/   400 (162.5 %) wet 0 | on:        river bld    84 housed    432/   400 (108.0 %) wet 0
+  # 44 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    83 housed    426/   400 (106.5 %) wet 0
+  # 45 off:        river bld   118 housed    536/   400 (134.0 %) wet 0 | on:        river bld    92 housed    442/   400 (110.5 %) wet 0
+  # 46 off:        river bld   100 housed    494/   400 (123.5 %) wet 0 | on:        river bld    92 housed    302/   400 ( 75.5 %) wet 0
+  # 47 off:        river bld   117 housed    567/   400 (141.8 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  # 48 off:        river bld   131 housed    421/   400 (105.2 %) wet 0 | on:        river bld   101 housed    499/   400 (124.8 %) wet 0
+  # 49 off:        river bld   122 housed    629/   400 (157.2 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  # 50 off:        river bld   129 housed    546/   400 (136.5 %) wet 0 | on:        river bld    73 housed    380/   400 ( 95.0 %) wet 0
+  # 51 off:        river bld    91 housed    452/   400 (113.0 %) wet 0 | on:        river bld    75 housed    390/   400 ( 97.5 %) wet 0
+  # 52 off:        river bld    70 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld    84 housed    437/   400 (109.2 %) wet 0
+  # 53 off: riverthrough bld   127 housed    624/   400 (156.0 %) wet 0 | on: riverthrough bld    95 housed    494/   400 (123.5 %) wet 0
+  # 54 off:        river bld     9 housed     47/   400 ( 11.8 %) wet 0 | on:        river bld   104 housed    499/   400 (124.8 %) wet 0
+  # 55 off:        river bld   183 housed    785/   400 (196.2 %) wet 0 | on:        river bld    83 housed    432/   400 (108.0 %) wet 0
+  # 56 off:        river bld    73 housed    380/   400 ( 95.0 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  # 57 off:        river bld   165 housed    598/   400 (149.5 %) wet 0 | on:        river bld    85 housed    442/   400 (110.5 %) wet 0
+  # 58 off:        river bld   152 housed    681/   400 (170.2 %) wet 0 | on:        river bld    65 housed    338/   400 ( 84.5 %) wet 0
+  # 59 off: riverthrough bld   136 housed    702/   400 (175.5 %) wet 0 | on: riverthrough bld    91 housed    473/   400 (118.2 %) wet 0
+  # 60 off:        river bld    64 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  # 61 off: riverthrough bld   145 housed    567/   400 (141.8 %) wet 0 | on: riverthrough bld    26 housed    135/   400 ( 33.8 %) wet 0
+  # 62 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    89 housed    463/   400 (115.8 %) wet 0
+  # 63 off:        river bld    32 housed    166/   400 ( 41.5 %) wet 0 | on:        river bld   108 housed    452/   400 (113.0 %) wet 0
+  # 64 off:        river bld   101 housed    468/   400 (117.0 %) wet 0 | on:        river bld    80 housed    416/   400 (104.0 %) wet 0
+  # 65 off:        river bld    69 housed    276/   400 ( 69.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 66 off:        river bld   184 housed    692/   400 (173.0 %) wet 0 | on:        river bld    97 housed    473/   400 (118.2 %) wet 0
+  # 67 off:        river bld   116 housed    572/   400 (143.0 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  # 68 off:        river bld    42 housed    218/   400 ( 54.5 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  # 69 off:        river bld   127 housed    655/   400 (163.8 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  # 70 off: riverthrough bld    83 housed    432/   400 (108.0 %) wet 0 | on: riverthrough bld   103 housed    473/   400 (118.2 %) wet 0
+  # 71 off:        river bld   139 housed    676/   400 (169.0 %) wet 0 | on:        river bld    85 housed    432/   400 (108.0 %) wet 0
+  # 72 off:        river bld    76 housed    395/   400 ( 98.8 %) wet 0 | on:        river bld   123 housed    499/   400 (124.8 %) wet 0
+  # 73 off:        river bld   113 housed    520/   400 (130.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 74 off:        river bld   118 housed    593/   400 (148.2 %) wet 0 | on:        river bld   103 housed    395/   400 ( 98.8 %) wet 0
+  # 75 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 76 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 77 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 78 off:        river bld    97 housed    447/   400 (111.8 %) wet 0 | on:        river bld    96 housed    400/   400 (100.0 %) wet 0
+  # 79 off:        river bld   113 housed    473/   400 (118.2 %) wet 0 | on:        river bld   160 housed    499/   400 (124.8 %) wet 0
+  # 80 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    75 housed    390/   400 ( 97.5 %) wet 0
+  # 81 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  # 82 off:        river bld   133 housed    515/   400 (128.8 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  # 83 off:        river bld   138 housed    666/   400 (166.5 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  # 84 off: riverthrough bld   141 housed    686/   400 (171.5 %) wet 0 | on: riverthrough bld    85 housed    437/   400 (109.2 %) wet 0
+  # 85 off:        river bld    48 housed    250/   400 ( 62.5 %) wet 0 | on:        river bld    83 housed    432/   400 (108.0 %) wet 0
+  # 86 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     6 housed     31/   400 (  7.8 %) wet 0
+  # 87 off:   landlocked bld   102 housed    520/   400 (130.0 %) wet 0 | on:   landlocked bld   102 housed    520/   400 (130.0 %) wet 0
+  # 88 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   109 housed    499/   400 (124.8 %) wet 0
+  # 89 off: riverthrough bld     0 housed      0/   400 (  0.0 %) wet 0 | on: riverthrough bld   143 housed    499/   400 (124.8 %) wet 0
+  # 90 off:        river bld   153 housed    676/   400 (169.0 %) wet 0 | on:        river bld    96 housed    489/   400 (122.2 %) wet 0
+  # 91 off:        river bld    41 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld    93 housed    484/   400 (121.0 %) wet 0
+  # 92 off:        river bld   117 housed    572/   400 (143.0 %) wet 0 | on:        river bld   107 housed    499/   400 (124.8 %) wet 0
+  # 93 off:        river bld    93 housed    473/   400 (118.2 %) wet 0 | on:        river bld   105 housed    478/   400 (119.5 %) wet 0
+  # 94 off:        river bld    70 housed    343/   400 ( 85.8 %) wet 0 | on:        river bld   102 housed    364/   400 ( 91.0 %) wet 0
+  # 95 off:        river bld    69 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    89 housed    442/   400 (110.5 %) wet 0
+  # 96 off:        river bld    77 housed    400/   400 (100.0 %) wet 0 | on:        river bld    68 housed    354/   400 ( 88.5 %) wet 0
+  # 97 off: riverthrough bld   122 housed    634/   400 (158.5 %) wet 0 | on: riverthrough bld    64 housed    307/   400 ( 76.8 %) wet 0
+  # 98 off:        river bld   208 housed    972/   400 (243.0 %) wet 0 | on:        river bld    75 housed    385/   400 ( 96.2 %) wet 0
+  # 99 off:        river bld    19 housed     99/   400 ( 24.8 %) wet 0 | on:        river bld    96 housed    478/   400 (119.5 %) wet 0
+  #100 off:        river bld    56 housed    291/   400 ( 72.8 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #101 off:        river bld    52 housed    270/   400 ( 67.5 %) wet 0 | on:        river bld   125 housed    499/   400 (124.8 %) wet 0
+  #102 off:        river bld   115 housed    588/   400 (147.0 %) wet 0 | on:        river bld   137 housed    499/   400 (124.8 %) wet 0
+  #103 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    80 housed    411/   400 (102.8 %) wet 0
+  #104 off:        river bld   101 housed    463/   400 (115.8 %) wet 0 | on:        river bld    66 housed    343/   400 ( 85.8 %) wet 0
+  #105 off:        river bld    10 housed     52/   400 ( 13.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #106 off: riverthrough bld   146 housed    759/   400 (189.8 %) wet 0 | on: riverthrough bld    80 housed    416/   400 (104.0 %) wet 0
+  #107 off:        river bld   151 housed    603/   400 (150.8 %) wet 0 | on:        river bld    72 housed    374/   400 ( 93.5 %) wet 0
+  #108 off:        river bld    82 housed    426/   400 (106.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #109 off:        river bld    68 housed    322/   400 ( 80.5 %) wet 0 | on:        river bld    77 housed    359/   400 ( 89.8 %) wet 0
+  #110 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    66 housed    343/   400 ( 85.8 %) wet 0
+  #111 off:        river bld   128 housed    655/   400 (163.8 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #112 off:        river bld    97 housed    468/   400 (117.0 %) wet 0 | on:        river bld   128 housed    499/   400 (124.8 %) wet 0
+  #113 off:        river bld   144 housed    707/   400 (176.8 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #114 off:        river bld    36 housed    187/   400 ( 46.8 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  #115 off:        river bld   188 housed    671/   400 (167.8 %) wet 0 | on:        river bld    94 housed    463/   400 (115.8 %) wet 0
+  #116 off:        river bld    68 housed    312/   400 ( 78.0 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  #117 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   119 housed    499/   400 (124.8 %) wet 0
+  #118 off:        river bld    64 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  #119 off:        river bld   117 housed    510/   400 (127.5 %) wet 0 | on:        river bld   104 housed    499/   400 (124.8 %) wet 0
+  #120 off:        river bld   111 housed    484/   400 (121.0 %) wet 0 | on:        river bld   105 housed    499/   400 (124.8 %) wet 0
+  #121 off:   landlocked bld    79 housed    400/   400 (100.0 %) wet 0 | on:   landlocked bld    79 housed    400/   400 (100.0 %) wet 0
+  #122 off:   landlocked bld    42 housed    218/   400 ( 54.5 %) wet 0 | on:   landlocked bld    42 housed    218/   400 ( 54.5 %) wet 0
+  #123 off:        river bld   152 housed    676/   400 (169.0 %) wet 0 | on:        river bld    92 housed    406/   400 (101.5 %) wet 0
+  #124 off:        river bld    14 housed     73/   400 ( 18.2 %) wet 0 | on:        river bld    29 housed    151/   400 ( 37.8 %) wet 0
+  #125 off:        river bld    73 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    98 housed    432/   400 (108.0 %) wet 0
+  #126 off:   landlocked bld    72 housed    374/   400 ( 93.5 %) wet 0 | on:   landlocked bld    72 housed    374/   400 ( 93.5 %) wet 0
+  #127 off:        river bld    91 housed    291/   400 ( 72.8 %) wet 0 | on:        river bld    99 housed    484/   400 (121.0 %) wet 0
+  #128 off:   landlocked bld    79 housed    291/   400 ( 72.8 %) wet 0 | on:   landlocked bld    79 housed    291/   400 ( 72.8 %) wet 0
+  #129 off:        river bld    35 housed    182/   400 ( 45.5 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  #130 off:        river bld   139 housed    593/   400 (148.2 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #131 off:        river bld    90 housed    437/   400 (109.2 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #132 off:        river bld   108 housed    499/   400 (124.8 %) wet 0 | on:        river bld    78 housed    406/   400 (101.5 %) wet 0
+  #133 off:   landlocked bld   117 housed    608/   400 (152.0 %) wet 0 | on:   landlocked bld   117 housed    608/   400 (152.0 %) wet 0
+  #134 off:        river bld    78 housed    406/   400 (101.5 %) wet 0 | on:        river bld    96 housed    484/   400 (121.0 %) wet 0
+  #135 off:        river bld   246 housed    874/   400 (218.5 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #136 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    79 housed    328/   400 ( 82.0 %) wet 0
+  #137 off:        river bld   146 housed    692/   400 (173.0 %) wet 0 | on:        river bld    91 housed    380/   400 ( 95.0 %) wet 0
+  #138 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #139 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   113 housed    499/   400 (124.8 %) wet 0
+  #140 off:   landlocked bld    25 housed    130/   400 ( 32.5 %) wet 0 | on:   landlocked bld    25 housed    130/   400 ( 32.5 %) wet 0
+  #141 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  #142 off:        river bld    74 housed    385/   400 ( 96.2 %) wet 0 | on:        river bld    67 housed    348/   400 ( 87.0 %) wet 0
+  #143 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    85 housed    395/   400 ( 98.8 %) wet 0
+  #144 off:        river bld    84 housed    348/   400 ( 87.0 %) wet 0 | on:        river bld    62 housed    322/   400 ( 80.5 %) wet 0
+  #145 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #146 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  #147 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  #148 off:        river bld   104 housed    541/   400 (135.2 %) wet 0 | on:        river bld   107 housed    499/   400 (124.8 %) wet 0
+  #149 off:        river bld    50 housed    260/   400 ( 65.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #150 off:        river bld    77 housed    343/   400 ( 85.8 %) wet 0 | on:        river bld   113 housed    499/   400 (124.8 %) wet 0
+  #151 off:        river bld   111 housed    572/   400 (143.0 %) wet 0 | on:        river bld   101 housed    489/   400 (122.2 %) wet 0
+  #152 off:        river bld   232 housed   1097/   400 (274.2 %) wet 0 | on:        river bld    86 housed    421/   400 (105.2 %) wet 0
+  #153 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   112 housed    499/   400 (124.8 %) wet 0
+  #154 off: riverthrough bld    82 housed    426/   400 (106.5 %) wet 0 | on: riverthrough bld    86 housed    364/   400 ( 91.0 %) wet 0
+  #155 off:        river bld   108 housed    562/   400 (140.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #156 off:        river bld   121 housed    562/   400 (140.5 %) wet 0 | on:        river bld    63 housed    322/   400 ( 80.5 %) wet 0
+  #157 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    70 housed    348/   400 ( 87.0 %) wet 0
+  #158 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #159 off:        river bld    43 housed    224/   400 ( 56.0 %) wet 0 | on:        river bld    83 housed    432/   400 (108.0 %) wet 0
+  #160 off:        river bld    77 housed    400/   400 (100.0 %) wet 0 | on:        river bld   113 housed    374/   400 ( 93.5 %) wet 0
+  #161 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #162 off:        river bld    77 housed    400/   400 (100.0 %) wet 0 | on:        river bld    73 housed    343/   400 ( 85.8 %) wet 0
+  #163 off:        river bld   189 housed    816/   400 (204.0 %) wet 0 | on:        river bld    66 housed    338/   400 ( 84.5 %) wet 0
+  #164 off:        river bld   118 housed    562/   400 (140.5 %) wet 0 | on:        river bld    88 housed    458/   400 (114.5 %) wet 0
+  #165 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    94 housed    489/   400 (122.2 %) wet 0
+  #166 off:        river bld   160 housed    671/   400 (167.8 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  #167 off:        river bld    53 housed    270/   400 ( 67.5 %) wet 0 | on:        river bld    75 housed    390/   400 ( 97.5 %) wet 0
+  #168 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #169 off:        river bld    97 housed    473/   400 (118.2 %) wet 0 | on:        river bld    82 housed    416/   400 (104.0 %) wet 0
+  #170 off:   landlocked bld    25 housed    130/   400 ( 32.5 %) wet 0 | on:   landlocked bld    25 housed    130/   400 ( 32.5 %) wet 0
+  #171 off:        river bld    73 housed    348/   400 ( 87.0 %) wet 0 | on:        river bld    75 housed    390/   400 ( 97.5 %) wet 0
+  #172 off:        river bld    84 housed    421/   400 (105.2 %) wet 0 | on:        river bld    68 housed    348/   400 ( 87.0 %) wet 0
+  #173 off:   landlocked bld    77 housed    400/   400 (100.0 %) wet 0 | on:   landlocked bld    77 housed    400/   400 (100.0 %) wet 0
+  #174 off:        river bld    67 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  #175 off:        river bld   160 housed    764/   400 (191.0 %) wet 0 | on:        river bld    84 housed    421/   400 (105.2 %) wet 0
+  #176 off: riverthrough bld   132 housed    478/   400 (119.5 %) wet 0 | on: riverthrough bld    81 housed    411/   400 (102.8 %) wet 0
+  #177 off: riverthrough bld    63 housed    322/   400 ( 80.5 %) wet 0 | on: riverthrough bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #178 off:        river bld    89 housed    463/   400 (115.8 %) wet 0 | on:        river bld    87 housed    432/   400 (108.0 %) wet 0
+  #179 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    56 housed    276/   400 ( 69.0 %) wet 0
+  #180 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #181 off:   landlocked bld    15 housed     78/   400 ( 19.5 %) wet 0 | on:   landlocked bld    15 housed     78/   400 ( 19.5 %) wet 0
+  #182 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #183 off:   landlocked bld   257 housed    952/   400 (238.0 %) wet 0 | on:   landlocked bld   257 housed    952/   400 (238.0 %) wet 0
+  #184 off:        river bld    16 housed     83/   400 ( 20.8 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #185 off:   landlocked bld    72 housed    354/   400 ( 88.5 %) wet 0 | on:   landlocked bld    72 housed    354/   400 ( 88.5 %) wet 0
+  #186 off:        river bld    36 housed    187/   400 ( 46.8 %) wet 0 | on:        river bld    94 housed    406/   400 (101.5 %) wet 0
+  #187 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #188 off:        river bld   186 housed    712/   400 (178.0 %) wet 0 | on:        river bld   106 housed    499/   400 (124.8 %) wet 0
+  #189 off:   landlocked bld    79 housed    406/   400 (101.5 %) wet 0 | on:   landlocked bld    79 housed    406/   400 (101.5 %) wet 0
+  #190 off:        river bld   123 housed    588/   400 (147.0 %) wet 0 | on:        river bld    19 housed     99/   400 ( 24.8 %) wet 0
+  #191 off:        river bld    32 housed    166/   400 ( 41.5 %) wet 0 | on:        river bld   136 housed    499/   400 (124.8 %) wet 0
+  #192 off:        river bld   229 housed    848/   400 (212.0 %) wet 0 | on:        river bld    80 housed    380/   400 ( 95.0 %) wet 0
+  #193 off:        river bld    23 housed    120/   400 ( 30.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #194 off:        river bld    89 housed    463/   400 (115.8 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  #195 off:        river bld   122 housed    546/   400 (136.5 %) wet 0 | on:        river bld    65 housed    338/   400 ( 84.5 %) wet 0
+  #196 off:   landlocked bld   114 housed    478/   400 (119.5 %) wet 0 | on:   landlocked bld   114 housed    478/   400 (119.5 %) wet 0
+  #197 off:        river bld   110 housed    556/   400 (139.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #198 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    78 housed    406/   400 (101.5 %) wet 0
+  #199 off: riverthrough bld   121 housed    468/   400 (117.0 %) wet 0 | on: riverthrough bld    76 housed    380/   400 ( 95.0 %) wet 0
+  #200 off:   landlocked bld   136 housed    536/   400 (134.0 %) wet 0 | on:   landlocked bld   136 housed    536/   400 (134.0 %) wet 0
+  #201 off:        river bld   161 housed    686/   400 (171.5 %) wet 0 | on:        river bld   103 housed    338/   400 ( 84.5 %) wet 0
+  #202 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    59 housed    307/   400 ( 76.8 %) wet 0
+  #203 off:        river bld    80 housed    276/   400 ( 69.0 %) wet 0 | on:        river bld   113 housed    484/   400 (121.0 %) wet 0
+  #204 off:   landlocked bld   131 housed    666/   400 (166.5 %) wet 0 | on:   landlocked bld   131 housed    666/   400 (166.5 %) wet 0
+  #205 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    74 housed    364/   400 ( 91.0 %) wet 0
+  #206 off:        river bld    39 housed    203/   400 ( 50.8 %) wet 0 | on:        river bld   105 housed    416/   400 (104.0 %) wet 0
+  #207 off:        river bld    93 housed    484/   400 (121.0 %) wet 0 | on:        river bld    66 housed    338/   400 ( 84.5 %) wet 0
+  #208 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #209 off:        river bld   127 housed    660/   400 (165.0 %) wet 0 | on:        river bld   104 housed    421/   400 (105.2 %) wet 0
+  #210 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   101 housed    499/   400 (124.8 %) wet 0
+  #211 off:        river bld   109 housed    567/   400 (141.8 %) wet 0 | on:        river bld    85 housed    411/   400 (102.8 %) wet 0
+  #212 off:        river bld    70 housed    364/   400 ( 91.0 %) wet 0 | on:        river bld   102 housed    411/   400 (102.8 %) wet 0
+  #213 off:        river bld    60 housed    312/   400 ( 78.0 %) wet 0 | on:        river bld   120 housed    499/   400 (124.8 %) wet 0
+  #214 off:        river bld    56 housed    182/   400 ( 45.5 %) wet 0 | on:        river bld    81 housed    421/   400 (105.2 %) wet 0
+  #215 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #216 off:        river bld    64 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    73 housed    348/   400 ( 87.0 %) wet 0
+  #217 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   123 housed    499/   400 (124.8 %) wet 0
+  #218 off: riverthrough bld    76 housed    322/   400 ( 80.5 %) wet 0 | on: riverthrough bld   102 housed    499/   400 (124.8 %) wet 0
+  #219 off:        river bld   113 housed    562/   400 (140.5 %) wet 0 | on:        river bld   113 housed    499/   400 (124.8 %) wet 0
+  #220 off: riverthrough bld   144 housed    744/   400 (186.0 %) wet 0 | on: riverthrough bld    77 housed    359/   400 ( 89.8 %) wet 0
+  #221 off:   landlocked bld    71 housed    364/   400 ( 91.0 %) wet 0 | on:   landlocked bld    71 housed    364/   400 ( 91.0 %) wet 0
+  #222 off:        river bld   107 housed    556/   400 (139.0 %) wet 0 | on:        river bld    79 housed    374/   400 ( 93.5 %) wet 0
+  #223 off:        river bld   148 housed    723/   400 (180.8 %) wet 0 | on:        river bld    91 housed    458/   400 (114.5 %) wet 0
+  #224 off:        river bld    65 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld    71 housed    369/   400 ( 92.2 %) wet 0
+  #225 off:        river bld    16 housed     83/   400 ( 20.8 %) wet 0 | on:        river bld   134 housed    499/   400 (124.8 %) wet 0
+  #226 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    90 housed    458/   400 (114.5 %) wet 0
+  #227 off:        river bld   109 housed    567/   400 (141.8 %) wet 0 | on:        river bld    99 housed    426/   400 (106.5 %) wet 0
+seed 483920 at 384x246: buildings off 43377 on 46179
+  #  0 off:        river bld   453 housed   2111/  2117 ( 99.7 %) wet 0 | on:        river bld   165 housed    858/  2117 ( 40.5 %) wet 0
+  #  1 off:        river bld  1919 housed   9162/  8737 (104.9 %) wet 0 | on:        river bld  1941 housed   9396/  8737 (107.5 %) wet 0
+  #  2 off:        river bld  2374 housed  10889/  9786 (111.3 %) wet 0 | on:        river bld  2592 housed  12158/  9786 (124.2 %) wet 0
+  #  3 off:        river bld  3233 housed  15038/ 17914 ( 83.9 %) wet 0 | on:        river bld  3255 housed  15782/ 17914 ( 88.1 %) wet 0
+  #  4 off:        river bld    72 housed    374/   400 ( 93.5 %) wet 0 | on:        river bld   102 housed    499/   400 (124.8 %) wet 0
+  #  5 off:        river bld    60 housed    296/   400 ( 74.0 %) wet 0 | on:        river bld    90 housed    406/   400 (101.5 %) wet 0
+  #  6 off:        river bld  2385 housed  11034/ 20000 ( 55.2 %) wet 0 | on:        river bld  3252 housed  15475/ 20000 ( 77.4 %) wet 0
+  #  7 off:        river bld   733 housed   3656/   551 (663.5 %) wet 0 | on:        river bld   132 housed    686/   551 (124.5 %) wet 0
+  #  8 off:        river bld  3110 housed  14664/ 18939 ( 77.4 %) wet 0 | on:        river bld  4013 housed  18424/ 18939 ( 97.3 %) wet 0
+  #  9 off:        river bld    42 housed    218/   538 ( 40.5 %) wet 0 | on:        river bld   114 housed    593/   538 (110.2 %) wet 0
+  # 10 off:        river bld   168 housed    744/   400 (186.0 %) wet 0 | on:        river bld    76 housed    385/   400 ( 96.2 %) wet 0
+  # 11 off:        river bld   150 housed    686/   400 (171.5 %) wet 0 | on:        river bld    81 housed    406/   400 (101.5 %) wet 0
+  # 12 off:        river bld   165 housed    754/   548 (137.6 %) wet 0 | on:        river bld   126 housed    655/   548 (119.5 %) wet 0
+  # 13 off:        river bld  3504 housed  16203/ 19458 ( 83.3 %) wet 0 | on:        river bld   175 housed    796/ 19458 (  4.1 %) wet 0
+  # 14 off:        river bld    92 housed    468/   400 (117.0 %) wet 0 | on:        river bld    80 housed    416/   400 (104.0 %) wet 0
+  # 15 off:        river bld  3072 housed  14888/ 20000 ( 74.4 %) wet 0 | on:        river bld  4208 housed  19495/ 20000 ( 97.5 %) wet 0
+  # 16 off:        river bld    75 housed    369/   400 ( 92.2 %) wet 0 | on:        river bld    78 housed    380/   400 ( 95.0 %) wet 0
+  # 17 off:        river bld   165 housed    666/   508 (131.1 %) wet 0 | on:        river bld    84 housed    437/   508 ( 86.0 %) wet 0
+  # 18 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    22 housed    114/   400 ( 28.5 %) wet 0
+  # 19 off:        river bld  2620 housed  12095/  9251 (130.7 %) wet 0 | on:        river bld  2334 housed  10826/  9251 (117.0 %) wet 0
+  # 20 off: riverthrough bld  1316 housed   6063/  9414 ( 64.4 %) wet 0 | on: riverthrough bld  3033 housed  13291/  9414 (141.2 %) wet 0
+  # 21 off:   landlocked bld  2305 housed   9682/  8818 (109.8 %) wet 0 | on:   landlocked bld  2305 housed   9682/  8818 (109.8 %) wet 0
+  # 22 off: riverthrough bld    28 housed    146/   400 ( 36.5 %) wet 0 | on: riverthrough bld    35 housed    182/   400 ( 45.5 %) wet 0
+  # 23 off:        river bld   302 housed   1206/   400 (301.5 %) wet 0 | on:        river bld    86 housed    400/   400 (100.0 %) wet 0
+  # 24 off:        river bld    89 housed    442/   400 (110.5 %) wet 0 | on:        river bld   125 housed    499/   400 (124.8 %) wet 0
+  # 25 off:        river bld   186 housed    874/   400 (218.5 %) wet 0 | on:        river bld   108 housed    499/   400 (124.8 %) wet 0
+  # 26 off:        river bld    49 housed    255/   400 ( 63.8 %) wet 0 | on:        river bld   102 housed    489/   400 (122.2 %) wet 0
+  # 27 off:        river bld   104 housed    426/   400 (106.5 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  # 28 off:        river bld   257 housed   1144/   400 (286.0 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  # 29 off:        river bld   117 housed    473/   400 (118.2 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  # 30 off:        river bld    65 housed    302/   400 ( 75.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 31 off:        river bld   192 housed    900/   400 (225.0 %) wet 0 | on:        river bld   118 housed    478/   400 (119.5 %) wet 0
+  # 32 off:        river bld   106 housed    551/   400 (137.8 %) wet 0 | on:        river bld   112 housed    354/   400 ( 88.5 %) wet 0
+  # 33 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    62 housed    307/   400 ( 76.8 %) wet 0
+  # 34 off:        river bld    35 housed    182/   400 ( 45.5 %) wet 0 | on:        river bld    86 housed    447/   400 (111.8 %) wet 0
+  # 35 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   103 housed    494/   400 (123.5 %) wet 0
+  # 36 off:        river bld    38 housed    182/   400 ( 45.5 %) wet 0 | on:        river bld   136 housed    374/   400 ( 93.5 %) wet 0
+  # 37 off:        river bld   105 housed    520/   400 (130.0 %) wet 0 | on:        river bld    90 housed    406/   400 (101.5 %) wet 0
+  # 38 off:        river bld   107 housed    556/   400 (139.0 %) wet 0 | on:        river bld   101 housed    499/   400 (124.8 %) wet 0
+  # 39 off:        river bld   186 housed    962/   400 (240.5 %) wet 0 | on:        river bld   102 housed    499/   400 (124.8 %) wet 0
+  # 40 off:        river bld    28 housed    146/   400 ( 36.5 %) wet 0 | on:        river bld    74 housed    354/   400 ( 88.5 %) wet 0
+  # 41 off:        river bld    44 housed    229/   400 ( 57.2 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 42 off:        river bld    54 housed    265/   400 ( 66.2 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 43 off:        river bld   132 housed    671/   400 (167.8 %) wet 0 | on:        river bld    86 housed    447/   400 (111.8 %) wet 0
+  # 44 off:        river bld   197 housed    900/   400 (225.0 %) wet 0 | on:        river bld    26 housed    135/   400 ( 33.8 %) wet 0
+  # 45 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    64 housed    333/   400 ( 83.2 %) wet 0
+  # 46 off:        river bld    56 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  # 47 off:        river bld    97 housed    494/   400 (123.5 %) wet 0 | on:        river bld    25 housed    130/   400 ( 32.5 %) wet 0
+  # 48 off:        river bld    58 housed    302/   400 ( 75.5 %) wet 0 | on:        river bld    85 housed    395/   400 ( 98.8 %) wet 0
+  # 49 off:        river bld    95 housed    484/   400 (121.0 %) wet 0 | on:        river bld   104 housed    478/   400 (119.5 %) wet 0
+  # 50 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    90 housed    468/   400 (117.0 %) wet 0
+  # 51 off:        river bld   144 housed    634/   400 (158.5 %) wet 0 | on:        river bld    86 housed    432/   400 (108.0 %) wet 0
+  # 52 off:        river bld     2 housed     10/   400 (  2.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 53 off:        river bld    74 housed    322/   400 ( 80.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 54 off:        river bld   198 housed    957/   400 (239.2 %) wet 0 | on:        river bld    73 housed    354/   400 ( 88.5 %) wet 0
+  # 55 off:        river bld   144 housed    676/   400 (169.0 %) wet 0 | on:        river bld    78 housed    406/   400 (101.5 %) wet 0
+  # 56 off:        river bld    30 housed    156/   400 ( 39.0 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  # 57 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    11 housed     57/   400 ( 14.2 %) wet 0
+  # 58 off:        river bld    80 housed    416/   400 (104.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 59 off:        river bld    25 housed    130/   400 ( 32.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 60 off:        river bld    76 housed    369/   400 ( 92.2 %) wet 0 | on:        river bld    80 housed    416/   400 (104.0 %) wet 0
+  # 61 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    72 housed    374/   400 ( 93.5 %) wet 0
+  # 62 off:        river bld    15 housed     78/   400 ( 19.5 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  # 63 off:        river bld    84 housed    437/   400 (109.2 %) wet 0 | on:        river bld    65 housed    338/   400 ( 84.5 %) wet 0
+  # 64 off:        river bld    64 housed    328/   400 ( 82.0 %) wet 0 | on:        river bld   122 housed    426/   400 (106.5 %) wet 0
+  # 65 off:        river bld   202 housed    894/   400 (223.5 %) wet 0 | on:        river bld   105 housed    489/   400 (122.2 %) wet 0
+  # 66 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    41 housed    213/   400 ( 53.2 %) wet 0
+  # 67 off:        river bld    84 housed    437/   400 (109.2 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  # 68 off:        river bld   184 housed    718/   400 (179.5 %) wet 0 | on:        river bld   104 housed    447/   400 (111.8 %) wet 0
+  # 69 off:        river bld    36 housed    187/   400 ( 46.8 %) wet 0 | on:        river bld    11 housed     57/   400 ( 14.2 %) wet 0
+  # 70 off:        river bld    31 housed    161/   400 ( 40.2 %) wet 0 | on:        river bld    85 housed    426/   400 (106.5 %) wet 0
+  # 71 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    81 housed    416/   400 (104.0 %) wet 0
+  # 72 off:        river bld    46 housed    234/   400 ( 58.5 %) wet 0 | on:        river bld   127 housed    499/   400 (124.8 %) wet 0
+  # 73 off:        river bld   164 housed    785/   400 (196.2 %) wet 0 | on:        river bld    78 housed    406/   400 (101.5 %) wet 0
+  # 74 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 75 off:        river bld    76 housed    395/   400 ( 98.8 %) wet 0 | on:        river bld   103 housed    489/   400 (122.2 %) wet 0
+  # 76 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  # 77 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    11 housed     57/   400 ( 14.2 %) wet 0
+  # 78 off:        river bld    91 housed    437/   400 (109.2 %) wet 0 | on:        river bld   104 housed    499/   400 (124.8 %) wet 0
+  # 79 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    84 housed    328/   400 ( 82.0 %) wet 0
+  # 80 off:        river bld   212 housed    848/   400 (212.0 %) wet 0 | on:        river bld    82 housed    369/   400 ( 92.2 %) wet 0
+  # 81 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  # 82 off:        river bld    72 housed    374/   400 ( 93.5 %) wet 0 | on:        river bld   114 housed    499/   400 (124.8 %) wet 0
+  # 83 off:        river bld   147 housed    712/   400 (178.0 %) wet 0 | on:        river bld    87 housed    447/   400 (111.8 %) wet 0
+  # 84 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    70 housed    348/   400 ( 87.0 %) wet 0
+  # 85 off:        river bld    50 housed    260/   400 ( 65.0 %) wet 0 | on:        river bld   109 housed    416/   400 (104.0 %) wet 0
+  # 86 off:        river bld   137 housed    666/   400 (166.5 %) wet 0 | on:        river bld    71 housed    369/   400 ( 92.2 %) wet 0
+  # 87 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 88 off:        river bld    57 housed    296/   400 ( 74.0 %) wet 0 | on:        river bld   116 housed    484/   400 (121.0 %) wet 0
+  # 89 off:        river bld   166 housed    712/   400 (178.0 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  # 90 off:        river bld   141 housed    666/   400 (166.5 %) wet 0 | on:        river bld    72 housed    338/   400 ( 84.5 %) wet 0
+  # 91 off:        river bld    11 housed     57/   400 ( 14.2 %) wet 0 | on:        river bld    69 housed    328/   400 ( 82.0 %) wet 0
+  # 92 off:        river bld   118 housed    593/   400 (148.2 %) wet 0 | on:        river bld    79 housed    333/   400 ( 83.2 %) wet 0
+  # 93 off:        river bld    97 housed    473/   400 (118.2 %) wet 0 | on:        river bld    89 housed    385/   400 ( 96.2 %) wet 0
+  # 94 off:        river bld    84 housed    426/   400 (106.5 %) wet 0 | on:        river bld   106 housed    499/   400 (124.8 %) wet 0
+  # 95 off:        river bld    83 housed    390/   400 ( 97.5 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  # 96 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    80 housed    416/   400 (104.0 %) wet 0
+  # 97 off:        river bld    57 housed    229/   400 ( 57.2 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  # 98 off:        river bld    99 housed    411/   400 (102.8 %) wet 0 | on:        river bld    91 housed    442/   400 (110.5 %) wet 0
+  # 99 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  #100 off:        river bld    65 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld   119 housed    499/   400 (124.8 %) wet 0
+  #101 off:        river bld    75 housed    364/   400 ( 91.0 %) wet 0 | on:        river bld   137 housed    473/   400 (118.2 %) wet 0
+  #102 off:        river bld    87 housed    452/   400 (113.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #103 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    26 housed    135/   400 ( 33.8 %) wet 0
+  #104 off:        river bld    85 housed    442/   400 (110.5 %) wet 0 | on:        river bld    94 housed    421/   400 (105.2 %) wet 0
+  #105 off:        river bld    93 housed    348/   400 ( 87.0 %) wet 0 | on:        river bld    68 housed    354/   400 ( 88.5 %) wet 0
+  #106 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    41 housed    213/   400 ( 53.2 %) wet 0
+  #107 off:        river bld   170 housed    608/   400 (152.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #108 off:        river bld   110 housed    432/   400 (108.0 %) wet 0 | on:        river bld   102 housed    463/   400 (115.8 %) wet 0
+  #109 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #110 off:        river bld    54 housed    281/   400 ( 70.2 %) wet 0 | on:        river bld   116 housed    447/   400 (111.8 %) wet 0
+  #111 off:        river bld   192 housed    754/   400 (188.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #112 off:        river bld    77 housed    400/   400 (100.0 %) wet 0 | on:        river bld    55 housed    286/   400 ( 71.5 %) wet 0
+  #113 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   103 housed    499/   400 (124.8 %) wet 0
+  #114 off:        river bld   116 housed    525/   400 (131.2 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #115 off:        river bld   148 housed    759/   400 (189.8 %) wet 0 | on:        river bld    88 housed    390/   400 ( 97.5 %) wet 0
+  #116 off:        river bld   119 housed    484/   400 (121.0 %) wet 0 | on:        river bld    75 housed    338/   400 ( 84.5 %) wet 0
+  #117 off: riverthrough bld    72 housed    322/   400 ( 80.5 %) wet 0 | on: riverthrough bld    52 housed    270/   400 ( 67.5 %) wet 0
+  #118 off:        river bld    59 housed    307/   400 ( 76.8 %) wet 0 | on:        river bld    90 housed    437/   400 (109.2 %) wet 0
+  #119 off: riverthrough bld    47 housed    244/   400 ( 61.0 %) wet 0 | on: riverthrough bld   110 housed    499/   400 (124.8 %) wet 0
+  #120 off:        river bld   118 housed    536/   400 (134.0 %) wet 0 | on:        river bld    93 housed    447/   400 (111.8 %) wet 0
+  #121 off:        river bld   101 housed    525/   400 (131.2 %) wet 0 | on:        river bld   106 housed    411/   400 (102.8 %) wet 0
+  #122 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #123 off:        river bld   172 housed    858/   400 (214.5 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  #124 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #125 off:        river bld    24 housed    125/   400 ( 31.2 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  #126 off:        river bld     7 housed     36/   400 (  9.0 %) wet 0 | on:        river bld    20 housed    104/   400 ( 26.0 %) wet 0
+  #127 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    95 housed    463/   400 (115.8 %) wet 0
+  #128 off:        river bld    39 housed    203/   400 ( 50.8 %) wet 0 | on:        river bld    36 housed    187/   400 ( 46.8 %) wet 0
+  #129 off: riverthrough bld   110 housed    556/   400 (139.0 %) wet 0 | on: riverthrough bld    86 housed    447/   400 (111.8 %) wet 0
+  #130 off:        river bld    32 housed    166/   400 ( 41.5 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #131 off: riverthrough bld   165 housed    676/   400 (169.0 %) wet 0 | on: riverthrough bld    68 housed    354/   400 ( 88.5 %) wet 0
+  #132 off:        river bld    34 housed    156/   400 ( 39.0 %) wet 0 | on:        river bld   136 housed    499/   400 (124.8 %) wet 0
+  #133 off:        river bld   126 housed    530/   400 (132.5 %) wet 0 | on:        river bld    89 housed    463/   400 (115.8 %) wet 0
+  #134 off:        river bld    62 housed    286/   400 ( 71.5 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  #135 off:        river bld    77 housed    354/   400 ( 88.5 %) wet 0 | on:        river bld   121 housed    499/   400 (124.8 %) wet 0
+  #136 off:        river bld    92 housed    478/   400 (119.5 %) wet 0 | on:        river bld   129 housed    499/   400 (124.8 %) wet 0
+  #137 off:        river bld   177 housed    634/   400 (158.5 %) wet 0 | on:        river bld    89 housed    458/   400 (114.5 %) wet 0
+  #138 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    68 housed    354/   400 ( 88.5 %) wet 0
+  #139 off:        river bld    38 housed    198/   400 ( 49.5 %) wet 0 | on:        river bld   121 housed    499/   400 (124.8 %) wet 0
+  #140 off:        river bld   149 housed    536/   400 (134.0 %) wet 0 | on:        river bld   105 housed    499/   400 (124.8 %) wet 0
+  #141 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   116 housed    499/   400 (124.8 %) wet 0
+  #142 off:        river bld   121 housed    458/   400 (114.5 %) wet 0 | on:        river bld    62 housed    322/   400 ( 80.5 %) wet 0
+  #143 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    95 housed    478/   400 (119.5 %) wet 0
+  #144 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   106 housed    499/   400 (124.8 %) wet 0
+  #145 off:        river bld   194 housed    738/   400 (184.5 %) wet 0 | on:        river bld   142 housed    499/   400 (124.8 %) wet 0
+  #146 off:        river bld   148 housed    629/   400 (157.2 %) wet 0 | on:        river bld   128 housed    499/   400 (124.8 %) wet 0
+  #147 off: riverthrough bld   131 housed    629/   400 (157.2 %) wet 0 | on: riverthrough bld   123 housed    499/   400 (124.8 %) wet 0
+  #148 off:        river bld    12 housed     62/   400 ( 15.5 %) wet 0 | on:        river bld    52 housed    270/   400 ( 67.5 %) wet 0
+  #149 off:        river bld   110 housed    390/   400 ( 97.5 %) wet 0 | on:        river bld   120 housed    499/   400 (124.8 %) wet 0
+  #150 off:        river bld   109 housed    484/   400 (121.0 %) wet 0 | on:        river bld   130 housed    499/   400 (124.8 %) wet 0
+  #151 off:        river bld   191 housed    905/   400 (226.2 %) wet 0 | on:        river bld    66 housed    296/   400 ( 74.0 %) wet 0
+  #152 off:        river bld    48 housed    250/   400 ( 62.5 %) wet 0 | on:        river bld    66 housed    343/   400 ( 85.8 %) wet 0
+  #153 off: riverthrough bld   103 housed    489/   400 (122.2 %) wet 0 | on: riverthrough bld   115 housed    478/   400 (119.5 %) wet 0
+  #154 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   128 housed    499/   400 (124.8 %) wet 0
+  #155 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #156 off:        river bld    46 housed    239/   400 ( 59.8 %) wet 0 | on:        river bld    73 housed    380/   400 ( 95.0 %) wet 0
+  #157 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   145 housed    447/   400 (111.8 %) wet 0
+  #158 off:        river bld   102 housed    525/   400 (131.2 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #159 off:   landlocked bld   154 housed    723/   400 (180.8 %) wet 0 | on:   landlocked bld   154 housed    723/   400 (180.8 %) wet 0
+  #160 off:        river bld   158 housed    551/   400 (137.8 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #161 off:        river bld   184 housed    822/   400 (205.5 %) wet 0 | on:        river bld   105 housed    499/   400 (124.8 %) wet 0
+  #162 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    86 housed    390/   400 ( 97.5 %) wet 0
+  #163 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   109 housed    499/   400 (124.8 %) wet 0
+  #164 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    30 housed    151/   400 ( 37.8 %) wet 0
+  #165 off:        river bld    93 housed    411/   400 (102.8 %) wet 0 | on:        river bld   119 housed    499/   400 (124.8 %) wet 0
+  #166 off:        river bld    11 housed     57/   400 ( 14.2 %) wet 0 | on:        river bld    96 housed    494/   400 (123.5 %) wet 0
+  #167 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #168 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #169 off: riverthrough bld    54 housed    281/   400 ( 70.2 %) wet 0 | on: riverthrough bld   102 housed    458/   400 (114.5 %) wet 0
+  #170 off:        river bld   101 housed    452/   400 (113.0 %) wet 0 | on:        river bld    63 housed    328/   400 ( 82.0 %) wet 0
+  #171 off:        river bld    73 housed    328/   400 ( 82.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #172 off:        river bld   159 housed    614/   400 (153.5 %) wet 0 | on:        river bld    96 housed    447/   400 (111.8 %) wet 0
+  #173 off:        river bld    94 housed    489/   400 (122.2 %) wet 0 | on:        river bld    96 housed    463/   400 (115.8 %) wet 0
+  #174 off:        river bld   110 housed    567/   400 (141.8 %) wet 0 | on:        river bld   109 housed    499/   400 (124.8 %) wet 0
+  #175 off: riverthrough bld   107 housed    452/   400 (113.0 %) wet 0 | on: riverthrough bld   105 housed    499/   400 (124.8 %) wet 0
+  #176 off:        river bld   147 housed    551/   400 (137.8 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #177 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #178 off:        river bld    72 housed    374/   400 ( 93.5 %) wet 0 | on:        river bld    89 housed    463/   400 (115.8 %) wet 0
+  #179 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #180 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #181 off:        river bld    80 housed    369/   400 ( 92.2 %) wet 0 | on:        river bld    54 housed    265/   400 ( 66.2 %) wet 0
+  #182 off:        river bld    75 housed    385/   400 ( 96.2 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #183 off: riverthrough bld    77 housed    400/   400 (100.0 %) wet 0 | on: riverthrough bld   107 housed    499/   400 (124.8 %) wet 0
+  #184 off:        river bld   133 housed    588/   400 (147.0 %) wet 0 | on:        river bld   114 housed    499/   400 (124.8 %) wet 0
+  #185 off:   landlocked bld    23 housed    120/   400 ( 30.0 %) wet 0 | on:   landlocked bld    23 housed    120/   400 ( 30.0 %) wet 0
+  #186 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    98 housed    489/   400 (122.2 %) wet 0
+  #187 off:        river bld   120 housed    598/   400 (149.5 %) wet 0 | on:        river bld    95 housed    473/   400 (118.2 %) wet 0
+  #188 off:   landlocked bld   129 housed    629/   400 (157.2 %) wet 0 | on:   landlocked bld   129 housed    629/   400 (157.2 %) wet 0
+  #189 off:        river bld   171 housed    718/   400 (179.5 %) wet 0 | on:        river bld   103 housed    499/   400 (124.8 %) wet 0
+  #190 off:        river bld   164 housed    562/   400 (140.5 %) wet 0 | on:        river bld    66 housed    343/   400 ( 85.8 %) wet 0
+  #191 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #192 off:        river bld   176 housed    796/   400 (199.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #193 off:        river bld   140 housed    645/   400 (161.2 %) wet 0 | on:        river bld    76 housed    395/   400 ( 98.8 %) wet 0
+  #194 off:        river bld   109 housed    525/   400 (131.2 %) wet 0 | on:        river bld   111 housed    499/   400 (124.8 %) wet 0
+  #195 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    93 housed    400/   400 (100.0 %) wet 0
+  #196 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   110 housed    499/   400 (124.8 %) wet 0
+  #197 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    41 housed    213/   400 ( 53.2 %) wet 0
+  #198 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #199 off:        river bld    90 housed    463/   400 (115.8 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #200 off:        river bld   101 housed    478/   400 (119.5 %) wet 0 | on:        river bld   101 housed    411/   400 (102.8 %) wet 0
+  #201 off:        river bld   225 housed    993/   400 (248.2 %) wet 0 | on:        river bld    94 housed    473/   400 (118.2 %) wet 0
+  #202 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    81 housed    416/   400 (104.0 %) wet 0
+  #203 off:        river bld    77 housed    395/   400 ( 98.8 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  #204 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   111 housed    499/   400 (124.8 %) wet 0
+  #205 off:        river bld    96 housed    494/   400 (123.5 %) wet 0 | on:        river bld   103 housed    426/   400 (106.5 %) wet 0
+  #206 off:        river bld   178 housed    837/   400 (209.2 %) wet 0 | on:        river bld   107 housed    499/   400 (124.8 %) wet 0
+  #207 off:        river bld    91 housed    442/   400 (110.5 %) wet 0 | on:        river bld    98 housed    473/   400 (118.2 %) wet 0
+  #208 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  #209 off:        river bld   216 housed    941/   400 (235.2 %) wet 0 | on:        river bld    10 housed     52/   400 ( 13.0 %) wet 0
+  #210 off:        river bld   125 housed    608/   400 (152.0 %) wet 0 | on:        river bld    75 housed    348/   400 ( 87.0 %) wet 0
+  #211 off: riverthrough bld   143 housed    556/   400 (139.0 %) wet 0 | on: riverthrough bld   101 housed    432/   400 (108.0 %) wet 0
+  #212 off:        river bld   129 housed    489/   400 (122.2 %) wet 0 | on:        river bld   127 housed    473/   400 (118.2 %) wet 0
+  #213 off:        river bld    75 housed    322/   400 ( 80.5 %) wet 0 | on:        river bld    77 housed    395/   400 ( 98.8 %) wet 0
+  #214 off:        river bld   111 housed    499/   400 (124.8 %) wet 0 | on:        river bld    70 housed    333/   400 ( 83.2 %) wet 0
+  #215 off:   landlocked bld   131 housed    681/   400 (170.2 %) wet 0 | on:   landlocked bld   131 housed    681/   400 (170.2 %) wet 0
+  #216 off:        river bld   134 housed    692/   400 (173.0 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  #217 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    64 housed    328/   400 ( 82.0 %) wet 0
+  #218 off:        river bld   189 housed    853/   400 (213.2 %) wet 0 | on:        river bld    71 housed    369/   400 ( 92.2 %) wet 0
+  #219 off:        river bld    52 housed    270/   400 ( 67.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #220 off:        river bld    75 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld   100 housed    458/   400 (114.5 %) wet 0
+  #221 off:   landlocked bld   111 housed    577/   400 (144.2 %) wet 0 | on:   landlocked bld   111 housed    577/   400 (144.2 %) wet 0
+  #222 off:        river bld    83 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    65 housed    338/   400 ( 84.5 %) wet 0
+  #223 off:   landlocked bld    66 housed    265/   400 ( 66.2 %) wet 0 | on:   landlocked bld    66 housed    265/   400 ( 66.2 %) wet 0
+  #224 off:        river bld    70 housed    364/   400 ( 91.0 %) wet 0 | on:        river bld   101 housed    463/   400 (115.8 %) wet 0
+  #225 off:        river bld     1 housed      5/   400 (  1.2 %) wet 0 | on:        river bld   105 housed    380/   400 ( 95.0 %) wet 0
+  #226 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    49 housed    208/   400 ( 52.0 %) wet 0
+  #227 off:        river bld   165 housed    692/   400 (173.0 %) wet 0 | on:        river bld   113 housed    437/   400 (109.2 %) wet 0
+seed 912345 at 384x246: buildings off 44176 on 45248
+  #  0 off:        river bld  3046 housed  14144/ 20000 ( 70.7 %) wet 0 | on:        river bld  3943 housed  18507/ 20000 ( 92.5 %) wet 0
+  #  1 off:        river bld    94 housed    473/   583 ( 81.1 %) wet 0 | on:        river bld   121 housed    608/   583 (104.3 %) wet 0
+  #  2 off:        river bld  3219 housed  14830/ 20000 ( 74.2 %) wet 0 | on:        river bld  3588 housed  17077/ 20000 ( 85.4 %) wet 0
+  #  3 off:        river bld  1738 housed   8346/  7103 (117.5 %) wet 0 | on:        river bld  2002 housed   9308/  7103 (131.0 %) wet 0
+  #  4 off:        river bld   168 housed    863/   400 (215.8 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  #  5 off:        river bld  2578 housed  12407/ 20000 ( 62.0 %) wet 0 | on:        river bld  4228 housed  19583/ 20000 ( 97.9 %) wet 0
+  #  6 off:        river bld  3200 housed  15137/ 20000 ( 75.7 %) wet 0 | on:        river bld  4136 housed  19302/ 20000 ( 96.5 %) wet 0
+  #  7 off:        river bld   387 housed   1846/  2018 ( 91.5 %) wet 0 | on:        river bld   525 housed   2735/  2018 (135.5 %) wet 0
+  #  8 off:        river bld    61 housed    281/   400 ( 70.2 %) wet 0 | on:        river bld    90 housed    437/   400 (109.2 %) wet 0
+  #  9 off: riverthrough bld  5217 housed  23026/ 19451 (118.4 %) wet 0 | on: riverthrough bld  4638 housed  21112/ 19451 (108.5 %) wet 0
+  # 10 off:        river bld  3461 housed  15735/ 20000 ( 78.7 %) wet 0 | on:        river bld  3829 housed  18164/ 20000 ( 90.8 %) wet 0
+  # 11 off:        river bld  1588 housed   7181/  7171 (100.1 %) wet 0 | on:        river bld  1924 housed   8876/  7171 (123.8 %) wet 0
+  # 12 off:        river bld    97 housed    499/   400 (124.8 %) wet 0 | on:        river bld    64 housed    333/   400 ( 83.2 %) wet 0
+  # 13 off:        river bld    94 housed    437/   501 ( 87.2 %) wet 0 | on:        river bld   120 housed    624/   501 (124.6 %) wet 0
+  # 14 off:        river bld    64 housed    333/   525 ( 63.4 %) wet 0 | on:        river bld   128 housed    650/   525 (123.8 %) wet 0
+  # 15 off:        river bld     3 housed     16/   400 (  4.0 %) wet 0 | on:        river bld    79 housed    411/   400 (102.8 %) wet 0
+  # 16 off:        river bld   582 housed   2714/  2045 (132.7 %) wet 0 | on:        river bld   324 housed   1529/  2045 ( 74.8 %) wet 0
+  # 17 off: riverthrough bld   448 housed   2018/  1852 (109.0 %) wet 0 | on: riverthrough bld   228 housed   1139/  1852 ( 61.5 %) wet 0
+  # 18 off:        river bld   120 housed    447/   400 (111.8 %) wet 0 | on:        river bld    83 housed    426/   400 (106.5 %) wet 0
+  # 19 off: riverthrough bld    99 housed    515/   400 (128.8 %) wet 0 | on: riverthrough bld    37 housed    192/   400 ( 48.0 %) wet 0
+  # 20 off:        river bld   183 housed    738/   400 (184.5 %) wet 0 | on:        river bld   107 housed    468/   400 (117.0 %) wet 0
+  # 21 off:        river bld  1865 housed   8658/  8615 (100.5 %) wet 0 | on:        river bld  2109 housed   9740/  8615 (113.1 %) wet 0
+  # 22 off:        river bld     0 housed      0/   503 (  0.0 %) wet 0 | on:        river bld    91 housed    473/   503 ( 94.0 %) wet 0
+  # 23 off:        river bld   204 housed   1014/   400 (253.5 %) wet 0 | on:        river bld    92 housed    478/   400 (119.5 %) wet 0
+  # 24 off:        river bld    43 housed    224/   400 ( 56.0 %) wet 0 | on:        river bld   101 housed    452/   400 (113.0 %) wet 0
+  # 25 off:        river bld   178 housed    816/   400 (204.0 %) wet 0 | on:        river bld   149 housed    499/   400 (124.8 %) wet 0
+  # 26 off:        river bld   115 housed    499/   400 (124.8 %) wet 0 | on:        river bld    67 housed    348/   400 ( 87.0 %) wet 0
+  # 27 off: riverthrough bld    32 housed    166/   400 ( 41.5 %) wet 0 | on: riverthrough bld    77 housed    400/   400 (100.0 %) wet 0
+  # 28 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  # 29 off:        river bld    86 housed    421/   400 (105.2 %) wet 0 | on:        river bld    88 housed    452/   400 (113.0 %) wet 0
+  # 30 off:        river bld    10 housed     52/   400 ( 13.0 %) wet 0 | on:        river bld    83 housed    432/   400 (108.0 %) wet 0
+  # 31 off:        river bld   142 housed    728/   400 (182.0 %) wet 0 | on:        river bld    78 housed    400/   400 (100.0 %) wet 0
+  # 32 off:        river bld    65 housed    286/   400 ( 71.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 33 off:        river bld    83 housed    432/   400 (108.0 %) wet 0 | on:        river bld   112 housed    494/   400 (123.5 %) wet 0
+  # 34 off:        river bld    62 housed    322/   400 ( 80.5 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  # 35 off:        river bld    66 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld   110 housed    478/   400 (119.5 %) wet 0
+  # 36 off:        river bld   202 housed    796/   400 (199.0 %) wet 0 | on:        river bld    73 housed    380/   400 ( 95.0 %) wet 0
+  # 37 off:        river bld    58 housed    281/   400 ( 70.2 %) wet 0 | on:        river bld    78 housed    354/   400 ( 88.5 %) wet 0
+  # 38 off:        river bld   102 housed    530/   400 (132.5 %) wet 0 | on:        river bld   100 housed    499/   400 (124.8 %) wet 0
+  # 39 off:        river bld   151 housed    775/   400 (193.8 %) wet 0 | on:        river bld    73 housed    380/   400 ( 95.0 %) wet 0
+  # 40 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    80 housed    400/   400 (100.0 %) wet 0
+  # 41 off:        river bld   116 housed    468/   400 (117.0 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  # 42 off:        river bld   187 housed    853/   400 (213.2 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  # 43 off:        river bld   153 housed    718/   400 (179.5 %) wet 0 | on:        river bld    70 housed    354/   400 ( 88.5 %) wet 0
+  # 44 off:        river bld    94 housed    432/   400 (108.0 %) wet 0 | on:        river bld    71 housed    364/   400 ( 91.0 %) wet 0
+  # 45 off:        river bld    85 housed    432/   400 (108.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 46 off:        river bld   173 housed    764/   400 (191.0 %) wet 0 | on:        river bld   103 housed    406/   400 (101.5 %) wet 0
+  # 47 off:        river bld   167 housed    645/   400 (161.2 %) wet 0 | on:        river bld    93 housed    478/   400 (119.5 %) wet 0
+  # 48 off:        river bld    64 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    68 housed    354/   400 ( 88.5 %) wet 0
+  # 49 off:        river bld    74 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  # 50 off:        river bld   169 housed    749/   400 (187.2 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  # 51 off:        river bld   105 housed    530/   400 (132.5 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  # 52 off:        river bld   143 housed    712/   400 (178.0 %) wet 0 | on:        river bld    86 housed    364/   400 ( 91.0 %) wet 0
+  # 53 off:        river bld    63 housed    328/   400 ( 82.0 %) wet 0 | on:        river bld    78 housed    374/   400 ( 93.5 %) wet 0
+  # 54 off:        river bld   141 housed    577/   400 (144.2 %) wet 0 | on:        river bld    90 housed    406/   400 (101.5 %) wet 0
+  # 55 off:        river bld    69 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld    92 housed    478/   400 (119.5 %) wet 0
+  # 56 off:        river bld   253 housed    998/   400 (249.5 %) wet 0 | on:        river bld    84 housed    421/   400 (105.2 %) wet 0
+  # 57 off:        river bld   161 housed    634/   400 (158.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 58 off:        river bld   181 housed    775/   400 (193.8 %) wet 0 | on:        river bld    84 housed    374/   400 ( 93.5 %) wet 0
+  # 59 off:        river bld   202 housed    822/   400 (205.5 %) wet 0 | on:        river bld   100 housed    499/   400 (124.8 %) wet 0
+  # 60 off:        river bld   137 housed    712/   400 (178.0 %) wet 0 | on:        river bld     4 housed     21/   400 (  5.2 %) wet 0
+  # 61 off:        river bld    74 housed    385/   400 ( 96.2 %) wet 0 | on:        river bld   109 housed    499/   400 (124.8 %) wet 0
+  # 62 off: riverthrough bld    31 housed    161/   400 ( 40.2 %) wet 0 | on: riverthrough bld    85 housed    421/   400 (105.2 %) wet 0
+  # 63 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    32 housed    161/   400 ( 40.2 %) wet 0
+  # 64 off:        river bld   102 housed    530/   400 (132.5 %) wet 0 | on:        river bld    85 housed    328/   400 ( 82.0 %) wet 0
+  # 65 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    90 housed    452/   400 (113.0 %) wet 0
+  # 66 off:        river bld   160 housed    770/   400 (192.5 %) wet 0 | on:        river bld    93 housed    478/   400 (119.5 %) wet 0
+  # 67 off:        river bld   138 housed    676/   400 (169.0 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  # 68 off:        river bld   237 housed    806/   400 (201.5 %) wet 0 | on:        river bld    99 housed    494/   400 (123.5 %) wet 0
+  # 69 off:        river bld   134 housed    697/   400 (174.2 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  # 70 off:        river bld    89 housed    302/   400 ( 75.5 %) wet 0 | on:        river bld    10 housed     52/   400 ( 13.0 %) wet 0
+  # 71 off:        river bld   153 housed    671/   400 (167.8 %) wet 0 | on:        river bld   138 housed    499/   400 (124.8 %) wet 0
+  # 72 off:        river bld   128 housed    624/   400 (156.0 %) wet 0 | on:        river bld    72 housed    374/   400 ( 93.5 %) wet 0
+  # 73 off:        river bld    99 housed    510/   400 (127.5 %) wet 0 | on:        river bld    77 housed    390/   400 ( 97.5 %) wet 0
+  # 74 off:        river bld   181 housed    614/   400 (153.5 %) wet 0 | on:        river bld    95 housed    478/   400 (119.5 %) wet 0
+  # 75 off:        river bld    75 housed    390/   400 ( 97.5 %) wet 0 | on:        river bld    89 housed    463/   400 (115.8 %) wet 0
+  # 76 off:        river bld    26 housed    135/   400 ( 33.8 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  # 77 off:        river bld    70 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld    31 housed    161/   400 ( 40.2 %) wet 0
+  # 78 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    61 housed    286/   400 ( 71.5 %) wet 0
+  # 79 off:        river bld   133 housed    603/   400 (150.8 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  # 80 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  # 81 off:        river bld   192 housed    889/   400 (222.2 %) wet 0 | on:        river bld   111 housed    499/   400 (124.8 %) wet 0
+  # 82 off:        river bld    19 housed     99/   400 ( 24.8 %) wet 0 | on:        river bld    68 housed    354/   400 ( 88.5 %) wet 0
+  # 83 off:        river bld    49 housed    239/   400 ( 59.8 %) wet 0 | on:        river bld    78 housed    390/   400 ( 97.5 %) wet 0
+  # 84 off:        river bld     5 housed     26/   400 (  6.5 %) wet 0 | on:        river bld   109 housed    499/   400 (124.8 %) wet 0
+  # 85 off:        river bld    51 housed    260/   400 ( 65.0 %) wet 0 | on:        river bld   108 housed    463/   400 (115.8 %) wet 0
+  # 86 off:        river bld    90 housed    416/   400 (104.0 %) wet 0 | on:        river bld   122 housed    437/   400 (109.2 %) wet 0
+  # 87 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 88 off:        river bld   147 housed    754/   400 (188.5 %) wet 0 | on:        river bld   106 housed    416/   400 (104.0 %) wet 0
+  # 89 off:        river bld     9 housed     47/   400 ( 11.8 %) wet 0 | on:        river bld   114 housed    468/   400 (117.0 %) wet 0
+  # 90 off:        river bld    84 housed    437/   400 (109.2 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  # 91 off:        river bld    89 housed    463/   400 (115.8 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  # 92 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    63 housed    312/   400 ( 78.0 %) wet 0
+  # 93 off: riverthrough bld    65 housed    322/   400 ( 80.5 %) wet 0 | on: riverthrough bld    47 housed    239/   400 ( 59.8 %) wet 0
+  # 94 off: riverthrough bld    28 housed    146/   400 ( 36.5 %) wet 0 | on: riverthrough bld    58 housed    302/   400 ( 75.5 %) wet 0
+  # 95 off:        river bld    85 housed    442/   400 (110.5 %) wet 0 | on:        river bld   120 housed    499/   400 (124.8 %) wet 0
+  # 96 off:        river bld   112 housed    582/   400 (145.5 %) wet 0 | on:        river bld   146 housed    499/   400 (124.8 %) wet 0
+  # 97 off:        river bld    71 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld    66 housed    343/   400 ( 85.8 %) wet 0
+  # 98 off:        river bld   147 housed    686/   400 (171.5 %) wet 0 | on:        river bld    64 housed    333/   400 ( 83.2 %) wet 0
+  # 99 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  #100 off:        river bld   135 housed    598/   400 (149.5 %) wet 0 | on:        river bld    44 housed    229/   400 ( 57.2 %) wet 0
+  #101 off:        river bld   134 housed    655/   400 (163.8 %) wet 0 | on:        river bld    57 housed    296/   400 ( 74.0 %) wet 0
+  #102 off:        river bld   137 housed    546/   400 (136.5 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  #103 off:        river bld   151 housed    775/   400 (193.8 %) wet 0 | on:        river bld   113 housed    499/   400 (124.8 %) wet 0
+  #104 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    82 housed    421/   400 (105.2 %) wet 0
+  #105 off:        river bld   152 housed    697/   400 (174.2 %) wet 0 | on:        river bld    94 housed    426/   400 (106.5 %) wet 0
+  #106 off:        river bld   136 housed    702/   400 (175.5 %) wet 0 | on:        river bld    54 housed    276/   400 ( 69.0 %) wet 0
+  #107 off:        river bld     7 housed     36/   400 (  9.0 %) wet 0 | on:        river bld    82 housed    426/   400 (106.5 %) wet 0
+  #108 off:        river bld   166 housed    634/   400 (158.5 %) wet 0 | on:        river bld    51 housed    265/   400 ( 66.2 %) wet 0
+  #109 off:        river bld    87 housed    416/   400 (104.0 %) wet 0 | on:        river bld    49 housed    255/   400 ( 63.8 %) wet 0
+  #110 off:        river bld    18 housed     94/   400 ( 23.5 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #111 off: riverthrough bld   103 housed    536/   400 (134.0 %) wet 0 | on: riverthrough bld   100 housed    499/   400 (124.8 %) wet 0
+  #112 off:        river bld   128 housed    634/   400 (158.5 %) wet 0 | on:        river bld   123 housed    463/   400 (115.8 %) wet 0
+  #113 off: riverthrough bld    74 housed    385/   400 ( 96.2 %) wet 0 | on: riverthrough bld    80 housed    416/   400 (104.0 %) wet 0
+  #114 off: riverthrough bld    70 housed    364/   400 ( 91.0 %) wet 0 | on: riverthrough bld   116 housed    432/   400 (108.0 %) wet 0
+  #115 off:        river bld   163 housed    702/   400 (175.5 %) wet 0 | on:        river bld   100 housed    369/   400 ( 92.2 %) wet 0
+  #116 off:        river bld    73 housed    307/   400 ( 76.8 %) wet 0 | on:        river bld    93 housed    484/   400 (121.0 %) wet 0
+  #117 off:        river bld    76 housed    328/   400 ( 82.0 %) wet 0 | on:        river bld    86 housed    359/   400 ( 89.8 %) wet 0
+  #118 off:        river bld   117 housed    603/   400 (150.8 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #119 off:        river bld   156 housed    733/   400 (183.2 %) wet 0 | on:        river bld    50 housed    260/   400 ( 65.0 %) wet 0
+  #120 off:        river bld    99 housed    473/   400 (118.2 %) wet 0 | on:        river bld    59 housed    307/   400 ( 76.8 %) wet 0
+  #121 off:        river bld   237 housed    983/   400 (245.8 %) wet 0 | on:        river bld   117 housed    499/   400 (124.8 %) wet 0
+  #122 off:        river bld    69 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld    88 housed    447/   400 (111.8 %) wet 0
+  #123 off:        river bld    16 housed     83/   400 ( 20.8 %) wet 0 | on:        river bld    73 housed    380/   400 ( 95.0 %) wet 0
+  #124 off:        river bld   254 housed   1227/   400 (306.8 %) wet 0 | on:        river bld    83 housed    343/   400 ( 85.8 %) wet 0
+  #125 off:        river bld    30 housed    156/   400 ( 39.0 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  #126 off:        river bld    88 housed    452/   400 (113.0 %) wet 0 | on:        river bld    81 housed    421/   400 (105.2 %) wet 0
+  #127 off:        river bld    23 housed    120/   400 ( 30.0 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  #128 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    31 housed    161/   400 ( 40.2 %) wet 0
+  #129 off:        river bld    29 housed    151/   400 ( 37.8 %) wet 0 | on:        river bld    67 housed    333/   400 ( 83.2 %) wet 0
+  #130 off:        river bld   152 housed    624/   400 (156.0 %) wet 0 | on:        river bld    95 housed    494/   400 (123.5 %) wet 0
+  #131 off:        river bld    15 housed     78/   400 ( 19.5 %) wet 0 | on:        river bld    80 housed    416/   400 (104.0 %) wet 0
+  #132 off:        river bld    53 housed    239/   400 ( 59.8 %) wet 0 | on:        river bld    96 housed    385/   400 ( 96.2 %) wet 0
+  #133 off:        river bld   295 housed   1175/   400 (293.8 %) wet 0 | on:        river bld    64 housed    333/   400 ( 83.2 %) wet 0
+  #134 off:        river bld   119 housed    437/   400 (109.2 %) wet 0 | on:        river bld   105 housed    489/   400 (122.2 %) wet 0
+  #135 off:        river bld    79 housed    411/   400 (102.8 %) wet 0 | on:        river bld    84 housed    432/   400 (108.0 %) wet 0
+  #136 off:        river bld   114 housed    525/   400 (131.2 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  #137 off:        river bld   114 housed    593/   400 (148.2 %) wet 0 | on:        river bld   122 housed    499/   400 (124.8 %) wet 0
+  #138 off: riverthrough bld   169 housed    697/   400 (174.2 %) wet 0 | on: riverthrough bld    73 housed    369/   400 ( 92.2 %) wet 0
+  #139 off:        river bld    71 housed    359/   400 ( 89.8 %) wet 0 | on:        river bld   111 housed    499/   400 (124.8 %) wet 0
+  #140 off:        river bld    51 housed    265/   400 ( 66.2 %) wet 0 | on:        river bld    59 housed    302/   400 ( 75.5 %) wet 0
+  #141 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    86 housed    447/   400 (111.8 %) wet 0
+  #142 off:        river bld    74 housed    385/   400 ( 96.2 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #143 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     5 housed     26/   400 (  6.5 %) wet 0
+  #144 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    71 housed    369/   400 ( 92.2 %) wet 0
+  #145 off:        river bld   103 housed    504/   400 (126.0 %) wet 0 | on:        river bld    86 housed    442/   400 (110.5 %) wet 0
+  #146 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   118 housed    499/   400 (124.8 %) wet 0
+  #147 off:        river bld    45 housed    234/   400 ( 58.5 %) wet 0 | on:        river bld    88 housed    421/   400 (105.2 %) wet 0
+  #148 off:        river bld    95 housed    494/   400 (123.5 %) wet 0 | on:        river bld    77 housed    385/   400 ( 96.2 %) wet 0
+  #149 off:        river bld   103 housed    437/   400 (109.2 %) wet 0 | on:        river bld   107 housed    499/   400 (124.8 %) wet 0
+  #150 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   111 housed    499/   400 (124.8 %) wet 0
+  #151 off:        river bld   113 housed    515/   400 (128.8 %) wet 0 | on:        river bld    83 housed    364/   400 ( 91.0 %) wet 0
+  #152 off:        river bld    75 housed    380/   400 ( 95.0 %) wet 0 | on:        river bld   107 housed    494/   400 (123.5 %) wet 0
+  #153 off:        river bld   144 housed    666/   400 (166.5 %) wet 0 | on:        river bld    77 housed    400/   400 (100.0 %) wet 0
+  #154 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    68 housed    322/   400 ( 80.5 %) wet 0
+  #155 off:        river bld    65 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #156 off: riverthrough bld    42 housed    218/   400 ( 54.5 %) wet 0 | on: riverthrough bld    99 housed    499/   400 (124.8 %) wet 0
+  #157 off:        river bld   141 housed    707/   400 (176.8 %) wet 0 | on:        river bld    98 housed    499/   400 (124.8 %) wet 0
+  #158 off:        river bld   101 housed    406/   400 (101.5 %) wet 0 | on:        river bld    41 housed    213/   400 ( 53.2 %) wet 0
+  #159 off:        river bld    93 housed    473/   400 (118.2 %) wet 0 | on:        river bld    88 housed    416/   400 (104.0 %) wet 0
+  #160 off:        river bld   157 housed    603/   400 (150.8 %) wet 0 | on:        river bld    72 housed    364/   400 ( 91.0 %) wet 0
+  #161 off: riverthrough bld    92 housed    478/   400 (119.5 %) wet 0 | on: riverthrough bld    63 housed    322/   400 ( 80.5 %) wet 0
+  #162 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #163 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #164 off:        river bld    19 housed     99/   400 ( 24.8 %) wet 0 | on:        river bld    81 housed    421/   400 (105.2 %) wet 0
+  #165 off:        river bld   127 housed    504/   400 (126.0 %) wet 0 | on:        river bld    71 housed    369/   400 ( 92.2 %) wet 0
+  #166 off: riverthrough bld   107 housed    556/   400 (139.0 %) wet 0 | on: riverthrough bld    86 housed    447/   400 (111.8 %) wet 0
+  #167 off:        river bld   162 housed    634/   400 (158.5 %) wet 0 | on:        river bld    94 housed    489/   400 (122.2 %) wet 0
+  #168 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #169 off:        river bld    70 housed    265/   400 ( 66.2 %) wet 0 | on:        river bld    91 housed    473/   400 (118.2 %) wet 0
+  #170 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   139 housed    494/   400 (123.5 %) wet 0
+  #171 off:        river bld    64 housed    333/   400 ( 83.2 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #172 off:        river bld    85 housed    442/   400 (110.5 %) wet 0 | on:        river bld    78 housed    406/   400 (101.5 %) wet 0
+  #173 off: riverthrough bld   147 housed    588/   400 (147.0 %) wet 0 | on: riverthrough bld    91 housed    421/   400 (105.2 %) wet 0
+  #174 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   105 housed    499/   400 (124.8 %) wet 0
+  #175 off:        river bld   105 housed    478/   400 (119.5 %) wet 0 | on:        river bld   104 housed    499/   400 (124.8 %) wet 0
+  #176 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   106 housed    380/   400 ( 95.0 %) wet 0
+  #177 off:        river bld   141 housed    619/   400 (154.8 %) wet 0 | on:        river bld   103 housed    390/   400 ( 97.5 %) wet 0
+  #178 off:        river bld   183 housed    686/   400 (171.5 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  #179 off:        river bld    56 housed    291/   400 ( 72.8 %) wet 0 | on:        river bld   104 housed    499/   400 (124.8 %) wet 0
+  #180 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #181 off: riverthrough bld   106 housed    515/   400 (128.8 %) wet 0 | on: riverthrough bld    94 housed    442/   400 (110.5 %) wet 0
+  #182 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    57 housed    296/   400 ( 74.0 %) wet 0
+  #183 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #184 off:        river bld   132 housed    681/   400 (170.2 %) wet 0 | on:        river bld    79 housed    411/   400 (102.8 %) wet 0
+  #185 off:        river bld    94 housed    489/   400 (122.2 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #186 off: riverthrough bld   102 housed    452/   400 (113.0 %) wet 0 | on: riverthrough bld   113 housed    499/   400 (124.8 %) wet 0
+  #187 off:        river bld    88 housed    437/   400 (109.2 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  #188 off:        river bld   106 housed    546/   400 (136.5 %) wet 0 | on:        river bld   131 housed    458/   400 (114.5 %) wet 0
+  #189 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    99 housed    499/   400 (124.8 %) wet 0
+  #190 off:        river bld    65 housed    338/   400 ( 84.5 %) wet 0 | on:        river bld    80 housed    374/   400 ( 93.5 %) wet 0
+  #191 off:        river bld    88 housed    437/   400 (109.2 %) wet 0 | on:        river bld   111 housed    484/   400 (121.0 %) wet 0
+  #192 off:        river bld    19 housed     99/   400 ( 24.8 %) wet 0 | on:        river bld   112 housed    499/   400 (124.8 %) wet 0
+  #193 off:        river bld   169 housed    790/   400 (197.5 %) wet 0 | on:        river bld    83 housed    421/   400 (105.2 %) wet 0
+  #194 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    87 housed    452/   400 (113.0 %) wet 0
+  #195 off:        river bld   117 housed    582/   400 (145.5 %) wet 0 | on:        river bld    95 housed    473/   400 (118.2 %) wet 0
+  #196 off:        river bld    59 housed    307/   400 ( 76.8 %) wet 0 | on:        river bld   105 housed    484/   400 (121.0 %) wet 0
+  #197 off: riverthrough bld   136 housed    588/   400 (147.0 %) wet 0 | on: riverthrough bld    66 housed    302/   400 ( 75.5 %) wet 0
+  #198 off:        river bld    60 housed    250/   400 ( 62.5 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #199 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #200 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   106 housed    499/   400 (124.8 %) wet 0
+  #201 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   103 housed    499/   400 (124.8 %) wet 0
+  #202 off:        river bld    65 housed    270/   400 ( 67.5 %) wet 0 | on:        river bld   112 housed    499/   400 (124.8 %) wet 0
+  #203 off:        river bld   136 housed    556/   400 (139.0 %) wet 0 | on:        river bld   102 housed    447/   400 (111.8 %) wet 0
+  #204 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   115 housed    437/   400 (109.2 %) wet 0
+  #205 off:        river bld   103 housed    536/   400 (134.0 %) wet 0 | on:        river bld    97 housed    499/   400 (124.8 %) wet 0
+  #206 off:        river bld   182 housed    785/   400 (196.2 %) wet 0 | on:        river bld   127 housed    499/   400 (124.8 %) wet 0
+  #207 off:        river bld    57 housed    296/   400 ( 74.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #208 off:        river bld    98 housed    494/   400 (123.5 %) wet 0 | on:        river bld    62 housed    317/   400 ( 79.2 %) wet 0
+  #209 off:        river bld    29 housed    151/   400 ( 37.8 %) wet 0 | on:        river bld    70 housed    364/   400 ( 91.0 %) wet 0
+  #210 off:        river bld   190 housed    868/   400 (217.0 %) wet 0 | on:        river bld    96 housed    499/   400 (124.8 %) wet 0
+  #211 off:        river bld   146 housed    556/   400 (139.0 %) wet 0 | on:        river bld    88 housed    458/   400 (114.5 %) wet 0
+  #212 off:        river bld   129 housed    478/   400 (119.5 %) wet 0 | on:        river bld    69 housed    359/   400 ( 89.8 %) wet 0
+  #213 off:        river bld    48 housed    250/   400 ( 62.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #214 off:        river bld    40 housed    208/   400 ( 52.0 %) wet 0 | on:        river bld   108 housed    452/   400 (113.0 %) wet 0
+  #215 off:        river bld   154 housed    702/   400 (175.5 %) wet 0 | on:        river bld   102 housed    499/   400 (124.8 %) wet 0
+  #216 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld   100 housed    484/   400 (121.0 %) wet 0
+  #217 off:        river bld    41 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld   102 housed    447/   400 (111.8 %) wet 0
+  #218 off:        river bld    41 housed    213/   400 ( 53.2 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #219 off:        river bld   169 housed    702/   400 (175.5 %) wet 0 | on:        river bld     0 housed      0/   400 (  0.0 %) wet 0
+  #220 off: riverthrough bld    46 housed    239/   400 ( 59.8 %) wet 0 | on: riverthrough bld    96 housed    426/   400 (106.5 %) wet 0
+  #221 off:        river bld    93 housed    354/   400 ( 88.5 %) wet 0 | on:        river bld    35 housed    182/   400 ( 45.5 %) wet 0
+  #222 off:        river bld     0 housed      0/   400 (  0.0 %) wet 0 | on:        river bld    87 housed    343/   400 ( 85.8 %) wet 0
+  #223 off:        river bld    39 housed    203/   400 ( 50.8 %) wet 0 | on:        river bld    92 housed    447/   400 (111.8 %) wet 0
+  #224 off:        river bld    93 housed    432/   400 (108.0 %) wet 0 | on:        river bld    53 housed    276/   400 ( 69.0 %) wet 0
+  #225 off:        river bld   119 housed    489/   400 (122.2 %) wet 0 | on:        river bld   103 housed    499/   400 (124.8 %) wet 0
+  #226 off:        river bld   168 housed    796/   400 (199.0 %) wet 0 | on:        river bld    74 housed    385/   400 ( 96.2 %) wet 0
+  #227 off: riverthrough bld   127 housed    463/   400 (115.8 %) wet 0 | on: riverthrough bld     0 housed      0/   400 (  0.0 %) wet 0
+seed 246371 at 384x246: buildings off 46244 on 49284
+all seeds at 384, civ.river_front true, urban_riverbank off: 684 towns, buildings 133797, in water 0; housed % of pop_target n 684 min 0 p10 0 median 99 p90 180 max 664; under 80 %: 271; river-kind n 660 min 0 p10 0 median 98 p90 180 max 664
+all seeds at 384, civ.river_front true, urban_riverbank on: 684 towns, buildings 140711, in water 0; housed % of pop_target n 684 min 0 p10 41 median 105 p90 125 max 238; under 80 %: 116; river-kind n 660 min 0 p10 46 median 106 p90 125 max 141

@@ -1929,6 +1929,9 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::riverbank`], carried to `GenOpts::riverbank`
     /// (2026-11-15, Ruling EX's follow-ups).
     pub riverbank: bool,
+    /// [`PlaceOverrides::street_village`], carried to
+    /// `GenOpts::street_village` (Ruling FE item 2).
+    pub street_village: bool,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -1998,6 +2001,13 @@ pub struct PlaceOverrides<'a> {
     /// (`DECISIONS.md` section 7p), which since Rulings FB and EZ item 1
     /// (2026-11-15) also carries the both-banks town and the mixed riverside.
     pub riverbank: bool,
+    /// Ruling FE item 2 (2026-11-15): a village is laid out as a street
+    /// village (`cartalith_urban::GenOpts::street_village`). **Not a
+    /// `_umPlaceContext` field** and not in the reference, so `false` (the
+    /// `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_street_village` (`DECISIONS.md` section 7p).
+    pub street_village: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2080,6 +2090,7 @@ pub fn um_place_context_with(
         faith: o.faith.map(str::to_string),
         wall_hug: o.wall_hug,
         riverbank: o.riverbank,
+        street_village: o.street_village,
     }
 }
 
@@ -2416,6 +2427,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         primary_paths: ctx.primary_paths.clone().unwrap_or_default(),
         wall_hug: ctx.wall_hug,
         riverbank: ctx.riverbank,
+        street_village: ctx.street_village,
     };
     let t = generate(ctx.seed, &opts);
 

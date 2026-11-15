@@ -7640,7 +7640,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7654,6 +7654,8 @@ mod tests {
         assert!(!p.urban_river_kind_map, "an old archive keeps the reference's river-town test");
         // 2026-11-15: an old archive draws its river towns set back from the bank.
         assert!(!p.urban_riverbank, "an old archive keeps the reference's riverside setback");
+        // Ruling FE item 2 (2026-11-15): an old archive draws its villages as small towns.
+        assert!(!p.urban_street_village, "an old archive keeps the reference's villages");
         // Ruling EX (2026-11-14): an archive that predates the river frontage term keeps its placements.
         assert!(!p.civ.river_front, "an old archive places its towns without the frontage term");
         assert_eq!(
@@ -7676,6 +7678,7 @@ mod tests {
         assert!(p.civ.river_front, "a new world puts river towns on their river (Ruling EX)");
         assert!(p.urban_river_kind_map, "a new world calls river towns from the map's rivers (Ruling EX follow-up (c))");
         assert!(p.urban_riverbank, "a new world builds its river towns to the bank (2026-11-15)");
+        assert!(p.urban_street_village, "a new world lays its villages along their roads (Ruling FE item 2)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)
@@ -7696,6 +7699,7 @@ mod tests {
             "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law",
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
+            "urban_street_village",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

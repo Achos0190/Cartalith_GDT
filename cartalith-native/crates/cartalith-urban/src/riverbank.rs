@@ -536,7 +536,7 @@ pub enum RiverbankPass {
 /// Must never answer for a town laid out with the switch off, so the
 /// reference is laid out once, byte for byte.
 pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
-    if !t.riverbank || t.riverbank_pass != Some(RiverbankPass::First) {
+    if !(t.riverbank || t.street_village) || t.riverbank_pass != Some(RiverbankPass::First) {
         return None;
     }
     if t.both_banks && t.pop < t.pop_target {
@@ -545,6 +545,14 @@ pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
     }
     if t.pop_target < BOTH_BANKS_MIN_POP && t.pop > t.pop_target * RIVER_HOUSING_CAP {
         return Some(RiverbankPass::Village { street_scale: t.pop_target / t.pop, trim: false });
+    }
+    // **Ruling FE item 2** (`crate::village`): a street village housing under
+    // [`VILLAGE_LOW_SHARE`] of its target, whose road frontage ran out (a road
+    // along its bank has one side; a short road has little), is laid out again
+    // with more lanes by its road, whose frontage takes more tofts.
+    if t.street_village && t.pop < t.pop_target * VILLAGE_LOW_SHARE {
+        let scale = if t.pop > 0.0 { (t.pop_target / t.pop).clamp(1.0, VILLAGE_MAX_SCALE) } else { VILLAGE_MAX_SCALE };
+        return Some(RiverbankPass::Village { street_scale: scale, trim: false });
     }
     None
 }
@@ -569,6 +577,12 @@ pub const VILLAGE_FITS: usize = 4;
 /// tenth of the budget is a crossroads and a lane; below it the village is
 /// its primaries alone.
 pub const VILLAGE_MIN_SCALE: f64 = 0.1;
+/// The most street scale [`fit_village`] tries for a street village short of
+/// its target (Ruling FE item 2). **A labelled judgement**: eight times
+/// `crate::village::STREET_PER_HEAD_M` is 2 m a head, about a town's own
+/// 2.1 m (M-DEN-1/2), so a short village is never given more lane per head
+/// than a town.
+pub const VILLAGE_MAX_SCALE: f64 = 8.0;
 
 /// Lay a riverbank village out again from a scaled street budget until it
 /// houses between [`VILLAGE_LOW_SHARE`] and [`RIVER_HOUSING_CAP`] of its
@@ -589,6 +603,9 @@ pub const VILLAGE_MIN_SCALE: f64 = 0.1;
 pub fn fit_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -> crate::Town {
     let target = first.pop_target;
     let (lo, hi, aim) = (target * VILLAGE_LOW_SHARE, target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
+    if first.pop < lo {
+        return fit_short_village(first, lay);
+    }
     let mut pts: Vec<(f64, f64)> = vec![(1.0, first.pop)];
     // The over-cap layout housing the fewest, by its scale (the first layout
     // is one).
@@ -613,6 +630,42 @@ pub fn fit_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -
         scale = next;
     }
     lay(least_over.0, true)
+}
+
+/// **Ruling FE item 2** (`crate::village`): [`fit_village`] for a street
+/// village whose first layout housed under [`VILLAGE_LOW_SHARE`] of its
+/// target: each next street scale is the secant aimed at
+/// [`VILLAGE_AIM_SHARE`], from `target / pop`, clamped to 1..
+/// [`VILLAGE_MAX_SCALE`]; at most [`VILLAGE_FITS`] layouts. The first layout
+/// inside the band is taken; otherwise the one housing the most without
+/// passing [`RIVER_HOUSING_CAP`] (the first layout among them, so a village
+/// no scale helps is laid out as it was). **Must never** return a layout
+/// housing fewer than `first`, or one over the cap.
+pub fn fit_short_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -> crate::Town {
+    let target = first.pop_target;
+    let (lo, hi, aim) = (target * VILLAGE_LOW_SHARE, target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
+    let mut pts: Vec<(f64, f64)> = vec![(1.0, first.pop)];
+    let mut best = first;
+    let mut scale = (target / best.pop.max(1.0)).clamp(1.0, VILLAGE_MAX_SCALE);
+    for _ in 0..VILLAGE_FITS {
+        let t = lay(scale, false);
+        if t.pop >= lo && t.pop <= hi {
+            return t;
+        }
+        pts.push((scale, t.pop));
+        if t.pop <= hi && t.pop > best.pop {
+            best = t;
+        }
+        let (s1, p1) = pts[pts.len() - 2];
+        let (s2, p2) = pts[pts.len() - 1];
+        let next = if (p2 - p1).abs() > 1e-9 { s2 + (aim - p2) * (s2 - s1) / (p2 - p1) } else { s2 * 2.0 };
+        let next = next.clamp(1.0, VILLAGE_MAX_SCALE);
+        if (next - scale).abs() < 1e-3 {
+            break;
+        }
+        scale = next;
+    }
+    best
 }
 
 /// The far end of the town bridge [`lay_town_bridge`] lays (or would lay) at

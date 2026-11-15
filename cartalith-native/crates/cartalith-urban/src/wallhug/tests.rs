@@ -65,11 +65,16 @@ fn the_outcome_is_reported_only_when_the_switch_is_on() {
 }
 
 /// Protects: the wall actually hugging the town, as a literal bar on the three
-/// numbers [`crate::wallgap`] measures. Measured: on every refit case the
-/// median wall-to-building gap is 4-7 m (bar 9), the 90th percentile 16-35 m
-/// (bar 40), the free share 0.001-0.221 (bar 0.25); off, the same towns read a
-/// median up to 46 m, a p90 up to 85 m and a free share up to 0.376. Five of
-/// the six towns refit; the sixth, a 983-person coast town, keeps its circuit
+/// numbers [`crate::wallgap`] measures. Measured with the taut wall (Ruling FE
+/// item 1, 2026-11-15): on every refit case the median wall-to-building gap
+/// is 2.3-6.5 m (bar 9), the 90th percentile 16-66 m (bar 70), the free share
+/// 0.001-0.257 (bar 0.30); off, the same towns read a median up to 46 m, a p90
+/// up to 85 m and a free share up to 0.376. The p90 and free-share bars were
+/// 40 m and 0.25 for the traced hug (Ruling EW item 1: 16-35 m and
+/// 0.001-0.221); a taut run across a bay encloses the bay, the "about a
+/// fifth more open ground" the owner accepted in Ruling FE item 1, while the
+/// median gap (the wall street along the built frontage) is unchanged. Five of
+/// the six towns refit; the sixth, a coast town, keeps its circuit
 /// (`NotSmaller`).
 #[test]
 fn a_refitted_wall_stands_a_few_metres_from_the_first_buildings() {
@@ -81,15 +86,46 @@ fn a_refitted_wall_stands_a_few_metres_from_the_first_buildings() {
         refits += 1;
         let g = gap_of(&on).expect("a walled town with buildings measures");
         assert!(g.median_m <= 9.0, "{c:?}: median gap {:.1} m", g.median_m);
-        assert!(g.p90_m <= 40.0, "{c:?}: p90 gap {:.1} m", g.p90_m);
-        assert!(g.free_share <= 0.25, "{c:?}: free share {:.3}", g.free_share);
+        assert!(g.p90_m <= 70.0, "{c:?}: p90 gap {:.1} m", g.p90_m);
+        assert!(g.free_share <= 0.30, "{c:?}: free share {:.3}", g.free_share);
     }
     assert!(refits >= 5, "only {refits} of 6 towns refit");
 }
 
+/// Protects the taut circuit as the circuit builder draws it
+/// (`BuiltMass::taut`: no Chaikin rounding, outward simplify, towers every
+/// 90 m at most): on every refit case the ring is at most 15 % longer than
+/// its convex hull (the judgement's p90 bar; measured up to 1.106, the 12 000
+/// city whose bay is over the pocket cap and keeps its corner), has at most one vertex per 35 m
+/// of wall, and no run longer than 90 m, and the land arc no run longer than
+/// 90 m either.
+#[test]
+fn a_taut_wall_is_straight_runs_between_towers() {
+    let len = |r: &[Vec2]| -> f64 { (0..r.len()).map(|i| r[i].dist(r[(i + 1) % r.len()])).sum() };
+    for (c, _off, on) in pairs() {
+        if !refit(&on) {
+            continue;
+        }
+        let ring = on.wall.ring.as_deref().unwrap();
+        let (l, h) = (len(ring), len(&convex_hull(ring)));
+        assert!(l / h <= 1.15, "{c:?}: wall / hull {:.3}", l / h);
+        assert!(ring.len() as f64 <= l / 35.0, "{c:?}: {} vertices for {l:.0} m", ring.len());
+        for i in 0..ring.len() {
+            assert!(ring[i].dist(ring[(i + 1) % ring.len()]) <= 90.0 + 1e-6, "{c:?}: a run of {:.0} m", ring[i].dist(ring[(i + 1) % ring.len()]));
+        }
+        if let Some(arc) = on.wall.land_arc.as_deref() {
+            for w in arc.windows(2) {
+                assert!(w[0].dist(w[1]) <= 90.0 + 1e-6, "{c:?}: an arc run of {:.0} m", w[0].dist(w[1]));
+            }
+        }
+    }
+}
+
 /// Protects: the change being an improvement on the set, not on a cherry-picked
 /// town: the 90th-percentile gap summed over the six towns falls by at least
-/// 40 % (measured 312 m off, 164 m on, a 47 % fall).
+/// 20 % (measured 312 m off, 233 m on with the taut wall, a 25 % fall; the
+/// traced hug before Ruling FE item 1 fell 47 %, to 164 m, and a taut run
+/// across a bay gives some of that back by design).
 #[test]
 fn the_wall_gap_falls_across_the_whole_set() {
     let (mut off_sum, mut on_sum) = (0.0, 0.0);
@@ -97,7 +133,7 @@ fn the_wall_gap_falls_across_the_whole_set() {
         off_sum += gap_of(&off).unwrap().p90_m;
         on_sum += gap_of(&on).unwrap().p90_m;
     }
-    assert!(on_sum <= off_sum * 0.60, "p90 sum {off_sum:.0} -> {on_sum:.0}");
+    assert!(on_sum <= off_sum * 0.80, "p90 sum {off_sum:.0} -> {on_sum:.0}");
 }
 
 /// Protects: no lot being left under or outside the curtain, and no building cut
@@ -433,9 +469,237 @@ fn an_exact_circuit_keeps_the_town_shape() {
         .collect();
     for exact in [true, false] {
         let mut ws = WallState::default();
-        let built = BuiltMass { hull: hull.clone(), spans_water: true, exact };
+        let built = BuiltMass { hull: hull.clone(), spans_water: true, exact, taut: false };
         build_wall_from_mass(7, &site, &anchors, &g, &mut ws, 3, None, &FortOpts::default(), built, false);
         let ring = ws.ring.expect("a circuit");
         assert_eq!(point_in_poly(Vec2::new(850.0, 500.0), &ring), !exact, "exact {exact}");
+    }
+}
+
+
+// ---------------------------------------------------------------- taut wall --
+// Ruling FE item 1 (2026-11-15): `tauten`, `simplify_out`, `subdivide_runs`,
+// `largest_open_m2` and `taut_hull`, on hand-built shapes whose answers are
+// known without the code under test.
+
+fn loop_len(r: &[Vec2]) -> f64 {
+    (0..r.len()).map(|i| r[i].dist(r[(i + 1) % r.len()])).sum()
+}
+
+/// No point of `before` stands outside `after` by more than a millimetre.
+fn encloses(after: &[Vec2], before: &[Vec2]) -> bool {
+    before.iter().all(|p| point_in_poly(*p, after) || least_margin(&[*p], after, None) > -1e-3)
+}
+
+/// A 400 m square (counter-clockwise in the plane's axes) with a V-notch cut
+/// into its south side, `w` wide at the mouth and `d` deep: the notch's
+/// area is `w * d / 2`, and its apex is the one reflex vertex.
+fn notched_square(w: f64, d: f64) -> Vec<Vec2> {
+    vec![
+        Vec2::new(0.0, 0.0),
+        Vec2::new(200.0 - w / 2.0, 0.0),
+        Vec2::new(200.0, d),
+        Vec2::new(200.0 + w / 2.0, 0.0),
+        Vec2::new(400.0, 0.0),
+        Vec2::new(400.0, 400.0),
+        Vec2::new(0.0, 400.0),
+    ]
+}
+
+/// Protects: the pocket cap. A notch of 7 000 m2 (under the 8 000 m2 cap) is
+/// walled over by a straight run; one of 10 000 m2 (over it) keeps its
+/// re-entrant corner, so its apex stays outside. Either way nothing moves
+/// inward. A cap outside 7 000..10 000 turns one of the two red.
+#[test]
+fn a_small_notch_is_walled_over_and_a_large_one_keeps_its_corner() {
+    let small = notched_square(100.0, 140.0);
+    let t = tauten(&small, TAUT_POCKET_MAX_M2);
+    assert!(point_in_poly(Vec2::new(200.0, 120.0), &t), "a 0.70 ha notch is filled: {t:?}");
+    assert!(encloses(&t, &small));
+    let large = notched_square(100.0, 200.0);
+    let t = tauten(&large, TAUT_POCKET_MAX_M2);
+    assert!(!point_in_poly(Vec2::new(200.0, 180.0), &t), "a 1.0 ha notch keeps its corner: {t:?}");
+    assert!(encloses(&t, &large));
+}
+
+/// Protects: the scalloped trace becoming straight runs. A 200 m circle
+/// carrying 12 scallops 6 m deep, sampled every 2 degrees (180 vertices,
+/// the traced outline's kind of line): pulled taut it is at most 1 % longer
+/// than its convex hull (measured 1.002; the scalloped input is 1.008, and
+/// both shrink to 1.0 only as a polygon), has at most one vertex per
+/// `TAUT_MIN_RUN_M` of length, every run at least that long, no turn
+/// sharper than `TAUT_MAX_TURN`, never crosses itself and never moves a
+/// point inward.
+#[test]
+fn a_scalloped_outline_is_pulled_into_straight_runs() {
+    let ring: Vec<Vec2> = (0..180)
+        .map(|k| {
+            let a = k as f64 * 2.0_f64.to_radians();
+            let r = 200.0 - 6.0 * (6.0 * a).sin().abs();
+            Vec2::new(r * a.cos(), r * a.sin())
+        })
+        .collect();
+    let t = tauten(&ring, TAUT_POCKET_MAX_M2);
+    let hull = convex_hull(&t);
+    assert!(loop_len(&t) / loop_len(&hull) <= 1.01, "taut/hull {:.3}", loop_len(&t) / loop_len(&hull));
+    assert!(t.len() as f64 <= loop_len(&t) / 40.0 + 1.0, "{} vertices for {:.0} m", t.len(), loop_len(&t));
+    for i in 0..t.len() {
+        let (a, b, c) = (t[(i + t.len() - 1) % t.len()], t[i], t[(i + 1) % t.len()]);
+        assert!(b.dist(c) >= 40.0 - 1e-6, "run {i} is {:.1} m", b.dist(c));
+        let turn = ((b - a).norm().dot((c - b).norm())).clamp(-1.0, 1.0).acos();
+        assert!(turn <= 75.0_f64.to_radians() + 1e-9, "turn {:.1} deg at {i}", turn.to_degrees());
+    }
+    assert!(!ring_self_crosses(&t));
+    assert!(encloses(&t, &ring));
+}
+
+/// Protects: the turn cap. A blunted arrow tip (two long sides meeting
+/// through a 10 m end, a 60 degree point) is left blunt: extending the sides
+/// to meet would turn 120 degrees, past `TAUT_MAX_TURN`'s 75.
+#[test]
+fn a_sharp_tip_is_not_extended_into_a_spike() {
+    // Five vertices: `tauten` leaves a loop of four alone, so the tail point
+    // (-100, 0) is what lets the merge be tried at all.
+    let ring = vec![Vec2::new(0.0, -150.0), Vec2::new(300.0, -5.0), Vec2::new(300.0, 5.0), Vec2::new(0.0, 150.0), Vec2::new(-100.0, 0.0)];
+    let t = tauten(&ring, TAUT_POCKET_MAX_M2);
+    assert_eq!(t.len(), 5, "the blunt end stays: {t:?}");
+}
+
+/// Protects: `simplify_out`'s one-sidedness and its tolerance. On a line
+/// whose loop lies to its left (`orient` +1, the plane's axes), a point half
+/// a metre to the left is dropped (the chord passes outside it), one half a
+/// metre to the right is kept (the chord would leave it outside the wall),
+/// and one 1.5 m to the left is kept (past `TAUT_SIMPLIFY_M`).
+#[test]
+fn simplify_out_moves_the_line_outward_only() {
+    let line = |y: f64| vec![Vec2::new(0.0, 0.0), Vec2::new(50.0, y), Vec2::new(100.0, 0.0)];
+    assert_eq!(simplify_out(&line(0.5), TAUT_SIMPLIFY_M, 1.0, false).len(), 2);
+    assert_eq!(simplify_out(&line(-0.5), TAUT_SIMPLIFY_M, 1.0, false).len(), 3);
+    assert_eq!(simplify_out(&line(1.5), TAUT_SIMPLIFY_M, 1.0, false).len(), 3);
+    // Reversed orientation reverses the sides.
+    assert_eq!(simplify_out(&line(-0.5), TAUT_SIMPLIFY_M, -1.0, false).len(), 2);
+}
+
+/// Protects: towers at least every `TAUT_MAX_RUN_M` (90 m). A 200 m run
+/// becomes three equal runs (66.7 m); an 80 m run is left alone; a closed
+/// square of 100 m sides gets one tower mid-side.
+#[test]
+fn long_runs_get_towers_at_equal_steps() {
+    let r = subdivide_runs(&[Vec2::new(0.0, 0.0), Vec2::new(200.0, 0.0)], false);
+    assert_eq!(r.len(), 4);
+    assert!((r[1].x - 200.0 / 3.0).abs() < 1e-9);
+    assert_eq!(subdivide_runs(&[Vec2::new(0.0, 0.0), Vec2::new(80.0, 0.0)], false).len(), 2);
+    let sq = [Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0, 100.0), Vec2::new(0.0, 100.0)];
+    assert_eq!(subdivide_runs(&sq, true).len(), 8);
+}
+
+/// A landlocked synthetic site with no water: `largest_open_m2` reads only
+/// its water tests.
+fn dry_site() -> Site {
+    crate::site::build_site(7, 1700.0, 1250.0, "landlocked", crate::site::SiteOpts::default())
+}
+
+/// Protects: the open-ground measure and its 40 m reach. A 200 x 200 m
+/// ring whose west half is one lot: open is what lies over 40 m from it,
+/// the strip from x 140 to 200, 1.2 ha (the 4 m grid and the chamfer's
+/// diagonal error give 1.1-1.3).
+#[test]
+fn open_ground_is_what_lies_beyond_reach_of_every_lot() {
+    let ring = [Vec2::new(500.0, 500.0), Vec2::new(700.0, 500.0), Vec2::new(700.0, 700.0), Vec2::new(500.0, 700.0)];
+    let lot = [Vec2::new(500.0, 500.0), Vec2::new(600.0, 500.0), Vec2::new(600.0, 700.0), Vec2::new(500.0, 700.0)];
+    let a = largest_open_m2(&ring, &[&lot[..]], &dry_site());
+    assert!((11_000.0..=13_000.0).contains(&a), "open {a:.0} m2");
+    assert_eq!(largest_open_m2(&ring, &[&ring[..]], &dry_site()), 0.0);
+}
+
+/// Protects: `taut_hull` pulling less taut where a straight run would wall
+/// an empty field. An 800 m square with a V-notch 500 m wide and 500 m deep
+/// (12.5 ha), every 20 m cell of the square a lot: filled at a cap that
+/// takes it whole, the notch would enclose about 6.9 ha over 40 m from any
+/// lot, so the guard falls back to the quarter cap, which does not fill it,
+/// and the apex stays outside.
+#[test]
+fn a_taut_run_never_walls_an_empty_field() {
+    let site = dry_site();
+    let off = Vec2::new(450.0, 225.0);
+    let ring: Vec<Vec2> = vec![
+        Vec2::new(0.0, 0.0),
+        Vec2::new(150.0, 0.0),
+        Vec2::new(400.0, 500.0),
+        Vec2::new(650.0, 0.0),
+        Vec2::new(800.0, 0.0),
+        Vec2::new(800.0, 800.0),
+        Vec2::new(0.0, 800.0),
+    ]
+    .into_iter()
+    .map(|p| p + off)
+    .collect();
+    let mut lots: Vec<Vec<Vec2>> = Vec::new();
+    for i in 0..40 {
+        for j in 0..40 {
+            let (x, y) = (i as f64 * 20.0, j as f64 * 20.0);
+            let c = Vec2::new(x + 10.0, y + 10.0) + off;
+            if point_in_poly(c, &ring) {
+                lots.push(vec![Vec2::new(x, y) + off, Vec2::new(x + 20.0, y) + off, Vec2::new(x + 20.0, y + 20.0) + off, Vec2::new(x, y + 20.0) + off]);
+            }
+        }
+    }
+    let refs: Vec<&[Vec2]> = lots.iter().map(Vec::as_slice).collect();
+    let apex = Vec2::new(400.0, 300.0) + off;
+    assert!(point_in_poly(apex, &tauten(&ring, 200_000.0)), "premise: the full cap fills the notch");
+    let (t, ok) = taut_hull(&ring, &refs, &site, 200_000.0);
+    assert!(ok, "a smaller cap meets the bar");
+    assert!(largest_open_m2(&t, &refs, &site) <= OPEN_PATCH_MAX_M2);
+    assert!(!point_in_poly(apex, &t), "the empty notch stays outside");
+    // The open ground the outline holds itself: a 200 x 200 m ring with one
+    // lot in a corner fails every cap, and the tautest circuit comes back.
+    let sq = [Vec2::new(500.0, 500.0), Vec2::new(700.0, 500.0), Vec2::new(700.0, 700.0), Vec2::new(500.0, 700.0)];
+    let lot = [Vec2::new(500.0, 500.0), Vec2::new(520.0, 500.0), Vec2::new(520.0, 520.0), Vec2::new(500.0, 520.0)];
+    let (t, ok) = taut_hull(&sq, &[&lot[..]], &site, TAUT_POCKET_MAX_M2);
+    assert!(!ok && t.len() == 4, "{t:?}");
+}
+
+
+/// Protects `TAUT_MIN_RUN_M` (40 m) on its own: a regular 36-gon of radius
+/// 200 m has 34.9 m runs, which are merged (a 30 m minimum would keep all 36).
+#[test]
+fn runs_under_forty_metres_are_merged() {
+    let ring: Vec<Vec2> = (0..36).map(|k| {
+        let a = k as f64 * 10.0_f64.to_radians();
+        Vec2::new(200.0 * a.cos(), 200.0 * a.sin())
+    }).collect();
+    let t = tauten(&ring, TAUT_POCKET_MAX_M2);
+    assert!(t.len() < 36, "{} vertices", t.len());
+    for i in 0..t.len() {
+        assert!(t[i].dist(t[(i + 1) % t.len()]) >= 40.0 - 1e-6);
+    }
+}
+
+/// Protects `tauten`'s two refusals, the crossing and swallowed-vertex test
+/// and the forward test on a merge, by property: 300 random star-shaped
+/// outlines (a fixed LCG; 40-120 vertices, radius 60-260 m with deep
+/// notches) pulled taut never cross themselves and never move a point of the
+/// outline outside the result.
+#[test]
+fn random_outlines_pulled_taut_stay_simple_and_enclosing() {
+    let mut seed: u64 = 0x5eed_1115;
+    let mut rnd = || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        ((seed >> 33) as f64) / ((1u64 << 31) as f64)
+    };
+    for case in 0..300 {
+        let n = 40 + (rnd() * 80.0) as usize;
+        let ring: Vec<Vec2> = (0..n)
+            .map(|k| {
+                let a = k as f64 / n as f64 * 2.0 * std::f64::consts::PI;
+                let r = if rnd() < 0.15 { 60.0 + 60.0 * rnd() } else { 200.0 + 60.0 * rnd() };
+                Vec2::new(r * a.cos(), r * a.sin())
+            })
+            .collect();
+        for cap in [TAUT_POCKET_MAX_M2, 1.0e9] {
+            let t = tauten(&ring, cap);
+            assert!(!ring_self_crosses(&t), "case {case} cap {cap}: crosses");
+            assert!(encloses(&t, &ring), "case {case} cap {cap}: moved a point inward");
+        }
     }
 }

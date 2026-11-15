@@ -43,21 +43,32 @@
 //!    mass, and a circuit that cannot be drawn one way (across the river, or
 //!    round the market's bank alone) is tried the other way before the
 //!    original is kept.
-//! 3. The reference's smoothing (two Chaikin passes, a corner cut, a 2 m
-//!    simplify) rounds corners **inward**, so the result is checked: every mass
+//! 3. **Taut** (Ruling FE item 1, owner 2026-11-15, refining Ruling EW item 1:
+//!    *"Wall: taut. Straight curtain runs between towers"*): that outline is
+//!    pulled into straight runs ([`tauten`]), filling a bay only where it
+//!    encloses under [`TAUT_POCKET_MAX_M2`] of ground the outline left out and
+//!    never walling an open piece over [`OPEN_PATCH_MAX_M2`] ([`taut_hull`]);
+//!    the circuit is then built on it without the reference's Chaikin
+//!    rounding, with a tower at every corner and at least every
+//!    [`TAUT_MAX_RUN_M`] (`BuiltMass::taut`). The traced outline was a
+//!    scalloped line of about 390 vertices, 17 % longer than its own convex
+//!    hull (`TOWN_GENERATOR_JUDGEMENT.md` change 1); measured on the census at
+//!    384 after this, 4 % (median).
+//! 4. The circuit builder's corner cut and simplify can still round a corner
+//!    **inward**, so the result is checked: every mass
 //!    point must stand at least [`MIN_MARGIN_M`] inside the ring. A shortfall
 //!    widens the clearance by that shortfall and the circuit is built again (at
 //!    most [`MAX_REFITS`] times); if that still fails, or the result is not
 //!    smaller than the circuit it replaces, **the original circuit is kept**
 //!    ([`HugOutcome::Kept`]) -- never a wall that cuts through a lot.
-//! 4. Street edges that ran only into the freed band -- a dead-end lane or open
+//! 5. Street edges that ran only into the freed band -- a dead-end lane or open
 //!    branch that fronts no lot and now leaves the new ring -- are removed, so
 //!    no street crosses the wall except at a gate. Primaries are never removed:
 //!    they cross the ring and **gates are re-derived by the same code from the
 //!    primaries that cross the new ring**, so every gate still stands on a
 //!    street. Edges wholly outside the old circuit (ribbon suburbs) are not
 //!    touched.
-//! 5. Wall lots, the faubourg, farmland, details and the citadel are built
+//! 6. Wall lots, the faubourg, farmland, details and the citadel are built
 //!    afterwards from the refitted ring, so they follow it: the citadel stays
 //!    astride the curtain, and fields start at the new wall.
 //!
@@ -281,6 +292,151 @@ pub const OUTLINE_MINOR_SHARE: f64 = 0.05;
 /// under a lot depth, so no lot's outline is cut.
 pub const OUTLINE_OPEN_CELLS: u32 = 2;
 
+/// A two-pass 3-4 chamfer distance over an `nx` by `ny` grid from the cells
+/// `seed` answers true for, in thirds of a cell (within about 8 % of
+/// Euclidean, ample at a 40 m radius). Shared by [`outline`] and
+/// [`largest_open_m2`].
+fn chamfer_grid(nx: usize, ny: usize, seed: &dyn Fn(usize) -> bool) -> Vec<u32> {
+    const INF: u32 = u32::MAX / 2;
+    let mut d: Vec<u32> = (0..nx * ny).map(|k| if seed(k) { 0 } else { INF }).collect();
+    for j in 0..ny {
+        for i in 0..nx {
+            let k = j * nx + i;
+            let mut v = d[k];
+            if i > 0 { v = v.min(d[k - 1] + 3) }
+            if j > 0 {
+                v = v.min(d[k - nx] + 3);
+                if i > 0 { v = v.min(d[k - nx - 1] + 4) }
+                if i + 1 < nx { v = v.min(d[k - nx + 1] + 4) }
+            }
+            d[k] = v;
+        }
+    }
+    for j in (0..ny).rev() {
+        for i in (0..nx).rev() {
+            let k = j * nx + i;
+            let mut v = d[k];
+            if i + 1 < nx { v = v.min(d[k + 1] + 3) }
+            if j + 1 < ny {
+                v = v.min(d[k + nx] + 3);
+                if i + 1 < nx { v = v.min(d[k + nx + 1] + 4) }
+                if i > 0 { v = v.min(d[k + nx - 1] + 4) }
+            }
+            d[k] = v;
+        }
+    }
+    d
+}
+
+/// The most open ground a taut circuit may enclose in one piece, square metres
+/// ([`largest_open_m2`]): the judgement's bar, *"no wall with an unbuilt
+/// patch over 1 ha"* (`TOWN_GENERATOR_JUDGEMENT.md` change 1). **The
+/// judgement's figure**, not tuned.
+pub const OPEN_PATCH_MAX_M2: f64 = 10_000.0;
+/// How far from every lot ground counts as open in [`largest_open_m2`],
+/// metres: the census's own reach (`town_river_census.rs::UNBUILT_REACH_M`,
+/// a deep burgage plot's yard), so the hug and the audit measure the same
+/// thing, here against lots instead of the buildings not yet built.
+pub const OPEN_REACH_M: f64 = 40.0;
+
+/// **Not the reference** (Ruling FE item 1): the largest 4-connected piece of
+/// ground inside the closed loop `ring` that is over [`OPEN_REACH_M`] from
+/// every one of `lots` and is not water (`Site::is_water`, or within half the
+/// river's width and a cell of a river site's centreline), square metres, on
+/// an [`OUTLINE_CELL_M`] grid. The census measures the finished town the
+/// same way (`town_river_census.rs::unbuilt_inside_wall`); [`hug_wall`] reads
+/// this before it builds a taut circuit, so a straight run never walls an
+/// empty field. 0 for a ring under three points.
+pub fn largest_open_m2(ring: &[Vec2], lots: &[&[Vec2]], site: &Site) -> f64 {
+    if ring.len() < 3 {
+        return 0.0;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for p in ring {
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    let c = OUTLINE_CELL_M;
+    let nx = ((x1 - x0) / c).ceil() as usize + 1;
+    let ny = ((y1 - y0) / c).ceil() as usize + 1;
+    let ctr = |i: usize, j: usize| Vec2::new(x0 + (i as f64 + 0.5) * c, y0 + (j as f64 + 0.5) * c);
+    let cell = |p: Vec2| -> Option<usize> {
+        let (i, j) = (((p.x - x0) / c).floor(), ((p.y - y0) / c).floor());
+        (i >= 0.0 && j >= 0.0 && (i as usize) < nx && (j as usize) < ny).then(|| j as usize * nx + i as usize)
+    };
+    let mut occ = vec![false; nx * ny];
+    for poly in lots.iter().filter(|p| p.len() >= 3) {
+        for q in poly.iter() {
+            if let Some(k) = cell(*q) {
+                occ[k] = true;
+            }
+        }
+        let (mut a0, mut b0, mut a1, mut b1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for q in poly.iter() {
+            a0 = a0.min(q.x);
+            b0 = b0.min(q.y);
+            a1 = a1.max(q.x);
+            b1 = b1.max(q.y);
+        }
+        let (i0, i1) = (((a0 - x0) / c).floor().max(0.0) as usize, (((a1 - x0) / c).floor().max(0.0) as usize).min(nx - 1));
+        let (j0, j1) = (((b0 - y0) / c).floor().max(0.0) as usize, (((b1 - y0) / c).floor().max(0.0) as usize).min(ny - 1));
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                if point_in_poly(ctr(i, j), poly) {
+                    occ[j * nx + i] = true;
+                }
+            }
+        }
+    }
+    let d = chamfer_grid(nx, ny, &|k| occ[k]);
+    let reach = (OPEN_REACH_M / c * 3.0).round() as u32;
+    let rk = (site.kind == "river" || site.kind == "riverthrough") && site.river.len() >= 2;
+    let open: Vec<bool> = (0..nx * ny)
+        .map(|k| {
+            if d[k] <= reach {
+                return false;
+            }
+            let q = ctr(k % nx, k / nx);
+            point_in_poly(q, ring) && !site.is_water(q) && !(rk && site.river_dist(q) < site.river_w / 2.0 + c)
+        })
+        .collect();
+    let mut seen = vec![false; nx * ny];
+    let mut best = 0usize;
+    for k0 in 0..nx * ny {
+        if !open[k0] || seen[k0] {
+            continue;
+        }
+        let (mut n, mut st) = (0usize, vec![k0]);
+        seen[k0] = true;
+        while let Some(k) = st.pop() {
+            n += 1;
+            let (i, j) = (k % nx, k / nx);
+            let mut push = |kk: usize| {
+                if open[kk] && !seen[kk] {
+                    seen[kk] = true;
+                    st.push(kk);
+                }
+            };
+            if i > 0 { push(k - 1) }
+            if i + 1 < nx { push(k + 1) }
+            if j > 0 { push(k - nx) }
+            if j + 1 < ny { push(k + nx) }
+        }
+        best = best.max(n);
+    }
+    best as f64 * c * c
+}
+
+/// The pocket caps [`hug_wall`] tries in turn, as fractions of
+/// [`TAUT_POCKET_MAX_M2`]: the full cap, a quarter, and none (the traced
+/// outline in straight runs). A circuit whose open ground passes
+/// [`OPEN_PATCH_MAX_M2`] is pulled less taut. **A labelled judgement**: three
+/// tries are enough to tell a pocket the taut run made from open ground the
+/// outline itself holds (which the last try keeps, as before Ruling FE).
+pub const TAUT_POCKET_STEPS: [f64; 3] = [1.0, 0.25, 0.0];
+
 /// **Not the reference** (2026-11-15, the coordinator's defect (b) on seed
 /// 12345: a refitted wall round a large unbuilt patch between two lobes of a
 /// river town). The outline of the built mass grown by `pad`, with every gap
@@ -348,39 +504,7 @@ pub fn outline(polys: &[&[Vec2]], pts: &[Vec2], pad: f64, keep: Option<Vec2>) ->
         let (i, j) = cell(*q);
         occ[j * nx + i] = true;
     }
-    // A two-pass 3-4 chamfer distance from `seed` cells, in thirds of a cell
-    // (within about 8 % of Euclidean, ample at a 40 m radius).
-    let chamfer = |seed: &dyn Fn(usize) -> bool| -> Vec<u32> {
-        const INF: u32 = u32::MAX / 2;
-        let mut d: Vec<u32> = (0..nx * ny).map(|k| if seed(k) { 0 } else { INF }).collect();
-        for j in 0..ny {
-            for i in 0..nx {
-                let k = j * nx + i;
-                let mut v = d[k];
-                if i > 0 { v = v.min(d[k - 1] + 3) }
-                if j > 0 {
-                    v = v.min(d[k - nx] + 3);
-                    if i > 0 { v = v.min(d[k - nx - 1] + 4) }
-                    if i + 1 < nx { v = v.min(d[k - nx + 1] + 4) }
-                }
-                d[k] = v;
-            }
-        }
-        for j in (0..ny).rev() {
-            for i in (0..nx).rev() {
-                let k = j * nx + i;
-                let mut v = d[k];
-                if i + 1 < nx { v = v.min(d[k + 1] + 3) }
-                if j + 1 < ny {
-                    v = v.min(d[k + nx] + 3);
-                    if i + 1 < nx { v = v.min(d[k + nx + 1] + 4) }
-                    if i > 0 { v = v.min(d[k + nx - 1] + 4) }
-                }
-                d[k] = v;
-            }
-        }
-        d
-    };
+    let chamfer = |seed: &dyn Fn(usize) -> bool| chamfer_grid(nx, ny, seed);
     let units = |metres: f64| (metres / OUTLINE_CELL_M * 3.0).round() as u32;
     let d_occ = chamfer(&|k| occ[k]);
     let dilated: Vec<bool> = d_occ.iter().map(|&v| v <= units(CLOSE_R_M)).collect();
@@ -509,6 +633,318 @@ pub fn outline(polys: &[&[Vec2]], pts: &[Vec2], pad: f64, keep: Option<Vec2>) ->
         ring.reverse();
     }
     Some((ring, dropped))
+}
+
+/// The most unbuilt ground [`tauten`] may enclose under one straight run, square
+/// metres: the area between a run and the stretch of [`outline`] (or
+/// [`envelope`]) it replaces. **A labelled judgement** (Ruling FE item 1, owner
+/// 2026-11-15: a taut wall, accepting *"about a fifth more open ground inside
+/// the wall"*): under the judgement's bar of no unbuilt patch over 1 ha inside
+/// the wall (`TOWN_GENERATOR_JUDGEMENT.md` change 1, measured by
+/// `town_river_census.rs::unbuilt_inside_wall`, which counts only ground over
+/// 40 m from every building), so a pocket larger than this keeps its
+/// re-entrant corner. Chosen on the census at 384 (three seeds, 31 walled
+/// towns of 1 500 and up, 2026-11-15): 3 000 m2 gave a wall-to-hull median of
+/// 1.09 and 5 000 m2 1.07, both over the judgement's 1.06; 8 000 m2 gave 1.04
+/// and 12 000 m2 1.03, with two and four walls over a 1 ha patch before the
+/// open-ground guard ([`taut_hull`]) was added.
+pub const TAUT_POCKET_MAX_M2: f64 = 8_000.0;
+/// The shortest curtain run [`tauten`] leaves between two convex towers,
+/// metres. **A labelled judgement** from the judgement's *"straight curtain runs
+/// of roughly 40 to 100 m between towers"* (change 1), its lower end; it also
+/// meets the vertex bar (at most one vertex per 35 m of wall).
+pub const TAUT_MIN_RUN_M: f64 = 40.0;
+/// The longest curtain run between two towers, metres
+/// ([`subdivide_runs`]): a longer straight run gets towers at equal steps.
+/// **A labelled judgement**, the upper end of the judgement's 40-100 m, less a
+/// tenth so a run just over it is not split into two 50 m halves needlessly.
+pub const TAUT_MAX_RUN_M: f64 = 90.0;
+/// The sharpest turn [`tauten`] may make at a tower it creates by extending two
+/// runs to meet, radians (75 degrees). **A labelled judgement**: a corner
+/// turned further than this is a spike, which a builder would bevel; the
+/// circuit builder's own `corner_cut` bevels interior angles under 1.75 rad
+/// (100 degrees), which a 75-degree turn (105-degree interior) stays clear of.
+pub const TAUT_MAX_TURN: f64 = 75.0 * PI / 180.0;
+/// The tolerance a taut circuit's runs and bank walk are simplified to,
+/// metres (`fortify::build_wall_from_mass` with `BuiltMass::taut`): it drops the
+/// circuit builder's 8 m resampling of a straight run and the cell steps of a
+/// bank, and moves no point of the wall more than this. **A labelled
+/// judgement**: under [`MIN_MARGIN_M`], so the margin test absorbs it.
+pub const TAUT_SIMPLIFY_M: f64 = 1.0;
+
+/// **Not the reference** (Ruling FE item 1, owner 2026-11-15, refining Ruling
+/// EW item 1: *"Wall: taut. Straight curtain runs between towers"*). The
+/// shortest-looking circuit round `ring` (a closed outline of the built mass,
+/// [`outline`] or [`envelope`]) that never moves a point of it inward: straight
+/// runs of at least [`TAUT_MIN_RUN_M`] between towers, and a re-entrant corner
+/// only where straightening it would enclose more than `pocket_max` square
+/// metres of ground the outline left out.
+///
+/// **Why.** The traced outline follows every bay of the built area in a
+/// scalloped line of about 390 vertices, 17 % longer (median) than its own
+/// convex hull (the judgement's measure, `TOWN_GENERATOR_JUDGEMENT.md` change
+/// 1). A wall was paid for by the metre, which is Ruling EW item 1's own
+/// reason for hugging, so a hug that spends more wall to enclose less ground
+/// contradicts it.
+///
+/// **How.** Greedy, cheapest first, by the ground each step adds; two steps,
+/// both of which only ever move the line outward:
+/// - **fill a re-entrant**: a reflex vertex is dropped, its two runs replaced
+///   by the chord between their far ends (adds the triangle outside);
+/// - **merge a short run**: a run under [`TAUT_MIN_RUN_M`] between two convex
+///   vertices is removed by extending its neighbours until they meet (adds the
+///   triangle beyond it), unless that turns sharper than [`TAUT_MAX_TURN`].
+///
+/// Each run carries the ground it has added (its pocket); a step whose
+/// merged pocket would pass `pocket_max` is not taken. A step whose new runs
+/// would cross the loop or swallow one of its vertices is not taken either.
+/// Stops when no step is allowed. Returns `ring` itself under four points.
+///
+/// **Must never** move a point of `ring` inward (every result point is on or
+/// outside it), return a loop that crosses itself, or fill a pocket larger
+/// than `pocket_max`.
+pub fn tauten(ring: &[Vec2], pocket_max: f64) -> Vec<Vec2> {
+    let mut v: Vec<Vec2> = Vec::with_capacity(ring.len());
+    for p in ring {
+        if v.last().is_none_or(|q: &Vec2| q.dist(*p) > 1e-6) {
+            v.push(*p);
+        }
+    }
+    while v.len() > 1 && v[0].dist(v[v.len() - 1]) <= 1e-6 {
+        v.pop();
+    }
+    if v.len() < 4 {
+        return ring.to_vec();
+    }
+    let orient = poly_area(&v).signum();
+    if orient == 0.0 {
+        return ring.to_vec();
+    }
+    // `pocket[i]` is the ground run `i` (from `v[i]` to `v[i + 1]`) has added.
+    let mut pocket = vec![0.0f64; v.len()];
+    let tri = |a: Vec2, b: Vec2, c: Vec2| ((b - a).cross(c - a) / 2.0).abs();
+    // The turn at `b` on the path a-b-c, signed so a convex vertex is positive.
+    let turn = |a: Vec2, b: Vec2, c: Vec2| (b - a).cross(c - b) * orient;
+    // Whether segment p-q properly crosses a run of `v` other than the runs
+    // `skip` names (by their start index), or has a vertex other than
+    // `own` strictly inside triangle `t`.
+    let blocked = |v: &[Vec2], segs: &[(Vec2, Vec2)], skip: &[usize], t: [Vec2; 3], own: &[usize]| -> bool {
+        let n = v.len();
+        for i in 0..n {
+            if !skip.contains(&i) {
+                for &(p, q) in segs {
+                    if let Some(h) = seg_int(p, q, v[i], v[(i + 1) % n])
+                        && h.t > 1e-9
+                        && h.t < 1.0 - 1e-9
+                        && h.u > 1e-9
+                        && h.u < 1.0 - 1e-9
+                    {
+                        return true;
+                    }
+                }
+            }
+            if !own.contains(&i) {
+                let (a, b, c) = (t[0], t[1], t[2]);
+                let s1 = (b - a).cross(v[i] - a);
+                let s2 = (c - b).cross(v[i] - b);
+                let s3 = (a - c).cross(v[i] - c);
+                if (s1 > 1e-9 && s2 > 1e-9 && s3 > 1e-9) || (s1 < -1e-9 && s2 < -1e-9 && s3 < -1e-9) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    // One step: `Fill(i)` drops reflex vertex `i`; `Merge(i, x)` replaces
+    // run `i` (vertices `i`, `i + 1`) by the meeting point `x`.
+    #[derive(Clone, Copy)]
+    enum Step {
+        Fill(usize),
+        Merge(usize, Vec2),
+    }
+    loop {
+        let n = v.len();
+        if n <= 4 {
+            break;
+        }
+        let at = |k: usize| v[k % n];
+        let mut cands: Vec<(f64, Step)> = Vec::new();
+        for i in 0..n {
+            let (u, c, w) = (at(i + n - 1), at(i), at(i + 1));
+            if turn(u, c, w) <= 0.0 {
+                let add = tri(u, c, w);
+                if pocket[(i + n - 1) % n] + pocket[i] + add <= pocket_max {
+                    cands.push((add, Step::Fill(i)));
+                }
+            }
+            let (v0, v1, v2, v3) = (at(i + n - 1), at(i), at(i + 1), at(i + 2));
+            if v1.dist(v2) < TAUT_MIN_RUN_M && turn(v0, v1, v2) > 0.0 && turn(v1, v2, v3) > 0.0 {
+                let (d1, d2) = (v1 - v0, v2 - v3);
+                let den = d1.cross(d2);
+                if den.abs() > 1e-12 {
+                    // v1 + d1 * t = v2 + d2 * s, both forward (t, s >= 0).
+                    let t = (v2 - v1).cross(d2) / den;
+                    let s = (v2 - v1).cross(d1) / den;
+                    let x = v1 + d1 * t;
+                    let ang = js_acos_clamped(d1.norm().dot((v3 - x).norm()));
+                    if t >= 0.0 && s >= 0.0 && ang <= TAUT_MAX_TURN {
+                        let add = tri(v1, x, v2);
+                        let half = pocket[i] / 2.0 + add / 2.0;
+                        if pocket[(i + n - 1) % n] + half <= pocket_max && pocket[(i + 1) % n] + half <= pocket_max {
+                            cands.push((add, Step::Merge(i, x)));
+                        }
+                    }
+                }
+            }
+        }
+        cands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut done = false;
+        for (add, step) in cands {
+            match step {
+                Step::Fill(i) => {
+                    let (ip, inx) = ((i + n - 1) % n, (i + 1) % n);
+                    let (u, w) = (v[ip], v[inx]);
+                    if blocked(&v, &[(u, w)], &[(ip + n - 1) % n, ip, i, inx], [u, v[i], w], &[ip, i, inx]) {
+                        continue;
+                    }
+                    let merged = pocket[ip] + pocket[i] + add;
+                    pocket[ip] = merged;
+                    v.remove(i);
+                    pocket.remove(i);
+                }
+                Step::Merge(i, x) => {
+                    let (ip, i2) = ((i + n - 1) % n, (i + 1) % n);
+                    let (v0, v3) = (v[ip], v[(i + 2) % n]);
+                    if blocked(&v, &[(v0, x), (x, v3)], &[(ip + n - 1) % n, ip, i, i2, (i + 2) % n], [v[i], x, v[i2]], &[ip, i, i2, (i + 2) % n]) {
+                        continue;
+                    }
+                    let half = pocket[i] / 2.0 + add / 2.0;
+                    pocket[ip] += half;
+                    pocket[i2] += half;
+                    v[i] = x;
+                    // Run `i` (now x -> v3) takes run `i2`'s pocket.
+                    pocket[i] = pocket[i2];
+                    v.remove(i2);
+                    pocket.remove(i2);
+                }
+            }
+            done = true;
+            break;
+        }
+        if !done {
+            break;
+        }
+    }
+    v
+}
+
+/// **Not the reference** (Ruling FE item 1): `pts` (a stretch of a closed
+/// loop whose shoelace sign is `orient`) simplified like `geom::simplify`
+/// (Douglas-Peucker to `tol` metres), but a point may be dropped only when
+/// the chord that replaces it passes **outside** it (on the side away from
+/// the loop's interior) or through it: the line moves outward by at most
+/// `tol` and never inward. Why: a taut circuit's runs and its bank walk are
+/// simplified after the margin a lot or street is owed was met, and a plain
+/// simplify pulled the bank walk a metre landward, across the end of a
+/// street at the shore (seed 42, 5 000, inland, `wallhug/tests.rs`'s gate
+/// test, 2026-11-15). The first and last points stay. With `closed` the
+/// stretch is the whole loop: its first point is repeated at the end for the
+/// test and not returned twice.
+pub fn simplify_out(pts: &[Vec2], tol: f64, orient: f64, closed: bool) -> Vec<Vec2> {
+    let mut p: Vec<Vec2> = pts.to_vec();
+    if closed && !p.is_empty() {
+        p.push(p[0]);
+    }
+    if p.len() < 3 {
+        return pts.to_vec();
+    }
+    let last = p.len() - 1;
+    let mut keep = vec![false; p.len()];
+    keep[0] = true;
+    keep[last] = true;
+    let mut stack = vec![(0usize, last)];
+    while let Some((a, b)) = stack.pop() {
+        if b <= a + 1 {
+            continue;
+        }
+        let (pa, pb) = (p[a], p[b]);
+        let len = pa.dist(pb).max(1e-9);
+        // Worst point: the one the chord would leave outside (inward
+        // deviation), else the one farthest from it.
+        let (mut worst, mut wi, mut out) = (-1.0f64, a + 1, false);
+        for i in (a + 1)..b {
+            let side = (pb - pa).cross(p[i] - pa) * orient / len;
+            let d = dist_pt_seg(p[i], pa, pb);
+            let is_out = side < -1e-6;
+            if (is_out && !out) || (is_out == out && d > worst) {
+                worst = d;
+                wi = i;
+                out = is_out;
+            }
+        }
+        if out || worst > tol {
+            keep[wi] = true;
+            stack.push((a, wi));
+            stack.push((wi, b));
+        }
+    }
+    let mut r: Vec<Vec2> = p.iter().zip(&keep).filter(|(_, k)| **k).map(|(q, _)| *q).collect();
+    if closed {
+        r.pop();
+    }
+    r
+}
+
+/// `acos` of `c` clamped to [-1, 1], for [`tauten`]'s turn test (not a ported
+/// expression, so `geom::js_acos` is not needed).
+fn js_acos_clamped(c: f64) -> f64 {
+    c.clamp(-1.0, 1.0).acos()
+}
+
+/// `ring` (a closed loop) with every run longer than [`TAUT_MAX_RUN_M`] split
+/// into equal runs no longer than it, so a tower stands at least every
+/// [`TAUT_MAX_RUN_M`] metres: the viewer draws a round tower at every vertex of
+/// a curtain (`urban_layout_draw.gd`'s `_draw_wall`). `closed` false treats
+/// `ring` as an open line (a land arc or a bank walk). The added points are on
+/// the runs, so the wall's line does not move.
+pub fn subdivide_runs(ring: &[Vec2], closed: bool) -> Vec<Vec2> {
+    let n = ring.len();
+    if n < 2 {
+        return ring.to_vec();
+    }
+    let last = if closed { n } else { n - 1 };
+    let mut out = Vec::with_capacity(n * 2);
+    for i in 0..last {
+        let (a, b) = (ring[i], ring[(i + 1) % n]);
+        let k = (a.dist(b) / TAUT_MAX_RUN_M).ceil().max(1.0) as usize;
+        for j in 0..k {
+            out.push(a.lerp(b, j as f64 / k as f64));
+        }
+    }
+    if !closed {
+        out.push(ring[n - 1]);
+    }
+    out
+}
+
+/// **Not the reference** (Ruling FE item 1): the traced `hull` pulled taut
+/// ([`tauten`]) with the first pocket cap of [`TAUT_POCKET_STEPS`] (times
+/// `pocket_max`) whose circuit encloses no open piece over
+/// [`OPEN_PATCH_MAX_M2`] ([`largest_open_m2`] against `lots`), and `true`.
+/// When no cap does, the open ground is the traced outline's own (the
+/// outline closes gaps under `2 * CLOSE_R_M` wide, and a long one can hold
+/// more than a hectare), so the full cap's circuit is returned, the tautest,
+/// with `false`; [`hug_wall`] then tries its other circuits first. Must never
+/// return `true` for a circuit over the bar, or pull less taut than the first
+/// cap that meets it.
+pub fn taut_hull(hull: &[Vec2], lots: &[&[Vec2]], site: &Site, pocket_max: f64) -> (Vec<Vec2>, bool) {
+    for step in TAUT_POCKET_STEPS {
+        let taut = tauten(hull, pocket_max * step);
+        if largest_open_m2(&taut, lots, site) <= OPEN_PATCH_MAX_M2 {
+            return (taut, true);
+        }
+    }
+    (tauten(hull, pocket_max * TAUT_POCKET_STEPS[0]), false)
 }
 
 /// The first proper crossing of the closed loop `ring` with itself: edges
@@ -760,7 +1196,14 @@ pub fn hug_wall(
         cands.push((false, all_lots.iter().copied().filter(|(c, _)| site.bank_side(*c) == mkt_side).collect()));
     }
     let mut last = KeptReason::MarginNotMet;
-    'cand: for (spans, lots_c) in cands {
+    // Ruling FE item 1: two passes over the candidates. The first takes only
+    // a circuit [`taut_hull`] could pull taut without walling open ground
+    // over [`OPEN_PATCH_MAX_M2`], so a circuit across the river round an
+    // empty far-bank field gives way to the market bank's own (seed 246371 #2
+    // at 384, 2026-11-15: 1.64 ha); the second, only when no candidate passed
+    // the first, takes the tautest circuit as before.
+    for strict in [true, false] {
+    'cand: for (spans, lots_c) in cands.iter().cloned() {
         let mut mass: Vec<Vec2> = if spans == spans_water { mass.clone() } else { lots_c.iter().flat_map(|(_, p)| p.iter().copied()).collect() };
         // A circuit across the river (riverbank sites): the water between the
         // two banks' quarters joins their outlines, so the wall crosses the
@@ -859,7 +1302,15 @@ pub fn hug_wall(
             } else {
                 envelope(c0, &mass, pad)
             };
-            let built = BuiltMass { hull, spans_water: spans, exact: rb };
+            // Ruling FE item 1 (2026-11-15): the traced hull pulled taut into
+            // straight runs between towers ([`tauten`]); it only moves outward,
+            // so the margin below still holds or the refit widens as before.
+            let (hull, open_ok) = taut_hull(&hull, &out_polys, site, TAUT_POCKET_MAX_M2);
+            if strict && !open_ok {
+                last = KeptReason::Refused;
+                continue 'cand;
+            }
+            let built = BuiltMass { hull, spans_water: spans, exact: rb, taut: true };
             build_wall_from_mass(seed, site, anchors, g, &mut trial, wall_state.epoch, harbour, opts, built, false);
             let Some(ring) = trial.ring.clone() else {
                 last = KeptReason::Refused;
@@ -924,6 +1375,7 @@ pub fn hug_wall(
             pad += MIN_MARGIN_M - margin + 1.0;
             last = KeptReason::MarginNotMet;
         }
+    }
     }
     HugOutcome::Kept(last)
 }

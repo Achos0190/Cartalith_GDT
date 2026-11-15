@@ -195,6 +195,10 @@ pub fn defaults() -> WorldParams {
     // reference's layouts every urban golden pins (`DECISIONS.md` section 7p).
     // See `WorldParams::urban_riverbank`.
     p.urban_riverbank = true;
+    // Ruling FE item 2 (2026-11-15): villages are street villages. Off in
+    // `WorldParams::defaults`, the reference's layouts every urban golden pins
+    // (`DECISIONS.md` section 7p). See `WorldParams::urban_street_village`.
+    p.urban_street_village = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -404,6 +408,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_riverbank", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns build to the bank", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_riverbank), set_fn: |p, v| p.urban_riverbank = v != 0.0 },
+    // Ruling FE item 2 (2026-11-15): street villages. ON at the app boundary,
+    // OFF in `WorldParams::defaults`; no reference control (the reference
+    // lays a village out as a small town). A save without the key loads OFF
+    // (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for, so it
+    // invalidates nothing and `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_street_village", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Villages line their roads", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_street_village), set_fn: |p, v| p.urban_street_village = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1063,6 +1075,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_river_kind_map", ""),
     // Port-only (2026-11-15, Ruling EX's follow-ups); the reference counts a real river's half-width twice.
     ("urban_riverbank", ""),
+    // Port-only (Ruling FE item 2); the reference lays a village out as a small town.
+    ("urban_street_village", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1394,6 +1408,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // River towns build to the bank (2026-11-15): every save without the key
     // drew its river towns a doubled half-width back from the water.
     ("urban_riverbank", Value::Bool(false)),
+    // Street villages (Ruling FE item 2, 2026-11-15): every save without the
+    // key drew its villages as the reference's small-town blocks.
+    ("urban_street_village", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

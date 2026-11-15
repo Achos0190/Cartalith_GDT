@@ -1,0 +1,682 @@
+  #  1 river river_w 45 street 5.4 built-to-bank 5 m (parcel 5, block 4, street 2) mask 0 in channel 0 in mask 203 in open water 0 in poly 0 of 4249
+  #  2 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 105 in open water 0 in poly 0 of 4187
+  #  3 river river_w 38 street 5.0 built-to-bank 7 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 116
+  #  4 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 114
+  #  5 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 92
+  #  6 river river_w 38 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 91
+  #  7 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 104 in open water 0 in poly 0 of 4106
+  #  8 riverthrough river_w 31 street 5.2 built-to-bank 7 m (parcel 7, block 5, street 1) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 36
+  #  9 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 91 in open water 0 in poly 0 of 3485
+  # 10 riverthrough river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 139 in open water 0 in poly 0 of 5725
+  # 11 river river_w 38 street 5.4 built-to-bank 1 m (parcel 1, block 9, street 15) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 299
+  # 12 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 89 in open water 0 in poly 0 of 2232
+  # 13 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 2, street 1) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 86
+  # 14 river river_w 31 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 96
+  # 15 river river_w 31 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 0) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 132
+  # 16 river river_w 24 street 5.4 built-to-bank 2 m (parcel 1, block 2, street 2) mask 0 in channel 0 in mask 72 in open water 0 in poly 0 of 1875
+  # 17 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 103
+  # 18 river river_w 38 street 5.3 built-to-bank 7 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 83
+  # 19 river river_w 38 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 93
+  # 20 river river_w 31 street 5.0 built-to-bank 7 m (parcel 7, block 0, street 0) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 77
+  # 21 river river_w 24 street 5.4 built-to-bank 15 m (parcel 15, block 15, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 81
+  # 22 river river_w 24 street 5.2 built-to-bank 13 m (parcel 13, block 3, street 2) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 81
+  # 23 river river_w 24 street 5.4 built-to-bank 38 m (parcel 36, block 21, street 3) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 93
+  # 24 river river_w 31 street 5.4 built-to-bank 3 m (parcel 1, block 0, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 747
+  # 25 river river_w 17 street 5.3 built-to-bank 368 m (parcel 368, block 247, street 240) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 75
+  # 26 river river_w 24 street 5.4 built-to-bank 227 m (parcel 227, block 227, street 49) mask 197 in channel 0 in mask 0 in open water 0 in poly 0 of 104
+  # 27 river river_w 31 street 5.4 built-to-bank 25 m (parcel 17, block 7, street 1) mask 6 in channel 0 in mask 0 in open water 0 in poly 0 of 79
+  # 28 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 65
+  # 29 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 4, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 74
+  # 30 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 7, street 3) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 32
+  # 31 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 69
+  # 32 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 109
+  # 33 river river_w 17 street 5.3 built-to-bank 511 m (parcel 511, block 511, street 350) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 83
+  # 34 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 114
+  # 35 river river_w 24 street 5.3 built-to-bank 10 m (parcel 10, block 17, street 6) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 357
+  # 36 riverthrough river_w 24 street 5.4 built-to-bank 4 m (parcel 0, block 3, street 3) mask 0 in channel 0 in mask 59 in open water 0 in poly 0 of 1891
+  # 37 river river_w 24 street 5.4 built-to-bank 270 m (parcel 270, block 270, street 232) mask 256 in channel 0 in mask 0 in open water 0 in poly 0 of 118
+  # 38 river river_w 38 street 5.3 built-to-bank 7 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 401
+  # 39 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 1 in channel 0 in mask 0 in open water 0 in poly 0 of 108
+  # 40 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 120
+  # 41 river river_w 38 street 5.3 built-to-bank 5 m (parcel 5, block 2, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 97
+  # 42 river river_w 38 street 5.3 built-to-bank 37 m (parcel 37, block 22, street 2) mask 21 in channel 0 in mask 0 in open water 0 in poly 0 of 38
+  # 43 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 71
+  # 44 river river_w 38 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 101
+  # 45 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 56 in open water 0 in poly 0 of 122
+  # 46 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 69
+  # 47 river river_w 38 street 5.3 built-to-bank 9 m (parcel 9, block 4, street 1) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 81
+  # 48 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 1) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 81
+  # 49 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 100
+  # 50 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 74
+  # 51 river river_w 38 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 82
+  # 52 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 99
+  # 53 river river_w 31 street 5.3 built-to-bank 9 m (parcel 5, block 5, street 2) mask 1 in channel 0 in mask 0 in open water 0 in poly 0 of 93
+  # 54 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 58
+  # 55 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 83
+  # 56 river river_w 31 street 5.2 built-to-bank 7 m (parcel 7, block 4, street 3) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 72
+  # 57 river river_w 38 street 5.3 built-to-bank 1 m (parcel 1, block 1, street 0) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 96
+  # 58 river river_w 31 street 5.1 built-to-bank 4 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 37 in open water 0 in poly 0 of 93
+  # 59 river river_w 38 street 5.3 built-to-bank 16 m (parcel 16, block 3, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 32
+  # 60 river river_w 38 street 5.2 built-to-bank 4 m (parcel 4, block 3, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 83
+  # 61 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 110
+  # 62 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 44 in open water 0 in poly 0 of 121
+  # 63 river river_w 31 street 5.3 built-to-bank 105 m (parcel 105, block 103, street 3) mask 88 in channel 0 in mask 0 in open water 0 in poly 0 of 137
+  # 64 river river_w 31 street 5.2 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 125
+  # 65 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 105
+  # 66 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 108
+  # 67 river river_w 38 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 99
+  # 68 river river_w 24 street 5.3 built-to-bank 53 m (parcel 52, block 52, street 49) mask 25 in channel 0 in mask 0 in open water 0 in poly 0 of 97
+  # 69 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 3, street 2) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 93
+  # 70 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 111
+  # 71 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 66
+  # 72 river river_w 31 street 5.3 built-to-bank 7 m (parcel 7, block 7, street 3) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 79
+  # 73 river river_w 17 street 5.3 built-to-bank 400 m (parcel 396, block 199, street 193) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 69
+  # 76 river river_w 31 street 5.1 built-to-bank 9 m (parcel 9, block 9, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 91
+  # 77 river river_w 24 street 5.3 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 97
+  # 78 river river_w 38 street 5.2 built-to-bank 4 m (parcel 4, block 2, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 81
+  # 79 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 78
+  # 80 river river_w 24 street 5.4 built-to-bank 13 m (parcel 11, block 4, street 3) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 96
+  # 81 river river_w 31 street 4.0 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 26
+  # 82 river river_w 24 street 5.1 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 109
+  # 83 river river_w 38 street 5.0 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 101
+  # 84 river river_w 17 street 5.3 built-to-bank 465 m (parcel 463, block 454, street 342) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 53
+  # 85 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 46 in open water 0 in poly 0 of 107
+  # 86 river river_w 24 street 5.3 built-to-bank 7 m (parcel 7, block 4, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 66
+  # 87 river river_w 24 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 1) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 79
+  # 88 river river_w 24 street 5.4 built-to-bank 89 m (parcel 89, block 2, street 2) mask 71 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  # 89 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 96
+  # 90 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 76
+  # 91 river river_w 24 street 5.4 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 109
+  # 92 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 51 in open water 0 in poly 0 of 73
+  # 93 river river_w 38 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 96
+  # 94 river river_w 38 street 5.0 built-to-bank 6 m (parcel 4, block 3, street 3) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 94
+  # 95 river river_w 17 street 5.4 built-to-bank 501 m (parcel 501, block 429, street 367) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 33
+  # 97 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 79
+  # 98 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 47 in open water 0 in poly 0 of 96
+  # 99 river river_w 24 street 5.2 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 103
+  #100 riverthrough river_w 38 street 5.4 built-to-bank 4 m (parcel 3, block 1, street 0) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 80
+  #101 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 81
+  #102 river river_w 24 street 5.2 built-to-bank 7 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 74
+  #103 river river_w 17 street 5.3 built-to-bank 145 m (parcel 145, block 145, street 3) mask 138 in channel 0 in mask 0 in open water 0 in poly 0 of 101
+  #104 river river_w 17 street 5.4 built-to-bank 32 m (parcel 32, block 3, street 1) mask 26 in channel 0 in mask 0 in open water 0 in poly 0 of 102
+  #105 river river_w 17 street 5.2 built-to-bank 350 m (parcel 350, block 350, street 210) mask 26 in channel 0 in mask 0 in open water 0 in poly 0 of 65
+  #106 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 3 in channel 0 in mask 0 in open water 0 in poly 0 of 100
+  #107 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 101
+  #108 river river_w 24 street 5.4 built-to-bank 18 m (parcel 18, block 6, street 3) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 45
+  #109 river river_w 17 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 93
+  #110 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 96
+  #111 river river_w 31 street 5.1 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 79
+  #112 river river_w 17 street 5.3 built-to-bank 224 m (parcel 224, block 45, street 41) mask 229 in channel 0 in mask 0 in open water 0 in poly 0 of 68
+  #113 river river_w 24 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 94
+  #114 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 69
+  #115 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 118
+  #116 river river_w 17 street 5.4 built-to-bank 7 m (parcel 3, block 3, street 1) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 79
+  #117 river river_w 17 street 5.4 built-to-bank 15 m (parcel 4, block 4, street 3) mask 3 in channel 0 in mask 0 in open water 0 in poly 0 of 82
+  #118 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 115
+  #119 river river_w 38 street 5.3 built-to-bank 22 m (parcel 7, block 7, street 2) mask 15 in channel 0 in mask 0 in open water 0 in poly 0 of 118
+  #120 river river_w 38 street 5.2 built-to-bank 7 m (parcel 7, block 7, street 2) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 77
+  #121 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 94
+  #122 river river_w 38 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 103
+  #123 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 108
+  #124 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 40 in open water 0 in poly 0 of 71
+  #125 river river_w 38 street 5.3 built-to-bank 71 m (parcel 71, block 28, street 1) mask 58 in channel 0 in mask 0 in open water 0 in poly 0 of 63
+  #126 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 87
+  #127 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 73
+  #128 river river_w 17 street 5.3 built-to-bank 6 m (parcel 3, block 3, street 2) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 137
+  #129 river river_w 31 street 5.2 built-to-bank 3 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 96
+  #130 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 73
+  #131 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 84
+  #132 river river_w 17 street 5.3 built-to-bank 365 m (parcel 323, block 311, street 178) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 51
+  #134 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 4, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 76
+  #136 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 4) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 96
+  #137 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 87
+  #138 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 97
+  #139 river river_w 17 street 5.3 built-to-bank 369 m (parcel 369, block 370, street 314) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 89
+  #140 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 38 in open water 0 in poly 0 of 97
+  #141 river river_w 17 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 80
+  #142 river river_w 17 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 70
+  #143 river river_w 24 street 5.3 built-to-bank 29 m (parcel 23, block 21, street 2) mask 1 in channel 0 in mask 0 in open water 0 in poly 0 of 66
+  #144 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 94
+  #145 river river_w 24 street 5.3 built-to-bank 64 m (parcel 64, block 64, street 2) mask 41 in channel 0 in mask 0 in open water 0 in poly 0 of 24
+  #146 river river_w 17 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 0) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 101
+  #147 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 24
+  #148 river river_w 24 street 5.2 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 72
+  #149 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 111
+  #150 river river_w 17 street 5.3 built-to-bank 281 m (parcel 281, block 273, street 165) mask 269 in channel 0 in mask 0 in open water 0 in poly 0 of 35
+  #151 river river_w 24 street 5.2 built-to-bank 217 m (parcel 190, block 81, street 76) mask 199 in channel 0 in mask 0 in open water 0 in poly 0 of 112
+  #152 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 106
+  #153 river river_w 17 street 5.4 built-to-bank 460 m (parcel 460, block 315, street 309) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 113
+  #154 river river_w 24 street 5.4 built-to-bank 23 m (parcel 2, block 2, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 79
+  #155 river river_w 38 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 75
+  #156 river river_w 17 street 5.0 built-to-bank 85 m (parcel 85, block 85, street 43) mask 85 in channel 0 in mask 0 in open water 0 in poly 0 of 43
+  #157 river river_w 17 street 5.1 built-to-bank 188 m (parcel 4, block 4, street 2) mask 194 in channel 0 in mask 0 in open water 0 in poly 0 of 81
+  #158 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 87
+  #159 river river_w 17 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 2) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 91
+  #160 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 48 in open water 0 in poly 0 of 82
+  #161 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 70
+  #162 river river_w 24 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 4) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 100
+  #163 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 1) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 76
+  #164 river river_w 31 street 5.4 built-to-bank 5 m (parcel 5, block 4, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 96
+  #165 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 110
+  #166 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 85
+  #168 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 78
+  #170 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 106
+  #172 river river_w 24 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 123
+  #173 river river_w 17 street 5.4 built-to-bank 8 m (parcel 3, block 2, street 1) mask 1 in channel 0 in mask 0 in open water 0 in poly 0 of 71
+  #174 river river_w 24 street 5.1 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 103
+  #175 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 51
+  #176 river river_w 24 street 5.4 built-to-bank 99 m (parcel 99, block 99, street 2) mask 80 in channel 0 in mask 0 in open water 0 in poly 0 of 91
+  #177 river river_w 24 street 5.3 built-to-bank 4 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 67
+  #178 river river_w 24 street 5.4 built-to-bank 84 m (parcel 84, block 84, street 2) mask 61 in channel 0 in mask 0 in open water 0 in poly 0 of 62
+  #179 river river_w 24 street 5.4 built-to-bank 5 m (parcel 5, block 4, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 107
+  #180 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 1 in channel 0 in mask 0 in open water 0 in poly 0 of 100
+  #182 river river_w 24 street 5.3 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 88
+  #183 river river_w 38 street 5.1 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 80
+  #184 river river_w 24 street 5.2 built-to-bank 97 m (parcel 14, block 3, street 1) mask 79 in channel 0 in mask 0 in open water 0 in poly 0 of 67
+  #185 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 79
+  #186 river river_w 17 street 5.4 built-to-bank 337 m (parcel 337, block 337, street 257) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 72
+  #187 river river_w 17 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 3) mask 6 in channel 0 in mask 0 in open water 0 in poly 0 of 31
+  #188 river river_w 17 street 5.3 built-to-bank 371 m (parcel 371, block 75, street 70) mask 372 in channel 0 in mask 0 in open water 0 in poly 0 of 68
+  #189 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 95
+  #190 river river_w 17 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 101
+  #191 river river_w 17 street 5.4 built-to-bank 546 m (parcel 546, block 546, street 405) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 37
+  #192 river river_w 17 street 5.4 built-to-bank 11 m (parcel 11, block 11, street 3) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 98
+  #195 river river_w 17 street 5.3 built-to-bank 476 m (parcel 476, block 476, street 273) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 40
+  #196 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 90
+  #197 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 88
+  #199 river river_w 17 street 5.1 built-to-bank 6 m (parcel 6, block 6, street 2) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  #200 river river_w 17 street 5.3 built-to-bank 11 m (parcel 11, block 7, street 2) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 80
+  #201 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 104
+  #202 river river_w 17 street 5.4 built-to-bank 538 m (parcel 538, block 538, street 450) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 71
+  #203 river river_w 17 street 5.4 built-to-bank 235 m (parcel 235, block 235, street 133) mask 230 in channel 0 in mask 0 in open water 0 in poly 0 of 71
+  #204 river river_w 17 street 5.1 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 93
+  #205 river river_w 17 street 5.2 built-to-bank 527 m (parcel 527, block 527, street 498) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 88
+  #206 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 80
+  #207 river river_w 17 street 5.4 built-to-bank 26 m (parcel 2, block 2, street 2) mask 27 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  #208 river river_w 17 street 5.4 built-to-bank 86 m (parcel 86, block 56, street 52) mask 90 in channel 0 in mask 0 in open water 0 in poly 0 of 70
+  #209 river river_w 24 street 5.4 built-to-bank 14 m (parcel 9, block 9, street 1) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 62
+  #210 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 77
+  #211 river river_w 24 street 5.1 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 106
+  #212 river river_w 24 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 113
+  #213 river river_w 17 street 5.3 built-to-bank 3 m (parcel 2, block 2, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 125
+  #214 river river_w 17 street 5.2 built-to-bank 12 m (parcel 2, block 2, street 2) mask 13 in channel 0 in mask 0 in open water 0 in poly 0 of 91
+  #215 river river_w 24 street 5.4 built-to-bank 29 m (parcel 6, block 3, street 2) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 87
+  #216 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 90
+  #218 riverthrough river_w 17 street 5.4 built-to-bank 412 m (parcel 408, block 78, street 74) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 52
+  #219 river river_w 17 street 5.0 built-to-bank 18 m (parcel 18, block 2, street 1) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 157
+  #220 river river_w 17 street 5.3 built-to-bank 426 m (parcel 420, block 413, street 289) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 70
+  #221 riverthrough river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 112
+  #222 river river_w 17 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 2) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 87
+  #223 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 97
+  #224 river river_w 17 street 5.2 built-to-bank 25 m (parcel 3, block 3, street 2) mask 19 in channel 0 in mask 0 in open water 0 in poly 0 of 105
+  #225 river river_w 17 street 5.4 built-to-bank 207 m (parcel 207, block 207, street 201) mask 191 in channel 0 in mask 0 in open water 0 in poly 0 of 110
+  #227 river river_w 17 street 5.4 built-to-bank 460 m (parcel 460, block 460, street 374) mask 191 in channel 0 in mask 0 in open water 0 in poly 0 of 86
+  #228 river river_w 17 street 5.3 built-to-bank 82 m (parcel 82, block 4, street 3) mask 78 in channel 0 in mask 0 in open water 0 in poly 0 of 23
+  #229 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 1) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 28
+  #231 river river_w 17 street 5.2 built-to-bank 562 m (parcel 562, block 562, street 504) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 89
+  #232 river river_w 17 street 5.4 built-to-bank 324 m (parcel 324, block 315, street 219) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 89
+  #233 river river_w 17 street 5.2 built-to-bank 340 m (parcel 339, block 237, street 200) mask 323 in channel 0 in mask 0 in open water 0 in poly 0 of 64
+  #234 river river_w 24 street 5.4 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 66
+  #235 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 4, street 0) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 82
+  #236 river river_w 17 street 5.4 built-to-bank 262 m (parcel 262, block 46, street 42) mask 262 in channel 0 in mask 0 in open water 0 in poly 0 of 93
+  #237 river river_w 24 street 5.4 built-to-bank 4 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 35 in open water 0 in poly 0 of 107
+  #238 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 5, street 1) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 74
+seed 483920 at 2048x1311, urban_riverbank true: built-to-bank n 224 min 1 p10 2 median 6 p90 270 max 562
+  #  0 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 53 in open water 0 in poly 0 of 4134
+  #  1 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 130 in open water 0 in poly 0 of 3138
+  #  2 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 0, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 291
+  #  3 river river_w 38 street 5.4 built-to-bank 9 m (parcel 9, block 9, street 11) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 1686
+  #  4 river river_w 38 street 5.2 built-to-bank 27 m (parcel 27, block 27, street 2) mask 11 in channel 0 in mask 0 in open water 0 in poly 0 of 19
+  #  5 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 130
+  #  6 riverthrough river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 96
+  #  7 river river_w 31 street 5.4 built-to-bank 19 m (parcel 19, block 2, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 80
+  #  8 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 93 in open water 0 in poly 0 of 2849
+  #  9 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 82 in open water 0 in poly 0 of 4164
+  # 10 riverthrough river_w 24 street 5.2 built-to-bank 215 m (parcel 27, block 7, street 4) mask 58 in channel 0 in mask 0 in open water 0 in poly 0 of 134
+  # 11 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 0, street 1) mask 0 in channel 0 in mask 80 in open water 0 in poly 0 of 622
+  # 12 riverthrough river_w 24 street 5.4 built-to-bank 6 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 87
+  # 13 river river_w 31 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 83
+  # 14 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 128
+  # 15 river river_w 38 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 40 in open water 0 in poly 0 of 94
+  # 16 river river_w 31 street 5.3 built-to-bank 7 m (parcel 5, block 4, street 3) mask 0 in channel 0 in mask 37 in open water 0 in poly 0 of 92
+  # 17 river river_w 31 street 5.3 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 112
+  # 18 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 86
+  # 19 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 83
+  # 20 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 0) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 3965
+  # 21 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 135
+  # 22 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 86
+  # 23 river river_w 24 street 5.4 built-to-bank 1 m (parcel 1, block 4, street 3) mask 0 in channel 0 in mask 66 in open water 0 in poly 0 of 446
+  # 24 river river_w 38 street 5.4 built-to-bank 9 m (parcel 9, block 8, street 7) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 449
+  # 25 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 101
+  # 26 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 0, street 0) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 94
+  # 27 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 41 in open water 0 in poly 0 of 100
+  # 28 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 80
+  # 29 river river_w 24 street 5.4 built-to-bank 12 m (parcel 12, block 6, street 0) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 80
+  # 30 river river_w 31 street 5.1 built-to-bank 8 m (parcel 8, block 7, street 3) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 27
+  # 31 river river_w 31 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 0) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 51
+  # 33 river river_w 31 street 5.3 built-to-bank 47 m (parcel 47, block 13, street 3) mask 27 in channel 0 in mask 0 in open water 0 in poly 0 of 92
+  # 34 river river_w 31 street 5.2 built-to-bank 5 m (parcel 5, block 3, street 3) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 137
+  # 35 river river_w 24 street 5.4 built-to-bank 9 m (parcel 9, block 3, street 6) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 465
+  # 36 river river_w 24 street 5.3 built-to-bank 113 m (parcel 113, block 113, street 2) mask 96 in channel 0 in mask 0 in open water 0 in poly 0 of 98
+  # 37 riverthrough river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 75
+  # 38 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 96
+  # 39 river river_w 31 street 5.4 built-to-bank 3 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 75
+  # 40 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 65
+  # 41 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 87
+  # 42 river river_w 38 street 5.0 built-to-bank 9 m (parcel 9, block 3, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 119
+  # 43 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 91
+  # 44 river river_w 38 street 5.3 built-to-bank 5 m (parcel 5, block 4, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 107
+  # 45 riverthrough river_w 31 street 5.4 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 52
+  # 46 river river_w 31 street 5.1 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 63
+  # 47 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 86
+  # 48 river river_w 38 street 5.4 built-to-bank 6 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 66
+  # 49 river river_w 31 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 98
+  # 50 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 93
+  # 51 river river_w 31 street 5.4 built-to-bank 9 m (parcel 9, block 9, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 135
+  # 52 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 59
+  # 53 riverthrough river_w 38 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 142
+  # 54 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 56
+  # 55 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 0) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 94
+  # 56 river river_w 31 street 5.1 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 71
+  # 57 river river_w 31 street 5.1 built-to-bank 7 m (parcel 7, block 7, street 1) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 90
+  # 58 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 0, street 0) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 65
+  # 59 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 73
+  # 60 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 100
+  # 61 riverthrough river_w 24 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 84
+  # 62 river river_w 31 street 5.2 built-to-bank 19 m (parcel 19, block 2, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 76
+  # 63 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 3) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 51
+  # 64 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 49 in open water 0 in poly 0 of 155
+  # 65 riverthrough river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 46 in open water 0 in poly 0 of 93
+  # 66 river river_w 31 street 5.2 built-to-bank 9 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 71
+  # 67 river river_w 31 street 5.3 built-to-bank 2 m (parcel 1, block 2, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 115
+  # 68 river river_w 31 street 5.4 built-to-bank 11 m (parcel 11, block 11, street 2) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 63
+  # 69 river river_w 38 street 5.2 built-to-bank 6 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 81
+  # 70 river river_w 31 street 5.2 built-to-bank 1 m (parcel 1, block 0, street 0) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 104
+  # 71 river river_w 31 street 5.3 built-to-bank 7 m (parcel 7, block 3, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 67
+  # 72 river river_w 31 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 109
+  # 73 river river_w 31 street 5.2 built-to-bank 6 m (parcel 6, block 2, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 64
+  # 74 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 68
+  # 75 river river_w 31 street 5.2 built-to-bank 6 m (parcel 4, block 3, street 3) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 66
+  # 76 river river_w 24 street 5.4 built-to-bank 11 m (parcel 11, block 10, street 4) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 77
+  # 77 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 96
+  # 78 river river_w 38 street 5.0 built-to-bank 3 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 77
+  # 79 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 73
+  # 80 river river_w 31 street 5.3 built-to-bank 4 m (parcel 4, block 3, street 2) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 57
+  # 81 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 0, street 0) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 71
+  # 82 river river_w 31 street 5.0 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 84
+  # 83 river river_w 31 street 5.4 built-to-bank 112 m (parcel 112, block 25, street 2) mask 85 in channel 0 in mask 0 in open water 0 in poly 0 of 72
+  # 84 river river_w 38 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 80
+  # 85 river river_w 31 street 5.2 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 62
+  # 86 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 97
+  # 87 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 125
+  # 88 river river_w 38 street 5.2 built-to-bank 16 m (parcel 16, block 11, street 11) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 64
+  # 89 river river_w 24 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 130
+  # 90 river river_w 24 street 5.3 built-to-bank 23 m (parcel 2, block 2, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 86
+  # 91 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 73
+  # 92 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 64
+  # 93 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 3) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 78
+  # 94 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 9, street 1) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 122
+  # 95 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 93
+  # 96 riverthrough river_w 24 street 5.1 built-to-bank 5 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 95
+  # 97 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 134
+  # 98 riverthrough river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 97
+  # 99 river river_w 31 street 5.3 built-to-bank 6 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 141
+  #100 river river_w 31 street 5.4 built-to-bank 19 m (parcel 19, block 2, street 3) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 41
+  #101 river river_w 31 street 5.2 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 74
+  #102 riverthrough river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 152
+  #103 river river_w 24 street 5.4 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 43 in open water 0 in poly 0 of 100
+  #104 river river_w 31 street 5.4 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 78
+  #105 river river_w 38 street 5.3 built-to-bank 9 m (parcel 9, block 9, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 77
+  #106 river river_w 31 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 98
+  #107 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 70
+  #108 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 115
+  #109 riverthrough river_w 24 street 5.4 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 123
+  #110 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 3) mask 0 in channel 0 in mask 40 in open water 0 in poly 0 of 90
+  #111 river river_w 31 street 5.2 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 70
+  #112 river river_w 24 street 5.2 built-to-bank 39 m (parcel 11, block 3, street 2) mask 20 in channel 0 in mask 0 in open water 0 in poly 0 of 96
+  #113 river river_w 24 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 90
+  #114 river river_w 31 street 5.3 built-to-bank 8 m (parcel 8, block 9, street 3) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 100
+  #115 river river_w 24 street 5.4 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 75
+  #116 river river_w 38 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 85
+  #117 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 2, street 1) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 71
+  #118 river river_w 38 street 5.4 built-to-bank 4 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 51 in open water 0 in poly 0 of 113
+  #119 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 67
+  #120 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 100
+  #121 river river_w 24 street 5.4 built-to-bank 8 m (parcel 7, block 4, street 3) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 96
+  #123 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 74
+  #124 river river_w 31 street 5.1 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 122
+  #125 riverthrough river_w 24 street 5.3 built-to-bank 6 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 122
+  #126 riverthrough river_w 24 street 5.0 built-to-bank 4 m (parcel 4, block 3, street 0) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 62
+  #128 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 98
+  #129 river river_w 24 street 5.4 built-to-bank 8 m (parcel 1, block 0, street 2) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 102
+  #130 river river_w 24 street 5.2 built-to-bank 13 m (parcel 11, block 4, street 3) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 65
+  #131 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 115
+  #132 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 100
+  #133 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 62
+  #134 river river_w 31 street 5.1 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 58
+  #135 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 2, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 79
+  #136 river river_w 17 street 5.4 built-to-bank 471 m (parcel 431, block 431, street 396) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 124
+  #138 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 22
+  #139 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 117
+  #140 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 82
+  #141 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 92
+  #142 river river_w 24 street 5.3 built-to-bank 7 m (parcel 7, block 6, street 5) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 115
+  #143 riverthrough river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 97
+  #144 river river_w 31 street 5.4 built-to-bank 28 m (parcel 18, block 18, street 2) mask 9 in channel 0 in mask 0 in open water 0 in poly 0 of 56
+  #145 river river_w 31 street 5.1 built-to-bank 8 m (parcel 7, block 6, street 2) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 70
+  #146 river river_w 24 street 5.4 built-to-bank 8 m (parcel 8, block 8, street 4) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 93
+  #147 river river_w 24 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 95
+  #148 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 96
+  #149 river river_w 24 street 5.3 built-to-bank 117 m (parcel 111, block 99, street 81) mask 90 in channel 0 in mask 0 in open water 0 in poly 0 of 61
+  #150 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 35 in open water 0 in poly 0 of 98
+  #151 river river_w 38 street 5.4 built-to-bank 6 m (parcel 6, block 3, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 65
+  #152 river river_w 38 street 5.4 built-to-bank 9 m (parcel 9, block 2, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 64
+  #153 river river_w 17 street 5.4 built-to-bank 321 m (parcel 321, block 321, street 268) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 69
+  #154 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 4) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 126
+  #155 river river_w 31 street 5.3 built-to-bank 19 m (parcel 19, block 2, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 64
+  #156 river river_w 31 street 5.1 built-to-bank 5 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 122
+  #157 river river_w 24 street 5.0 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 64
+  #158 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 114
+  #159 riverthrough river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 65
+  #160 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 92
+  #161 riverthrough river_w 24 street 5.4 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 110
+  #162 river river_w 17 street 5.3 built-to-bank 313 m (parcel 313, block 313, street 159) mask 295 in channel 0 in mask 0 in open water 0 in poly 0 of 96
+  #163 river river_w 24 street 5.3 built-to-bank 242 m (parcel 242, block 242, street 84) mask 224 in channel 0 in mask 0 in open water 0 in poly 0 of 27
+  #164 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 66
+  #166 river river_w 17 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 97
+  #168 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 64
+  #169 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 77
+  #170 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 123
+  #171 river river_w 17 street 5.1 built-to-bank 6 m (parcel 6, block 6, street 3) mask 11 in channel 0 in mask 0 in open water 0 in poly 0 of 70
+  #172 river river_w 24 street 5.4 built-to-bank 23 m (parcel 3, block 3, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 98
+  #173 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 74
+  #174 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 0) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 103
+  #175 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 64
+  #176 river river_w 24 street 5.2 built-to-bank 225 m (parcel 225, block 225, street 155) mask 195 in channel 0 in mask 0 in open water 0 in poly 0 of 126
+  #177 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 91
+  #179 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 67
+  #181 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 68
+  #182 river river_w 17 street 5.4 built-to-bank 420 m (parcel 420, block 323, street 297) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 80
+  #183 river river_w 31 street 5.4 built-to-bank 6 m (parcel 5, block 2, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 96
+  #184 river river_w 31 street 5.1 built-to-bank 13 m (parcel 13, block 3, street 1) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 92
+  #185 river river_w 38 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 64
+  #186 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 91
+  #187 river river_w 24 street 5.4 built-to-bank 8 m (parcel 8, block 3, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 72
+  #188 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 4) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 98
+  #190 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 67
+  #192 river river_w 24 street 5.3 built-to-bank 3 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 66
+  #195 river river_w 24 street 5.4 built-to-bank 27 m (parcel 16, block 7, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 90
+  #196 river river_w 38 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 21
+  #197 river river_w 24 street 5.3 built-to-bank 9 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 55
+  #198 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 37 in open water 0 in poly 0 of 94
+  #199 riverthrough river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 2) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 95
+  #200 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 80
+  #202 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 0) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 86
+  #203 river river_w 24 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 3) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 119
+  #204 river river_w 17 street 5.3 built-to-bank 49 m (parcel 49, block 31, street 1) mask 31 in channel 0 in mask 0 in open water 0 in poly 0 of 107
+  #207 river river_w 24 street 5.3 built-to-bank 7 m (parcel 7, block 7, street 4) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 123
+  #208 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 4, street 2) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 77
+  #210 river river_w 31 street 5.3 built-to-bank 6 m (parcel 4, block 3, street 4) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 97
+  #211 river river_w 17 street 5.3 built-to-bank 494 m (parcel 494, block 494, street 467) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 119
+  #212 river river_w 24 street 5.1 built-to-bank 5 m (parcel 5, block 5, street 1) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 101
+  #213 river river_w 24 street 5.1 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 94
+  #214 riverthrough river_w 24 street 5.4 built-to-bank 7 m (parcel 6, block 6, street 4) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 78
+  #215 river river_w 31 street 5.4 built-to-bank 9 m (parcel 9, block 5, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 57
+  #216 river river_w 17 street 5.4 built-to-bank 199 m (parcel 199, block 199, street 95) mask 205 in channel 0 in mask 0 in open water 0 in poly 0 of 101
+  #218 river river_w 31 street 5.4 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 106
+  #219 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 112
+  #221 river river_w 24 street 5.3 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 116
+  #223 river river_w 24 street 5.3 built-to-bank 5 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 110
+  #227 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 2, street 0) mask 0 in channel 0 in mask 36 in open water 0 in poly 0 of 116
+  #228 riverthrough river_w 17 street 5.3 built-to-bank 2 m (parcel 2, block 0, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 71
+  #229 river river_w 38 street 5.1 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 86
+  #230 river river_w 17 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 1) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 94
+  #231 river river_w 17 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 81
+  #234 riverthrough river_w 17 street 5.4 built-to-bank 571 m (parcel 571, block 571, street 454) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 5
+  #236 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 93
+  #238 river river_w 17 street 5.4 built-to-bank 487 m (parcel 485, block 485, street 428) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 92
+  #239 river river_w 17 street 5.3 built-to-bank 371 m (parcel 371, block 208, street 191) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 99
+seed 912345 at 2048x1311, urban_riverbank true: built-to-bank n 214 min 1 p10 2 median 5 p90 23 max 571
+  #  0 riverthrough river_w 38 street 5.4 built-to-bank 0 m (parcel 0, block 5, street 0) mask 0 in channel 0 in mask 35 in open water 0 in poly 0 of 1321
+  #  1 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 0, street 1) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 3817
+  #  2 river river_w 45 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 139
+  #  3 river river_w 45 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 59 in open water 0 in poly 0 of 551
+  #  4 river river_w 38 street 5.4 built-to-bank 2 m (parcel 1, block 3, street 1) mask 0 in channel 0 in mask 141 in open water 0 in poly 0 of 3839
+  #  5 river river_w 38 street 5.4 built-to-bank 2 m (parcel 2, block 4, street 1) mask 0 in channel 0 in mask 85 in open water 0 in poly 0 of 3752
+  #  6 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 53
+  #  7 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 1, street 0) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 127
+  #  8 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 98
+  #  9 river river_w 31 street 5.1 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 127
+  # 10 river river_w 31 street 5.4 built-to-bank 24 m (parcel 24, block 22, street 6) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 369
+  # 11 river river_w 31 street 5.3 built-to-bank 5 m (parcel 5, block 2, street 3) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 408
+  # 12 river river_w 31 street 5.4 built-to-bank 5 m (parcel 3, block 3, street 10) mask 0 in channel 0 in mask 39 in open water 0 in poly 0 of 1897
+  # 13 river river_w 31 street 5.4 built-to-bank 4 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 68 in open water 0 in poly 0 of 2424
+  # 14 river river_w 31 street 5.2 built-to-bank 4 m (parcel 4, block 2, street 0) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 64
+  # 15 river river_w 38 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 43
+  # 16 river river_w 31 street 5.3 built-to-bank 5 m (parcel 5, block 3, street 1) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 118
+  # 17 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 4, street 3) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 62
+  # 18 river river_w 31 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 103
+  # 19 river river_w 31 street 5.4 built-to-bank 7 m (parcel 6, block 3, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 50
+  # 20 river river_w 38 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 31 in open water 0 in poly 0 of 84
+  # 21 river river_w 38 street 5.3 built-to-bank 10 m (parcel 10, block 5, street 3) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 121
+  # 22 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 147 in open water 0 in poly 0 of 3812
+  # 23 river river_w 31 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 128
+  # 24 river river_w 45 street 5.0 built-to-bank 1 m (parcel 1, block 0, street 0) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 76
+  # 26 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 79
+  # 27 river river_w 31 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 79
+  # 28 river river_w 31 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 4) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 76
+  # 29 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 3) mask 0 in channel 0 in mask 69 in open water 0 in poly 0 of 3946
+  # 30 river river_w 31 street 5.3 built-to-bank 13 m (parcel 12, block 4, street 3) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 124
+  # 31 river river_w 31 street 5.0 built-to-bank 5 m (parcel 3, block 0, street 0) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 74
+  # 32 river river_w 31 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 1) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 72
+  # 33 river river_w 31 street 5.4 built-to-bank 30 m (parcel 30, block 15, street 3) mask 8 in channel 0 in mask 0 in open water 0 in poly 0 of 56
+  # 34 river river_w 24 street 5.4 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 96
+  # 35 river river_w 24 street 5.1 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 95
+  # 36 river river_w 31 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 53
+  # 37 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 79
+  # 38 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 0, street 0) mask 0 in channel 0 in mask 43 in open water 0 in poly 0 of 101
+  # 39 river river_w 31 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 69
+  # 40 river river_w 38 street 5.1 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 65
+  # 41 river river_w 38 street 5.3 built-to-bank 16 m (parcel 16, block 3, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  # 42 river river_w 45 street 5.3 built-to-bank 4 m (parcel 4, block 3, street 2) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 107
+  # 43 river river_w 45 street 5.4 built-to-bank 8 m (parcel 5, block 2, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 96
+  # 44 river river_w 45 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 3) mask 0 in channel 0 in mask 52 in open water 0 in poly 0 of 76
+  # 45 river river_w 38 street 5.2 built-to-bank 4 m (parcel 4, block 3, street 2) mask 0 in channel 0 in mask 38 in open water 0 in poly 0 of 148
+  # 46 river river_w 45 street 5.4 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 35 in open water 0 in poly 0 of 98
+  # 47 river river_w 38 street 5.4 built-to-bank 8 m (parcel 4, block 3, street 3) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 64
+  # 48 river river_w 31 street 4.0 built-to-bank 9 m (parcel 9, block 9, street 4) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 26
+  # 49 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 39
+  # 50 river river_w 31 street 5.1 built-to-bank 7 m (parcel 7, block 7, street 0) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 111
+  # 51 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 64
+  # 52 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 1) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 102
+  # 53 river river_w 31 street 5.2 built-to-bank 11 m (parcel 11, block 11, street 3) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 81
+  # 54 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 113
+  # 55 river river_w 38 street 5.3 built-to-bank 5 m (parcel 5, block 5, street 3) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 79
+  # 56 river river_w 31 street 5.3 built-to-bank 6 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 95
+  # 57 river river_w 31 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 1) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 120
+  # 58 river river_w 31 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 95
+  # 59 river river_w 38 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 90
+  # 60 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 0) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 124
+  # 61 river river_w 31 street 5.2 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 64
+  # 62 river river_w 38 street 5.1 built-to-bank 7 m (parcel 7, block 5, street 3) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 66
+  # 63 river river_w 31 street 5.3 built-to-bank 9 m (parcel 9, block 9, street 1) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 120
+  # 64 river river_w 38 street 5.0 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 104
+  # 65 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 113
+  # 66 river river_w 31 street 5.2 built-to-bank 46 m (parcel 42, block 42, street 3) mask 20 in channel 0 in mask 0 in open water 0 in poly 0 of 38
+  # 67 river river_w 31 street 5.4 built-to-bank 39 m (parcel 39, block 12, street 3) mask 26 in channel 0 in mask 0 in open water 0 in poly 0 of 42
+  # 68 river river_w 31 street 5.2 built-to-bank 6 m (parcel 6, block 4, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 78
+  # 69 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 92
+  # 70 river river_w 38 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 66
+  # 71 riverthrough river_w 31 street 5.3 built-to-bank 11 m (parcel 11, block 11, street 6) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 33
+  # 72 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 1) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 78
+  # 73 river river_w 17 street 5.4 built-to-bank 380 m (parcel 380, block 309, street 302) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 98
+  # 74 river river_w 38 street 5.4 built-to-bank 4 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 70
+  # 75 river river_w 31 street 5.3 built-to-bank 7 m (parcel 7, block 7, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 132
+  # 76 river river_w 31 street 5.4 built-to-bank 4 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 98
+  # 77 river river_w 17 street 5.4 built-to-bank 422 m (parcel 422, block 77, street 73) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 123
+  # 78 river river_w 38 street 5.4 built-to-bank 9 m (parcel 9, block 7, street 3) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 84
+  # 79 river river_w 31 street 5.1 built-to-bank 8 m (parcel 8, block 2, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 144
+  # 80 river river_w 31 street 5.4 built-to-bank 9 m (parcel 9, block 2, street 1) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 82
+  # 81 river river_w 38 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 106
+  # 82 river river_w 38 street 5.3 built-to-bank 16 m (parcel 16, block 16, street 3) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 97
+  # 83 river river_w 31 street 5.3 built-to-bank 64 m (parcel 64, block 43, street 3) mask 49 in channel 0 in mask 0 in open water 0 in poly 0 of 83
+  # 84 riverthrough river_w 24 street 5.4 built-to-bank 16 m (parcel 16, block 16, street 2) mask 2 in channel 0 in mask 1 in open water 0 in poly 0 of 96
+  # 85 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 131
+  # 86 river river_w 24 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 30 in open water 0 in poly 0 of 99
+  # 87 river river_w 24 street 5.3 built-to-bank 22 m (parcel 8, block 2, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 87
+  # 88 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 34 in open water 0 in poly 0 of 93
+  # 89 river river_w 17 street 5.4 built-to-bank 541 m (parcel 541, block 541, street 305) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 93
+  # 90 river river_w 45 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 1) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 97
+  # 91 river river_w 17 street 5.4 built-to-bank 358 m (parcel 358, block 354, street 300) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 113
+  # 92 river river_w 17 street 5.2 built-to-bank 255 m (parcel 229, block 58, street 54) mask 260 in channel 0 in mask 0 in open water 0 in poly 0 of 121
+  # 93 river river_w 31 street 5.1 built-to-bank 7 m (parcel 7, block 6, street 1) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 76
+  # 94 river river_w 31 street 5.2 built-to-bank 4 m (parcel 4, block 3, street 1) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 110
+  # 95 river river_w 31 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 49 in open water 0 in poly 0 of 83
+  # 96 river river_w 31 street 5.3 built-to-bank 5 m (parcel 5, block 4, street 2) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 89
+  # 97 river river_w 24 street 5.4 built-to-bank 433 m (parcel 433, block 433, street 241) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 71
+  # 98 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 67
+  # 99 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 4) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 105
+  #100 river river_w 31 street 5.4 built-to-bank 6 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 73
+  #101 river river_w 31 street 5.4 built-to-bank 27 m (parcel 27, block 22, street 1) mask 12 in channel 0 in mask 0 in open water 0 in poly 0 of 62
+  #102 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 96
+  #103 river river_w 31 street 5.2 built-to-bank 7 m (parcel 2, block 2, street 3) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 91
+  #104 river river_w 17 street 5.4 built-to-bank 562 m (parcel 562, block 562, street 490) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 49
+  #105 river river_w 24 street 5.3 built-to-bank 40 m (parcel 40, block 4, street 3) mask 21 in channel 0 in mask 0 in open water 0 in poly 0 of 75
+  #106 river river_w 31 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 63
+  #107 river river_w 31 street 5.4 built-to-bank 19 m (parcel 8, block 8, street 3) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 65
+  #108 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 1) mask 0 in channel 0 in mask 4 in open water 0 in poly 0 of 112
+  #109 river river_w 31 street 5.3 built-to-bank 6 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 64
+  #110 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 2, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 99
+  #111 river river_w 31 street 5.3 built-to-bank 7 m (parcel 7, block 7, street 3) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 72
+  #112 river river_w 31 street 5.4 built-to-bank 11 m (parcel 5, block 5, street 2) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 82
+  #113 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 111
+  #114 river river_w 17 street 5.4 built-to-bank 260 m (parcel 260, block 260, street 53) mask 260 in channel 0 in mask 0 in open water 0 in poly 0 of 56
+  #116 river river_w 38 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 2) mask 0 in channel 0 in mask 2 in open water 0 in poly 0 of 104
+  #117 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 96
+  #118 river river_w 17 street 5.2 built-to-bank 570 m (parcel 570, block 570, street 433) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 118
+  #119 river river_w 38 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 98
+  #120 river river_w 31 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 116
+  #121 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 0) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 111
+  #122 river river_w 38 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 132
+  #123 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 94
+  #124 river river_w 31 street 5.4 built-to-bank 13 m (parcel 7, block 4, street 0) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 69
+  #125 river river_w 31 street 5.3 built-to-bank 70 m (parcel 70, block 67, street 3) mask 56 in channel 0 in mask 0 in open water 0 in poly 0 of 79
+  #127 river river_w 31 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 0) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 96
+  #128 river river_w 31 street 5.3 built-to-bank 11 m (parcel 11, block 11, street 1) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 124
+  #129 river river_w 31 street 5.4 built-to-bank 5 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 86
+  #130 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 96
+  #131 river river_w 24 street 5.3 built-to-bank 8 m (parcel 8, block 8, street 3) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 63
+  #132 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 2, street 2) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 88
+  #133 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 71
+  #134 river river_w 24 street 5.4 built-to-bank 4 m (parcel 2, block 2, street 1) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 73
+  #135 river river_w 31 street 5.2 built-to-bank 9 m (parcel 9, block 9, street 1) mask 7 in channel 0 in mask 0 in open water 0 in poly 0 of 118
+  #136 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 97
+  #137 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 10 in open water 0 in poly 0 of 93
+  #138 river river_w 31 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 113
+  #139 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 2, street 1) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 101
+  #141 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 96
+  #143 river river_w 24 street 5.4 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 19 in open water 0 in poly 0 of 106
+  #144 river river_w 24 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 108
+  #145 river river_w 31 street 5.4 built-to-bank 5 m (parcel 2, block 0, street 4) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 97
+  #146 river river_w 24 street 5.2 built-to-bank 5 m (parcel 5, block 2, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 70
+  #147 river river_w 31 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 3) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 95
+  #148 river river_w 24 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 9 in open water 0 in poly 0 of 84
+  #149 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 96
+  #151 river river_w 31 street 5.3 built-to-bank 19 m (parcel 19, block 3, street 3) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 119
+  #152 river river_w 17 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 85
+  #153 river river_w 31 street 5.3 built-to-bank 9 m (parcel 6, block 4, street 3) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 98
+  #155 river river_w 24 street 5.1 built-to-bank 14 m (parcel 14, block 14, street 5) mask 0 in channel 0 in mask 16 in open water 0 in poly 0 of 119
+  #156 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 26 in open water 0 in poly 0 of 111
+  #157 river river_w 24 street 5.4 built-to-bank 23 m (parcel 23, block 4, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 97
+  #158 river river_w 17 street 5.4 built-to-bank 44 m (parcel 44, block 19, street 3) mask 40 in channel 0 in mask 0 in open water 0 in poly 0 of 44
+  #159 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 2, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 110
+  #160 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 27 in open water 0 in poly 0 of 62
+  #161 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 103
+  #162 river river_w 31 street 5.4 built-to-bank 7 m (parcel 7, block 7, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 32
+  #163 river river_w 24 street 5.4 built-to-bank 351 m (parcel 351, block 351, street 222) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  #164 river river_w 17 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 98
+  #165 river river_w 17 street 5.4 built-to-bank 574 m (parcel 574, block 574, street 490) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 44
+  #166 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 84
+  #167 river river_w 24 street 5.4 built-to-bank 10 m (parcel 8, block 4, street 1) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 108
+  #168 river river_w 31 street 5.2 built-to-bank 3 m (parcel 3, block 2, street 1) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 68
+  #169 river river_w 31 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 3) mask 0 in channel 0 in mask 33 in open water 0 in poly 0 of 99
+  #170 river river_w 17 street 5.4 built-to-bank 324 m (parcel 324, block 324, street 156) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 21
+  #171 river river_w 24 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 83
+  #172 river river_w 24 street 5.2 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 29 in open water 0 in poly 0 of 124
+  #173 river river_w 24 street 5.4 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 15 in open water 0 in poly 0 of 82
+  #174 river river_w 24 street 5.4 built-to-bank 57 m (parcel 57, block 2, street 2) mask 28 in channel 0 in mask 0 in open water 0 in poly 0 of 72
+  #175 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 0) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 73
+  #176 river river_w 24 street 5.0 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 38
+  #177 river river_w 31 street 5.3 built-to-bank 15 m (parcel 15, block 15, street 3) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 110
+  #178 river river_w 24 street 5.4 built-to-bank 71 m (parcel 70, block 70, street 3) mask 52 in channel 0 in mask 0 in open water 0 in poly 0 of 88
+  #179 river river_w 24 street 5.4 built-to-bank 11 m (parcel 11, block 5, street 2) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 71
+  #180 river river_w 31 street 5.3 built-to-bank 11 m (parcel 11, block 11, street 4) mask 0 in channel 0 in mask 36 in open water 0 in poly 0 of 88
+  #181 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 3, street 3) mask 0 in channel 0 in mask 23 in open water 0 in poly 0 of 78
+  #182 river river_w 24 street 5.2 built-to-bank 51 m (parcel 51, block 51, street 2) mask 33 in channel 0 in mask 0 in open water 0 in poly 0 of 116
+  #183 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 54
+  #184 river river_w 31 street 5.4 built-to-bank 6 m (parcel 6, block 3, street 2) mask 0 in channel 0 in mask 11 in open water 0 in poly 0 of 69
+  #185 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 24 in open water 0 in poly 0 of 98
+  #186 river river_w 17 street 5.4 built-to-bank 1 m (parcel 1, block 0, street 0) mask 2 in channel 0 in mask 0 in open water 0 in poly 0 of 107
+  #187 river river_w 31 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 0) mask 0 in channel 0 in mask 20 in open water 0 in poly 0 of 75
+  #188 river river_w 24 street 5.4 built-to-bank 214 m (parcel 214, block 214, street 90) mask 196 in channel 0 in mask 0 in open water 0 in poly 0 of 79
+  #189 river river_w 24 street 5.3 built-to-bank 3 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 5 in open water 0 in poly 0 of 96
+  #190 river river_w 24 street 5.4 built-to-bank 448 m (parcel 448, block 448, street 292) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 64
+  #191 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 14, street 9) mask 0 in channel 0 in mask 8 in open water 0 in poly 0 of 145
+  #192 river river_w 24 street 5.3 built-to-bank 4 m (parcel 4, block 4, street 0) mask 0 in channel 0 in mask 21 in open water 0 in poly 0 of 124
+  #193 river river_w 24 street 5.3 built-to-bank 23 m (parcel 3, block 3, street 2) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 117
+  #194 river river_w 17 street 5.4 built-to-bank 323 m (parcel 323, block 323, street 203) mask 5 in channel 0 in mask 0 in open water 0 in poly 0 of 96
+  #195 river river_w 17 street 5.4 built-to-bank 283 m (parcel 274, block 274, street 234) mask 282 in channel 0 in mask 0 in open water 0 in poly 0 of 139
+  #197 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 51 in open water 0 in poly 0 of 95
+  #198 river river_w 24 street 5.4 built-to-bank 5 m (parcel 4, block 2, street 2) mask 0 in channel 0 in mask 14 in open water 0 in poly 0 of 96
+  #199 river river_w 24 street 5.2 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 96
+  #200 river river_w 17 street 5.4 built-to-bank 502 m (parcel 502, block 234, street 228) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 24
+  #201 river river_w 17 street 5.4 built-to-bank 5 m (parcel 5, block 5, street 0) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 74
+  #202 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 73
+  #203 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 2, street 0) mask 0 in channel 0 in mask 17 in open water 0 in poly 0 of 95
+  #204 river river_w 31 street 5.2 built-to-bank 2 m (parcel 2, block 2, street 0) mask 0 in channel 0 in mask 32 in open water 0 in poly 0 of 83
+  #205 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 3) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 77
+  #206 river river_w 24 street 5.3 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 13 in open water 0 in poly 0 of 94
+  #208 river river_w 24 street 5.4 built-to-bank 14 m (parcel 14, block 14, street 3) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 28
+  #210 river river_w 17 street 5.3 built-to-bank 391 m (parcel 391, block 71, street 67) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 94
+  #211 river river_w 24 street 5.4 built-to-bank 56 m (parcel 56, block 35, street 2) mask 38 in channel 0 in mask 0 in open water 0 in poly 0 of 43
+  #212 river river_w 24 street 5.3 built-to-bank 45 m (parcel 6, block 6, street 3) mask 27 in channel 0 in mask 0 in open water 0 in poly 0 of 64
+  #213 river river_w 17 street 5.4 built-to-bank 374 m (parcel 374, block 70, street 66) mask 27 in channel 0 in mask 0 in open water 0 in poly 0 of 75
+  #214 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 3 in channel 0 in mask 0 in open water 0 in poly 0 of 107
+  #215 river river_w 17 street 5.4 built-to-bank 56 m (parcel 56, block 4, street 3) mask 57 in channel 0 in mask 0 in open water 0 in poly 0 of 89
+  #217 river river_w 17 street 5.2 built-to-bank 26 m (parcel 3, block 3, street 2) mask 27 in channel 0 in mask 0 in open water 0 in poly 0 of 104
+  #218 river river_w 31 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 1 in open water 0 in poly 0 of 44
+  #219 river river_w 17 street 5.3 built-to-bank 523 m (parcel 482, block 482, street 304) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 108
+  #220 river river_w 24 street 5.4 built-to-bank 4 m (parcel 4, block 4, street 2) mask 0 in channel 0 in mask 22 in open water 0 in poly 0 of 96
+  #221 river river_w 31 street 5.2 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 36 in open water 0 in poly 0 of 118
+  #222 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 156
+  #223 river river_w 24 street 5.4 built-to-bank 6 m (parcel 6, block 6, street 2) mask 0 in channel 0 in mask 3 in open water 0 in poly 0 of 126
+  #224 river river_w 17 street 5.4 built-to-bank 439 m (parcel 439, block 439, street 330) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 87
+  #225 river river_w 24 street 5.3 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 28 in open water 0 in poly 0 of 103
+  #226 river river_w 17 street 5.3 built-to-bank 459 m (parcel 459, block 435, street 304) mask 0 in channel 0 in mask 0 in open water 0 in poly 0 of 34
+  #227 river river_w 17 street 5.0 built-to-bank 18 m (parcel 12, block 3, street 1) mask 15 in channel 0 in mask 0 in open water 0 in poly 0 of 14
+  #228 river river_w 17 street 5.4 built-to-bank 521 m (parcel 521, block 477, street 324) mask 15 in channel 0 in mask 0 in open water 0 in poly 0 of 127
+  #229 river river_w 24 street 5.0 built-to-bank 2 m (parcel 2, block 2, street 2) mask 0 in channel 0 in mask 25 in open water 0 in poly 0 of 98
+  #230 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 85
+  #231 river river_w 24 street 5.3 built-to-bank 373 m (parcel 373, block 373, street 307) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 75
+  #232 river river_w 24 street 5.3 built-to-bank 14 m (parcel 14, block 6, street 3) mask 0 in channel 0 in mask 12 in open water 0 in poly 0 of 98
+  #233 river river_w 24 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 42 in open water 0 in poly 0 of 106
+  #234 river river_w 24 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 2) mask 0 in channel 0 in mask 18 in open water 0 in poly 0 of 97
+  #235 river river_w 17 street 5.4 built-to-bank 3 m (parcel 3, block 3, street 2) mask 4 in channel 0 in mask 0 in open water 0 in poly 0 of 55
+  #236 river river_w 24 street 5.3 built-to-bank 16 m (parcel 16, block 16, street 2) mask 0 in channel 0 in mask 7 in open water 0 in poly 0 of 117
+  #237 river river_w 17 street 5.3 built-to-bank 3 m (parcel 3, block 3, street 1) mask 0 in channel 0 in mask 6 in open water 0 in poly 0 of 102
+  #238 riverthrough river_w 17 street 5.1 built-to-bank 9 m (parcel 9, block 9, street 4) mask 74 in channel 0 in mask 0 in open water 0 in poly 0 of 85
+  #239 river river_w 17 street 5.4 built-to-bank 400 m (parcel 400, block 400, street 375) mask 74 in channel 0 in mask 0 in open water 0 in poly 0 of 94
+seed 246371 at 2048x1311, urban_riverbank true: built-to-bank n 229 min 0 p10 3 median 6 p90 255 max 574
+all seeds at 2048, urban_riverbank Some(true): 667 judged river-kind layouts (18 not judged: no street, water or building)
+  built-to-bank over the widest street: 355 of 667
+  built frontage (a building or a quay's water side) over the widest street: 116 of 667
+  frontage to bank  n 667 min 0 p10 0 median 1 p90 97 max 574
+  non-primary edges crossing the river centreline: 2 in 2 towns
+  field and pasture strips crossing the river centreline: 0
+  housed as % of pop_target n 667 min 6 p10 74 median 105 p90 125 max 184; over 150 %: 3
+  building to bank  n 667 min 0 p10 2 median 6 p90 145 max 574
+  building to mask  n 620 min 0 p10 0 median 0 p90 9 max 372
+  parcel to bank    n 667 min 0 p10 2 median 5 p90 112 max 574
+  block to bank     n 667 min 0 p10 2 median 4 p90 71 max 574
+  street to bank    n 667 min 0 p10 1 median 2 p90 42 max 504
+  buildings in water: channel 0, sea or lake 0, water_poly 0 (of 137753 buildings); on the stamped 22 m mask 10707 (drawn only with the switch off)

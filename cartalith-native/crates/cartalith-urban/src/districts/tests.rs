@@ -318,6 +318,7 @@ fn setup(c: &Case) -> Fixture {
             build_primaries(c.seed, &site, &anchors, &mut g);
             let plaza = build_plaza(c.seed, &site, &anchors, &mut g, pop_target);
             let opts = GrowOpts {
+                road_reach: None,
                 target_len,
                 max_rf,
                 walls: true,

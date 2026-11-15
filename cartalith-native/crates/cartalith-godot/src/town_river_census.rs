@@ -91,6 +91,14 @@ fn generate_world(
 }
 use cartalith_civ::urban_adapter::{PlaceOverrides, UrbanWorld, Vec2, run_layout, um_place_context_with};
 
+/// Whether the census lays villages out as street villages (Ruling FE item
+/// 2): the app's (`WorldParams::urban_street_village` from `params::defaults`,
+/// on) unless `TOWN_RIVER_SV=0` asks for the reference's villages, the
+/// "before" of `TOWN_GENERATOR_JUDGEMENT.md` change 2 (2026-11-15).
+fn street_village(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_SV").map_or(p.urban_street_village, |v| v != "0")
+}
+
 /// The river-town test the census lays towns out with: the app's
 /// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
 /// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
@@ -890,6 +898,73 @@ fn in_poly(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
     c
 }
 
+/// The convex hull of `pts` (Andrew's monotone chain), counter-clockwise in
+/// the plane's own axes, for the taut-wall measure ([`wall_tautness`]). Empty
+/// under three points.
+fn convex_hull_xy(pts: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut p = pts.to_vec();
+    p.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    p.dedup();
+    if p.len() < 3 {
+        return Vec::new();
+    }
+    let cr = |o: (f64, f64), a: (f64, f64), b: (f64, f64)| (a.0 - o.0) * (b.1 - o.1) - (a.1 - o.1) * (b.0 - o.0);
+    let mut h: Vec<(f64, f64)> = Vec::new();
+    for pass in 0..2 {
+        let start = h.len();
+        let it: Vec<(f64, f64)> = if pass == 0 { p.clone() } else { p.iter().rev().copied().collect() };
+        for q in it {
+            while h.len() >= start + 2 && cr(h[h.len() - 2], h[h.len() - 1], q) <= 0.0 {
+                h.pop();
+            }
+            h.push(q);
+        }
+        h.pop();
+    }
+    h
+}
+
+/// The length of the closed loop `ring`, metres.
+fn loop_len(ring: &[(f64, f64)]) -> f64 {
+    (0..ring.len()).map(|k| {
+        let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+        (b.0 - a.0).hypot(b.1 - a.1)
+    }).sum()
+}
+
+/// **The taut-wall measures** (2026-11-15, `TOWN_GENERATOR_JUDGEMENT.md`
+/// change 1, Ruling FE item 1): a wall ring's length over its own convex
+/// hull's length, and its vertex count over its length divided by
+/// [`WALL_VERTEX_RUN_M`]. The judgement's bars: the first at most 1.06
+/// (median) and 1.15 (p90), the second at most 1. The same two the
+/// judgement's scratch script (`x.py`) took from the plot dumps.
+fn wall_tautness(ring: &[(f64, f64)]) -> (f64, f64) {
+    let len = loop_len(ring);
+    let hull = loop_len(&convex_hull_xy(ring));
+    (len / hull.max(1e-9), ring.len() as f64 / (len / WALL_VERTEX_RUN_M).max(1e-9))
+}
+
+/// The judgement's vertex bar for a taut wall: at most one ring vertex per
+/// this many metres of wall (`TOWN_GENERATOR_JUDGEMENT.md` change 1's
+/// acceptance bar, *"ring vertices at most wall length / 35 m"*).
+const WALL_VERTEX_RUN_M: f64 = 35.0;
+
+/// A village green counts as at the landing within this many metres of the
+/// market point (`TOWN_GENERATOR_JUDGEMENT.md` change 2's bar, *"green
+/// within 60 m of the market point in at least 90 % of villages"*).
+const GREEN_NEAR_M: f64 = 60.0;
+
+/// `v`'s p10, median and p90 to two decimals, for ratios [`spread`] would
+/// round to whole numbers.
+fn spread2(v: &mut [f64]) -> String {
+    if v.is_empty() {
+        return "n 0".into();
+    }
+    v.sort_by(|a, b| a.total_cmp(b));
+    let q = |f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+    format!("n {} min {:.2} p10 {:.2} median {:.2} p90 {:.2} max {:.2}", v.len(), v[0], q(0.1), q(0.5), q(0.9), v[v.len() - 1])
+}
+
 /// Grid step of [`unbuilt_inside_wall`], metres. A labelled judgement: under
 /// the narrowest lot frontage the platting allows (`build_parcels`' 4.5 m
 /// floor), so a row of houses cannot slip between two cells.
@@ -1092,7 +1167,7 @@ fn riverbank_gap_audit() {
         };
         let mut seed_gap = Vec::new();
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1335,7 +1410,7 @@ fn town_housing_audit() {
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -1441,6 +1516,18 @@ fn both_banks_audit() {
     // centroid stands in them, pooled over villages, and the villages with
     // ten or more.
     let (mut v_lots, mut v_vacant, mut v_many) = (0usize, 0usize, 0usize);
+    // The judgement's two village bars (2026-11-15, change 2, Ruling FE item
+    // 2): street per building (every edge class, metres) and the green's
+    // centre to the market point (metres), per village with buildings.
+    let (mut v_street_per_bld, mut v_green_d): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
+    // Of those greens, the ones within [`GREEN_NEAR_M`] of the market point
+    // or of a river crossing (`bridges`): "at the landing" where the market
+    // point is the road's end on the bank across the bridge from the houses.
+    let mut v_green_landing = 0usize;
+    // The judgement's two wall bars (change 1, Ruling FE item 1), walled
+    // towns of `PLAZA_MARKET_POP` and up with houses: wall over hull length,
+    // and vertices over length / [`WALL_VERTEX_RUN_M`].
+    let (mut w_hull, mut w_vert): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
     for seed in seeds {
         let (ws, civ, gh, p) = generate_world(seed, gw, true);
         let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
@@ -1464,7 +1551,7 @@ fn both_banks_audit() {
             river_kind_from_map: river_kind_map(&p),
         };
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
             // `TOWN_RIVER_PLOT=<dir>`: one JSON per town for a quick plan plot
@@ -1545,6 +1632,15 @@ fn both_banks_audit() {
                 v_vacant += vac;
                 v_many += usize::from(vac >= 10);
                 row += &format!(" vacant lots {vac} of {}", l.parcels.len());
+                let street: f64 = l.edges.iter().map(|e| e.a.dist(e.b)).sum();
+                v_street_per_bld.push(street / l.buildings.len() as f64);
+                if let Some(z) = l.plaza.as_ref() {
+                    let d = z.center.dist(l.market);
+                    v_green_d.push(d);
+                    let at_crossing = l.bridges.as_ref().is_some_and(|b| b.iter().any(|x| x.pt.dist(z.center) <= GREEN_NEAR_M));
+                    v_green_landing += usize::from(d <= GREEN_NEAR_M || at_crossing);
+                    row += &format!(" street/bld {:.1} m green {d:.0} m", street / l.buildings.len() as f64);
+                }
             }
             if let Some(ring) = l.wall.ring.as_ref().filter(|r| r.len() >= 3 && !l.buildings.is_empty()) {
                 let rg: Vec<(f64, f64)> = ring.iter().map(|v| (v.x, v.y)).collect();
@@ -1561,6 +1657,12 @@ fn both_banks_audit() {
                 let (patch, open) = unbuilt_inside_wall(&rg, &bl, &river, l.river_w, &wpoly, &pz);
                 walled_all += 1;
                 market_out += usize::from(out);
+                if l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
+                    let (h, v) = wall_tautness(&rg);
+                    w_hull.push(h);
+                    w_vert.push(v);
+                    row += &format!(" wall/hull {h:.3} vert/(len/35) {v:.2} pts {}", rg.len());
+                }
                 patches.push(patch);
                 row += &format!(" square {} unbuilt patch {:.2} ha (all {:.2} ha)", if out { "OUTSIDE" } else { "in" }, patch / 1e4, open / 1e4);
             }
@@ -1661,6 +1763,19 @@ fn both_banks_audit() {
     println!(
         "  villages' lots with no building: {v_vacant} of {v_lots} ({:.1} %); villages with 10 or more: {v_many}",
         100.0 * v_vacant as f64 / v_lots.max(1) as f64
+    );
+    println!(
+        "  walled towns >= 1500 with houses: wall / hull length {}; vertices / (length / 35 m) {} (over 1: {})",
+        spread2(&mut w_hull.clone()),
+        spread2(&mut w_vert.clone()),
+        w_vert.iter().filter(|&&v| v > 1.0).count()
+    );
+    println!(
+        "  villages with houses: street m per building {}; green to market point m {} (within {GREEN_NEAR_M} m: {} of {}; of the market point or a river crossing: {v_green_landing})",
+        spread2(&mut v_street_per_bld.clone()),
+        spread(&mut v_green_d.clone()),
+        v_green_d.iter().filter(|&&d| d <= GREEN_NEAR_M).count(),
+        v_green_d.len()
     );
     let over = |ha: f64| patches.iter().filter(|&&a| a >= ha * 1e4).count();
     println!(

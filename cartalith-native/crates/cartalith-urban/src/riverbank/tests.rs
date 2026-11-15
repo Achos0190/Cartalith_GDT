@@ -949,3 +949,105 @@ fn the_market_square_stands_back_from_the_water_on_its_bank() {
     let anchors = crate::routes::Anchors { market: Vec2::new(900.0, r - 20.0), prov: "test" };
     assert_eq!(crate::plaza::riverbank_square(&site, &anchors, &g, 60.0, 30.0), None);
 }
+
+// ------------------------------- Ruling FE item 2, the street village (2026-11-15) --
+
+/// Protects the street village's green placement (`plaza::square_near` and
+/// `GREEN_RIVER_CLEAR_M`; literals from the fixture's straight river at
+/// `RIVER_Y`, 24 m wide). A road along the north bank 22 m from the
+/// centreline (10 m from the channel's edge): a town's square, which keeps
+/// 15 m (`SQUARE_RIVER_CLEAR_M`) past the half-width, finds no room on it;
+/// a village green, keeping 4 m, does, beside the market. A market at the
+/// end of a road across the river, its own bank roadless: no green on the
+/// market's bank, one at the bridge's other foot with `same_bank` false.
+/// And a village road cut into 40 m edges by its lanes, 18 m from the
+/// centreline (6 m from the channel's edge): no square fits one edge, but a
+/// village green spans them (`village`, `ROAD_ON_M`) beside the market.
+#[test]
+fn a_village_green_stands_at_the_landing() {
+    let r = RIVER_Y;
+    let (site, mut g) = bank_site_and_streets(&[]);
+    g.add_street(400.0, r - 22.0, 1300.0, r - 22.0, "primary", 6.0, 0, "test");
+    let anchors = crate::routes::Anchors { market: Vec2::new(850.0, r - 22.0), prov: "test" };
+    assert!(crate::plaza::square_near_market(&site, &anchors, &g, 60.0, 30.0, crate::plaza::SQUARE_RIVER_CLEAR_M).is_none());
+    let (_, mid) = crate::plaza::square_near_market(&site, &anchors, &g, 60.0, 30.0, crate::plaza::GREEN_RIVER_CLEAR_M).expect("room by the bank");
+    assert!(mid.dist(anchors.market) < 1.0, "{mid:?}");
+    // The road comes from the north and ends across the bridge at the market.
+    let (site, mut g) = bank_site_and_streets(&[]);
+    g.add_street(850.0, r - 600.0, 850.0, r + 20.0, "primary", 6.0, 0, "test");
+    let anchors = crate::routes::Anchors { market: Vec2::new(850.0, r + 20.0), prov: "test" };
+    assert!(crate::plaza::square_near(&site, &anchors, &g, 60.0, 30.0, crate::plaza::GREEN_RIVER_CLEAR_M, true, false).is_none());
+    let (_, mid) = crate::plaza::square_near(&site, &anchors, &g, 60.0, 30.0, crate::plaza::GREEN_RIVER_CLEAR_M, false, false).expect("room across the bridge");
+    assert!(mid.y < r && mid.dist(anchors.market) < 90.0, "{mid:?}");
+    let (site, mut g) = bank_site_and_streets(&[]);
+    for k in 0..20 {
+        let x = 450.0 + 40.0 * k as f64;
+        g.add_street(x, r - 18.0, x + 40.0, r - 18.0, "primary", 6.0, 0, "test");
+        g.add_street(x, r - 18.0, x, r - 60.0, "lane", 3.0, 1, "test");
+    }
+    let anchors = crate::routes::Anchors { market: Vec2::new(850.0, r - 18.0), prov: "test" };
+    assert!(crate::plaza::square_near(&site, &anchors, &g, 60.0, 30.0, crate::plaza::GREEN_RIVER_CLEAR_M, true, false).is_none());
+    let (_, mid) = crate::plaza::square_near(&site, &anchors, &g, 60.0, 30.0, crate::plaza::GREEN_RIVER_CLEAR_M, true, true).expect("a green across the short edges");
+    assert!(mid.dist(anchors.market) < 25.0, "{mid:?}");
+}
+
+/// Protects `cleanup::prune_keeping` (Ruling FE item 2): of two pieces of
+/// road, the larger far from the market, `prune_largest` keeps the larger
+/// and `prune_keeping` with the market keeps the market's.
+#[test]
+fn a_street_village_keeps_its_market_road() {
+    let mk = || {
+        let mut g = crate::graph::Graph::new();
+        g.add_street(100.0, 100.0, 200.0, 100.0, "primary", 6.0, 0, "near");
+        for k in 0..4 {
+            let x = 1000.0 + 100.0 * k as f64;
+            g.add_street(x, 900.0, x + 100.0, 900.0, "primary", 6.0, 0, "far");
+        }
+        g
+    };
+    let alive_near = |g: &crate::graph::Graph| g.edges.iter().any(|e| e.alive && g.nodes[e.a].x < 300.0);
+    let mut g = mk();
+    crate::cleanup::prune_largest(&mut g);
+    assert!(!alive_near(&g));
+    let mut g = mk();
+    crate::cleanup::prune_keeping(&mut g, Some(Vec2::new(150.0, 110.0)));
+    assert!(alive_near(&g) && g.edges.iter().filter(|e| e.alive).count() == 1);
+}
+
+/// Protects `second_pass`'s street-village answer and `fit_short_village`
+/// (literals worked by hand). A street village of target 400 housing 200
+/// (under the 80 % `VILLAGE_LOW_SHARE`) is laid out again at scale 2.0
+/// (400 / 200); housing nothing, at `VILLAGE_MAX_SCALE` (8); housing 330, not
+/// at all. With a head count of `150 + 50 * scale` the secant from (1, 200)
+/// and (2, 250) aimed at 440 lands on 5.8 (440, in the band) and is taken;
+/// with `150 + 20 * scale` it is clamped to 8 (310) and, no scale reaching the
+/// band, the layout housing the most (310) is returned.
+#[test]
+fn a_short_street_village_is_given_more_lanes() {
+    use std::cell::RefCell;
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), street_village: true, ..opts(false, true) }, super::RiverbankPass::First);
+    assert!(base.street_village && base.riverbank_pass == Some(super::RiverbankPass::First));
+    let mk = |pop: f64| {
+        let mut t = base.clone();
+        t.pop = pop;
+        t.pop_target = 400.0;
+        t
+    };
+    assert_eq!(super::second_pass(&mk(200.0)), Some(super::RiverbankPass::Village { street_scale: 2.0, trim: false }));
+    assert_eq!(super::second_pass(&mk(0.0)), Some(super::RiverbankPass::Village { street_scale: 8.0, trim: false }));
+    assert_eq!(super::second_pass(&mk(330.0)), None);
+    let calls = RefCell::new(Vec::new());
+    let t = super::fit_village(mk(200.0), |s, _| {
+        calls.borrow_mut().push(s);
+        mk(150.0 + 50.0 * s)
+    });
+    assert_eq!(calls.borrow().len(), 2, "{:?}", calls.borrow());
+    assert!((calls.borrow()[1] - 5.8).abs() < 1e-9 && (t.pop - 440.0).abs() < 1e-9, "{:?} {}", calls.borrow(), t.pop);
+    calls.borrow_mut().clear();
+    let t = super::fit_village(mk(170.0), |s, _| {
+        calls.borrow_mut().push(s);
+        mk(150.0 + 20.0 * s)
+    });
+    assert_eq!(calls.borrow().last().copied(), Some(8.0), "{:?}", calls.borrow());
+    assert!((t.pop - 310.0).abs() < 1e-9, "{}", t.pop);
+}

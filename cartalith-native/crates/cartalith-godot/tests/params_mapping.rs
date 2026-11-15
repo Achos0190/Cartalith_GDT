@@ -1332,6 +1332,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.urban_river_kind_map = false;
     // And the riverbank (2026-11-15): a save without the key drew its river towns set back.
     expect.urban_riverbank = false;
+    // And the street villages (Ruling FE item 2): a save without the key drew small-town villages.
+    expect.urban_street_village = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1419,7 +1421,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// twenty-third, Ruling EU item 1's `civ.merge_ways`; the twenty-fourth,
 /// Ruling EV's `basin_routing`; the twenty-fifth, Ruling EW item 1's
 /// `urban_wall_hug`; the twenty-sixth, Ruling EX's `civ.river_front`; then
-/// `urban_river_kind_map` and, 2026-11-15, `urban_riverbank`.)
+/// `urban_river_kind_map` and, 2026-11-15, `urban_riverbank` and Ruling FE
+/// item 2's `urban_street_village`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1459,6 +1462,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.civ.river_front && !parity.civ.river_front, "river towns sit on their river for new worlds, Ruling EX");
     assert!(app.urban_river_kind_map && !parity.urban_river_kind_map, "river towns read the map's rivers, Ruling EX follow-up (c)");
     assert!(app.urban_riverbank && !parity.urban_riverbank, "river towns build to the bank, 2026-11-15 under Ruling EX");
+    assert!(app.urban_street_village && !parity.urban_street_village, "villages line their roads, Ruling FE item 2");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1488,6 +1492,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.river_front = false;
     neutral.urban_river_kind_map = false;
     neutral.urban_riverbank = false;
+    neutral.urban_street_village = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1507,7 +1512,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-seven authorised fields"
+         authorised fields (twenty-eight with `urban_street_village`)"
     );
 }
 

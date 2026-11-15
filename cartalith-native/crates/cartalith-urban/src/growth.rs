@@ -251,6 +251,11 @@ pub struct GrowOpts {
     /// fill in for itself.
     pub wet_moat: bool,
     pub pop: f64,
+    /// **Not the reference** (Ruling FE item 2, `crate::village`): when
+    /// `Some(r)`, a street may start only within `r` metres of a primary (the
+    /// approach and through roads), so a street village's lanes stay by its
+    /// road. `None` (the `Default`, every reference path) tests nothing.
+    pub road_reach: Option<f64>,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -575,7 +580,12 @@ pub fn grow(
             s.exploration_minimum,
             s.exploration_start - s.exploration_decay * ep as f64,
         );
-        let budget = target_len / epochs as f64;
+        // **Not the reference** (Ruling FE item 2, `GrowOpts::road_reach`): a
+        // street village's few lanes are one budget, spent from the first
+        // epoch on, not a share per epoch; a share of 12 m an epoch still
+        // laid one whole street an epoch, eight for 100 m (measured on the
+        // `village` fixtures, 2026-11-15: 497 m grown for a 100 m budget).
+        let budget = if opts.road_reach.is_some() { target_len - placed_len } else { target_len / epochs as f64 };
         let prim_edges: Vec<usize> =
             g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| e.id).collect();
         let mut len = 0.0f64;
@@ -672,6 +682,18 @@ pub fn grow(
                 if !near_prim {
                     continue;
                 }
+            }
+            // **Not the reference** (Ruling FE item 2, `GrowOpts::road_reach`):
+            // a street village's lane starts by a road. After every draw this
+            // try has made so far; with `None` nothing is tested, so the
+            // reference's sequence is untouched.
+            if let Some(reach) = opts.road_reach
+                && !prim_edges.iter().any(|&pe| {
+                    let e = &g.edges[pe];
+                    dist_pt_seg(o, g.nodes[e.a].pt(), g.nodes[e.b].pt()) < reach
+                })
+            {
+                continue;
             }
             let w = 1.0 / (1.0 + d_m / s.market_gradient_decay); // Clark gradient, M-DEN-3
             if !explore && r.u() > w * 1.35 {

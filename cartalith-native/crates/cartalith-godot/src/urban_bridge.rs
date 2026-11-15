@@ -798,6 +798,9 @@ impl WorldGen {
                 // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
                 // its bank. Read from the live parameters, like the wall hug.
                 riverbank: self.params.urban_riverbank,
+                // Ruling FE item 2: villages line their roads. Read live, like
+                // the two above.
+                street_village: self.params.urban_street_village,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

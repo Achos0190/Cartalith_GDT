@@ -1,0 +1,46 @@
+Taut walls and street villages (owner Ruling FE items 1 and 2; TOWN_GENERATOR_JUDGEMENT.md changes 1 and 2), 2026-11-15.
+Before = e1cdc126 (origin/main at the fork). After = this commit. Census: cartalith-godot town_river_census
+(both_banks_audit, town_housing_audit, riverbank_gap_audit), seeds 483920, 912345, 246371, villages on
+(TOWN_RIVER_VILLAGES=1), release build, at 384 and 2048 cells. Full logs beside this file
+(audit_*, housing_*, gap_*). The wall/hull, vertices, street-per-building and green lines were added to
+both_banks_audit for this change and were run on the before build too.
+
+Change 1, taut wall (bars from the judgement), walled towns of 1 500 and up:
+                                384 before -> after        2048 before -> after
+ wall / hull length median      1.17 -> 1.04 (bar 1.06)    1.13 -> 1.03
+ wall / hull length p90         1.30 -> 1.10 (bar 1.15)    1.33 -> 1.17  (misses by 0.02)
+ vertices > length/35 m         31 of 31 -> 1 of 31        34 of 34 -> 2 of 34  (the residue: circuits the hug Kept,
+                                                                                 the reference's Chaikin ring)
+ unbuilt patch over 1 ha        0 of 33 -> 1 of 32         1 of 35 -> 1 of 34 (the same 4.47 ha town as before)
+   (384: seed 246371 #2, a both-bank circuit round a 1.6 ha field the hug's lot-based guard does not see)
+ market square outside wall     4 -> 2                     2 -> 1
+ buildings in water             0 -> 0                     0 -> 0
+
+Change 2, street villages (pop_target under 1 500):
+                                384 before -> after        2048 before -> after
+ street m per building median   32.5 -> 10.7 (bar 15)      33.7 -> 10.7
+ green within 60 m of market    12 of 605 -> 491 of 648    15 of 667 -> 603 of 685
+   ... or of a river crossing   n/a -> 525 of 648          n/a -> 624 of 685   (bar 90 %: 76 % / 88 % at 384 / 2048 strict)
+ lots with no building          15.3 % -> 3.7 % (bar 5 %)  15.6 % -> 4.1 %
+ housed median                  106 % -> 100 %             105 % -> 100 %
+ under 80 % of target           108 -> 91                  100 -> 57
+ over 200 %                     1 -> 0                     3 -> 0
+
+Not met: the green bar (strictly within 60 m of the market point) at 76 % (384) and 88 % (2048); most of the
+rest are villages whose market point (pinned at the box centre) is the end of the road on the bank across the
+bridge from all their houses, whose green stands at the bridge's other foot, 60-120 m away. Wall/hull p90 at
+2 048 (1.17). One 1.6 ha patch at 384.
+
+Side effects seen: river-kind villages now often line a road across a bridge, so "on both banks" rises
+(40 -> 208 at 384); the riverbank gap's "street to bank" and "block to bank" maxima rise (a village whose road
+runs away from the river; a village with no block at all reads "inf"). With urban_riverbank OFF and
+urban_street_village ON (no saved world has that pair: old saves have both off, new ones both on) 6 (384) and
+15 (2 048) village buildings stand in the channel; routed.
+
+Frames: viewer/pair_<seed>_<id>.png, the City Viewer's opening frame before (left, e1cdc126) and after (right),
+_viewerframe_probe.gd at 384 x 288: seed 483920 #18 and #6 (walled, #18 on both banks), seed 12345 #2 (walled)
+and #0 (walled; its circuit is the one the hug keeps, unchanged), villages 483920 #15, #70, #36, #100, #150
+and 12345 #17. All looked at.
+
+Mutants: mutants.py (exact replace, restore in finally); mutants_pass1.txt then, after fixtures were added
+for its survivors, mutants_pass2.txt.

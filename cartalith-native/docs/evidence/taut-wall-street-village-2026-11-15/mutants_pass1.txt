@@ -1,0 +1,41 @@
+pocket cap up -> KILLED by wallhug::tests::a_small_notch_is_walled_over_and_a_large_one_keeps_its_corner, wallhug::tests::the_town_and_its_population_are_kept, wallhug::tests::the_wall_gap_falls_across_the_whole_set
+pocket cap down -> KILLED by wallhug::tests::a_small_notch_is_walled_over_and_a_large_one_keeps_its_corner
+min run down -> SURVIVED
+max run up -> KILLED by wallhug::tests::long_runs_get_towers_at_equal_steps
+max turn up -> SURVIVED
+simplify tol up -> KILLED by wallhug::tests::simplify_out_moves_the_line_outward_only
+simplify tol down -> KILLED by wallhug::tests::simplify_out_moves_the_line_outward_only
+open patch cap up -> KILLED by wallhug::tests::a_taut_run_never_walls_an_empty_field
+open reach down -> KILLED by wallhug::tests::open_ground_is_what_lies_beyond_reach_of_every_lot
+pocket steps flat -> KILLED by wallhug::tests::a_taut_run_never_walls_an_empty_field
+no reflex fill -> KILLED by wallhug::tests::a_scalloped_outline_is_pulled_into_straight_runs, wallhug::tests::a_small_notch_is_walled_over_and_a_large_one_keeps_its_corner, wallhug::tests::a_taut_run_never_walls_an_empty_field
+merge without forward test -> SURVIVED
+fill never blocked -> SURVIVED
+simplify_out two-sided -> KILLED by wallhug::tests::simplify_out_moves_the_line_outward_only, wallhug::tests::streets_cross_the_wall_only_at_gates_on_primaries
+no strict pass -> SURVIVED
+spans branch chaikin -> SURVIVED
+all-land branch chaikin -> SURVIVED
+one-bank no taut simplify -> SURVIVED
+street per head up -> KILLED by village::tests::a_street_village_grows_few_lanes_and_only_by_its_road
+road reach up -> KILLED by village::tests::a_street_village_keeps_its_lanes_by_the_road_and_no_courtyards
+toft depth -> KILLED by village::tests::tofts_line_the_road_nearest_the_market_until_the_target_is_housed
+toft frontage -> KILLED by village::tests::tofts_line_the_road_nearest_the_market_until_the_target_is_housed
+toft min depth -> KILLED by village::tests::a_toft_stops_at_the_street_behind_it
+verge -> KILLED by village::tests::a_toft_stops_at_the_street_behind_it, village::tests::tofts_line_the_road_nearest_the_market_until_the_target_is_housed
+toft reach -> KILLED by village::tests::tofts_stop_at_the_target_and_at_their_reach
+no early return -> SURVIVED
+no stop at need -> KILLED by village::tests::a_toft_never_overlaps_a_lot, village::tests::a_toft_stops_at_the_street_behind_it, village::tests::tofts_line_the_road_nearest_the_market_until_the_target_is_housed
+no accepts -> KILLED by village::tests::a_toft_never_overlaps_a_lot
+no reach filter -> SURVIVED
+green clear up -> KILLED by riverbank::tests::a_village_green_stands_at_the_landing
+no other-bank green NOT-UNIQUE(0)
+green not moved -> KILLED by village::tests::a_street_village_houses_its_target_with_its_green_at_the_market
+same_bank ignored NOT-UNIQUE(0)
+budget per epoch -> KILLED by village::tests::a_street_village_grows_few_lanes_and_only_by_its_road
+no road reach test -> KILLED by village::tests::a_street_village_keeps_its_lanes_by_the_road_and_no_courtyards
+prune ignores keep -> KILLED by riverbank::tests::a_street_village_keeps_its_market_road
+courtyards for villages -> KILLED by village::tests::a_street_village_keeps_its_lanes_by_the_road_and_no_courtyards
+sv for towns -> KILLED by village::tests::a_town_is_not_a_street_village
+max scale down -> KILLED by riverbank::tests::a_short_street_village_is_given_more_lanes
+no short refit -> KILLED by riverbank::tests::a_short_street_village_is_given_more_lanes
+short refit keeps first -> KILLED by riverbank::tests::a_short_street_village_is_given_more_lanes

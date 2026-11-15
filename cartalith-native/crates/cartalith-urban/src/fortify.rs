@@ -195,6 +195,15 @@ pub struct BuiltMass {
     /// wall hug on a riverbank site; `false` (every reference path) is the
     /// reference, byte for byte.
     pub exact: bool,
+    /// **Not the reference** (Ruling FE item 1, 2026-11-15,
+    /// `crate::wallhug::tauten`): `hull` is already a taut trace of straight
+    /// runs, so the circuit is built on it **without** the reference's two
+    /// Chaikin passes (which would round every tower corner into a curve), its
+    /// runs and bank walk are simplified to `crate::wallhug::TAUT_SIMPLIFY_M`
+    /// (dropping the 8 m resampling of a straight run), and runs longer than
+    /// `crate::wallhug::TAUT_MAX_RUN_M` get towers at equal steps. Set only by
+    /// the wall hug (`urban_wall_hug`); `false` is every reference path.
+    pub taut: bool,
 }
 
 /// The three `opts` fields `buildWall` and `applyStarFort` read.
@@ -484,7 +493,7 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
             }
         }
     }
-    Some(BuiltMass { hull, spans_water, exact: false })
+    Some(BuiltMass { hull, spans_water, exact: false, taut: false })
 }
 
 // -------------------------------------------------------------- the circuit --
@@ -522,6 +531,17 @@ pub fn build_wall(
 ) {
     let Some(bmh) = built_mass_hull(site, anchors, g) else { return };
     build_wall_from_mass(seed, site, anchors, g, wall_state, ep, harbour, opts, bmh, true);
+}
+
+/// **Not the reference** (Ruling FE item 1, `BuiltMass::taut`): a closed taut
+/// trace made into a circuit: the reference's corner cut (interior angles
+/// under 1.75 rad bevelled, so a spike is never a tower), no Chaikin
+/// rounding, collinear points dropped to `crate::wallhug::TAUT_SIMPLIFY_M`,
+/// and towers at most `crate::wallhug::TAUT_MAX_RUN_M` apart.
+fn taut_loop(hull: &[Vec2]) -> Vec<Vec2> {
+    let r = corner_cut(hull, 1.75, 4);
+    let orient = crate::geom::poly_area(&r).signum();
+    crate::wallhug::subdivide_runs(&crate::wallhug::simplify_out(&r, crate::wallhug::TAUT_SIMPLIFY_M, orient, true), true)
 }
 
 /// [`build_wall`] from a built mass the caller supplies -- everything after
@@ -627,8 +647,10 @@ pub fn build_wall_from_mass(
         // two water-gates.
         // `bmh.exact`: not the reference (see `BuiltMass::exact`).
         let base = if bmh.exact { hull.clone() } else { convex_hull(&hull) };
-        let mut r = corner_cut(&chaikin(&chaikin(&base, true), true), 1.75, 4);
-        r = simplify(&r, 2.0);
+        let mut r = if bmh.taut { taut_loop(&base) } else { corner_cut(&chaikin(&chaikin(&base, true), true), 1.75, 4) };
+        if !bmh.taut {
+            r = simplify(&r, 2.0);
+        }
         land_arc = r.clone();
         for i in 0..r.len() {
             let a = r[i];
@@ -650,8 +672,10 @@ pub fn build_wall_from_mass(
         let m = dense.len();
         if land.iter().all(|x| *x) {
             // The hull never reaches the water: a smooth curtain all round.
-            let mut r = corner_cut(&chaikin(&chaikin(&hull, true), true), 1.75, 4);
-            r = simplify(&r, 2.0);
+            let mut r = if bmh.taut { taut_loop(&hull) } else { corner_cut(&chaikin(&chaikin(&hull, true), true), 1.75, 4) };
+            if !bmh.taut {
+                r = simplify(&r, 2.0);
+            }
             land_arc = r.clone();
             ring = r;
         } else if land.iter().all(|x| !*x) {
@@ -705,6 +729,17 @@ pub fn build_wall_from_mass(
                     k -= 1;
                 }
             }
+            // `bmh.taut` (not the reference): the land arc's 8 m resampling of
+            // each straight run is dropped again and the bank walk follows the
+            // bank in runs, both only ever outward (`simplify_out`, oriented
+            // by the ring they make), and long runs get towers.
+            if bmh.taut {
+                let whole: Vec<Vec2> = land_arc.iter().chain(water.iter()).copied().collect();
+                let orient = crate::geom::poly_area(&whole).signum();
+                let tol = crate::wallhug::TAUT_SIMPLIFY_M;
+                land_arc = crate::wallhug::subdivide_runs(&crate::wallhug::simplify_out(&land_arc, tol, orient, false), false);
+                water = crate::wallhug::subdivide_runs(&crate::wallhug::simplify_out(&water, tol, orient, false), false);
+            }
             // v1.04: on REAL water the shoreline spans the whole box, so a noisy
             // land classification can project the two arc ends onto distant bank
             // indices and the concatenated ring becomes a needle hugging the
@@ -728,8 +763,10 @@ pub fn build_wall_from_mass(
                 // finding about the reference, not a licence to rewrite it.
                 #[allow(unused_assignments, reason = "reproduces a dead reset the reference writes")]
                 if wl > js_max(ll * 1.6, 500.0) {
-                    let mut r = corner_cut(&chaikin(&chaikin(&hull, true), true), 1.75, 4);
-                    r = simplify(&r, 2.0);
+                    let mut r = if bmh.taut { taut_loop(&hull) } else { corner_cut(&chaikin(&chaikin(&hull, true), true), 1.75, 4) };
+                    if !bmh.taut {
+                        r = simplify(&r, 2.0);
+                    }
                     land_arc = r;
                     water.clear();
                     water_walls.clear();

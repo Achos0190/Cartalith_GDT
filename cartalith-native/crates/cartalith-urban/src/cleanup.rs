@@ -116,6 +116,17 @@ pub fn kill_edge(g: &mut Graph, eid: usize) {
 /// edge is visited twice, and `kill_edge` only ever clears `alive`, so an edge
 /// selected by the filter cannot be un-selected by an earlier kill.
 pub fn prune_largest(g: &mut Graph) {
+    prune_keeping(g, None);
+}
+
+/// [`prune_largest`], or with `keep` (**not the reference**; Ruling FE item 2,
+/// 2026-11-15, `crate::village`) the component holding the live node nearest
+/// `keep` instead of the largest. A street village grows only a few lanes, so
+/// after the real-water sweep the market's own road can be the smaller piece,
+/// and the reference's rule then deleted the road the village stands on (seed
+/// 483920 #11 at 384: the village laid out on another stretch of road, 40 %
+/// housed). `None` is [`prune_largest`] exactly.
+pub fn prune_keeping(g: &mut Graph, keep: Option<Vec2>) {
     let mut order: Vec<usize> = Vec::new();
     let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
     for e in &g.edges {
@@ -166,6 +177,12 @@ pub fn prune_largest(g: &mut Graph) {
             best = i;
         }
     }
+    if let Some(p) = keep
+        && let Some(&n) = order.iter().min_by(|&&a, &&b| g.nodes[a].pt().dist(p).total_cmp(&g.nodes[b].pt().dist(p)))
+        && let Some(&c) = comp.get(&n)
+    {
+        best = c;
+    }
     let victims: Vec<usize> = g
         .edges
         .iter()
@@ -200,6 +217,13 @@ pub fn prune_largest(g: &mut Graph) {
 /// not exempt** (only the quay is). Guarded on `uses_real_water`, so the
 /// synthetic path is untouched.
 pub fn remove_water_crossings(site: &Site, g: &mut Graph) {
+    remove_water_crossings_keeping(site, g, None);
+}
+
+/// [`remove_water_crossings`], ending in [`prune_keeping`] with `keep` (a
+/// street village keeps its market's road; Ruling FE item 2). `None` is
+/// [`remove_water_crossings`] exactly.
+pub fn remove_water_crossings_keeping(site: &Site, g: &mut Graph, keep: Option<Vec2>) {
     if site.no_water {
         return;
     }
@@ -259,7 +283,7 @@ pub fn remove_water_crossings(site: &Site, g: &mut Graph) {
         }
     }
 
-    prune_largest(g);
+    prune_keeping(g, keep);
 }
 
 // --------------------------------------------------------- privatizeAlleys --

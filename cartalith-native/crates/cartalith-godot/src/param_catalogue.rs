@@ -127,9 +127,10 @@ pub const DESCS: &[(&str, &str)] = &[
     ("carve_rivers", "On: rivers cut real valleys into the terrain while generating. Off: no river channels are carved at all."),
     ("river_density", "Raise: more, smaller river channels. Lower: fewer, larger rivers."),
     ("integrate_drainage", "On: water reaching a hollow carries on to the sea, so rivers connect (current). Off: rivers end in local pits (older)."),
-    ("urban_wall_hug", "On: town walls hug the built-up area, a wall street of a few metres. Off: the wall keeps the wide growth-reserve gap. Read when a town is drawn."),
+    ("urban_wall_hug", "On: town walls hug the built-up area in straight runs between towers (current). Off: the wall keeps the wide growth-reserve gap. Read when a town is drawn."),
     ("urban_river_kind_map", "On: a town is a river town only where the map's own river runs near it (current). Off: nearby high flow is enough, as older worlds did."),
     ("urban_riverbank", "On: river towns build to the bank, quays and houses on the water; big ones bridge and grow both banks (current). Off: one bank, set back. Read when drawn."),
+    ("urban_street_village", "On: villages are rows of houses along their roads, the green at the landing or crossroads (current). Off: villages grow as small towns. Read when drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
@@ -285,7 +286,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }
