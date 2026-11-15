@@ -562,7 +562,10 @@ func _leg_c() -> void:
 	_ok("C2: ... and the overlay follows", is_equal_approx(float(_ov._pois[0]["x"]), float(p0["x"])))
 	_bridge.redo_last()
 	await _frames(4)
-	_ok("C2: redo moves it again", absf(float(_bridge.poi_get(0)["x"]) - float(p0["x"])) > 0.5)
+	## Compare BOTH axes and against the destination itself: the free spot the Move click lands on can share the
+	## original's x (2026-11-15: x was identical, only y moved), so an x-only distance read a correct redo as a failure.
+	var p3: Dictionary = _bridge.poi_get(0)
+	_ok("C2: redo moves it again (to where the move put it)", is_equal_approx(float(p3["x"]), float(p1["x"])) and is_equal_approx(float(p3["y"]), float(p1["y"])) and absf(float(p3["x"]) - float(p0["x"])) + absf(float(p3["y"]) - float(p0["y"])) > 1.0)
 	_bridge.undo_last()
 	await _frames(4)
 	## Rename, kind

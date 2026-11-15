@@ -444,6 +444,8 @@ func _leg_desktop() -> void:
 	await _settle(8)
 	if _only == "" or _only.contains("trail"):
 		await _leg_trail()
+	if _only == "" or _only.contains("keys"):
+		await _leg_keys()
 	if _only == "" or _only.contains("find"):
 		await _leg_find()
 	if _only == "" or _only.contains("refresh"):
@@ -598,6 +600,57 @@ func _press_chip(w: Window, what: String) -> void:
 
 func _patch(r: Rect2i) -> PackedByteArray:
 	return get_viewport().get_texture().get_image().get_region(r).get_data()
+
+
+## Row texts of the Window ▸ Open windows submenu, after the menu itself rebuilt it (its about_to_popup).
+func _open_windows_rows() -> Array:
+	var pm: PopupMenu = _app.menus._windows_popup
+	pm.about_to_popup.emit()
+	var out: Array = []
+	for i in pm.item_count:
+		out.append(pm.get_item_text(i))
+	return out
+
+
+## Edit-menu keys for the trail and Window ▸ Open windows listing the windows behind it (2026-11-15).
+##   K1  Ctrl+[ (a real key event) shows the earlier window and hides the later one; Ctrl+] walks back.
+##   K2  with nothing earlier, Ctrl+[ changes nothing.
+##   K3  the Open windows submenu lists BOTH windows of the trail, the hidden one marked "in trail".
+##   K4  picking the hidden one's row brings it forward and hides the other, with its state.
+func _leg_keys() -> void:
+	print("== K. keys and Open windows ==")
+	await _hide_all()
+	_nav().clear()
+	var cl: Array = _clickable(null)
+	var ia: int = int(cl[0])
+	var pe := await _open("place", ia)
+	var cv := await _open("city", ia)
+	_ok(cv.visible and not pe.visible and _nav().size() == 2, "K0: a two-window trail, the City viewer on screen")
+	await _key(KEY_BRACKETLEFT, 0, false, true)
+	_ok(pe.visible and not cv.visible and _nav().cursor() == 0, "K1: Ctrl+[ shows the Place editor and hides the City viewer")
+	await _key(KEY_BRACKETLEFT, 0, false, true)
+	_ok(pe.visible and _nav().cursor() == 0, "K2: Ctrl+[ at the start changes nothing")
+	await _key(KEY_BRACKETRIGHT, 0, false, true)
+	_ok(cv.visible and not pe.visible and _nav().cursor() == 1, "K1: Ctrl+] walks forward to the City viewer")
+	var rows := _open_windows_rows()
+	rows.erase("Context panel")   ## the panel's own row (PC-4) is listed first while it is shown; not a trail window
+	var trail_rows := rows.filter(func(t): return String(t).ends_with("in trail"))
+	_ok(rows.size() == 2 and trail_rows.size() == 1, "K3: the list holds the window on screen and the one behind it (%s)" % str(rows))
+	_ok(trail_rows.size() == 1 and String(trail_rows[0]).contains("Place"), "K3: the hidden row is the Place editor (%s)" % str(trail_rows))
+	var pm: PopupMenu = _app.menus._windows_popup
+	var idx := -1
+	for i in pm.item_count:
+		if pm.get_item_text(i).ends_with("in trail"):
+			idx = i
+	if idx >= 0:
+		pm.id_pressed.emit(pm.get_item_id(idx))
+		await _settle(10)
+	_ok(pe.visible and not cv.visible and _nav().cursor() == 0, "K4: picking the row brings the Place editor forward and hides the other")
+	var rows2 := _open_windows_rows()
+	rows2.erase("Context panel")
+	_ok(rows2.size() == 2 and rows2.filter(func(t): return String(t).ends_with("in trail")).size() == 1,
+		"K4: and the list now marks the City viewer as the one in the trail (%s)" % str(rows2))
+	await _hide_all()
 
 
 func _leg_find() -> void:

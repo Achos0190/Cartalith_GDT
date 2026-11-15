@@ -393,6 +393,8 @@ const ID_PREF_POPOUT := 903
 const ID_EDIT_SELECT_BACK := 910  ## Edit ▸ Previous selection (Alt+←); live from PC-1.
 const ID_EDIT_SELECT_FORWARD := 911  ## Edit ▸ Next selection (Alt+→); live from PC-1.
 const ID_EDIT_CONTEXT_CARD := 912  ## Edit ▸ Context card (Shift+F10); the key moved here from `app.gd` (§3.9, M8).
+const ID_EDIT_CTX_BACK := 935  ## Edit ▸ Previous context window (Ctrl+[): Back along the context windows' trail (`context_nav.gd`).
+const ID_EDIT_CTX_FORWARD := 936  ## Edit ▸ Next context window (Ctrl+]): Forward along it.
 const ID_EDIT_CARTWHEEL := 913  ## Edit ▸ Cartwheel at the pointer (Q); the key moved here from `app.gd` (§3.9, M8).
 const ID_WIN_CTX_INSPECT := 914  ## Window ▸ Context panel ▸ Inspect (Ctrl+1); live from PC-4.
 const ID_WIN_CTX_NOTE := 915  ## Window ▸ Context panel ▸ Note (Ctrl+2); live from PC-5.
@@ -1555,6 +1557,10 @@ const SELECTION_HISTORY_TODO := "Not built yet: each workspace keeps its own sel
 ## Previous selection's tooltip once it is live.
 const SELECT_BACK_TIP := "Selects what was selected before, like a browser's Back. Everything that shows the selection follows."
 ## Next selection's tooltip once it is live.
+const CTX_BACK_TIP := "Shows the context window you had open before this one (the roster, a place, a city, Conflicts, Saved journeys), as it was left. The same step as the window's BACK button."
+const CTX_FORWARD_TIP := "Undoes a Previous context window. The same step as the window's FORWARD button."
+const CTX_BACK_NONE := "No earlier context window to go back to."
+const CTX_FORWARD_NONE := "No later context window to go forward to."
 const SELECT_FORWARD_TIP := "Selects again what Previous selection stepped back from, like a browser's Forward."
 ## Status line when Previous selection has nowhere to go. A statement about the history, never an
 ## error: the row is enabled whenever PC-1 exists, and an empty history is an ordinary state.
@@ -1603,6 +1609,15 @@ func _build_selection_rows(p: PopupMenu) -> void:
 		p.set_item_tooltip(p.item_count - 1, SELECT_FORWARD_TIP)
 	else:
 		_todo(p, "Next selection", SELECTION_HISTORY_TODO)
+	## The context windows' own trail (PC-7's leftover). Ctrl+[ and Ctrl+] are the browser and editor
+	## "back / forward" pair and are bound nowhere else in this file (`grep BRACKET` was empty); Alt+←/→
+	## above are the map's selection history, so the two histories cannot share keys. Not on the phone and
+	## tablet, which register no trail (`ContextWindow.applies()`); a press with nothing to walk to says so.
+	if _host_has("context_window_back") and not DccTheme.is_phone() and not DccTheme.is_tablet():
+		_live(p, "Previous context window", ID_EDIT_CTX_BACK, KEY_MASK_CTRL | KEY_BRACKETLEFT)
+		p.set_item_tooltip(p.item_count - 1, CTX_BACK_TIP)
+		_live(p, "Next context window", ID_EDIT_CTX_FORWARD, KEY_MASK_CTRL | KEY_BRACKETRIGHT)
+		p.set_item_tooltip(p.item_count - 1, CTX_FORWARD_TIP)
 
 ## Edit ▸ Context card (Shift+F10) and Edit ▸ Cartwheel at the pointer (Q), after Find on map….
 ##
@@ -1656,6 +1671,12 @@ func _on_edit_selection(id: int) -> void:
 				return
 			if not bool(_host.select_forward()):
 				_host.set_status("hint", SELECT_FORWARD_NONE, "text_ghost")
+		ID_EDIT_CTX_BACK:
+			if not bool(_host.context_window_back()):
+				_host.set_status("hint", CTX_BACK_NONE, "text_ghost")
+		ID_EDIT_CTX_FORWARD:
+			if not bool(_host.context_window_forward()):
+				_host.set_status("hint", CTX_FORWARD_NONE, "text_ghost")
 		ID_EDIT_CONTEXT_CARD:
 			if not _typed_into_field(id):
 				_host.open_context_card()
@@ -7763,6 +7784,8 @@ const CTX_MODULE_REFUSED := "The Context panel keeps at least one tab. Add anoth
 ## The suffix an Open windows row carries when its window is popped out into its own OS window
 ## (`Window.is_embedded()` false). The `PREF_VALUE_SEP` spacing, the house way of adding a second
 ## column a `PopupMenu` cannot draw.
+## The suffix of an Open windows row for a context window held in the trail, behind the one on screen.
+const OPEN_WINDOW_TRAIL_SUFFIX := "   in trail"
 const OPEN_WINDOW_NATIVE_SUFFIX := "   own window"
 ## Open windows' empty state. The shipped readout said "none of the dialogs this menu tracks is
 ## open"; it tracks every window now.
@@ -7986,6 +8009,14 @@ func _refresh_open_windows() -> void:
 		_windows_popup.add_check_item(_open_window_label(w as Window), _open_windows.size())
 		_windows_popup.set_item_checked(_windows_popup.item_count - 1, true)
 		_open_windows.append(w)
+	## The context windows the trail holds behind the one on screen (`context_nav.gd`): not visible, so the
+	## walk above cannot find them. Unchecked, since they are not open on screen; picking one walks the trail
+	## to it. Its own title (the faction, the place), so a row names its subject like any other.
+	var nav = _host.get("context_nav")
+	if nav != null:
+		for w in nav.hidden_windows():
+			_windows_popup.add_item(_open_window_label(w as Window) + OPEN_WINDOW_TRAIL_SUFFIX, _open_windows.size())
+			_open_windows.append(w)
 	if _open_windows.is_empty():
 		_readout(_windows_popup, "No windows open", OPEN_WINDOWS_NONE_TIP)
 
@@ -8005,6 +8036,10 @@ func _on_open_window(id: int) -> void:
 	if not is_instance_valid(entry):
 		return
 	var w := entry as Window
+	var nav = _host.get("context_nav")
+	if not w.visible and nav != null:
+		nav.show_window(w)
+		return
 	if w.is_embedded() and w.exclusive:
 		w.popup_centered()
 	else:

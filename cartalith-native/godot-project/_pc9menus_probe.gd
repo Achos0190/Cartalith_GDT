@@ -383,6 +383,15 @@ func _edit() -> void:
 		else:
 			_ok(i >= 0 and p.is_item_disabled(i) and p.get_item_tooltip(i).contains("PC-1"),
 				"%s is disabled until PC-1, with a reason naming it" % e[0])
+	## The context windows' own trail (PC-7 leftover, 2026-11-15): Ctrl+[ and Ctrl+], right after Next selection,
+	## desktop only (the tablet and the phone register no trail). Written as literals, so a rename or a clash fails.
+	for e in [["Previous context window", KEY_MASK_CTRL | KEY_BRACKETLEFT, 935], ["Next context window", KEY_MASK_CTRL | KEY_BRACKETRIGHT, 936]]:
+		var ti := _index_of(p, String(e[0]))
+		if _mode == "desktop":
+			_ok(ti >= 0 and p.get_item_accelerator(ti) == int(e[1]) and p.get_item_id(ti) == int(e[2]) and not p.is_item_disabled(ti),
+				"%s is live on %s, id %d" % [e[0], OS.get_keycode_string(int(e[1])), int(e[2])])
+		else:
+			_ok(ti < 0, "%s is not built on the %s (no trail there)" % [e[0], _mode])
 	var fi := rows.find("Find on map…")
 	_ok(fi >= 0 and fi + 2 < rows.size() and rows[fi + 1] == "Context card" and rows[fi + 2] == "Cartwheel at the pointer",
 		"Context card and Cartwheel at the pointer follow Find on map… (got %s)" % str(rows.slice(maxi(fi, 0), fi + 3)))

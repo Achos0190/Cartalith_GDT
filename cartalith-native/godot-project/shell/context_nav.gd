@@ -111,6 +111,33 @@ func trail() -> PackedStringArray:
 	return out
 
 
+## The windows the trail holds that are NOT on screen now (the ones a Back or Forward would show), oldest first:
+## what `Window ▸ Open windows` lists besides the window on screen, because the menu's own walk finds only
+## visible windows and a window behind the trail would otherwise be unreachable except by stepping Back to it.
+## Freed windows and popped-out ones are left out: a pop-out is its own OS window, visible, and listed by the
+## menu's walk already.
+func hidden_windows() -> Array:
+	var out: Array = []
+	for e in _entries:
+		var w = (e as Dictionary)["win"]
+		if is_instance_valid(w) and not (w as Window).visible and (w as Window).is_embedded() and not out.has(w):
+			out.append(w)
+	return out
+
+
+## Brings trail window `win` to the screen: walks to its newest entry through `_go()`, so it is re-opened by its
+## own `context_restore()` with the state it was left in, never a second way of building it. Returns false when
+## `win` is not in the trail (a stale menu row) or is already the one on screen.
+func show_window(win: Window) -> bool:
+	for i in range(_entries.size() - 1, -1, -1):
+		if (_entries[i] as Dictionary)["win"] == win:
+			if i == _cursor:
+				return false
+			_go(i)
+			return true
+	return false
+
+
 ## Forgets the trail (the nav rows hide).
 func clear() -> void:
 	if _entries.is_empty() and _cursor == -1:

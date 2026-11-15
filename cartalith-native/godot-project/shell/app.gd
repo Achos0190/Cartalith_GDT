@@ -1010,6 +1010,23 @@ func select_forward() -> bool:
 	select(String(nxt.get("kind", "")), int(nxt.get("id", -1)), {"history": false})
 	return true
 
+## PC-7 leftover. Edit ▸ Previous context window (Ctrl+[): Back along the trail of context windows the
+## selection opened (`context_nav.gd`), the same step the window's own BACK button takes. Alt+←/→ are the
+## map's selection history, so the trail has its own keys. Returns false, changing nothing, when there is
+## no earlier window.
+func context_window_back() -> bool:
+	if context_nav == null or not context_nav.can_back():
+		return false
+	context_nav.back()
+	return true
+
+## Edit ▸ Next context window (Ctrl+]): the reverse of `context_window_back()`.
+func context_window_forward() -> bool:
+	if context_nav == null or not context_nav.can_forward():
+		return false
+	context_nav.forward()
+	return true
+
 ## PC-1. The faction Records ▸ Factions… and Story ▸ Faction history… open on (finding W6): the
 ## selected faction; for a selected settlement, the faction the engine's settlement list gives it now,
 ## which is the holder in the year the civilisation layer was last moved to (`civ_goto_year`; PC-2
