@@ -2786,7 +2786,7 @@ func _wire_status() -> void:
 		var g := bridge.grid_size()
 		set_status("top_world", _world_pill_text() if ok else "—")
 		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
-		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
+		set_status("top_mem", "%.1f GB" % (bridge.memory_bytes() / 1073741824.0))
 		_refresh_rail_foot()
 		_refresh_world_dependent())
 	bridge.world_loaded.connect(func():

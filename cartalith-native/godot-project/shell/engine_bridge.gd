@@ -3072,6 +3072,19 @@ func disk_free_bytes(path: String) -> int:
 		return -1
 	return int(world_gen.disk_free_bytes(path))
 
+## The program's memory for the top bar: the whole process's resident bytes
+## (`WorldGen.process_resident_bytes`, Rust and Godot together), falling back
+## to `OS.get_static_memory_usage()` when the platform cannot say or the
+## extension is too old. Exists because that fallback is Godot's allocator only
+## and reads 0 in a release export, so the readout said 0.0 GB on Android
+## (owner, 2026-11-15). Static on the class, so it is safe mid-generation.
+func memory_bytes() -> int:
+	if ClassDB.class_has_method("WorldGen", "process_resident_bytes"):
+		var r := int(ClassDB.class_call_static("WorldGen", "process_resident_bytes"))
+		if r > 0:
+			return r
+	return OS.get_static_memory_usage()
+
 ## `MVP_SCOPE.md` criterion 7: opens a real HTML-app `.zip` and renders that
 ## save's terrain. `load_save` reads the save's own stored fields directly --
 ## no `generate` call is involved, so nothing here goes through the worker.

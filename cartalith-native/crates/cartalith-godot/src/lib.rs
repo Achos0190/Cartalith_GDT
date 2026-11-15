@@ -19396,6 +19396,33 @@ impl WorldGen {
         }
     }
 
+    /// The whole process's resident memory in bytes (Rust, Godot and the
+    /// driver together), or `-1` when this platform cannot say. The top bar's
+    /// memory readout reads it (owner report, 2026-11-15: *"The programs own
+    /// memory reporter doesn't report on android"*).
+    ///
+    /// # Why not `OS.get_static_memory_usage()`
+    ///
+    /// That counts only Godot's own allocator, and Godot tracks it only in a
+    /// debug build: the Android APK is a release export, so it read `0.0 GB`
+    /// on the phone and tablet. It also never saw the Rust engine's
+    /// allocations, which are most of this program's memory.
+    ///
+    /// # Sources
+    ///
+    /// - Linux and Android: `VmRSS` in `/proc/self/status` (kB, kernel docs
+    ///   `proc(5)`), so no page size and no `libc` are needed.
+    /// - Windows: `WorkingSetSize` from `K32GetProcessMemoryInfo`, exported by
+    ///   `kernel32` (which `std` already links), the same no-new-dependency
+    ///   route as `disk_free_bytes` below.
+    ///
+    /// Must never return a made-up figure: anything unreadable is `-1`, and
+    /// the caller falls back to the old readout.
+    #[func]
+    fn process_resident_bytes() -> i64 {
+        process_resident_bytes_impl()
+    }
+
     /// Free bytes on the volume holding `path`, or `-1` when this platform
     /// cannot say — the check a save or an export makes before it starts, so
     /// a full disk is refused with a real number instead of surfacing as
@@ -29244,5 +29271,97 @@ mod rock_paint_commit_tests {
         assert_eq!(redo_one_with(&mut undo, &mut redo, ws_field.as_mut_slice(), ws.geology.column_mut()).as_deref(), Some("Rock paint commit"));
         assert_eq!(bits(&ws.field), f_post, "redo reapplied the field byte for byte");
         assert_eq!(column_key(&ws), c_post, "redo reapplied the column byte for byte");
+    }
+}
+
+
+/// `WorldGen::process_resident_bytes` for Linux and Android: `VmRSS` from
+/// `/proc/self/status`, in kB. `-1` if the file or the line is missing.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn process_resident_bytes_impl() -> i64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .as_deref()
+        .and_then(parse_vm_rss_kb)
+        .map_or(-1, |kb| kb.saturating_mul(1024))
+}
+
+/// `WorldGen::process_resident_bytes` for Windows: the working set from
+/// `K32GetProcessMemoryInfo`. `-1` if the call fails.
+#[cfg(windows)]
+fn process_resident_bytes_impl() -> i64 {
+    /// `PROCESS_MEMORY_COUNTERS` (psapi.h), field for field.
+    #[repr(C)]
+    struct ProcessMemoryCounters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn K32GetProcessMemoryInfo(process: isize, counters: *mut ProcessMemoryCounters, cb: u32) -> i32;
+    }
+    let cb = std::mem::size_of::<ProcessMemoryCounters>() as u32;
+    // SAFETY: all-zero is a valid `ProcessMemoryCounters` (plain integers).
+    let mut c: ProcessMemoryCounters = unsafe { std::mem::zeroed() };
+    c.cb = cb;
+    // SAFETY: the pseudo-handle from `GetCurrentProcess` needs no closing, and
+    // `c` is a live, correctly sized `PROCESS_MEMORY_COUNTERS` for the call.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, cb) };
+    if ok == 0 { -1 } else { c.working_set_size as i64 }
+}
+
+/// Any other target: no source is wired, so the honest answer is `-1`.
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+fn process_resident_bytes_impl() -> i64 {
+    -1
+}
+
+/// The kB figure on `/proc/self/status`'s `VmRSS:` line, `None` when the line
+/// is absent or unparsable. Pure, so it is tested on every host.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android")), allow(dead_code))]
+fn parse_vm_rss_kb(status: &str) -> Option<i64> {
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|n| n.parse::<i64>().ok())
+}
+
+#[cfg(test)]
+mod process_resident_tests {
+    use super::*;
+
+    /// Protects the Android readout: the kB figure is taken from `VmRSS`, not
+    /// from the `VmHWM` peak line beside it, and a missing line is `None`
+    /// (which the caller turns into `-1`, never `0`).
+    #[test]
+    fn parse_vm_rss_reads_the_resident_line_only() {
+        let s = "Name:	godot
+VmHWM:	  900000 kB
+VmRSS:	  524288 kB
+Threads:	43
+";
+        assert_eq!(parse_vm_rss_kb(s), Some(524_288));
+        assert_eq!(parse_vm_rss_kb("Name:	godot
+"), None);
+        assert_eq!(parse_vm_rss_kb("VmRSS:	  garbage kB
+"), None);
+    }
+
+    /// Protects the desktop readout: on the test host the process is running,
+    /// so a real resident figure exists and is more than 1 MiB.
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn process_resident_bytes_is_real_on_this_host() {
+        assert!(process_resident_bytes_impl() > 1 << 20);
     }
 }
