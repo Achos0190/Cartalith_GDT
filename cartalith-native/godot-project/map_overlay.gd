@@ -6078,6 +6078,8 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 			var lm: Dictionary = _landmarks[li]
 			if not _landmark_shown(lm):
 				continue   ## its kind is filtered out (owner, 2026-10-19)
+			if _lm_town_hidden(li, rect):
+				continue   ## Ruling FC: a town's pin waits for the town
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
@@ -6387,7 +6389,7 @@ func _icon_radius(ic: Dictionary) -> float:
 func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int, angle: float = 0.0) -> void:
 	var inks := landmark_inks(String(lm.get("class", "local")).to_lower())
 	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), String(lm.get("kind", "")), landmark_has_note(index),
-		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], angle)
+		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], angle, DccSettings.marker_icon_set())
 
 
 ## **The circle style's landmark mark** (owner request 2026-11-14, *"Can you keep the old circle markers as an option"*;
@@ -6495,21 +6497,107 @@ func _poi_footprint(_circles: bool) -> Array:
 	var r := _poi_pin_r()
 	return [r, _landmark_pin_pad(r)]
 
+## ── Ruling FC (owner, 2026-11-15): a town's teardrop pins show only when the town itself can be seen ───────────────────
+##
+## *"I'd like the tear drops from towns only visible when zoomed in enough so we can see the town on the map, or when the map
+## view has been opened."* On the world map a POI or landmark that belongs to a town draws, picks and tilts only once the town
+## LAYOUT draws at the current view: **the same gate `_urban_plan_update` uses** (`URBAN_MIN_BOX_PX`, or
+## `EXPORT_URBAN_MIN_BOX_PX` in an export, and a span under `UM_FADE_FAR_KM`) and no new threshold. The City Viewer always shows
+## its pins (it never asks this). A pin that belongs to no town is untouched.
+##
+## **Which pins belong to a town: "inside the town's box"** -- the engine ties neither a POI nor a landmark to a settlement
+## (checked: `poi_list()` rows carry no settlement id, `Landmark` has none), so a pin belongs to a town when it stands within
+## half the site box (`URBAN_SITE_BOX_KM / 2` = 0.85 km, the City Viewer's own `POI_TOWN_RADIUS_M`) of a settlement's cell
+## centre. Any settlement in the roster counts (every one has a layout to draw), so a village's pins hide as a town's do.
+## The GATE is a function of the view alone, not of whether the layout has finished generating, so a pin never flickers
+## while a layout loads, and it is true even with the Town plans layer switched off (that switch hides a layer, it must not
+## strand pins forever).
+## **Known left:** a landmark hidden here still suppresses the generated icon at its cell (`_ringed_cells`, `_lm_hidden_cells`,
+## rebuilt by setters, not per frame), so that one glyph stays hidden while the town is not shown.
+const TOWN_PIN_RADIUS_KM := URBAN_SITE_BOX_KM * 0.5
+
+var _town_pin_key: Array = []
+var _town_pin_sets := {"lm": {}, "poi": {}}   ## {"lm": {landmark index: true}, "poi": {poi index: true}}
+
+## Whether the view is deep enough that the town layout draws (the gate above), ignoring the layer switch and layout state.
+func _town_layer_zoom_reached(rect: Rect2) -> bool:
+	var m_scale := _urban_m_scale(rect)
+	if m_scale <= 0.0:
+		return false
+	var box_px := URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom
+	if box_px < (EXPORT_URBAN_MIN_BOX_PX if _export_mode else URBAN_MIN_BOX_PX):
+		return false
+	if _export_mode:
+		return true
+	var span := _urban_span_km(rect)
+	return span > 0.0 and span < UM_FADE_FAR_KM
+
+## `{"lm": {index: true}, "poi": {index: true}}`: the pins inside some settlement's box (rebuilt when the roster or the pin
+## lists change; a cell-bucket grid keeps it near-linear in the pins).
+func _town_pin_membership() -> Dictionary:
+	var key := [_settlements.size(), _landmarks.size(), _pois.size(), _fan_rev, _gw, _map_width_km]
+	if key == _town_pin_key:
+		return _town_pin_sets
+	_town_pin_key = key
+	var out := {"lm": {}, "poi": {}}
+	_town_pin_sets = out
+	if _settlements.is_empty() or _gw <= 0 or _map_width_km <= 0.0:
+		return out
+	var rad := TOWN_PIN_RADIUS_KM / (_map_width_km / float(_gw))   ## the radius in grid cells
+	var bsz := maxf(1.0, rad)
+	var grid := {}
+	for s in _settlements:
+		var c := Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5)
+		var k := Vector2i(floori(c.x / bsz), floori(c.y / bsz))
+		if not grid.has(k):
+			grid[k] = []
+		(grid[k] as Array).append(c)
+	for i in _landmarks.size():
+		var lm: Dictionary = _landmarks[i]
+		if _near_a_town(Vector2(float(lm.get("x", 0)) + 0.5, float(lm.get("y", 0)) + 0.5), grid, bsz, rad):
+			out["lm"][i] = true
+	for i in _pois.size():
+		var pd: Dictionary = _pois[i]
+		if _near_a_town(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), grid, bsz, rad):
+			out["poi"][i] = true
+	return out
+
+func _near_a_town(p: Vector2, grid: Dictionary, bsz: float, rad: float) -> bool:
+	var k := Vector2i(floori(p.x / bsz), floori(p.y / bsz))
+	for dx in range(-1, 2):
+		for dy in range(-1, 2):
+			for c in grid.get(Vector2i(k.x + dx, k.y + dy), []):
+				if p.distance_to(c as Vector2) <= rad:
+					return true
+	return false
+
+## True when landmark `i` is a town's pin and the town is not yet visible (Ruling FC): it draws, picks and tilts as nothing.
+func _lm_town_hidden(i: int, rect: Rect2) -> bool:
+	return not _town_layer_zoom_reached(rect) and (_town_pin_membership()["lm"] as Dictionary).has(i)
+
+## The same for POI `i`.
+func _poi_town_hidden(i: int, rect: Rect2) -> bool:
+	return not _town_layer_zoom_reached(rect) and (_town_pin_membership()["poi"] as Dictionary).has(i)
+
+
 ## Draws every point of interest through `PinMarker.draw_styled`. The caller owns the interior test's rect; a POI off the
 ## plate draws nothing. Never mutates `_pois`.
 func _draw_poi_marks(rect: Rect2, interior: Rect2) -> void:
 	if _pois.is_empty():
 		return
 	var circles := DccSettings.markers_are_circles()
+	var iset := DccSettings.marker_icon_set()
 	var r := _poi_pin_r()
 	for pi in _pois.size():
 		var pd: Dictionary = _pois[pi]
 		var pos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
 		if not interior.has_point(pos):
 			continue
+		if _poi_town_hidden(pi, rect):
+			continue   ## Ruling FC
 		pos = _nudged_poi(pi, pos, rect)
 		PinMarker.draw_styled(_cv, pos, r, String(pd.get("kind", "")), poi_has_note(pd), circles, _sym_gain * _landmark_zoom_k(),
-			1.0, PinMarker.INK, _tilt_poi(pi, rect))
+			1.0, PinMarker.INK, _tilt_poi(pi, rect), iset)
 
 ## Nearest user-placed POI whose footprint holds `mouse`, as `[index, anchor_distance]` (`-1`, `INF` on a miss). Same
 ## shape and the same two distances as `_hit_test_landmark` (ranked by `PinMarker.rank_distance`, returned as the anchor
@@ -6519,6 +6607,7 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 	var closest_dist := INF
 	var best := INF
 	var circles := DccSettings.markers_are_circles()
+	var iset := DccSettings.marker_icon_set()
 	var fp := _poi_footprint(circles)
 	var r: float = fp[0]
 	for i in _pois.size():
@@ -6526,11 +6615,14 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var pos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
 		if not interior.has_point(pos):
 			continue
+		if _poi_town_hidden(i, rect):
+			continue   ## Ruling FC: not drawn, so not pickable
 		pos = _nudged_poi(i, pos, rect)   ## the drawn head, not the true point
 		var ang := _tilt_poi(i, rect)   ## the drawn pin's tilt about its tip (Ruling FA)
-		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang):
+		var pkind := String(pd.get("kind", ""))
+		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang, pkind, iset):
 			continue
-		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang)
+		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang, pkind, iset)
 		if d < best:
 			best = d
 			closest = i
@@ -6561,8 +6653,10 @@ const _FAN_POI_BASE := 1000000
 ## for the displayed rect `rect`: only markers that move (circles: `lm`/`poi` slides) or tilt (pins: `lm_a`/`poi_a`, radians).
 func _fan(rect: Rect2) -> Dictionary:
 	var circles := DccSettings.markers_are_circles()
+	var iset := DccSettings.marker_icon_set()
+	var town_shown := _town_layer_zoom_reached(rect)   ## Ruling FC: a hidden town pin must not tilt its neighbours
 	var key := [rect.size, _camera_zoom, circles, _fan_rev, _landmarks.size(), _pois.size(), _landmarks_visible,
-		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k()]
+		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k(), iset, town_shown]
 	if _fan_cache.has(key):
 		return _fan_cache[key]
 	var canon := Rect2(Vector2.ZERO, rect.size)
@@ -6570,18 +6664,20 @@ func _fan(rect: Rect2) -> Dictionary:
 	if _landmarks_visible:
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
-			if not _landmark_shown(lm):
+			if not _landmark_shown(lm) or (not town_shown and (_town_pin_membership()["lm"] as Dictionary).has(i)):
 				continue
-			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]),
+			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]), "kind": String(lm.get("kind", "")),
 				"pos": _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)})
 	for i in _pois.size():
 		var pd: Dictionary = _pois[i]
-		items.append({"id": _FAN_POI_BASE + i, "r": float(_poi_footprint(circles)[0]),
+		if not town_shown and (_town_pin_membership()["poi"] as Dictionary).has(i):
+			continue
+		items.append({"id": _FAN_POI_BASE + i, "r": float(_poi_footprint(circles)[0]), "kind": String(pd.get("kind", "")),
 			"pos": _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), canon)})
 	## Circles slide (`fan_offsets`, with leaders); pins TILT about their tips (`tilt_angles`, Ruling FA). Each returns `{}`
 	## in the other style, so exactly one of the two pairs of keys is ever filled.
 	var raw := PinMarker.fan_offsets(items, circles)
-	var tilt := {} if circles else PinMarker.tilt_angles(items)
+	var tilt := {} if circles else PinMarker.tilt_angles(items, iset)
 	var res := {"lm": {}, "poi": {}, "lm_a": {}, "poi_a": {}}
 	for id in raw:
 		if int(id) >= _FAN_POI_BASE:
@@ -8121,11 +8217,12 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 	if not _landmarks_visible:
 		return [closest, closest_dist]
 	var circles := DccSettings.markers_are_circles()
+	var iset := DccSettings.marker_icon_set()
 	for i in _landmarks.size():
 		var lm: Dictionary = _landmarks[i]
 		## A filtered-out kind draws nothing, so it must not be hoverable or
 		## clickable either (owner, 2026-10-19).
-		if not _landmark_shown(lm):
+		if not _landmark_shown(lm) or _lm_town_hidden(i, rect):   ## a town's pin before the town shows (Ruling FC)
 			continue
 		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 		if not interior.has_point(pos):
@@ -8134,9 +8231,10 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var fp := _landmark_footprint(lm, circles)
 		var r: float = fp[0]
 		var ang := _tilt_lm(i, rect)   ## the drawn pin's tilt about its tip (Ruling FA)
-		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang):
+		var lkind := String(lm.get("kind", ""))
+		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang, lkind, iset):
 			continue
-		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang)
+		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang, lkind, iset)
 		if d < best_axis:
 			best_axis = d
 			closest = i
@@ -8266,6 +8364,7 @@ func hits_at(mouse: Vector2) -> Array:
 	var interior := _interior_rect(rect)
 	var hits: Array = []
 	var circles := DccSettings.markers_are_circles()   ## the style whose footprint every pin or ring below is tested against
+	var iset := DccSettings.marker_icon_set()   ## and the icon set whose textured footprint a pin has
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
 		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
@@ -8278,24 +8377,24 @@ func hits_at(mouse: Vector2) -> Array:
 		## Same refusals and the same pin footprint as `_hit_test_landmark` (CL-2).
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
-			if not _landmark_shown(lm):
+			if not _landmark_shown(lm) or _lm_town_hidden(i, rect):   ## Ruling FC, as `_hit_test_landmark`
 				continue
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
 			lpos = _nudged_lm(i, lpos, rect)   ## the drawn head, as `_hit_test_landmark` reads it
 			var lfp := _landmark_footprint(lm, circles)
-			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles, _tilt_lm(i, rect)):
+			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles, _tilt_lm(i, rect), String(lm.get("kind", "")), iset):
 				hits.append(_hit("landmark", i, lm.get("name"), mouse.distance_to(lpos)))   ## anchor distance, as `_hit_test_landmark` returns
 	## User-placed points of interest (Ruling EW item 4): the same footprint rule, their own layer, always shown.
 	for i in _pois.size():
 		var pd: Dictionary = _pois[i]
 		var ppos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
-		if not interior.has_point(ppos):
+		if not interior.has_point(ppos) or _poi_town_hidden(i, rect):   ## Ruling FC
 			continue
 		ppos = _nudged_poi(i, ppos, rect)   ## the drawn head, as `_hit_test_poi` reads it
 		var pfp := _poi_footprint(circles)
-		if PinMarker.hit_styled(ppos, float(pfp[0]), mouse, float(pfp[1]), circles, _tilt_poi(i, rect)):
+		if PinMarker.hit_styled(ppos, float(pfp[0]), mouse, float(pfp[1]), circles, _tilt_poi(i, rect), String(pd.get("kind", "")), iset):
 			hits.append(_hit("poi", i, pd.get("name", pd.get("kind_label", "")), mouse.distance_to(ppos)))
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:

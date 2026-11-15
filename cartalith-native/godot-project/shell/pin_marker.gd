@@ -21,6 +21,14 @@ extends RefCounted
 ## **What it must never do:** write anything, hold state, or decide whether a click opens anything (that is
 ## `DccApp._on_element_clicked`, behind the armed-tool gate).
 ##
+## **Icon sets (owner, 2026-11-15, *"Can you use these and cut them correctly as options for the teardrops?"*).** Two more
+## Marker styles draw the owner's cut teardrop PNGs (`icons/pins/{glyph,painted}/`, README there) in place of the drawn
+## pin: `icon_set` is `"glyph"` or `"painted"` (`DccSettings.marker_icon_set()`), `""` is the drawn pin. A kind with no
+## icon (`KIND_ICON`, one table) falls back to the drawn pin, so a map can mix the two and `shape()` says which a kind is.
+## The texture is anchored at its TIP, rotated about it for Ruling FA's tilt, and **picked through the same shape**
+## (`shape()` feeds `hit()`, `axis_distance()` and `tilt_angles()`), so the footprint that is drawn is the footprint that is
+## hit.
+##
 ## Preloaded by its callers, no `class_name`, so it needs no `godot --headless --import` pass.
 
 ## Head-centre distance from the tip, in head radii. 2.1 gives the tangent lines a half-angle of about 28 degrees,
@@ -214,11 +222,13 @@ static func is_mapped(kind: String) -> bool:
 ## **`angle` (radians, clockwise on screen, 0 = upright) rotates the whole pin about its TIP** (Ruling FA): the tip is the
 ## place and never moves; the stem and head swing about it. Everything is built upright and rotated last, so the drawn
 ## outline, the head centre and the hit footprint are one rotation of one shape and cannot disagree.
-static func geometry(tip: Vector2, r: float, angle: float = 0.0) -> Dictionary:
-	var head := tip + Vector2(0.0, -STEM_RATIO * r)
+## `stem` is the head-centre distance from the tip in head radii: `STEM_RATIO` for the drawn pin, an icon's own ratio
+## (`shape()`) for a textured one, so the hit footprint of either is its own circle plus tangent triangle.
+static func geometry(tip: Vector2, r: float, angle: float = 0.0, stem: float = STEM_RATIO) -> Dictionary:
+	var head := tip + Vector2(0.0, -stem * r)
 	# Angle (from +x, y down) of the right tangent point as seen from the head centre: the tangent from the tip
 	# touches the circle where cos(phi) = r / d, phi measured from the downward axis.
-	var phi := acos(1.0 / STEM_RATIO)
+	var phi := acos(1.0 / stem)
 	var a_right := PI * 0.5 - phi
 	var a_left := PI * 0.5 + phi
 	var poly := PackedVector2Array()
@@ -248,8 +258,8 @@ static func _seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
 ## Distance from `p` to the pin's axis (the tip-to-head-centre segment): the one sort key `hits_at`, `_pick_mark` and
 ## the viewer's pick share, so a pin under the pointer ranks by how centrally it is hit, whatever part of it that is.
 ## 0 on the axis, growing sideways; a click on the head centre and a click on the tip both read 0.
-static func axis_distance(tip: Vector2, r: float, p: Vector2, angle: float = 0.0) -> float:
-	return _seg_dist(p, tip, tip + Vector2(0.0, -STEM_RATIO * r).rotated(angle))
+static func axis_distance(tip: Vector2, r: float, p: Vector2, angle: float = 0.0, stem: float = STEM_RATIO) -> float:
+	return _seg_dist(p, tip, tip + Vector2(0.0, -stem * r).rotated(angle))
 
 
 ## The pad (px, in the pin's units) that makes the head plus its slack at least `TOUCH_TARGET_DP * unit` across,
@@ -263,11 +273,11 @@ static func touch_pad(r: float, unit_px: float) -> float:
 ## from the tip to the two tangent points). The head and the stem are both covered, which a disc around the anchor
 ## is not (the head floats `STEM_RATIO` radii above it). `pad` is `HIT_PAD` for a pointer, `touch_pad()` for a finger.
 ## `angle` is the pin's tilt about its tip (Ruling FA): the footprint is the DRAWN, rotated pin, head and stem.
-static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0.0) -> bool:
-	var g := geometry(tip, r, angle)
+static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0.0, stem: float = STEM_RATIO) -> bool:
+	var g := geometry(tip, r, angle, stem)
 	var head: Vector2 = g["head"]
 	# Cheap reject: farther than the whole pin's extent from the tip.
-	if p.distance_to(tip) > (STEM_RATIO + 1.0) * r + pad:
+	if p.distance_to(tip) > (stem + 1.0) * r + pad:
 		return false
 	if p.distance_to(head) <= r + pad:
 		return true
@@ -287,8 +297,12 @@ static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0
 ## outline ink (the map's icon-treatment key; defaults to `INK`). Draws nothing for `r <= 0`. `angle` tilts the pin about
 ## its tip (Ruling FA); **the pictogram stays upright** inside the rotated head so it reads at any tilt.
 static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
-		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0) -> void:
+		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "") -> void:
 	if r <= 0.0:
+		return
+	## An icon set draws the owner's texture when `kind` has one and the file loads; otherwise it falls through to the
+	## drawn pin below (the stated fallback, and exactly what `shape()` reports for the footprint).
+	if icon_set != "" and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set):
 		return
 	var g := geometry(tip, r, angle)
 	var head: Vector2 = g["head"]
@@ -314,6 +328,178 @@ static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note:
 		ci.draw_polyline(_xf(l, head, s), ink, lw, true)
 	for d in pic.get("dots", []):
 		ci.draw_circle(head + (d[0] as Vector2) * s, float(d[1]) * s, ink, true, -1.0, true)
+
+
+# -- Icon sets (owner request 2026-11-15) -----------------------------------------------------------------------------
+# The cut PNGs are 128 px tall with the tip at the bottom-centre pixel and a circle head (`icons/pins/README.md`).
+
+## The cut pins' height in source px (every file is this tall; the width differs by set, 107-110).
+const ICON_H := 128.0
+## The head circle and the tip distance are NOT constants: each texture's own are measured from its alpha when it loads
+## (`_measure`), because the cut pins differ (the first 40 have a tip 1.37-1.41 head radii from the head centre, the painted
+## extra sheet's 38 have 1.6-1.9). One constant would put the hit footprint off the picture.
+## Mip-like raster heights (px) a texture is pre-scaled to; the smallest one at least as tall as the pin on screen is used,
+## so a phone's 40 px pin is a downscale of the source by a good filter rather than a 3x bilinear minification (which
+## shimmers). The 128 source is used above the largest bucket. Same idea as the landmark glyph rasters (`DccIcons`).
+const ICON_BUCKETS := [32, 48, 64, 96, 128]
+## The two icon sets (folders under `icons/pins/`).
+const ICON_SETS := ["glyph", "painted"]
+## Pixel offset (in head radii, upright) of the "has a note" badge from the head centre: the upper right rim.
+const BADGE_OFFSET := 0.72
+
+## **The one table: engine kind key -> the icon NAME to use when the set has no file of the kind's own name.** A set's own
+## file named exactly like the kind always wins (`icon_name_for`: the painted extra sheet is named after the engine kinds, so
+## shrine, fort, tomb... resolve there with no row here). These rows are for kinds whose picture is a CLOSE match to a
+## differently named file: the 12 `cartalith_civ::poi::PoiKind` keys, the 52 landmark keys
+## (`cartalith_civ::landmark::kinds()`), the City Viewer's derived kinds and the settlement tiers (settlements do not draw as
+## pins today, so tier rows wait for CL-10). Owner, 2026-11-15, "Fort can't borrow": **nothing fortified borrows the castle
+## (a fort draws its own `fort` icon where the set has one, else the drawn pin)** and no row stretches to a near miss.
+## **A kind with neither its own file nor a row here draws the drawn pin.** Every row is a labelled judgement.
+const KIND_ICON := {
+	# Settlement tiers (painted has its own city and hamlet; glyph gets the nearest tier).
+	"metropolis": "capital", "city": "town", "hamlet": "village",
+	# The City Viewer's derived kinds (`citadel` is fortified: it keeps the drawn pin).
+	"farm": "farmland",
+	# Landmarks whose picture is a close match to a differently named file.
+	"peak": "mountain", "glacial_feature": "glacier", "volcanic_feature": "volcano", "ancient_forest": "forest",
+	"river_crossing": "bridge", "bridge_site": "bridge",
+	"resource_extraction_site": "mine", "quarry": "mine", "salt_works": "mine",
+	"market_site": "market", "trade_depot": "market", "shop": "market",
+	"battlefield_historic": "battlefield", "abandoned_settlement": "ruin", "destroyed_fortress": "ruin",
+}
+
+## `{"<set>/<name>": {w: source width px, img: Image, buckets: {px: Texture2D}} or null}`; null is a remembered failure.
+static var _icon_cache: Dictionary = {}
+
+
+## The file name (no extension) of the icon `icon_set` has for `kind`, or `""` when the kind has none or the file will not
+## load (so `shape()` and `draw()` agree: an unloadable file is the drawn pin, never a blank).
+static func icon_name_for(icon_set: String, kind: String) -> String:
+	if not ICON_SETS.has(icon_set):
+		return ""
+	var k := kind.to_lower()
+	if k == "":
+		return ""
+	if _icon_entry(icon_set, k) != null:
+		return k   # the set's own file named like the kind
+	var alias := String(KIND_ICON.get(k, ""))
+	if alias != "" and _icon_entry(icon_set, alias) != null:
+		return alias
+	return ""
+
+
+## Loads (once) one pin PNG: through `load()` (the imported texture, what an export has) and, when the project has not been
+## imported yet (a fresh checkout or a probe), straight from the file. Null when neither works.
+static func _icon_entry(icon_set: String, name: String):
+	var key := "%s/%s" % [icon_set, name]
+	if _icon_cache.has(key):
+		return _icon_cache[key]
+	var path := "res://icons/pins/%s.png" % key
+	var img: Image = null
+	var res = load(path) if ResourceLoader.exists(path) else null
+	if res is Texture2D:
+		img = (res as Texture2D).get_image()
+	if img == null:
+		var disk := ProjectSettings.globalize_path(path)
+		if FileAccess.file_exists(disk):
+			img = Image.load_from_file(disk)
+	if img == null or img.is_empty():
+		_icon_cache[key] = null
+		return null
+	img.convert(Image.FORMAT_RGBA8)
+	var m := _measure(img)
+	var entry := {"w": float(img.get_width()), "img": img, "buckets": {}, "rh": m.x, "d": m.y}
+	_icon_cache[key] = entry
+	return entry
+
+
+## `(head radius, tip-to-head-centre distance)` in the picture's own px, read from its alpha: the head radius is half the
+## widest opaque row (alpha > 0.5; a teardrop's widest row is its head's diameter), the head centre is that radius below the
+## topmost opaque row, and the tip is the bottom edge (the cut contract: tip at the bottom-centre pixel). Measured per
+## picture so each pin's hit footprint is its own circle plus tangent triangle, not one set-wide constant.
+static func _measure(img: Image) -> Vector2:
+	var top := -1
+	var widest := 0
+	for y in img.get_height():
+		var n := 0
+		for x in img.get_width():
+			if img.get_pixel(x, y).a > 0.5:
+				n += 1
+		if n > 0 and top < 0:
+			top = y
+		widest = maxi(widest, n)
+	var rh := maxf(1.0, float(widest) * 0.5)
+	return Vector2(rh, maxf(rh * 1.05, float(img.get_height()) - (float(maxi(top, 0)) + rh)))
+
+
+## The texture for pin `key` at the smallest bucket at least `want_h` px tall (the source at the top): the source is
+## resampled with Lanczos once per bucket and kept.
+static func _icon_tex(icon_set: String, name: String, want_h: float) -> Texture2D:
+	var entry = _icon_entry(icon_set, name)
+	if entry == null:
+		return null
+	var px := int(ICON_BUCKETS[-1])
+	for b: int in ICON_BUCKETS:
+		if float(b) >= want_h:
+			px = b
+			break
+	var buckets: Dictionary = entry["buckets"]
+	if not buckets.has(px):
+		var img: Image = (entry["img"] as Image).duplicate()
+		if px != img.get_height():
+			img.resize(maxi(1, roundi(img.get_width() * float(px) / float(img.get_height()))), px, Image.INTERPOLATE_LANCZOS)
+		buckets[px] = ImageTexture.create_from_image(img)
+	return buckets[px]
+
+
+## The pin shape for head radius `r` (the DRAWN pin's head radius, the size every caller already computes): `{r, stem, icon}`
+## where `r` and `stem` feed `geometry()`, `hit()`, `axis_distance()` and the tilt, and `icon` is the file name or `""`.
+## The drawn pin and an icon pin are the SAME HEIGHT (`(STEM_RATIO + 1) * r`), so a style change does not move the tip or
+## change how tall a marker stands; the icon's head is bigger (about 1.3 r) because the cut pins are fatter (stem ratio
+## 1.4 to 1.9 measured per picture, against 2.1).
+static func shape(r: float, kind: String, icon_set: String = "") -> Dictionary:
+	if icon_set != "":
+		var name := icon_name_for(icon_set, kind)
+		if name != "":
+			var e: Dictionary = _icon_entry(icon_set, name)
+			var h := (STEM_RATIO + 1.0) * r
+			var rh: float = float(e["rh"]) * h / ICON_H
+			return {"r": rh, "stem": float(e["d"]) / float(e["rh"]), "icon": name}
+	return {"r": r, "stem": STEM_RATIO, "icon": ""}
+
+
+## Draws the textured pin for `kind` (true) or nothing (false: the caller draws the drawn pin). The texture's tip is at
+## `tip` and it is rotated about the tip by `angle` (Ruling FA), through `draw_set_transform` (reset to identity after,
+## which every caller of this file expects of its canvas). A linked note shows as a small orange badge on the head's upper
+## rim (the icons carry their own colours, so the drawn pin's orange/white fill cannot show it): `COL_NOTE` with an `INK`
+## ring, a labelled judgement.
+static func draw_icon(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, alpha: float, angle: float,
+		icon_set: String) -> bool:
+	var sh := shape(r, kind, icon_set)
+	var name := String(sh["icon"])
+	if name == "":
+		return false
+	var h := (STEM_RATIO + 1.0) * r
+	var sc := ci.get_screen_transform().get_scale().y if ci.is_inside_tree() else 1.0
+	var tex := _icon_tex(icon_set, name, h * maxf(sc, 0.001))
+	if tex == null:
+		return false
+	var w: float = float((_icon_entry(icon_set, name) as Dictionary)["w"]) * h / ICON_H
+	ci.draw_set_transform(tip, angle, Vector2.ONE)
+	ci.draw_texture_rect(tex, Rect2(Vector2(-w * 0.5, -h), Vector2(w, h)), false, Color(1, 1, 1, alpha))
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if has_note:
+		var rh: float = sh["r"]
+		var head := tip + (Vector2(0.0, -float(sh["stem"]) * rh)).rotated(angle)
+		var at := head + (Vector2(BADGE_OFFSET, -BADGE_OFFSET) * rh).rotated(angle)
+		var br := maxf(2.0, 0.26 * rh)
+		var ink := INK
+		ink.a *= alpha
+		var fill := COL_NOTE
+		fill.a *= alpha
+		ci.draw_circle(at, br + maxf(1.0, 0.07 * rh), ink, true, -1.0, true)
+		ci.draw_circle(at, br, fill, true, -1.0, true)
+	return true
 
 
 ## A pictogram polyline or polygon from the unit square to the head: scaled by `s` and moved to `head`.
@@ -367,21 +553,31 @@ static func hit_ring(centre: Vector2, r: float, p: Vector2, pad: float) -> bool:
 ## marker goes through, so no caller picks a shape on its own and then picks a footprint for another.
 ## `angle` is the pin's tilt (ignored by a circle: a disc has no stem to rotate).
 static func draw_styled(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, circles: bool,
-		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0) -> void:
+		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "") -> void:
 	if circles:
 		draw_ring(ci, tip, r, kind, has_note, w, alpha, outline)
 	else:
-		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle)
+		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle, icon_set)
 
 
 ## `hit()` or `hit_ring()` by style: the footprint that goes with `draw_styled()`'s shape, read by every pick.
-static func hit_styled(tip: Vector2, r: float, p: Vector2, pad: float, circles: bool, angle: float = 0.0) -> bool:
-	return hit_ring(tip, r, p, pad) if circles else hit(tip, r, p, pad, angle)
+## `kind` and `icon_set` select the footprint of a textured pin (`shape()`): the drawn pin's for `icon_set == ""` or a kind with
+## no icon, the icon's own circle-plus-triangle otherwise. A circle ignores both.
+static func hit_styled(tip: Vector2, r: float, p: Vector2, pad: float, circles: bool, angle: float = 0.0,
+		kind: String = "", icon_set: String = "") -> bool:
+	if circles:
+		return hit_ring(tip, r, p, pad)
+	var sh := shape(r, kind, icon_set)
+	return hit(tip, float(sh["r"]), p, pad, angle, float(sh["stem"]))
 
 
 ## The sort key of a hit by style: the distance to the circle's centre in circles mode, `axis_distance()` for a pin.
-static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool, angle: float = 0.0) -> float:
-	return p.distance_to(tip) if circles else axis_distance(tip, r, p, angle)
+static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool, angle: float = 0.0,
+		kind: String = "", icon_set: String = "") -> float:
+	if circles:
+		return p.distance_to(tip)
+	var sh := shape(r, kind, icon_set)
+	return axis_distance(tip, float(sh["r"]), p, angle, float(sh["stem"]))
 
 
 # -- Head-overlap handling (CL-1's last bar, `CITY_MAP_LOOK_SCOPE.md` section 4.2; PINS REPLACED BY RULING FA) -------------
@@ -430,7 +626,7 @@ const TILT_FAN_MAX_DEG := 180.0
 ## +/-`TILT_FAN3_SPREAD_DEG`/2 and 0, more widen by `TILT_FAN_STEP_DEG` each up to `TILT_FAN_MAX_DEG`. A negative angle swings
 ## the head left, so pins always tilt AWAY from each other, and pins on one shared tip fan about that point. A knot over
 ## `FAN_MAX` is left upright. Pure, deterministic and translation-invariant.
-static func tilt_angles(items: Array) -> Dictionary:
+static func tilt_angles(items: Array, icon_set: String = "") -> Dictionary:
 	var n := items.size()
 	var out := {}
 	if n < 2:
@@ -441,7 +637,7 @@ static func tilt_angles(items: Array) -> Dictionary:
 		parent[i] = i
 	for i in n:
 		for j in range(i + 1, n):
-			if _pins_collide(items[i], items[j]):
+			if _pins_collide(items[i], items[j], icon_set):
 				var a := i
 				while parent[a] != a:
 					a = parent[a]
@@ -480,16 +676,19 @@ static func tilt_angles(items: Array) -> Dictionary:
 
 ## Whether two UPRIGHT pins collide: their heads overlap by more than the `FAN_OVERLAP_KEEP` bar, or one head sits on the
 ## other's stem (within 0.9 radius of its tip-to-head axis, a tip on a head: both would be pickable from one point).
-static func _pins_collide(a: Dictionary, b: Dictionary) -> bool:
-	var ra := float(a["r"])
-	var rb := float(b["r"])
+## An item may carry `kind`: with an `icon_set`, a textured pin collides by ITS OWN head (`shape()`), not the drawn pin's.
+static func _pins_collide(a: Dictionary, b: Dictionary, icon_set: String = "") -> bool:
+	var sa := shape(float(a["r"]), String(a.get("kind", "")), icon_set)
+	var sb := shape(float(b["r"]), String(b.get("kind", "")), icon_set)
+	var ra := float(sa["r"])
+	var rb := float(sb["r"])
 	var ta: Vector2 = a["pos"]
 	var tb: Vector2 = b["pos"]
-	var ha := ta + Vector2(0.0, -STEM_RATIO * ra)
-	var hb := tb + Vector2(0.0, -STEM_RATIO * rb)
+	var ha := ta + Vector2(0.0, -float(sa["stem"]) * ra)
+	var hb := tb + Vector2(0.0, -float(sb["stem"]) * rb)
 	if ha.distance_to(hb) < FAN_OVERLAP_KEEP * (ra + rb):
 		return true
-	return axis_distance(ta, ra, hb) < 0.9 * ra or axis_distance(tb, rb, ha) < 0.9 * rb
+	return axis_distance(ta, ra, hb, 0.0, float(sa["stem"])) < 0.9 * ra or axis_distance(tb, rb, ha, 0.0, float(sb["stem"])) < 0.9 * rb
 
 
 ## The slide for CIRCLE markers `items` (each `{id: int, pos: Vector2, r: float}`: the stable caller key, the CENTRE in

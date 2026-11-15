@@ -985,7 +985,13 @@ static func set_city_look(v: String) -> void:
 ## default); `circles` is the landmark's class ring from before CL-2, restored byte for byte from `d2a8b6a3^`'s
 ## `map_overlay.gd::_draw_landmark_ring`, with a ring-shaped footprint to match. The card, the Note section, the chips
 ## and the user-placed points of interest behave identically in both; only the shape and its hit footprint differ.
-const MARKER_STYLES: Array[String] = ["pins", "circles"]
+const MARKER_STYLES: Array[String] = ["pins", "circles", "icons", "painted"]
+
+## The icon set a marker style draws, `{style: set}`: `icons` is the owner's flat two-colour pictogram pins
+## (`icons/pins/glyph/`), `painted` the painted miniatures (`icons/pins/painted/`), both owner-supplied 2026-11-15 as
+## teardrop options. `pins` and `circles` are the drawn shapes and have no set. Both icon styles draw TEARDROPS (not
+## circles), so `markers_are_circles()` is false for them and every pin rule (tilt, hit footprint) applies.
+const MARKER_ICON_SETS := {"icons": "glyph", "painted": "painted"}
 
 ## Ground for `_SEC_MARKER_STYLE`: one key, `style`. A per-user preference like the town look, never part of a world
 ## save (a map drawn by one user must open the same in another's style).
@@ -1001,6 +1007,11 @@ static func marker_style() -> String:
 ## string itself and the picked footprint can never be the other style's.
 static func markers_are_circles() -> bool:
 	return marker_style() == "circles"
+
+## The icon set the stored style draws (`"glyph"`, `"painted"`) or `""` for the drawn Pins and Circles. Passed as the
+## `icon_set` argument of `PinMarker.draw_styled` / `hit_styled` by every caller, so the drawn and picked shapes read one answer.
+static func marker_icon_set() -> String:
+	return String(MARKER_ICON_SETS.get(marker_style(), ""))
 
 ## Stores the marker style and saves. An unknown value is ignored, not stored. Does not redraw anything: the caller
 ## asks its own canvas to redraw (every draw re-reads this, so no cache can go stale).

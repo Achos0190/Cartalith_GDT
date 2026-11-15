@@ -431,7 +431,10 @@ const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own
 ## Preferences ▸ Graphics ▸ Town look (CL-1): row 0 map look, row 1 ink plan. 625-626, free of 620-623 and 630.
 const ID_GFX_CITY_LOOK_FIRST := 625
 ## Marker style (owner request 2026-11-14): row 0 Pins, row 1 Circles. 627-628, free by grep of shell/ and drafts/.
+## The two icon-set rows (owner, 2026-11-15) take 629 and 637, the two free ids around the atlas rungs (630-636), by the same
+## grep: `MARKER_STYLE_IDS` maps each id to its `DccSettings.MARKER_STYLES` entry.
 const ID_GFX_MARKER_STYLE_FIRST := 627
+const MARKER_STYLE_IDS := {627: "pins", 628: "circles", 629: "icons", 637: "painted"}
 const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
 ## Preferences ▸ Graphics ▸ 3D height: rung i is +i, `HEIGHT_RUNGS` (13) long, 680-692. Clear of the layout span at 640
@@ -5000,7 +5003,7 @@ func _on_city_look(id: int) -> void:
 
 # -- Preferences ▸ Graphics ▸ Marker style (owner request 2026-11-14, Ruling EW) ---------------------------------------
 
-## Builds a Marker style submenu for parent `p`: two radio rows, Pins (the teardrop, the default) and Circles (the
+## Builds a Marker style submenu for parent `p`: four radio rows, Pins (the teardrop, the default), Circles (the
 ## class ring from before CL-2), ticked from `DccSettings.marker_style()` at build time and on `about_to_popup`
 ## (a group with no tick at build time reads as having no setting, `_prefvalue_probe`). Called for Preferences ▸ Graphics
 ## and for Assets, beside Landmark types, so the choice is where either the map's look or its landmarks are being thought
@@ -5011,6 +5014,8 @@ func _build_marker_style_menu(p: PopupMenu, node_name: String) -> void:
 	_shell.style_popup(pop)
 	pop.add_radio_check_item("Pins", ID_GFX_MARKER_STYLE_FIRST)
 	pop.add_radio_check_item("Circles", ID_GFX_MARKER_STYLE_FIRST + 1)
+	pop.add_radio_check_item("Pins: icons", 629)
+	pop.add_radio_check_item("Pins: painted", 637)
 	pop.id_pressed.connect(_on_marker_style)
 	pop.about_to_popup.connect(_refresh_marker_style_menus)
 	_marker_style_popups.append(pop)
@@ -5018,20 +5023,20 @@ func _build_marker_style_menu(p: PopupMenu, node_name: String) -> void:
 	p.add_child(pop)
 	p.add_submenu_item("Marker style", node_name)
 	p.set_item_tooltip(p.item_count - 1,
-		"How the map's markers are drawn and clicked: Pins are teardrops that hold a pictogram (orange when the place has a note); Circles are the original landmark rings. The card, the note, the chips and your own points of interest work the same in both. A per-user setting, never stored in a world.")
+		"How the map's markers are drawn and clicked: Pins are teardrops that hold a pictogram (orange when the place has a note); Pins: icons and Pins: painted are the same teardrops drawn from your two icon sheets (a note shows as an orange dot; a kind with no icon keeps the drawn pin); Circles are the original landmark rings. The card, the note, the chips and your own points of interest work the same in both. A per-user setting, never stored in a world.")
 
 ## Ticks every Marker style popup from the stored choice.
 func _refresh_marker_style_menus() -> void:
-	var circles := DccSettings.markers_are_circles()
+	var style := DccSettings.marker_style()
 	for pop in _marker_style_popups:
 		if pop != null and is_instance_valid(pop):
-			pop.set_item_checked(0, not circles)
-			pop.set_item_checked(1, circles)
+			for row in pop.item_count:
+				pop.set_item_checked(row, String(MARKER_STYLE_IDS.get(pop.get_item_id(row), "")) == style)
 
 ## Serves both Marker style submenus: stores the choice and redraws the map, so the new shape (and its footprint, which
 ## every hit test re-reads) is live at once. Never touches the world.
 func _on_marker_style(id: int) -> void:
-	DccSettings.set_marker_style("pins" if id == ID_GFX_MARKER_STYLE_FIRST else "circles")
+	DccSettings.set_marker_style(String(MARKER_STYLE_IDS.get(id, "pins")))
 	_refresh_marker_style_menus()
 	_host.set_status("hint", "marker style: %s" % DccSettings.marker_style(), "text_dim")
 	if _host != null and "viewport" in _host and _host.viewport != null and _host.viewport.overlay != null:

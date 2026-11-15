@@ -64,6 +64,6 @@ func _init() -> void:
 	_ok("style: circles reads back and the one test says so", DccSettings.marker_style() == "circles" and DccSettings.markers_are_circles())
 	DccSettings._cfg.set_value("marker_style", "style", "pins")
 	_ok("style: pins reads back", DccSettings.marker_style() == "pins" and not DccSettings.markers_are_circles())
-	_ok("style: exactly two styles, in this order", DccSettings.MARKER_STYLES == ["pins", "circles"])
+	_ok("style: exactly four styles, in this order (icon sets added 2026-11-15)", DccSettings.MARKER_STYLES == ["pins", "circles", "icons", "painted"])
 	print("CL11PURE ---- %d checks, %s ----" % [_checks, "PASS" if _fails == 0 else "%d FAILED" % _fails])
 	quit(1 if _fails > 0 else 0)

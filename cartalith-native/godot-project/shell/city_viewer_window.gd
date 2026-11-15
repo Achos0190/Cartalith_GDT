@@ -621,7 +621,8 @@ func _draw_canvas() -> void:
 		## A user-placed POI (Ruling EW item 4) speaks for itself; every derived pin speaks for its town.
 		var pin_note: bool = bool(pin["has_note"]) if pin.has("poi") else has_note
 		PinMarker.draw_styled(_canvas, (to_screen.call(pin["at"]) as Vector2) + (nudge.get(i, Vector2.ZERO) as Vector2),
-			pr, String(pin["kind"]), pin_note, circles, 1.0, 1.0, PinMarker.INK, float(tilt.get(i, 0.0)))
+			pr, String(pin["kind"]), pin_note, circles, 1.0, 1.0, PinMarker.INK, float(tilt.get(i, 0.0)),
+			DccSettings.marker_icon_set())   ## the owner's icon set when chosen (2026-11-15); the viewer always shows its pins (Ruling FC)
 
 
 ## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
@@ -743,7 +744,7 @@ static func _area(poly: PackedVector2Array) -> float:
 func _pin_items(pins: Array, vt: Dictionary, pr: float) -> Array:
 	var items: Array = []
 	for i in pins.size():
-		items.append({"id": i, "r": pr,
+		items.append({"id": i, "r": pr, "kind": String(pins[i]["kind"]),
 			"pos": (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])})
 	return items
 
@@ -760,7 +761,7 @@ func _pin_nudges(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dicti
 ## (`PinMarker.tilt_angles`, the rule the map's landmarks share: a pair +/-45 degrees, three or more a fan); `{}` for circles.
 ## Read by the draw and by `pin_at`, so the picked head is the drawn one.
 func _pin_tilts(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
-	return {} if circles else PinMarker.tilt_angles(_pin_items(pins, vt, pr))
+	return {} if circles else PinMarker.tilt_angles(_pin_items(pins, vt, pr), DccSettings.marker_icon_set())
 
 
 ## The tilt (radians, about the tip) of pin `i` of `_pins()` as drawn now; `0.0` for a lone pin, a bad index and the circles
@@ -802,8 +803,10 @@ func pin_at(pos: Vector2) -> int:
 		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"]) \
 			+ (nudge.get(i, Vector2.ZERO) as Vector2)   ## the drawn head, nudge included
 		var ang := float(tilt.get(i, 0.0))   ## the drawn pin's tilt about its tip (Ruling FA)
-		if PinMarker.hit_styled(tip, pr, pos, pad, circles, ang):
-			var d := PinMarker.rank_distance(tip, pr, pos, circles, ang)
+		var pkind := String(pins[i]["kind"])
+		var iset := DccSettings.marker_icon_set()   ## a textured pin is hit as the drawn texture (`PinMarker.shape`)
+		if PinMarker.hit_styled(tip, pr, pos, pad, circles, ang, pkind, iset):
+			var d := PinMarker.rank_distance(tip, pr, pos, circles, ang, pkind, iset)
 			if d < best_d:
 				best = i
 				best_d = d
