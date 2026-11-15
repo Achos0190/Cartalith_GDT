@@ -1058,6 +1058,7 @@ not from `cpu_thread_count_active()`, which the app does not log.
 boot" counted "8 consecutive tids spawned right after Godot's setup" on the 6T. On the Pad the 8 consecutive tids are
 Godot's `WorkerThread_N`, which are 8 on any 8-core device regardless of Rayon, so that evidence would not have told 6
 from 8. The 6T count should be re-read by start tick and name as above before it is relied on.
+**Re-read 2026-11-15 by the coordinator (6T, pid 11140, APK `107d5465`):** the 6T's tids 11280-11287 are named `GLThread 32` (not `WorkerThread_N`) and share one start tick (3323026), separate from Godot's `WorkerThread 0..7` and from the two other `GLThread`-named threads (11178, 11191, distinct ticks). So the 6T's pool is 8 Rayon workers; the original count named the right threads, only its stated evidence (consecutive tids) was too weak.
 
 **To finish it (the matrix is ready).** `C:/cw/pad_bins/` holds `pad_before`, `pad_after` and `pad_matrix.sh` (a
 device-side driver: 5 rounds of before and after at the default thread count and at `RAYON_NUM_THREADS=1`, a 60 s
