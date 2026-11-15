@@ -3787,3 +3787,11 @@ The owner's idea (*"utilising carto mode and an option to drop pins, the full, c
 3. **One palette and one card** for generated landmarks and user pins (Change kind reopens the palette).
 4. A user pin may take **any** kind with an icon (not only the 12 POI kinds), and a **free-text kind** for things with no icon, drawn with the question-mark pin (`other`) or a new **exclamation-mark** pin (`notice`), chosen by the user.
 Owning document: `PIN_PALETTE_SCOPE.md`.
+
+## Ruling FE: the town generator judgement's owner questions (owner, 2026-11-15)
+
+Answers to `TOWN_GENERATOR_JUDGEMENT.md` §5 (Fable's judgement against `MEDIEVAL_TOWN_GROWTH_RESEARCH.md`):
+1. **Wall: taut.** Straight curtain runs between towers, accepting about a fifth more open ground inside the wall than the hugged trace (judgement change 1; refines Ruling EW item 1).
+2. **Villages: rows along the road.** Villages become street villages (houses lining the through road, green at the landing), not the towns' courtyard blocks of Rulings H and AD (judgement change 2).
+3. **Deep plots: prototype first.** Deep burgage plots with backland are built behind their own switch, measured and shown in frames before the owner decides (judgement change 4).
+4. **River through the town: under river realism.** Smoothing the river inside town layouts is routed to `RIVER_REALISM_SCOPE.md`, not the town work (judgement change 3).
