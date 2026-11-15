@@ -1267,6 +1267,7 @@ func _register_tools() -> void:
 	app.register_tool_click_handler("poi", _on_poi_click)
 	app.register_tool_drag_handler("poi", _on_poi_drag)
 	app.register_tool_release_handler("poi", _on_poi_release)
+	app.viewport.overlay.set_touch_hold_claim(_on_poi_hold_claim)
 	## Ruling FD (PP-5): an icon dragged from the palette is dropped through the same path as a click.
 	app.viewport.overlay.set_pin_drop_handler(func(kind: String, gx: float, gy: float) -> void:
 		if app.armed_tool != "poi":
@@ -1320,8 +1321,12 @@ func _on_any_tool_armed(id: String) -> void:
 			## Ruling FD: the options row names the tool; the palette is the dock's section (`RightDock.TOOL_PINS`).
 			app.set_tool_options(_build_poi_tool_options_row)
 			app.right_dock_ctrl.show_pins()
+			## PP-6: on the phone the sheet's body follows the tool (the palette replaces the domain's dock categories).
+			app.phone_refresh_sheet_body()
 		_:
 			## Ruling FD: a disarm ends change mode and any pin drag (its undo stream is closed below).
+			## PP-6: and on the phone the sheet hands its body back to the domain's dock categories.
+			app.phone_refresh_sheet_body()
 			_pin_state["change_idx"] = -1
 			_pin_state["change_name"] = ""
 			_pin_drag = {}
@@ -2221,9 +2226,17 @@ var _pin_drag := {}
 
 ## The Pins tool's options row: its name and the one line that says what a click does.
 func _build_poi_tool_options_row(row: HBoxContainer) -> void:
+	if DccTheme.is_phone():
+		## PP-6: on the phone the options row IS the palette (the phone has no right dock on screen): recents at the sheet's
+		## peek, category chips, search and the grid above it. One builder with the dock's (`build_pin_palette`).
+		build_pin_palette(row)
+		return
 	row.add_child(DccTheme.mono_label("CARTO · PINS", "accent", DccTheme.FS_SMALL, 2, true))
-	row.add_child(DccTheme.label("pick a pin in the dock, then click the map to drop it (or drag it from the dock) · drag a placed pin to move it · Esc stops",
-		"text_ghost", DccTheme.FS_MICRO))
+	## PP-6: the touch words (tablet): a tap drops, and both drags need a long press (a plain finger drag pans the map).
+	var hint := "pick a pin in the dock, then click the map to drop it (or drag it from the dock) · drag a placed pin to move it · Esc stops"
+	if DccTheme.is_touch():
+		hint = "pick a pin in the dock, then tap the map to drop it (or press and hold it, then drag it onto the map) · press and hold a placed pin, then drag, to move it"
+	row.add_child(DccTheme.label(hint, "text_ghost", DccTheme.FS_MICRO))
 	row.add_child(DccTheme.spacer())
 
 ## Builds the palette into `parent` (the right dock's Pins section). Called by `RightDock._build_pins` on every dock rebuild;
@@ -2239,6 +2252,14 @@ func build_pin_palette(parent: Control) -> void:
 		if _pin_palette == pal:
 			_pin_palette = null)
 	parent.add_child(pal)
+
+## The tool strip's recents (`tool_strip.gd`, phone): the same pick as a tile in the palette.
+func pin_pick_kind(kind: String) -> void:
+	_on_pin_kind_picked(kind)
+
+## The armed pin name, `""` before anything is picked (the strip lights that recent).
+func pin_armed_kind() -> String:
+	return String(_pin_state["kind"]) if String(_pin_state["free_label"]) == "" else ""
 
 ## The palette's pick. In change mode it IS the change (one undo step, `poi_set_kind`) and ends change mode; otherwise it arms
 ## the kind for the next drop. Either way the kind is pushed to the per-user recents (never the world).
@@ -2284,31 +2305,71 @@ func begin_pin_change(idx: int) -> void:
 	var nm := String(pd.get("name", ""))
 	_pin_state["change_name"] = nm if nm != "" else String(pd.get("kind_label", "this pin"))
 	app.arm_tool("poi")
-	app.right_dock_ctrl.show_pins.call_deferred()
+	_show_pin_surface.call_deferred()
+	if DccTheme.is_phone():
+		## The sheet opens at half so the grid is under the thumb.
+		app.set_phone_detent("half")
 
-## Leaves change mode (a pick, Cancel, or the tool disarming) and redraws the dock section.
+## Redraws the surface the palette lives on: the right dock's Pins section (desktop, tablet) or the phone tool sheet's options
+## row (phone, PP-6), which is rebuilt in place and shown instead of the dock's categories while the Pins tool is armed.
+func _show_pin_surface() -> void:
+	if DccTheme.is_phone():
+		app.set_tool_options(_build_poi_tool_options_row)
+		app.phone_refresh_sheet_body()
+		## Back to the top: the change banner and Cancel are the first rows, and the sheet keeps its old scroll offset.
+		(app.get("_phone_tool_scroll") as ScrollContainer).scroll_vertical = 0
+	else:
+		app.right_dock_ctrl.show_pins()
+
+## Leaves change mode (a pick, Cancel, or the tool disarming) and redraws the palette's surface.
 func _end_pin_change() -> void:
 	_pin_state["change_idx"] = -1
 	_pin_state["change_name"] = ""
 	if app.armed_tool == "poi":
-		app.right_dock_ctrl.show_pins.call_deferred()
+		_show_pin_surface.call_deferred()
 
 ## The press of the Pins tool. Over a placed pin it starts a MOVE (the drag handler carries it; a press-release with no
 ## travel opens the pin's card instead); over bare map it DROPS the armed pin. In change mode a map click changes nothing.
 func _on_poi_click(gx: float, gy: float) -> void:
 	_pin_drag = {}
 	var ov := app.viewport.overlay
-	var hit := int(ov.poi_at(ov.last_mouse_pos()))
+	## The pin under the CLICK, not under the last pointer sample: a touch tap sends a press with no motion before it, so
+	## `last_mouse_pos()` is wherever the previous gesture ended (PP-6). `(gx, gy)` is the press's own grid point.
+	var hit := int(ov.poi_at(ov._point_to_screen(Vector2(gx, gy), ov._displayed_rect())))
 	if hit >= 0:
-		var pd: Dictionary = bridge.poi_get(hit)
-		if not pd.is_empty():
-			_pin_drag = {"idx": hit, "grab": Vector2(gx - float(pd["x"]), gy - float(pd["y"])), "moved": false}
-			bridge.annotation_stream_begin()
+		_begin_pin_drag(hit, gx, gy)
 		return
 	if int(_pin_state["change_idx"]) >= 0:
 		app.set_status("hint", "Pick the new kind in the palette (or Cancel) before clicking the map.", "accent")
 		return
 	drop_pin(gx, gy)
+
+## Starts carrying pin `hit` from the press at grid `(gx, gy)`: the grab offset, and the one annotation stream that makes the
+## whole drag ONE undo step. Shared by a press with the mouse and by a touch hold (`_on_poi_hold_claim`).
+func _begin_pin_drag(hit: int, gx: float, gy: float) -> void:
+	var pd: Dictionary = bridge.poi_get(hit)
+	if pd.is_empty():
+		return
+	_pin_drag = {"idx": hit, "grab": Vector2(gx - float(pd["x"]), gy - float(pd["y"])), "moved": false}
+	bridge.annotation_stream_begin()
+
+## PP-6, the touch twin of pressing a placed pin: a HOLD (the map's own 480 ms phone, 500 ms tablet) on a placed pin with the Pins
+## tool armed lifts it, so the finger that stays down drags it (`map_dragged` -> `_on_poi_drag`) and the lift ends it
+## (`map_released` -> `_on_poi_release`, one undo step). A plain drag with a finger pans the map (the Pins tool is a tap tool,
+## `DccApp.tool_kind`), so without this the only way to move a pin on touch was the card's Move row. Holds elsewhere, and every
+## hold with another tool armed, are the card's or the ring's as before. Registered with `MapOverlay.set_touch_hold_claim`.
+func _on_poi_hold_claim(pos: Vector2, gx: float, gy: float) -> bool:
+	if app.armed_tool != "poi" or int(_pin_state["change_idx"]) >= 0 or (bridge != null and bridge.generating):
+		return false
+	var hit := int(app.viewport.overlay.poi_at(pos))
+	if hit < 0:
+		return false
+	_pin_drag = {}
+	_begin_pin_drag(hit, gx, gy)
+	if _pin_drag.is_empty():
+		return false
+	app.set_status("hint", "Lifted the pin · drag it where it should go, then lift your finger · Edit > Undo puts it back", "text_ghost")
+	return true
 
 ## Drag of the Pins tool: carries a pressed pin, keeping the grab offset so the pin does not jump to the pointer. Every sample
 ## is `poi_move` inside the open stream, so release leaves ONE undo step.

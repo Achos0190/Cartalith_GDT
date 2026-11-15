@@ -27,6 +27,21 @@ extends VBoxContainer
 ## the picture the palette shows. A name that has no file in the shown set (`rockfall` is glyph-only, `hazard` and `inn`
 ## painted-only) is drawn from the other set so the grid is complete and the pin can still be picked.
 ##
+## ## PP-6: the touch forms
+##
+## **Tablet (>= 900 dp, touch):** the same dock section, verified with touch. Every tap target is at least 44 dp tall (the tiles
+## are 44 x 52 dp; the category heads, the search field and the free-label buttons are floored at `TOUCH_MIN_DP`); a tap on a tile
+## arms and a tap on the map drops (the ordinary click path, `cartography_workspace.gd::_on_poi_click`). On a touch device a drag
+## from a tile only starts after a LONG PRESS (`LONG_PRESS_MS`, the quick bar's 0.4 s), so a finger that starts on a tile and
+## moves at once scrolls the dock instead of dragging a pin; the drag itself is the same Godot drag as the desktop's.
+##
+## **Phone (< 900 dp):** the palette is the body of the phone tool sheet (`cartography_workspace.gd::_build_poi_tool_options_row`
+## builds it into the sheet's options row, `DccShell.set_tool_options` phone-sizes it). Top to bottom: the armed line, the
+## category chips (one line, scrolls sideways; "All" or one category), the search field, the grid, the free label. **The recents
+## row is not in the sheet: it is the tool strip's second row (`tool_strip.gd`), the surface that stays on screen above the sheet
+## at its PEEK detent, whose body is hidden there.** Tap a tile, then tap the map. Search spans every category and ignores the chip. Sizes are authored in dp here and scaled by `DccShell.phone_fit` (each fresh host is fitted by
+## `_finish_form`, because the sheet's own walk runs only once, when the row is set).
+##
 ## Must never: write a world, call the engine, or keep a reference to a node of an old dock body.
 
 ## `kind_picked(kind)`: the user armed (or, in change mode, chose) a picture kind. `free_picked(mark, label)`: they armed or chose
@@ -62,13 +77,23 @@ const TILE_ICON_H := 48.0
 ## tablet forms floor this at 44 dp (PP-6).
 const TILE_W := 44.0
 const TILE_H := 52.0
+## The touch floor for every button and field of the palette, dp (`DccTheme.PHONE_TAP_MIN`'s 44, the canvas's TARGETS card).
+const TOUCH_MIN_DP := 44.0
+## A touch drag from a tile starts only after the finger has been down this long, ms (`quick_bar.gd::LONG_PRESS_SEC`, 0.4 s). A
+## labelled judgement: shorter than the map's own hold (480 / 500 ms) so the two never race, long enough that a scroll flick is
+## not a drag.
+const LONG_PRESS_MS := 400
 
 var _app
 var _state: Dictionary = {}
 ## The grid host the search rebuilds in place, so typing never rebuilds the dock (and never loses the field's focus).
 var _grid_host: VBoxContainer
-var _recent_host: HFlowContainer
+var _recent_host: Container
+var _chip_host: HBoxContainer
 var _armed_label: Label
+## True on the phone form (the sheet layout) and on any touch form (the 44 dp floors and the long-press drag).
+var _phone := false
+var _touch := false
 
 
 ## Every pin name in the table, in category order.
@@ -138,6 +163,8 @@ static func tile_texture(kind: String) -> Texture2D:
 func setup(app, state: Dictionary) -> void:
 	_app = app
 	_state = state
+	_phone = DccTheme.is_phone()
+	_touch = DccTheme.is_touch()
 	name = "PinPalette"
 	add_theme_constant_override("separation", 6)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -153,6 +180,17 @@ func _build() -> void:
 		add_child(banner)
 		var cancel := DccWidgets.action(self, "Cancel (keep the current kind)", func() -> void: change_cancelled.emit())
 		cancel.name = "ChangeCancel"
+	if _phone:
+		## The sheet is as wide as the screen but its options row is a horizontal scroller that sizes its child to the
+		## child's own minimum, so without a minimum the palette is as wide as its widest control (~400 px of 1080).
+		var host_w := 0.0
+		if _app != null and _app.get("_phone_tool_sheet") != null:
+			host_w = (_app.get("_phone_tool_sheet") as Control).size.x
+		if host_w <= 0.0:
+			host_w = float(DisplayServer.window_get_size().x)
+		custom_minimum_size.x = maxf(0.0, host_w - 2.0 * (_app.phone_px(14.0) if _app != null and _app.has_method("phone_px") else 0))
+		## Already in physical px: the sheet's own `phone_fit` walk (which meets this node first) must not scale it again.
+		set_meta("_phone_fitted", true)
 	var style := DccSettings.marker_style()
 	var cap := "Pins on the map are drawn in the %s style." % style
 	if DccSettings.marker_icon_set() == "":
@@ -160,7 +198,8 @@ func _build() -> void:
 	var note := DccTheme.label(cap, "text_ghost", DccTheme.FS_MICRO)
 	note.name = "StyleNote"
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(note)
+	if not _phone:
+		add_child(note)
 
 	var search := LineEdit.new()
 	search.name = "PinSearch"
@@ -171,20 +210,40 @@ func _build() -> void:
 	search.text_changed.connect(func(t: String) -> void:
 		_state["query"] = t
 		_fill_grid())
-	add_child(search)
 
 	_armed_label = DccTheme.label("", "text_secondary", DccTheme.FS_SMALL)
 	_armed_label.name = "ArmedPin"
+	_armed_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _phone:
+		## The sheet's order (see the file header): recents, armed line, chips, search, grid. The recents row and the chips
+		## are built by `_build_phone_top`; the armed line goes between them, so it is the first thing at PEEK when there
+		## are no recents yet.
+		add_child(_armed_label)
+		_refresh_armed()
+		_build_chips()
+		add_child(search)
+		add_child(note)
+		_grid_host = VBoxContainer.new()
+		_grid_host.name = "Categories"
+		_grid_host.add_theme_constant_override("separation", 4)
+		add_child(_grid_host)
+		_fill_recents()
+		_fill_grid()
+		_build_free()
+		_finish_form(self)
+		return
+	add_child(search)
 	add_child(_armed_label)
 	_refresh_armed()
 
 	var rh := DccTheme.label("RECENT", "text_faint", DccTheme.FS_HEADER)
 	rh.name = "RecentHeader"
 	add_child(rh)
-	_recent_host = HFlowContainer.new()
+	var rflow := HFlowContainer.new()
+	rflow.add_theme_constant_override("h_separation", 4)
+	rflow.add_theme_constant_override("v_separation", 4)
+	_recent_host = rflow
 	_recent_host.name = "Recents"
-	_recent_host.add_theme_constant_override("h_separation", 4)
-	_recent_host.add_theme_constant_override("v_separation", 4)
 	add_child(_recent_host)
 	_fill_recents()
 
@@ -194,6 +253,79 @@ func _build() -> void:
 	add_child(_grid_host)
 	_fill_grid()
 	_build_free()
+	_finish_form(self)
+
+
+## One authored dp in this node's own pixels: the phone's scale on the phone form (the sheet lays out in physical pixels), 1 on
+## the desktop and tablet (the tablet's viewport is content-scaled, so a dp is a layout unit).
+func _unit() -> float:
+	if _phone and _app != null and _app.has_method("phone_scale"):
+		return float(_app.phone_scale())
+	return 1.0
+
+
+## Floors every button and field under `node` at `TOUCH_MIN_DP` tall when the form is a touch one, and on the phone hands the
+## subtree to `DccShell.phone_fit` (idempotent by its own meta flag, so the sheet's later walk skips what is already fitted).
+func _finish_form(node: Node) -> void:
+	if _touch:
+		_floor_touch(node)
+	if _phone and _app != null and _app.has_method("phone_fit"):
+		_app.phone_fit(node, _unit(), true)
+
+
+func _floor_touch(node: Node) -> void:
+	for c in node.get_children():
+		if c is BaseButton or c is LineEdit:
+			var ctl := c as Control
+			if ctl.custom_minimum_size.y < TOUCH_MIN_DP and not ctl.has_meta("_phone_fitted"):
+				ctl.custom_minimum_size.y = TOUCH_MIN_DP
+		_floor_touch(c)
+
+
+## The phone's category chips: "All" and the eight categories, one line that scrolls sideways. A chip narrows the grid to that
+## category (search ignores it and spans every category).
+func _build_chips() -> void:
+	var sc := ScrollContainer.new()
+	sc.name = "CatChipsScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.add_theme_stylebox_override("panel", DccTheme.empty())
+	_chip_host = HBoxContainer.new()
+	_chip_host.name = "CatChips"
+	_chip_host.add_theme_constant_override("separation", 4)
+	sc.add_child(_chip_host)
+	add_child(sc)
+	_fill_chips()
+
+
+func _fill_chips() -> void:
+	for c in _chip_host.get_children():
+		_chip_host.remove_child(c)
+		c.queue_free()
+	var cur := String(_state.get("cat", "all"))
+	var defs: Array = [{"id": "all", "title": "All"}]
+	defs.append_array(CATEGORIES)
+	for d in defs:
+		var cid := String(d["id"])
+		var b := Button.new()
+		b.name = "Chip_" + cid
+		b.text = String(d["title"])
+		b.focus_mode = Control.FOCUS_NONE
+		b.toggle_mode = false
+		b.custom_minimum_size = Vector2(TOUCH_MIN_DP, TOUCH_MIN_DP)
+		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+		var on := cid == cur
+		b.add_theme_color_override("font_color", DccTheme.c("accent") if on else DccTheme.c("text"))
+		var sb := DccWidgets.box("accent" if on else "border", "accent_wash" if on else "", 10, 6)
+		b.add_theme_stylebox_override("normal", sb)
+		b.add_theme_stylebox_override("pressed", sb)
+		b.add_theme_stylebox_override("hover", sb)
+		b.pressed.connect(func() -> void:
+			_state["cat"] = cid
+			_fill_chips()
+			_fill_grid())
+		_chip_host.add_child(b)
+	_finish_form(_chip_host)
 
 
 func _refresh_armed() -> void:
@@ -202,16 +334,20 @@ func _refresh_armed() -> void:
 	var k := String(_state.get("kind", ""))
 	## In change mode the pick CHANGES a pin, it does not arm the next drop, so the "Armed" line would mislead: it is hidden.
 	_armed_label.visible = int(_state.get("change_idx", -1)) < 0
+	var verb := "tap" if _touch else "click"
+	var stop := "" if _touch else " · Esc stops"
 	if k == "":
-		_armed_label.text = "Pick a pin, then click the map to drop it · Esc stops"
+		_armed_label.text = "Pick a pin, then %s the map to drop it%s" % [verb, stop]
 	elif String(_state.get("free_label", "")) != "" and (k == "other" or k == "notice"):
 		_armed_label.text = "Armed: “%s” (%s)" % [String(_state["free_label"]), "?" if k == "other" else "!"]
 	else:
-		_armed_label.text = "Armed: %s · click the map to drop it · Esc stops" % label_for(k)
+		_armed_label.text = "Armed: %s · %s the map to drop it%s" % [label_for(k), verb, stop]
 
 
 ## The recents row: up to 8 tiles from `DccSettings.pin_recents()`; hidden (header and all) when there are none.
 func _fill_recents() -> void:
+	if _recent_host == null:
+		return   # the phone form: its recents are the tool strip's row, not the sheet's
 	for c in _recent_host.get_children():
 		_recent_host.remove_child(c)
 		c.queue_free()
@@ -222,6 +358,7 @@ func _fill_recents() -> void:
 	_recent_host.visible = not rec.is_empty()
 	for k in rec:
 		_recent_host.add_child(_tile(String(k), "Recent_"))
+	_finish_form(_recent_host)
 
 
 ## Rebuilds the category grid for the current query. A category with no match is absent; with a query active every matching
@@ -232,9 +369,12 @@ func _fill_grid() -> void:
 		c.queue_free()
 	var q := String(_state.get("query", "")).strip_edges()
 	var closed: Dictionary = _state.get("closed", {})
+	var only := String(_state.get("cat", "all")) if _phone and q == "" else "all"
 	for c in filter(q):
 		var cid := String(c["id"])
-		var is_open: bool = (q != "") or not closed.has(cid)
+		if only != "all" and cid != only:
+			continue
+		var is_open: bool = (q != "") or not closed.has(cid) or only != "all"
 		var head := Button.new()
 		head.name = "Cat_" + cid
 		head.flat = true
@@ -247,6 +387,8 @@ func _fill_grid() -> void:
 		head.add_theme_stylebox_override("hover", DccTheme.empty())
 		head.add_theme_stylebox_override("pressed", DccTheme.empty())
 		head.text = "%s %s (%d)" % [DccIcons.SYMBOLS["caret"] if is_open else DccIcons.SYMBOLS["expand"], String(c["title"]).to_upper(), (c["kinds"] as Array).size()]
+		if only != "all":
+			head.visible = false   # one category chosen by its chip: the chip is the heading
 		_grid_host.add_child(head)
 		var flow := HFlowContainer.new()
 		flow.name = "Grid_" + cid
@@ -270,6 +412,7 @@ func _fill_grid() -> void:
 		var none := DccTheme.label("No pin matches “%s”." % q, "text_ghost", DccTheme.FS_SMALL)
 		none.name = "NoMatch"
 		_grid_host.add_child(none)
+	_finish_form(_grid_host)
 
 
 ## One icon tile: a flat button holding the picture, lit while armed, with the name as its tooltip, that drags (`{"pin_kind"}`)
@@ -293,19 +436,30 @@ func _tile(kind: String, prefix: String) -> Button:
 	b.add_theme_stylebox_override("pressed", sb)
 	b.add_theme_stylebox_override("hover", DccWidgets.box("accent", "line_soft", 3, 3))
 	b.pressed.connect(func() -> void: kind_picked.emit(kind))
-	b.set_drag_forwarding(func(_at: Vector2) -> Variant:
+	## Touch only: remember when the finger went down, so the drag below can tell a long press from a scroll flick.
+	b.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
+				and (ev as InputEventMouseButton).pressed:
+			b.set_meta("press_ms", Time.get_ticks_msec()))
+	var touch := _touch
+	var drag := func(_at: Variant) -> Variant:
+		## On a touch device the drag needs a long press (`LONG_PRESS_MS`); a mouse drags at once.
+		if touch and Time.get_ticks_msec() - int(b.get_meta("press_ms", 0)) < LONG_PRESS_MS:
+			return null
 		var prev := TextureRect.new()
 		prev.texture = b.icon
 		prev.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		prev.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		prev.custom_minimum_size = Vector2(TILE_W, TILE_H)
-		prev.size = Vector2(TILE_W, TILE_H)
+		var tsz := Vector2(TILE_W, TILE_H) * _unit()
+		prev.custom_minimum_size = tsz
+		prev.size = tsz
 		prev.modulate = Color(1, 1, 1, 0.85)
 		var holder := Control.new()
 		holder.add_child(prev)
-		prev.position = Vector2(-TILE_W * 0.5, -TILE_H)   # the tip under the pointer
+		prev.position = Vector2(-tsz.x * 0.5, -tsz.y)   # the tip under the pointer
 		b.set_drag_preview(holder)
-		return {"pin_kind": kind}, Callable(), Callable())
+		return {"pin_kind": kind}
+	b.set_drag_forwarding(drag, Callable(), Callable())
 	return b
 
 

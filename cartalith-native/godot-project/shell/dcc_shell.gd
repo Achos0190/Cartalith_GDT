@@ -9015,6 +9015,12 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	col.add_child(_phone_dom_host)
 	return sheet
 
+## Public entry to `_refresh_phone_sheet_body()` for a workspace whose tool changes what the sheet shows (the Pins tool, PP-6).
+## A no-op off the phone.
+func phone_refresh_sheet_body() -> void:
+	if _phone:
+		_refresh_phone_sheet_body()
+
 ## Chooses the phone tool sheet's body, and (re)mounts it: the dock's own categories (WORLD, CIVIL, CARTO on
 ## the domain tab) or the tool-options row (the MAP tab, and anywhere the dock cannot be mounted).
 ##
@@ -9034,6 +9040,9 @@ func _refresh_phone_sheet_body() -> void:
 	var ws: Node = _workspace_panels.get("world")
 	var dom: bool = _phone and _phone_tab == "domain" and not _left_sheet_open and _phone_dom_host != null and left_dock_body != null and _left_dock_scroll != null
 	if dom and _active_domain == "world" and ws == null:
+		dom = false
+	## PP-6: while the Pins tool is armed the sheet's body is the pin palette (the tool-options row), on the domain tab too.
+	if dom and String(get("armed_tool")) == "poi":
 		dom = false
 	_mount_dock_in_sheet(dom)
 	if _dock_in_sheet and dom:

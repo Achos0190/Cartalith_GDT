@@ -381,8 +381,8 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 	return rows
 
 ## Point-of-interest rows (Ruling EW item 4, CL-11), the same in every domain: **Rename** (`poi_rename`), **Move**
-## (`poi_move`, the Move destination click), **Change kind** (desktop and tablet: reopens the pin palette, Ruling FD; the
-## phone: a sheet of the twelve legacy kinds, `poi_set_kind`), **Delete**
+## (`poi_move`, the Move destination click), **Change kind** (reopens the pin palette in change mode on every form, Ruling FD
+## PP-4 and PP-6; the phone's twelve-kind sheet is gone), **Delete**
 ## and the Note row. Each edit is one undo step in the annotation ledger (`annotation_undo.rs`), so Delete does not
 ## confirm, for the reason a label's and an icon's do not. A POI is the user's own mark, so no domain's provider carries
 ## these verbs for it: they are here for all three.
@@ -403,24 +403,11 @@ static func _poi_rows(app, idx: int, name: String) -> Array:
 					app.set_status("hint", "Rename refused.", "accent"))})
 	rows.append({"id": "el.poi_move", "label": "Move “%s”" % t, "section": "object", "enabled": true,
 		"tap": "Move", "callable": func() -> void: _begin_move(app, "poi", idx, t)})
-	var kinds: Array = []
-	for k in app.bridge.poi_kinds():
-		var kd: Dictionary = k
-		var key := String(kd.get("key", ""))
-		kinds.append({"label": String(kd.get("label", key)), "callable": func() -> void:
-			if app.bridge.poi_set_kind(idx, key):
-				_annotations_changed(app)
-				app.set_status("hint", "Kind changed to %s" % String(kd.get("label", key)), "text_ghost")})
-	if DccTheme.is_phone():
-		## The phone keeps the twelve-kind sheet until PP-6 builds its palette bottom sheet (`PIN_PALETTE_SCOPE.md`).
-		if not kinds.is_empty():
-			rows.append({"id": "el.poi_kind", "label": "Change kind", "section": "object", "enabled": true, "children": kinds,
-				"phone_jump": func() -> void: _poi_kind_dialog(app, idx)})
-	else:
-		## Ruling FD (PP-4): Change kind reopens the pin palette in change mode (every pin name, a free-text kind): one row,
-		## no submenu. The pick is `poi_set_kind` / `poi_set_free_kind`, one undo step.
-		rows.append({"id": "el.poi_kind", "label": "Change kind…", "section": "object", "enabled": true,
-			"callable": func() -> void: app.begin_pin_change(idx)})
+	## Ruling FD (PP-4, PP-6): Change kind reopens the pin palette in change mode (every pin name, a free-text kind): one row, no
+	## submenu, on every form. On the desktop and tablet the palette is the right dock's Pins section; on the phone it is the
+	## phone tool sheet's body, opened at half. The pick is `poi_set_kind` / `poi_set_free_kind`, one undo step.
+	rows.append({"id": "el.poi_kind", "label": "Change kind…", "section": "object", "enabled": true,
+		"callable": func() -> void: app.begin_pin_change(idx)})
 	rows.append({"id": "el.poi_delete", "label": "Delete “%s”" % t, "section": "object", "enabled": true,
 		"danger": true, "tap": "Delete", "callable": func() -> void:
 			if app.bridge.poi_delete(idx):
@@ -428,35 +415,6 @@ static func _poi_rows(app, idx: int, name: String) -> Array:
 				app.set_status("hint", "Point of interest deleted · Edit > Undo puts it back", "text_ghost")})
 	rows.append_array(_item_note_rows(app, "poi", idx, t))
 	return rows
-
-## **The phone's Change kind** (`phone_jump` of the `el.poi_kind` row): the sheet has no second menu level, so the row
-## opens one small dialog listing the twelve kinds (`DccWidgets.custom_dialog`, the phone sheet body on the phone). A
-## press sets the kind through `poi_set_kind` (one undo step) and closes it; Close changes nothing. The desktop and tablet
-## card use the row's own `children` instead, so this is the second route to the same engine call, never a second rule.
-static func _poi_kind_dialog(app, idx: int) -> void:
-	var made: Dictionary = DccWidgets.custom_dialog(app, "Change kind", "Close")
-	var dlg: ConfirmationDialog = made["dialog"]
-	var body: VBoxContainer = made["body"]
-	var cur := String(app.bridge.poi_get(idx).get("kind", ""))
-	for k in app.bridge.poi_kinds():
-		var kd: Dictionary = k
-		var key := String(kd.get("key", ""))
-		var lbl := String(kd.get("label", key)) + ("  ✓" if key == cur else "")
-		var b := DccWidgets.action(body, lbl, func() -> void:
-			if app.bridge.poi_set_kind(idx, key):
-				_annotations_changed(app)
-				app.set_status("hint", "Kind changed to %s" % String(kd.get("label", key)), "text_ghost")
-			if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
-				dlg.hide()
-				dlg.queue_free())
-		b.name = "PoiKind_" + key
-		if DccTheme.is_phone():
-			var t := float(app._ptap(44))
-			b.custom_minimum_size = Vector2(b.custom_minimum_size.x, maxf(b.custom_minimum_size.y, t))
-	dlg.canceled.connect(func() -> void:
-		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
-			dlg.queue_free())
-	DccWidgets.present_custom_dialog(made)
 
 ## Ruling EQ item 2: the Note row of a label or an icon, in every domain. The vault entity id comes from the
 ## engine (the item's cell, `vault_label_entity_id` / `vault_icon_entity_id`), never from the index, which

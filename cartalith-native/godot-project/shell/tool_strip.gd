@@ -37,6 +37,8 @@ extends PanelContainer
 ## show a Commit as live when the draft is known to be empty (`can`).
 
 const ToolFan := preload("res://shell/tool_fan.gd")
+## The pin palette's table and pictures (PP-6): the strip's recents row draws the same icons.
+const PinPalette := preload("res://shell/pin_palette.gd")
 
 ## Gap between the strip's bottom edge and the bottom of its container, in dp. The pill used 10 dp above the sheet
 ## (a labelled judgement carried over so the map's control row clears it by the same margin as before).
@@ -84,6 +86,8 @@ var _hint: Label
 var _disarm: Button
 var _row1: HBoxContainer
 var _flow: HFlowContainer
+var _recents_scroll: ScrollContainer
+var _recents_row: HBoxContainer
 ## The `"tool"` rows from the last `refresh()` (each `param` carries live `value` and `step` callables).
 var _rows: Array = []
 ## A string that changes whenever anything the strip draws changes; `_process` compares it, `refresh()` rebuilds on
@@ -129,6 +133,19 @@ func setup(app_ref, fan_ref, host: Control) -> void:
 	_disarm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_disarm.pressed.connect(_on_disarm_pressed)
 	_row1.add_child(_disarm)
+	## PP-6: the Pins tool's recents, a row of 44 dp pin tiles that scrolls sideways. It lives HERE and not in the sheet because
+	## this strip is what stays on screen above the sheet at its PEEK detent (the sheet's body is hidden there).
+	_recents_scroll = ScrollContainer.new()
+	_recents_scroll.name = "PinRecentsScroll"
+	_recents_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_recents_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_recents_scroll.visible = false
+	_recents_scroll.add_theme_stylebox_override("panel", DccTheme.empty())   # the theme's dark scroller panel would box the row
+	_recents_row = HBoxContainer.new()
+	_recents_row.name = "PinRecents"
+	_recents_row.add_theme_constant_override("separation", app.phone_px(6))
+	_recents_scroll.add_child(_recents_row)
+	col.add_child(_recents_scroll)
 	_flow = HFlowContainer.new()
 	_flow.add_theme_constant_override("h_separation", app.phone_px(6))
 	_flow.add_theme_constant_override("v_separation", app.phone_px(4))
@@ -270,6 +287,8 @@ func _signature() -> String:
 	parts.append("%s:%d" % [str(v.get("can", "-")), int(v.get("count", -2))])
 	for row in _rows:
 		parts.append(String(((row as Dictionary)["param"] as Dictionary)["value"].call()))
+	if String(app.armed_tool) == "poi":
+		parts.append(",".join(PackedStringArray(DccSettings.pin_recents())) + ">" + String(app.pin_armed_kind()))
 	return "|".join(PackedStringArray(parts))
 
 
@@ -317,9 +336,46 @@ func refresh() -> void:
 		_discard.pressed.connect(_run_verb.bind(v["discard"]))
 		_flow.add_child(_discard)
 	_flow.visible = _flow.get_child_count() > 0
+	_fill_pin_recents(id)
 	## No `reset_size()`: it sets the size to the MINIMUM and drops the anchors' width (the strip came out 567 px wide
 	## and 510 tall at 1080 x 2340). The offsets own the size; the container grows it upward when a row appears.
 	_sig = _signature()
+
+
+## PP-6: the Pins tool's recents (the last eight picks, newest first, `DccSettings.pin_recents`) as one scrolling row of square
+## 44 dp tiles holding the pin's picture; a tap picks it (`app.pin_pick_kind`, the palette's own pick: it arms the kind, or in
+## change mode changes the pin). The armed one is lit. Empty and hidden for every other tool and while there are no recents.
+func _fill_pin_recents(id: String) -> void:
+	for c in _recents_row.get_children():
+		_recents_row.remove_child(c)
+		c.queue_free()
+	var rec: Array = DccSettings.pin_recents() if id == "poi" else []
+	var armed := String(app.pin_armed_kind()) if id == "poi" else ""
+	var d: int = app.phone_tap(DccTheme.PHONE_TAP_MIN)
+	if not rec.is_empty():
+		## The floating undo chip (`DccShell._build_phone_undo_chip`) sits at the bottom-left of the same container, and shows
+		## once any edit can be undone, which is the moment after the first drop: this gap keeps it off the first recent
+		## (its left offset 16 dp, its width `H_PHONE_PILL`, less this strip's own left margin and padding).
+		var gap := Control.new()
+		gap.name = "UndoChipGap"
+		gap.custom_minimum_size.x = maxf(0.0, float(app.phone_px(16.0) + app.phone_tap(DccTheme.H_PHONE_PILL) + app.phone_px(6.0) - app.phone_px(EDGE_DP)))
+		_recents_row.add_child(gap)
+	for k in rec:
+		var kind := String(k)
+		var b := _make_button("", kind == armed)
+		b.name = "Recent_" + kind
+		b.icon = PinPalette.tile_texture(kind)
+		b.expand_icon = true
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		b.custom_minimum_size = Vector2(d, d)
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, DccTheme.pill(kind == armed, d / 2, app.phone_px(5), app.phone_px(5)))   # a tight margin so the picture fills the tile
+		b.accessibility_name = "Recent pin: %s" % PinPalette.label_for(kind)
+		b.tooltip_text = PinPalette.label_for(kind)
+		b.pressed.connect(func() -> void: app.pin_pick_kind(kind))
+		_recents_row.add_child(b)
+	_recents_scroll.visible = not rec.is_empty()
 
 
 ## One option row as chips: a toggle (its value is "on" / "off") is one chip; a stepped value is a minus, the

@@ -26,7 +26,8 @@ about sixty kinds, and `PinMarker.KIND_ICON` / `icon_name_for` already map a kin
 - **Visibility.** User pins inside a town follow Ruling FC (hidden below the town-layout zoom, always in the City
   Viewer). Tilting follows Ruling FA.
 - **Phone.** The palette is a bottom sheet with category tabs and search; the recents row sits in the sheet's peek.
-  Tap an icon, then tap the map. 44 dp targets.
+  Tap an icon, then tap the map. 44 dp targets. (As built, PP-6: the sheet's body is hidden at its peek detent, so the recents
+  row is the tool strip's second row, the surface that stays on screen above the sheet.)
 
 ## Milestones
 - **PP-1** `notice` icons (glyph and painted) drawn to the sets' standard.

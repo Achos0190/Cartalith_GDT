@@ -1203,6 +1203,15 @@ const _TOUCH_SLOP := 28.0
 ## a drag be a pan to one of them and a tap to the other. Not a second value: the same constant.
 const TOUCH_SLOP := _TOUCH_SLOP
 
+## PP-6 (`PIN_PALETTE_SCOPE.md`): the host's claim on a HOLD. `Callable(pos: Vector2, gx: float, gy: float) -> bool`, called when a
+## withheld touch press reaches the hold deadline, before the card (phone) or the ring (tablet) opens. `true` means the hold now
+## belongs to a drag the host began (the Pins tool lifting a placed pin): nothing opens, the finger keeps going as a left-held
+## drag (`map_dragged`) and its lift is a plain release (`map_released`). Unset or `false`: the hold behaves exactly as before.
+var _hold_claim_cb: Callable = Callable()
+
+func set_touch_hold_claim(cb: Callable) -> void:
+	_hold_claim_cb = cb
+
 var _touch_armed := false        ## a withheld press is outstanding
 var _touch_swallow_up := false   ## the hold fired; the coming lift is not a release
 ## CM-4: the hold fired on a TABLET (`DccTheme.is_tablet()`), and the ring plus
@@ -8892,6 +8901,12 @@ func _process(_delta: float) -> void:
 	## whole point -- opening the menu must not also fire the armed tool.
 	_touch_armed = false
 	set_process(false)
+	## PP-6: the Pins tool may claim the hold as a pin lift (see `_hold_claim_cb`). Nothing is swallowed, so the lift reaches the
+	## release branch of `_gui_input()` and ends the drag.
+	if _hold_claim_cb.is_valid():
+		var hp: Dictionary = _touch_press.get("point", {})
+		if bool(hp.get("valid", false)) and bool(_hold_claim_cb.call(_touch_press.get("pos", Vector2.ZERO), float(hp["gx"]), float(hp["gy"]))):
+			return
 	## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): the tablet form takes a different
 	## branch here -- see `_touch_ring_active`'s own doc above the touch state
 	## block. The phone branch below is CM-5's: the hold drops the sample pin

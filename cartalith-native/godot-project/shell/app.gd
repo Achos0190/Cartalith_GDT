@@ -636,6 +636,20 @@ func open_poi_card(idx: int) -> bool:
 	var tip: Vector2 = ov.poi_tip(idx)
 	return open_viewer_marker_card("poi", idx, ov.get_global_transform_with_canvas() * tip)
 
+## Ruling FD (PP-6): the phone tool strip's recents pick a pin kind through the CARTO workspace (one path with the palette's tiles).
+func pin_pick_kind(kind: String) -> void:
+	for ws in _workspaces:
+		if ws.has_method("pin_pick_kind"):
+			ws.pin_pick_kind(kind)
+			return
+
+## The armed pin name the CARTO workspace holds, or `""` (nothing armed, or a free-text label).
+func pin_armed_kind() -> String:
+	for ws in _workspaces:
+		if ws.has_method("pin_armed_kind"):
+			return String(ws.pin_armed_kind())
+	return ""
+
 ## Ruling FD (PP-4): the card's Change kind. Hands user pin `idx` to the CARTO workspace, which arms the Pins tool with the
 ## palette in change mode (the next pick replaces the pin's kind).
 func begin_pin_change(idx: int) -> void:

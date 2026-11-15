@@ -2437,6 +2437,10 @@ func show_pins() -> void:
 ## The Pins section: the palette, built by the CARTO workspace that owns the tool and its state (one drop path, never a
 ## second copy here). A build without that workspace says so rather than drawing nothing.
 func _build_pins(body: Control) -> void:
+	## PP-6: the phone's palette is the phone tool sheet's body (`_build_poi_tool_options_row`), not a section of the
+	## right sheet, which a tap on a placed pin opens over the map for its card.
+	if DccTheme.is_phone():
+		return
 	var sec := DccWidgets.section(body, "Pins")
 	for ws in app._workspaces:
 		if ws.has_method("build_pin_palette"):

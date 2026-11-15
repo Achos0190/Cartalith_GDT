@@ -1,6 +1,6 @@
 extends Node
 ## Ruling FD (`PIN_PALETTE_SCOPE.md` PP-2..PP-5): the pin palette and the Pins tool. Windowed (refuses --headless), under a wiped
-## user directory (`APPDATA=<empty dir>`). Desktop form only (the tablet and phone forms are PP-6).
+## user directory (`APPDATA=<empty dir>`). Desktop form only (the tablet and phone forms are `_pinpalette_touch_probe.gd`, PP-6).
 ##
 ##   Godot_v4.7.2-stable_win64_console.exe --path . _pinpalette_probe.tscn -- --vp 1600x1000 --out <dir>
 ##
