@@ -3806,3 +3806,11 @@ Owner answers to the coordinator's decision prompts:
 5. **River network: town siting and roads read the map's own river network** (`WorldState::stream_order`/`channels`), not the civ pass's rebuilt network, for new worlds (§7p: a switch ON in the app, OFF in the reference baseline). Settles Ruling EX follow-up item (a) and Ruling N's older river term.
 6. **Harbour badge only with sea in the town box.** `civ_is_coastal`'s 12.5 km reach no longer badges a river town whose box has no sea; port and sea-lane eligibility follow (§7p switch). Settles Ruling EX follow-up item (b).
 Also: build a fresh APK and install it on connected devices.
+
+## Ruling FG: terrain detail follows the viewed scale, not the map's grid (owner, 2026-11-15)
+
+Owner, on the world/region emboss difference: *"with the LOD scaling mechanism [the map scale] shouldn't make a difference. As the viewed scale constantly goes lower effectively."* After `WORLD_EMBOSS_FINDINGS_2026-11-15.md` (`f7afcc79`), the owner chose to build all three proposed changes (render-only; re-baselines Ruling CI's deep-zoom tile law under `DECISIONS.md` §7p):
+- **F1** the zoom-detail law's octave amplitude scales with the coarse field's own local relief and with biome/rock, sized in km and capped in metres, with the slope and height terms that fade on wide cells removed; the 800 km anchor's shipped look kept.
+- **F2** LOD depth counted in ground metres (finest about 10-20 m on any map), within a measured memory and time budget.
+- **F3** `land_grain` lattices keyed to km with a ceiling, fading on low relief at far zoom.
+Bars B1-B8 as in the findings (width invariance, terrain binding, flat land smooth, equal-km/px equivalence, zoom always gains detail, anchor kept, no noise snow, no mottle).
