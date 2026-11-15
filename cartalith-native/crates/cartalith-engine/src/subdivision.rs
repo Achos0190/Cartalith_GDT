@@ -112,7 +112,7 @@ pub const SCORE_FLOOR: f64 = 0.0;
 /// Highest level a tile may be *promoted to*: **31**. `pyramid_dims` clamps
 /// levels to 31; a parent at level 30 has a column below `2^30`, so its
 /// children's `col * 2 + 1` fits a `u32`. Above that, promoting could wrap an
-/// index, so it is refused (`z_cap` is far lower in practice: `MAX_LEVEL` is 10).
+/// index, so it is refused (`z_cap` is far lower in practice: `lod_bridge::MAX_LEVEL` is 16).
 const MAX_TARGET_LEVEL: u32 = 31;
 
 // ---------------------------------------------------------------------- types

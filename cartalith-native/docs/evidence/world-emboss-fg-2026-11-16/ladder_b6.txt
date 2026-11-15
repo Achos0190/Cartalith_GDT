@@ -1,0 +1,156 @@
+B6: Rust zoom ladder (cartalith-godot tests/zoom_detail_ladder.rs, ZD_LAWS=2, release build), before = the origin/main tree (93aff1d2, no render change since 2458de22), after = this change at its shipped gain 11 and floor 0.00153 (ZD_RGAIN / ZD_FLOOR overrides on one harness binary; the shipped constants are the same numbers). Statistic: mean luminance gradient per frame (fg_ladder_stats.py), median over crops.
+
+== B6 anchor: the three 800 km / 2048 worlds, 29 crops ==
+800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+800km x16: before 3.75 after 3.75 ratio 1.000 n=29
+800km x64: before 9.32 after 9.36 ratio 1.004 n=29
+
+== the 3000 km / 2048 world (3.75x the anchor's km per cell; not the anchor) ==
+3000km x4 before 1.94 after 2.04 n 9
+3000km x16 before 4.21 after 3.34 n 9
+3000km x64 before 9.17 after 7.37 n 9
+
+== the gain and floor sweep that set the constants (anchor medians) ==
+gain 5, floor 0.0017:
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.47 ratio 0.925 n=29
+  800km x64: before 9.32 after 7.71 ratio 0.827 n=29
+gain 7, floor 0.0017:
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.62 ratio 0.965 n=29
+  800km x64: before 9.32 after 8.30 ratio 0.891 n=29
+gain 9, floor 0.0017:
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.74 ratio 0.997 n=29
+  800km x64: before 9.32 after 8.88 ratio 0.953 n=29
+gain 11, floor 0.0017:
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.75 ratio 1.000 n=29
+  800km x64: before 9.32 after 9.37 ratio 1.005 n=29
+gain 11, floor 0.00076:
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.74 ratio 0.997 n=29
+  800km x64: before 9.32 after 9.31 ratio 0.999 n=29
+gain 11, floor 0.00153 (shipped):
+  800km x4: before 1.95 after 1.95 ratio 1.000 n=29
+  800km x16: before 3.75 after 3.75 ratio 1.000 n=29
+  800km x64: before 9.32 after 9.36 ratio 1.004 n=29
+
+== every crop, shipped constants ==
+x4   s24601_archipelago_800km_coast                before   1.19 after   1.19  x1.00
+x4   s24601_archipelago_800km_cold                 before   1.34 after   1.34  x1.00
+x4   s24601_archipelago_800km_flatforest2          before   1.19 after   1.19  x1.00
+x4   s24601_archipelago_800km_flatforest           before   2.39 after   2.39  x1.00
+x4   s24601_archipelago_800km_forest2              before   2.39 after   2.39  x1.00
+x4   s24601_archipelago_800km_forest               before   1.46 after   1.46  x1.00
+x4   s24601_archipelago_800km_mountain_flank       before   1.15 after   1.15  x1.00
+x4   s24601_archipelago_800km_mountain             before   1.16 after   1.16  x1.00
+x4   s24601_archipelago_800km_volcano_flank        before   1.15 after   1.15  x1.00
+x4   s24601_archipelago_800km_volcano              before   1.16 after   1.16  x1.00
+x4   s24601_earth_3000km_coast                     before   1.34 after   1.39  x1.04
+x4   s24601_earth_3000km_cold                      before   2.97 after   3.09  x1.04
+x4   s24601_earth_3000km_flatforest2               before   2.18 after   2.24  x1.03
+x4   s24601_earth_3000km_flatforest                before   1.94 after   2.04  x1.05
+x4   s24601_earth_3000km_forest2                   before   2.42 after   2.44  x1.01
+x4   s24601_earth_3000km_forest                    before   1.83 after   1.88  x1.03
+x4   s24601_earth_3000km_mountain                  before   2.23 after   2.25  x1.01
+x4   s24601_earth_3000km_volcano_flank             before   0.85 after   0.85  x1.01
+x4   s24601_earth_3000km_volcano                   before   0.86 after   0.87  x1.01
+x4   s314159_earth_800km_coast                     before   1.85 after   1.85  x1.00
+x4   s314159_earth_800km_cold                      before   4.13 after   4.13  x1.00
+x4   s314159_earth_800km_flatforest2               before   1.21 after   1.21  x1.00
+x4   s314159_earth_800km_flatforest                before   2.01 after   2.01  x1.00
+x4   s314159_earth_800km_forest2                   before   1.95 after   1.95  x1.00
+x4   s314159_earth_800km_forest                    before   2.69 after   2.69  x1.00
+x4   s314159_earth_800km_mountain                  before   4.11 after   4.11  x1.00
+x4   s314159_earth_800km_volcano_flank             before   1.66 after   1.66  x1.00
+x4   s314159_earth_800km_volcano                   before   1.69 after   1.69  x1.00
+x4   s71077345_classic_800km_coast                 before   1.59 after   1.59  x1.00
+x4   s71077345_classic_800km_cold                  before   4.25 after   4.25  x1.00
+x4   s71077345_classic_800km_flatforest2           before   2.21 after   2.21  x1.00
+x4   s71077345_classic_800km_flatforest            before   3.32 after   3.32  x1.00
+x4   s71077345_classic_800km_forest2               before   2.84 after   2.84  x1.00
+x4   s71077345_classic_800km_forest                before   2.56 after   2.56  x1.00
+x4   s71077345_classic_800km_mountain_flank        before   3.49 after   3.49  x1.00
+x4   s71077345_classic_800km_mountain              before   3.50 after   3.50  x1.00
+x4   s71077345_classic_800km_volcano_flank         before   1.94 after   1.94  x1.00
+x4   s71077345_classic_800km_volcano               before   2.05 after   2.05  x1.00
+MEDIAN x4: before 1.95 after 1.98 ratio 1.016 (n=38)
+x16  s24601_archipelago_800km_coast                before   2.56 after   2.53  x0.99
+x16  s24601_archipelago_800km_cold                 before   4.56 after   4.48  x0.98
+x16  s24601_archipelago_800km_flatforest2          before   3.88 after   3.85  x0.99
+x16  s24601_archipelago_800km_flatforest           before   1.86 after   1.86  x1.00
+x16  s24601_archipelago_800km_forest2              before   1.86 after   1.86  x1.00
+x16  s24601_archipelago_800km_forest               before   3.88 after   3.85  x0.99
+x16  s24601_archipelago_800km_mountain_flank       before   2.77 after   2.70  x0.97
+x16  s24601_archipelago_800km_mountain             before   2.76 after   2.69  x0.97
+x16  s24601_archipelago_800km_volcano_flank        before   2.77 after   2.70  x0.97
+x16  s24601_archipelago_800km_volcano              before   2.76 after   2.69  x0.97
+x16  s24601_earth_3000km_coast                     before   1.89 after   1.67  x0.88
+x16  s24601_earth_3000km_cold                      before   6.58 after   4.36  x0.66
+x16  s24601_earth_3000km_flatforest2               before   4.21 after   2.73  x0.65
+x16  s24601_earth_3000km_flatforest                before   5.60 after   3.75  x0.67
+x16  s24601_earth_3000km_forest2                   before   5.25 after   4.28  x0.82
+x16  s24601_earth_3000km_forest                    before   6.01 after   4.69  x0.78
+x16  s24601_earth_3000km_mountain                  before   4.02 after   3.34  x0.83
+x16  s24601_earth_3000km_volcano_flank             before   0.21 after   0.21  x0.99
+x16  s24601_earth_3000km_volcano                   before   0.21 after   0.21  x0.99
+x16  s314159_earth_800km_coast                     before   0.70 after   0.70  x1.00
+x16  s314159_earth_800km_cold                      before   7.48 after   7.91  x1.06
+x16  s314159_earth_800km_flatforest2               before   1.92 after   1.92  x1.00
+x16  s314159_earth_800km_flatforest                before   3.96 after   3.96  x1.00
+x16  s314159_earth_800km_forest2                   before   3.75 after   3.75  x1.00
+x16  s314159_earth_800km_forest                    before   5.99 after   5.64  x0.94
+x16  s314159_earth_800km_mountain                  before   6.43 after   6.71  x1.04
+x16  s314159_earth_800km_volcano_flank             before   1.15 after   1.14  x1.00
+x16  s314159_earth_800km_volcano                   before   1.16 after   1.15  x1.00
+x16  s71077345_classic_800km_coast                 before   2.85 after   2.19  x0.77
+x16  s71077345_classic_800km_cold                  before   7.02 after   6.12  x0.87
+x16  s71077345_classic_800km_flatforest2           before   4.82 after   4.60  x0.95
+x16  s71077345_classic_800km_flatforest            before   8.00 after   7.86  x0.98
+x16  s71077345_classic_800km_forest2               before   8.09 after   7.97  x0.99
+x16  s71077345_classic_800km_forest                before   4.55 after   4.33  x0.95
+x16  s71077345_classic_800km_mountain_flank        before   6.80 after   5.85  x0.86
+x16  s71077345_classic_800km_mountain              before   7.03 after   6.05  x0.86
+x16  s71077345_classic_800km_volcano_flank         before   3.63 after   3.47  x0.96
+x16  s71077345_classic_800km_volcano               before   3.31 after   3.23  x0.98
+MEDIAN x16: before 3.88 after 3.61 ratio 0.931 (n=38)
+x64  s24601_archipelago_800km_coast                before   4.22 after   4.22  x1.00
+x64  s24601_archipelago_800km_cold                 before  16.60 after  15.58  x0.94
+x64  s24601_archipelago_800km_flatforest2          before   9.36 after   9.41  x1.01
+x64  s24601_archipelago_800km_flatforest           before   4.73 after   4.73  x1.00
+x64  s24601_archipelago_800km_forest2              before   4.73 after   4.73  x1.00
+x64  s24601_archipelago_800km_forest               before   9.29 after   9.36  x1.01
+x64  s24601_archipelago_800km_mountain_flank       before   9.32 after   9.15  x0.98
+x64  s24601_archipelago_800km_mountain             before  16.47 after  15.34  x0.93
+x64  s24601_archipelago_800km_volcano_flank        before   9.32 after   9.15  x0.98
+x64  s24601_archipelago_800km_volcano              before  16.47 after  15.34  x0.93
+x64  s24601_earth_3000km_coast                     before   2.43 after   2.26  x0.93
+x64  s24601_earth_3000km_cold                      before  16.46 after  12.00  x0.73
+x64  s24601_earth_3000km_flatforest2               before   9.17 after   5.82  x0.63
+x64  s24601_earth_3000km_flatforest                before  11.21 after   7.37  x0.66
+x64  s24601_earth_3000km_forest2                   before  10.95 after   9.45  x0.86
+x64  s24601_earth_3000km_forest                    before  14.94 after  10.98  x0.74
+x64  s24601_earth_3000km_mountain                  before   8.82 after   8.09  x0.92
+x64  s24601_earth_3000km_volcano_flank             before   0.43 after   0.39  x0.93
+x64  s24601_earth_3000km_volcano                   before   0.43 after   0.40  x0.93
+x64  s314159_earth_800km_coast                     before   0.12 after   0.12  x1.00
+x64  s314159_earth_800km_cold                      before  13.34 after  13.69  x1.03
+x64  s314159_earth_800km_flatforest2               before   4.55 after   4.55  x1.00
+x64  s314159_earth_800km_flatforest                before   3.10 after   3.10  x1.00
+x64  s314159_earth_800km_forest2                   before   3.88 after   3.88  x1.00
+x64  s314159_earth_800km_forest                    before   9.86 after   9.51  x0.96
+x64  s314159_earth_800km_mountain                  before  13.47 after  13.15  x0.98
+x64  s314159_earth_800km_volcano_flank             before   5.87 after   5.81  x0.99
+x64  s314159_earth_800km_volcano                   before  10.28 after  10.09  x0.98
+x64  s71077345_classic_800km_coast                 before   6.69 after   5.52  x0.82
+x64  s71077345_classic_800km_cold                  before  15.58 after  16.06  x1.03
+x64  s71077345_classic_800km_flatforest2           before   6.67 after   5.71  x0.86
+x64  s71077345_classic_800km_flatforest            before  10.50 after   9.84  x0.94
+x64  s71077345_classic_800km_forest2               before  10.91 after  10.74  x0.98
+x64  s71077345_classic_800km_forest                before   6.63 after   6.06  x0.91
+x64  s71077345_classic_800km_mountain_flank        before  13.31 after  11.93  x0.90
+x64  s71077345_classic_800km_mountain              before  15.98 after  15.70  x0.98
+x64  s71077345_classic_800km_volcano_flank         before   7.90 after   7.78  x0.98
+x64  s71077345_classic_800km_volcano               before  12.50 after  12.31  x0.98
+MEDIAN x64: before 9.32 after 9.15 ratio 0.982 (n=38)

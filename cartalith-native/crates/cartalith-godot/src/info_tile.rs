@@ -42,7 +42,7 @@
 //! * Touch terrain tiles: it shares the worker and the snapshot, not a code
 //!   path, so terrain tiles and their goldens are unchanged.
 
-use cartalith_engine::bake::pyramid_tile_padded;
+use cartalith_engine::bake::pyramid_tile_padded_rough;
 use cartalith_spatial::pyramid::ChunkId;
 use cartalith_terrain::amplify::AmplifyOpts;
 
@@ -222,12 +222,18 @@ pub fn synthesize_info_tile(src: &InfoSource, view: InfoView, z: i32, col: i32, 
         // Ruling CI: the terrain tile's own law (`render::zoom_detail_km_law`),
         // so an elevation, slope or aspect view at depth reads the relief the
         // terrain tile under it draws.
-        let km = crate::render::zoom_detail_km_law(Some(src.map_width_km), gw, src.zoom_detail_km);
+        let km = crate::render::zoom_detail_km_law(Some(src.map_width_km), gw, src.zoom_detail_km, src.sea);
         // `top` as the terrain tile's (`render::tile_amplify_opts`, Ruling DB).
         let top = cartalith_terrain::orogen::field_top(src.field) as f64;
         let opts = AmplifyOpts { seed: src.seed, sea: src.sea, z_base: lod_bridge::z_base(), km, top, ..AmplifyOpts::default() };
         let id = ChunkId::new(z as u32, col as u32, row as u32);
-        let (tw, th, t) = pyramid_tile_padded(src.field, gw, gh, id, lod_bridge::TILE_PX, pad, &opts);
+        // Ruling FG: the same biome roughness the terrain tile reads
+        // (`render::detail_roughness_at`), when this source carries the
+        // climate rasters; a source without them gets `ρ = 1`.
+        let has_climate = src.temperature.len() >= gw * gh && src.rainfall.len() >= gw * gh;
+        let rho = |cx: f64, cy: f64| crate::render::detail_roughness_at(src.temperature, src.rainfall, gw, gh, cx, cy);
+        let rough: Option<cartalith_terrain::amplify::Roughness> = if has_climate { Some(&rho) } else { None };
+        let (tw, th, t) = pyramid_tile_padded_rough(src.field, gw, gh, id, lod_bridge::TILE_PX, pad, &opts, rough);
         if (tw, th) != (w, h) || t.len() != stride * (h + 2 * pad) {
             return None;
         }

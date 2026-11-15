@@ -194,7 +194,7 @@
 //! the atlas can only ever serve the shallow levels, where live synthesis is
 //! already a few milliseconds. Recorded as its own milestone, not folded in.
 
-use cartalith_engine::bake::pyramid_tile_padded;
+use cartalith_engine::bake::pyramid_tile_padded_rough;
 use cartalith_spatial::pyramid::{
     pyramid_dims, pyramid_level_for_zoom, pyramid_tile_bounds, ChunkId,
 };
@@ -221,15 +221,79 @@ pub const TILE_PX: usize = 256;
 /// against. See [`TILE_PX`], [`z_base`] and [`MAX_LEVEL`].
 pub const REFERENCE_TILE_PX: usize = 1024;
 
-/// The deepest pyramid level [`level_for_zoom`] will return.
+/// The deepest pyramid level [`level_for_zoom`] returns, and every map's depth
+/// under the reference schedule (`zoom_detail_km == 0`).
 ///
 /// The reference's `state.lodMaxLevel` is `8` (line 2271) at `_lodTile = 1024`;
 /// four-times-smaller tiles need two more levels to reach the same ground
 /// resolution, so `8 + log2(1024/256) = 10` — which is also exactly where its
-/// own `lodLevels` selector tops out (line 1245). Past this `add_zoom_detail`
-/// has nothing left to add either: its octave count is `min(6, z − zBase)`, so
-/// the finest octave is fixed from level `zBase + 6` on.
-pub const MAX_LEVEL: i32 = 10;
+/// own `lodLevels` selector tops out (line 1245). Past this the reference's
+/// `add_zoom_detail` has nothing left to add either: its octave count is
+/// `min(6, z − zBase)`, so the finest octave is fixed from level `zBase + 6` on.
+///
+/// Until Ruling FG (2026-11-15) this was the pyramid's only ceiling, counted
+/// in **base cells** (256 px per cell at level 10), so on a coarse-celled map
+/// detail stopped arriving at a ground scale set by the grid: 6 m on a 200 km
+/// / 1 024 map, 1.2 km on a 40 075 km world (`WORLD_EMBOSS_FINDINGS_2026-11-15.md`
+/// §2.3). Under the kilometre law a map may now go deeper, to
+/// [`max_level_for_map`].
+pub const BASE_MAX_LEVEL: i32 = 10;
+
+/// The deepest level any map's pyramid can address (Ruling FG, F2): the
+/// ceiling [`max_level_for_map`] is clamped to, and the range every level
+/// check in this module and `ef9_bridge` accepts.
+///
+/// **`16`, and why not more** -- a stated budget, measured in
+/// `DECISIONS.md` §7p's Ruling FG entry:
+///
+/// - **Position precision.** At level 16 the map is `2^16 · 256 = 2^24` tile
+///   pixels across, the last power of two at which every pixel position is an
+///   exact `f32` integer; Godot's `Vector2` and `Control.position` are `f32`,
+///   so a deeper level would place tiles with sub-pixel rounding error and
+///   open seams.
+/// - **Memory.** Residency does not grow with depth: the shell holds the
+///   tier's fixed tile cache (`lod_worker::LodBudget::cache_tiles`, 32-35
+///   tiles of 256² RGBA, about 8-9 MiB) whatever the level.
+/// - **Time.** A tile's cost grows only with its octave count, which
+///   `cartalith_terrain::amplify::ZOOM_DETAIL_KM_MAX_OCTAVES` bounds.
+///
+/// A 40 075 km world on 2 048 cells reaches its ground floor at exactly 16; on
+/// 1 024 cells it would want 17 and stops at 16 (a 30 m floor instead of 15 m).
+pub const MAX_LEVEL: i32 = 16;
+
+/// The ground floor of the zoom-detail law, in km: the wavelength of the
+/// finest full-weight octave at a map's deepest level (Ruling FG, F2). **15 m,
+/// a labelled judgement** inside the findings' "about 10-20 m": the scale of a
+/// single house plot or a stream bank, below which a terrain map has nothing
+/// to invent -- the canopy texture's own floor (`render::CANOPY_MIN_KM`, 8 m)
+/// is finer because it draws crowns, not landforms.
+pub const DETAIL_FLOOR_KM: f64 = 0.015;
+
+/// **Ruling FG, F2: the deepest pyramid level for one map**, counted in ground
+/// units instead of base cells: the first level whose finest full-weight
+/// kilometre-law octave, `L · 2^(z_base − z) · 2^margin` (`L` = `km_per_cell`,
+/// `cartalith_terrain::amplify::KmZoomDetail`'s bottom cut-off), is at or
+/// below [`DETAIL_FLOOR_KM`]:
+///
+/// ```text
+/// max_level = clamp(ceil(z_base + margin + log2(L / DETAIL_FLOOR_KM)), BASE_MAX_LEVEL, MAX_LEVEL)
+/// ```
+///
+/// `km_per_cell` is `Some` only when the kilometre law is on
+/// (`render::zoom_detail_km_law`); `None` -- the reference schedule, or no
+/// map width -- is [`BASE_MAX_LEVEL`], which is what every map was before.
+/// The floor at [`BASE_MAX_LEVEL`] means no map loses depth: a 200 km map
+/// would need only level 9.
+pub fn max_level_for_map(km_per_cell: Option<f64>) -> i32 {
+    match km_per_cell {
+        Some(l) if l.is_finite() && l > 0.0 => {
+            let margin = cartalith_terrain::amplify::ZOOM_DETAIL_KM_NYQUIST_MARGIN;
+            let z = f64::from(z_base()) + margin + (l / DETAIL_FLOOR_KM).log2();
+            (z.ceil() as i32).clamp(BASE_MAX_LEVEL, MAX_LEVEL)
+        }
+        _ => BASE_MAX_LEVEL,
+    }
+}
 
 // `SUN_AZ_DEG`, `EXAG`, `SHADE_RATIO_MID` and `SHADE_RATIO_GAIN` lived here
 // until LOD-D2 (2026-09-21) and are **gone, not deprecated**: they were the
@@ -266,7 +330,22 @@ pub fn z_base() -> i32 {
 /// same quantity is `gw · px_per_cell`, which is what `base_w · scale` is
 /// below.
 pub fn level_for_zoom(px_per_cell: f64, gw: usize) -> i32 {
-    pyramid_level_for_zoom(px_per_cell, gw as f64, TILE_PX as f64, Some(MAX_LEVEL))
+    level_for_zoom_to(px_per_cell, gw, BASE_MAX_LEVEL)
+}
+
+/// A quality tier's ceiling (`lod_worker::LodBudget::max_level`, written
+/// against [`BASE_MAX_LEVEL`]) carried onto a map whose own deepest level is
+/// `map_max` ([`max_level_for_map`], Ruling FG): the same number of levels
+/// short of it, so Performance stays one level shallower than the map allows
+/// on a deep map too. On a base-depth map it is `tier_max` itself.
+pub fn tier_max_for_map(tier_max: i32, map_max: i32) -> i32 {
+    tier_max + (map_max - BASE_MAX_LEVEL)
+}
+
+/// [`level_for_zoom`] with the map's own ceiling `max_level`
+/// ([`max_level_for_map`], Ruling FG), itself clamped to `0..=`[`MAX_LEVEL`].
+pub fn level_for_zoom_to(px_per_cell: f64, gw: usize, max_level: i32) -> i32 {
+    pyramid_level_for_zoom(px_per_cell, gw as f64, TILE_PX as f64, Some(max_level.clamp(0, MAX_LEVEL)))
 }
 
 /// **LOD-D3's morph parameter**: how far level `z` has faded in at
@@ -801,7 +880,13 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
     // data bit for bit, so the atlas and this tile still agree on height.
     let pad = render::tile_halo_px(ctx, out_w, out_h, tb);
     let id = ChunkId::new(z as u32, col as u32, row as u32);
-    let (tw, th, mut tile) = pyramid_tile_padded(ctx.field, gw, gh, id, TILE_PX, pad, &opts);
+    // Ruling FG: the kilometre law's biome and rock roughness, from the
+    // context's own climate rasters (`render::detail_roughness_at`); read only
+    // when `opts.km` is set, so the reference schedule is untouched.
+    let rho = |cx: f64, cy: f64| render::detail_roughness_at(ctx.temperature, ctx.rainfall, gw, gh, cx, cy);
+    let rough: Option<cartalith_terrain::amplify::Roughness> =
+        (ctx.temperature.len() >= gw * gh && ctx.rainfall.len() >= gw * gh).then_some(&rho);
+    let (tw, th, mut tile) = pyramid_tile_padded_rough(ctx.field, gw, gh, id, TILE_PX, pad, &opts, rough);
     if (tw, th) != (out_w, out_h) {
         return None;
     }
@@ -812,7 +897,7 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
     // context carries the world's edifice frame (`render::add_tile_furrows`).
     render::add_tile_furrows(ctx, &mut tile, out_w, out_h, pad, tb);
     let mut water = if render::tile_water_differs(ctx, tf, tb, out_w, out_h, pad) {
-        let (ww, wh, mut wt) = pyramid_tile_padded(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts);
+        let (ww, wh, mut wt) = pyramid_tile_padded_rough(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts, rough);
         render::add_tile_furrows(ctx, &mut wt, out_w, out_h, pad, tb);
         ((ww, wh) == (out_w, out_h)).then_some(wt)
     } else {
@@ -1309,10 +1394,40 @@ mod tests {
         assert_eq!(l2, l1 + 1);
         assert_eq!(l3, l2 + 1);
         // A cell filling the screen still resolves to a real level, capped.
-        assert_eq!(level_for_zoom(1.0e6, gw), MAX_LEVEL);
+        assert_eq!(level_for_zoom(1.0e6, gw), BASE_MAX_LEVEL);
         // ...and a degenerate zoom does not fall off the bottom.
         assert_eq!(level_for_zoom(0.0, gw), 0);
         assert_eq!(level_for_zoom(-4.0, gw), 0);
+    }
+
+    /// Protects: Ruling FG's F2 -- the pyramid's depth counted in ground units.
+    /// Literals for the findings' maps (`z_base` 4, margin 1, floor 15 m): a
+    /// 40 075 km world on 2 048 cells reaches level 16, on 1 024 cells it would
+    /// want 17 and stops at the ceiling 16; a 5 000 km / 1 024 map 14; a
+    /// 1 200 km / 512 region 13; the 800 km / 2 048 anchor and a 200 km /
+    /// 1 024 map keep the base 10 (no map loses depth); the reference schedule
+    /// (`None`) and a nonsense width stay at 10. And `level_for_zoom_to` honours
+    /// a deeper map's ceiling where `level_for_zoom` stops at the base.
+    #[test]
+    fn the_depth_is_counted_in_ground_units() {
+        let l = |w: f64, gw: f64| Some(w / gw);
+        assert_eq!(max_level_for_map(l(40075.0, 2048.0)), 16);
+        assert_eq!(max_level_for_map(l(40075.0, 1024.0)), 16);
+        assert_eq!(max_level_for_map(l(5000.0, 1024.0)), 14);
+        assert_eq!(max_level_for_map(l(1200.0, 512.0)), 13);
+        assert_eq!(max_level_for_map(l(800.0, 2048.0)), 10);
+        assert_eq!(max_level_for_map(l(200.0, 1024.0)), 10);
+        assert_eq!(max_level_for_map(None), 10);
+        assert_eq!(max_level_for_map(Some(f64::NAN)), 10);
+        assert_eq!(max_level_for_map(Some(-3.0)), 10);
+        assert_eq!((BASE_MAX_LEVEL, MAX_LEVEL, DETAIL_FLOOR_KM), (10, 16, 0.015));
+        assert_eq!(level_for_zoom_to(1.0e6, 1024, 14), 14);
+        assert_eq!(level_for_zoom_to(1.0e6, 1024, 99), MAX_LEVEL);
+        assert_eq!(level_for_zoom_to(4.0, 512, 14), level_for_zoom(4.0, 512));
+        // A tier keeps its distance from the map's own depth.
+        assert_eq!(tier_max_for_map(9, 10), 9);
+        assert_eq!(tier_max_for_map(9, 16), 15);
+        assert_eq!(tier_max_for_map(10, 14), 14);
     }
 
     /// The zoom at which [`level_for_zoom`] hands `z` over to `z + 1`:
@@ -1341,9 +1456,11 @@ mod tests {
             for z in 0..MAX_LEVEL {
                 let px = handover_px(gw, z);
                 // The switch really is here, not near here.
-                assert_eq!(level_for_zoom(px, gw), z + 1, "gw {gw}, z {z}: the level does not flip at {px}");
+                // Ruling FG: checked up to the addressable ceiling, through
+                // the per-map entry a deep map uses.
+                assert_eq!(level_for_zoom_to(px, gw, MAX_LEVEL), z + 1, "gw {gw}, z {z}: the level does not flip at {px}");
                 assert_eq!(
-                    level_for_zoom(px * (1.0 - 1e-12), gw),
+                    level_for_zoom_to(px * (1.0 - 1e-12), gw, MAX_LEVEL),
                     z,
                     "gw {gw}, z {z}: the level flips early"
                 );
@@ -1362,7 +1479,7 @@ mod tests {
 
     /// Protects: EF-9.4's continuous level is the number the level switch
     /// rounds -- `level_for_zoom` equals `js_round(continuous_level)` (clamped to
-    /// `0..=MAX_LEVEL`) over a dense sweep, so the boost the shader adds lands on
+    /// `0..=BASE_MAX_LEVEL`, and `level_for_zoom_to` to `0..=MAX_LEVEL`) over a dense sweep, so the boost the shader adds lands on
     /// the same boundary the shell switches at -- and its literal values:
     /// `512 · 2 / 256 = 4` gives level 2.0 exactly, below one tile per screen
     /// (`want < 1`) gives 0, and no world gives 0.
@@ -1372,8 +1489,11 @@ mod tests {
             for i in 0..4000 {
                 let px = 0.05 * 1.003f64.powi(i);
                 let lam = continuous_level(px, gw);
-                let want = cartalith_jsmath::js_round(lam).clamp(0.0, f64::from(MAX_LEVEL)) as i32;
+                let want = cartalith_jsmath::js_round(lam).clamp(0.0, f64::from(BASE_MAX_LEVEL)) as i32;
                 assert_eq!(level_for_zoom(px, gw), want, "gw {gw}, px {px}");
+                // Ruling FG: a deep map's entry rounds the same quantity.
+                let deep = cartalith_jsmath::js_round(lam).clamp(0.0, f64::from(MAX_LEVEL)) as i32;
+                assert_eq!(level_for_zoom_to(px, gw, MAX_LEVEL), deep, "gw {gw}, px {px}");
             }
         }
         assert_eq!(continuous_level(2.0, 512), 2.0);

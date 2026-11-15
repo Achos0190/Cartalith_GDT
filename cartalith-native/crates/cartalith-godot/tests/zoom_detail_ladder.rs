@@ -30,7 +30,7 @@
 //! `ZD_LAWS`, `ZD_LOOK`, `ZD_TAG`, `ZD_WORLDS`, `ZD_PICKS`, `ZD_GW`/`ZD_GH`,
 //! the terrain-streak spike's `ZD_STREAK` (see `world_params`), Ruling CO's
 //! `ZD_FURROWS=<strength>` (the volcano tile furrows; `0` = before),
-//! the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`, and `ZD_PPC`
+//! the exploration overrides `ZD_GAIN`/`ZD_FLOOR`/`ZD_MARGIN`/`ZD_RGAIN`, and `ZD_PPC`
 //! (a list of pixels-per-cell rungs in place of x4/x16/x64). `ZD_X1=1`
 //! adds the fit frame; `ZD_MASK=1` writes each frame's land mask
 //! (`mask_frame`, Ruling CU's land-only statistics); `ZD_APP=1` attaches the
@@ -53,7 +53,7 @@ mod params;
 
 use std::collections::HashMap;
 
-use cartalith_engine::bake::pyramid_tile_padded;
+use cartalith_engine::bake::pyramid_tile_padded_rough;
 use cartalith_spatial::pyramid::{pyramid_dims, pyramid_level_for_zoom, pyramid_tile_bounds, ChunkId};
 use cartalith_spatial::{tile_dims, Region};
 use render::{GridPrecompute, QualityTier, RenderCtx, TerrainAppearance, TileBounds, TileFields};
@@ -63,7 +63,8 @@ use render::{GridPrecompute, QualityTier, RenderCtx, TerrainAppearance, TileBoun
 /// `crate::river_stroke`); `the_harness_constants_are_the_bridges` is not
 /// possible from here, so the value is quoted with its source.
 const TILE_PX: usize = 256;
-/// `lod_bridge::MAX_LEVEL`, same reason.
+/// `lod_bridge::BASE_MAX_LEVEL`, same reason: the anchor maps this harness
+/// measures stay at the base depth under Ruling FG's F2.
 const MAX_LEVEL: i32 = 10;
 /// The assessment's own capture size: the map viewport at its window (§1).
 const SCREEN_W: usize = 950;
@@ -427,8 +428,15 @@ fn tile(ctx: &RenderCtx, tf: &TileFields, z: i32, col: u32, row: u32, seed: i32)
         if let Some(m) = std::env::var("ZD_MARGIN").ok().and_then(|v| v.parse().ok()) {
             km.nyquist_margin = m;
         }
+        // Ruling FG's relief gain (`ZD_RGAIN`), for the same purpose.
+        if let Some(g) = std::env::var("ZD_RGAIN").ok().and_then(|v| v.parse().ok()) {
+            km.relief_gain = g;
+        }
     }
-    let (w, h, mut data) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col, row), TILE_PX, pad, &opts);
+    // Ruling FG: the biome roughness `lod_bridge::tile_heights` hands the
+    // kilometre law, from the same climate rasters.
+    let rho = |cx: f64, cy: f64| render::detail_roughness_at(ctx.temperature, ctx.rainfall, gw, gh, cx, cy);
+    let (w, h, mut data) = pyramid_tile_padded_rough(ctx.field, gw, gh, ChunkId::new(z as u32, col, row), TILE_PX, pad, &opts, Some(&rho));
     render::add_tile_furrows(ctx, &mut data, w, h, pad, tb);
     let rgba = render::render_biome_tile_rgba_water(ctx, &data, None, w, h, pad, tb, tf, None);
     assert_eq!(rgba.len(), w * h * 4, "the colouriser refused the tile");
@@ -768,4 +776,75 @@ fn furrow_tile_cost() {
             println!("COST z{z} {}: median {:.2} ms ({:.2}..{:.2}) over {}", arms[arm].0, v[v.len() / 2], v[0], v[v.len() - 1], v.len());
         }
     }
+}
+
+/// **Ruling FG's F2 cost** (`WORLD_EMBOSS_FINDINGS_2026-11-15.md` F2: *"measure
+/// tile cost ... at the new depth before shipping"*): one deep-zoom land tile
+/// (height synthesis with the biome roughness, and colour, `tile` above) on a
+/// 40 075 km world at the shipped look, at levels 6, 10 (the old ceiling), 13
+/// and 16 (the new ceiling, `lod_bridge::MAX_LEVEL`), 24 tiles each round the
+/// windowed probe's pivot (grid fraction 0.40, 0.625), alternated level by
+/// level so drift hits every arm. Prints median and min..max per level. The
+/// octave count grows with depth (`ZOOM_DETAIL_KM_MAX_OCTAVES` bounds it), so
+/// this is the number that says whether deeper levels cost more per tile.
+/// `ZD_GW`/`ZD_GH` set the grid (default 2048 x 1024, the owner's world). Run
+/// **alone** (`MISTAKES.md`, "Quote a timing").
+///
+/// Protects: nothing (a measurement, `#[ignore]`d).
+#[test]
+#[ignore = "generates a world and times deep tile synthesis; run explicitly and alone"]
+fn fg_deep_tile_cost() {
+    let (gw, gh) = (
+        std::env::var("ZD_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize),
+        std::env::var("ZD_GH").ok().and_then(|v| v.parse().ok()).unwrap_or(1024usize),
+    );
+    let w = WorldSpec { tag: "s1200_classic_40075km", seed: 1200, archetype: None, width_km: 40075.0 };
+    let mut p = world_params(&w, gw, gh);
+    p.world = true;
+    let ws = cartalith_engine::generate_terrain(&p);
+    let a = TerrainAppearance::for_tier(QualityTier::Quality).with_look(render::LOOK_VIBRANT);
+    let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+    let ctx = RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a, &pre).unwrap();
+    let tf = TileFields::new(&ctx, None);
+    let levels = [6i32, 8, 10, 11, 12, 13, 16];
+    let mut t: Vec<Vec<f64>> = vec![Vec::new(); levels.len()];
+    let mut g: Vec<Vec<f64>> = vec![Vec::new(); levels.len()];
+    let (px, py) = (0.40 * (gw - 1) as f64, 0.625 * (gh - 1) as f64);
+    for k in 0..24u32 {
+        for (li, &z) in levels.iter().enumerate() {
+            let n = pyramid_dims(z).cols;
+            let step = (gw - 1) as f64 / n as f64;
+            let (c0, r0) = ((px / step) as u32, (py / step) as u32);
+            let (col, row) = ((c0 + k % 6).min(n - 1), (r0 + k / 6).min(n - 1));
+            let t0 = std::time::Instant::now();
+            let (rgba, tw, th, _) = tile(&ctx, &tf, z, col, row, w.seed);
+            t[li].push(t0.elapsed().as_secs_f64() * 1e3);
+            // Outside the timed span: the tile's mean luminance gradient per
+            // texel, so the same run says whether a deeper level still draws
+            // relief (bar B5's question, at the tile).
+            g[li].push(mean_luma_grad(&rgba, tw, th));
+        }
+    }
+    for (li, v) in g.iter().enumerate() {
+        println!("FGGRAD z{}: mean luma gradient per texel {:.3} over {}", levels[li], v.iter().sum::<f64>() / v.len() as f64, v.len());
+    }
+    for (li, v) in t.iter_mut().enumerate() {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("FGCOST z{} {}x{}: median {:.2} ms ({:.2}..{:.2}) over {}", levels[li], gw, gh, v[v.len() / 2], v[0], v[v.len() - 1], v.len());
+    }
+}
+
+/// Mean `|∇ luma|` (Rec. 709) over an RGBA tile, forward differences.
+fn mean_luma_grad(rgba: &[u8], w: usize, h: usize) -> f64 {
+    let l = |x: usize, y: usize| {
+        let i = (y * w + x) * 4;
+        0.2126 * rgba[i] as f64 + 0.7152 * rgba[i + 1] as f64 + 0.0722 * rgba[i + 2] as f64
+    };
+    let mut s = 0.0;
+    for y in 0..h - 1 {
+        for x in 0..w - 1 {
+            s += (l(x + 1, y) - l(x, y)).hypot(l(x, y + 1) - l(x, y));
+        }
+    }
+    s / ((w - 1) * (h - 1)) as f64
 }

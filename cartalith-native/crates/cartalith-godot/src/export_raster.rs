@@ -3488,18 +3488,32 @@ mod adjust_census_tests {
     /// move** (the lake tone is 0 there: the identity by control flow), and no screen,
     /// river, p3, export, banded or crop column moved (this fixture attaches no fill
     /// levels to those contexts).
+    ///
+    /// **RE-BASELINED 2026-11-16 under Ruling FG** (owner, 2026-11-15; F1 and F3
+    /// of `WORLD_EMBOSS_FINDINGS_2026-11-15.md`, `DECISIONS.md` §7p): this
+    /// fixture carries a map width over a small grid, so the land jitter's
+    /// longest lattice is past 20 km of ground and is capped and faded (F3:
+    /// every pixel column), and its tile is a kilometre-law tile whose amplitude
+    /// now follows the coarse relief and the biome (F1: tile). The four app
+    /// looks' eight pixel columns moved; **js_reference's row did not move**
+    /// (`land_grain_warp` 0 and `zoom_detail_km` 0: identity by control flow),
+    /// and no fingerprint moved (no look key was added). Old -> new:
+    /// default (screen `6539289555cc6772` -> `009bb5c7847620b7`, river `5b68a5da9c9a5197` -> `9ff7704f8c2792a5`, screen_p3 `d2435a8ed4f86473` -> `bbfaaaeaa7624b60`, river_p3 `f289cb09e3701094` -> `2068415b341540cc`, export `68179f43ddf6ba6d` -> `a2653d8cea5a66df`, banded `68179f43ddf6ba6d` -> `a2653d8cea5a66df`, crop `6b4a5a3302a7b19d` -> `bbdb95cce9d6e045`, tile `f912045abc2c5996` -> `9b391be2e04c9805`);
+    /// graded (screen `c8ccbd392357704a` -> `b8f16f53779f81cf`, river `b2bdfa51afcd5cb2` -> `ae19e7cae54b4d07`, screen_p3 `6063a4ae6bc1ad40` -> `55bcaa2455414613`, river_p3 `e22ce901929f7983` -> `9a7b45075c2d5160`, export `59cd9b20ff25d48c` -> `4b62fefbf1b712d3`, banded `59cd9b20ff25d48c` -> `4b62fefbf1b712d3`, crop `cba3ab40ad832616` -> `3a6eac645774a3ee`, tile `00b42099db05d215` -> `2b8f957ac4e1e427`);
+    /// antique (screen `7fca3a251c65239d` -> `5f05026b3901c83e`, river `521f9e9e2b7749cb` -> `2e9f436d82a51911`, screen_p3 `acc666ffd7ad0ec9` -> `3aac1679f075bb1f`, river_p3 `35822b95fd82a56b` -> `6dd863d89db62f09`, export `947882011c732c44` -> `6ff983fa2c1b7731`, banded `947882011c732c44` -> `6ff983fa2c1b7731`, crop `4d041437e630f9e9` -> `e78105cb326592f2`, tile `ed22828fcecb7aad` -> `8e06da50b9acb6da`);
+    /// satellite (screen `bd01eee2a9e52276` -> `9a73323870452c50`, river `895026335de0b58b` -> `a33b0831066d545f`, screen_p3 `28baa9926c723d4a` -> `463f5a0be5f900d4`, river_p3 `2d525003219a9d96` -> `4c7f851cc4fdab98`, export `00c4f0c7e6da05e5` -> `afe6542a22946667`, banded `00c4f0c7e6da05e5` -> `afe6542a22946667`, crop `9e3896ad1f796180` -> `2a5aa83cf3590b90`, tile `d0c1514e882bca47` -> `7ff7ed3107406428`).
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0xf912045abc2c5996, 0x6f9734dec5cce1ee],
+            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0xa2653d8cea5a66df, 0xa2653d8cea5a66df, 0xbbdb95cce9d6e045, 0x9b391be2e04c9805, 0x6f9734dec5cce1ee],
         ),
         (
             "graded",
-            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x00b42099db05d215, 0x895fa0ef90c68152],
+            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x4b62fefbf1b712d3, 0x4b62fefbf1b712d3, 0x3a6eac645774a3ee, 0x2b8f957ac4e1e427, 0x895fa0ef90c68152],
         ),
         (
             "antique",
-            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0xed22828fcecb7aad, 0xb7eacdb1e21f4123],
+            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x6ff983fa2c1b7731, 0x6ff983fa2c1b7731, 0xe78105cb326592f2, 0x8e06da50b9acb6da, 0xb7eacdb1e21f4123],
         ),
         (
             "js_reference",
@@ -3533,7 +3547,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0xd0c1514e882bca47, 0xb599bc24f6ac0d2b],
+            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xafe6542a22946667, 0xafe6542a22946667, 0x2a5aa83cf3590b90, 0x7ff7ed3107406428, 0xb599bc24f6ac0d2b],
         ),
     ];
 

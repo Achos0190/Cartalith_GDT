@@ -63,7 +63,7 @@ use cartalith_spatial::pyramid::{
     baked_cover, pyramid_dims, pyramid_tile_bounds, pyramid_tile_count, ChunkId,
 };
 use cartalith_spatial::{tile_dims, Region};
-use cartalith_terrain::amplify::{add_zoom_detail_padded, refine_tile_padded, AmplifyOpts};
+use cartalith_terrain::amplify::{add_zoom_detail_km_padded, add_zoom_detail_padded, refine_tile_padded, AmplifyOpts, Roughness};
 use rayon::prelude::*;
 use std::collections::BTreeSet;
 
@@ -132,6 +132,25 @@ pub fn pyramid_tile_padded(
     pad: usize,
     opts: &AmplifyOpts,
 ) -> (usize, usize, Vec<f32>) {
+    pyramid_tile_padded_rough(coarse, cw, ch, id, tile_size, pad, opts, None)
+}
+
+/// [`pyramid_tile_padded`] with the kilometre zoom-detail law's biome and rock
+/// roughness (`cartalith_terrain::amplify::Roughness`, Ruling FG). Only the
+/// `opts.km` branch reads `rough`; with `opts.km == None` (every engine bake,
+/// export and parity golden) it is ignored and this is
+/// [`pyramid_tile_padded`] by control flow. `None` is `ρ = 1`.
+#[allow(clippy::too_many_arguments)]
+pub fn pyramid_tile_padded_rough(
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    id: ChunkId,
+    tile_size: usize,
+    pad: usize,
+    opts: &AmplifyOpts,
+    rough: Option<Roughness>,
+) -> (usize, usize, Vec<f32>) {
     let d = pyramid_dims(id.z as i32);
     // The reference's own `region={x:0, y:0, w:cW-1, h:cH-1}` -- the inset is
     // the sample-coordinate convention, see `pyramid`'s module docs.
@@ -147,7 +166,11 @@ pub fn pyramid_tile_padded(
         id.row as usize, td.w, td.h, pad, opts,
     );
     let b = pyramid_tile_bounds(cw, ch, id.z as i32, id.col, id.row);
-    add_zoom_detail_padded(&mut padded, td.w, td.h, pad, coarse, cw, ch, &b, id.z as i32, opts);
+    if opts.km.is_some() {
+        add_zoom_detail_km_padded(&mut padded, td.w, td.h, pad, coarse, cw, ch, &b, id.z as i32, opts, rough);
+    } else {
+        add_zoom_detail_padded(&mut padded, td.w, td.h, pad, coarse, cw, ch, &b, id.z as i32, opts);
+    }
     (td.w, td.h, padded)
 }
 

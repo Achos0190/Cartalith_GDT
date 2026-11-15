@@ -20299,7 +20299,7 @@ impl WorldGen {
     /// real level, so a caller that asks too early gets a harmless answer.
     #[func]
     fn lod_level_for_zoom(&self, px_per_cell: f64) -> i32 {
-        lod_bridge::level_for_zoom(px_per_cell, self.gw.max(0) as usize)
+        lod_bridge::level_for_zoom_to(px_per_cell, self.gw.max(0) as usize, self.lod_map_max_level())
     }
 
     /// Tiles per axis at pyramid level `z` — `2^z`, clamped at
@@ -20310,12 +20310,14 @@ impl WorldGen {
         lod_bridge::tiles_per_axis(z) as i32
     }
 
-    /// The deepest level [`Self::lod_level_for_zoom`] will ever return —
-    /// `lod_bridge::MAX_LEVEL`, the reference's own `state.lodMaxLevel`
-    /// rebased onto this port's smaller interactive tile.
+    /// The deepest level [`Self::lod_level_for_zoom`] will ever return for
+    /// this world -- [`Self::lod_map_max_level`]: the reference's own
+    /// `state.lodMaxLevel` rebased onto this port's smaller interactive tile
+    /// (`lod_bridge::BASE_MAX_LEVEL`, 10), or deeper on a coarse-celled map
+    /// under the kilometre law (Ruling FG, `lod_bridge::max_level_for_map`).
     #[func]
     fn lod_max_level(&self) -> i32 {
-        lod_bridge::MAX_LEVEL
+        self.lod_map_max_level()
     }
 
     /// Owner rulings 28/29's *"the size shown at save time"* — the raw bytes
@@ -20481,7 +20483,7 @@ impl WorldGen {
             "gw" => self.gw as i64, "gh" => self.gh as i64,
             "cell_m" => self.map_width_km * 1000.0 / self.gw as f64,
             "sea_level" => sea, "peak_m" => peak,
-            "max_level" => i64::from(lod_bridge::MAX_LEVEL.min(tier_max)),
+            "max_level" => i64::from(self.lod_map_max_level().min(self.lod_tier_max_level(tier_max))),
             "max_in_flight" => lod_worker::budget_for_tier(self.quality).max_in_flight as i64,
         }
     }
@@ -20653,7 +20655,7 @@ impl WorldGen {
             "tier" => self.quality.name(),
             "tiles_per_update" => b.tiles_per_update as i64,
             "tiles_per_catchup" => b.tiles_per_catchup as i64,
-            "max_level" => b.max_level,
+            "max_level" => self.lod_tier_max_level(b.max_level),
             "cache_tiles" => b.cache_tiles as i64,
             "max_in_flight" => b.max_in_flight as i64,
             "ef9_refine" => b.ef9_refine,
@@ -20840,6 +20842,31 @@ impl WorldGen {
     /// through `AmplifyOpts`, not through any cached member, and is passed
     /// per call — a seed change without a regenerate is not reachable anyway
     /// (`absorb` sets both), and keying on it would only cost a rebuild.
+    /// **Ruling FG, F2: this world's deepest pyramid level** --
+    /// `lod_bridge::max_level_for_map` at this world's kilometres per cell
+    /// when the look's kilometre zoom-detail law is on
+    /// (`render::zoom_detail_km_law`, the same gate the tiles use), else
+    /// `lod_bridge::BASE_MAX_LEVEL`. Before any world (`gw < 2` or no width)
+    /// it is the base, as `lod_max_level` always answered then.
+    fn lod_map_max_level(&self) -> i32 {
+        let gw = self.gw.max(0) as usize;
+        if gw < 2 || !(self.map_width_km > 0.0) {
+            return lod_bridge::BASE_MAX_LEVEL;
+        }
+        let a = self.appearance();
+        let km = render::zoom_detail_km_law(Some(self.map_width_km), gw, a.zoom_detail_km, 0.0).map(|k| k.km_per_cell);
+        lod_bridge::max_level_for_map(km)
+    }
+
+    /// A quality tier's `LodBudget::max_level` (written against
+    /// `lod_bridge::BASE_MAX_LEVEL`: Performance one level shallower than the
+    /// base) carried onto this world's own depth (Ruling FG): the same number
+    /// of levels short of [`Self::lod_map_max_level`]. On a base-depth world
+    /// this is the tier's own value, so nothing changes there.
+    fn lod_tier_max_level(&self, tier_max: i32) -> i32 {
+        lod_bridge::tier_max_for_map(tier_max, self.lod_map_max_level())
+    }
+
     fn lod_cache_key(&self) -> String {
         self.lod_key_with(self.rivers_in_map, self.river_delta_off.get())
     }

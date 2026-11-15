@@ -1,0 +1,10 @@
+grain_no_cap KILLED
+grain_fade_uncapped KILLED
+warp_uncapped KILLED
+fade_always_formula KILLED
+rho_cold KILLED
+rho_sand KILLED
+rho_forest_ramp SURVIVED
+RESTORED OK; 6 of 7 killed
+rho_forest_ramp KILLED
+RESTORED OK; 1 of 1 killed

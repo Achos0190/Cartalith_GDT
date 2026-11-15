@@ -159,9 +159,9 @@ fn land_grain_is_the_reference_at_zero_and_moves_at_one() {
     for k in 0..500 {
         let (x, y) = (k as f64 * 3.17 + 0.5, k as f64 * 1.91 + 0.25);
         let r = reference_grain(x, y, gw);
-        let a = render::land_grain(&off, x, y, gw);
+        let a = render::land_grain(&off, x, y, gw, None);
         assert_eq!((a.0.to_bits(), a.1.to_bits(), a.2.to_bits()), (r.0.to_bits(), r.1.to_bits(), r.2.to_bits()), "warp 0 is not the reference at ({x}, {y})");
-        let b = render::land_grain(&on, x, y, gw);
+        let b = render::land_grain(&on, x, y, gw, None);
         if b.0 != r.0 && b.1 != r.1 && b.2 != r.2 {
             moved += 1;
         }
@@ -210,7 +210,7 @@ fn the_warped_lattice_is_not_axis_aligned() {
                 // `n_bio` minus its broad octave's share is dominated by the
                 // 13.7-cell lattice at this window size; the whole sample is
                 // what the colour sees, so measure the whole sample.
-                f[y * n + x] = render::land_grain(a, x as f64 + 100.0, y as f64 + 100.0, gw).2;
+                f[y * n + x] = render::land_grain(a, x as f64 + 100.0, y as f64 + 100.0, gw, None).2;
             }
         }
         f
@@ -391,8 +391,10 @@ fn the_fixture_has_forest_and_snow() {
 fn canopy_is_off_without_strength_or_scale_and_touches_only_forest() {
     let w = world();
     let base = screen(&ctx(&w, plain(), true));
-    assert_eq!(screen(&ctx(&w, canopy_on(), false)), base, "no map width must mean no texture");
-    assert_eq!(screen(&ctx(&w, plain(), false)), base);
+    // Ruling FG (F3): the map width now reaches the land jitter's capped
+    // lattices on this 64-cell fixture, so "no width" is compared with "no
+    // width": with the canopy on and no scale, nothing of it is drawn.
+    assert_eq!(screen(&ctx(&w, canopy_on(), false)), screen(&ctx(&w, plain(), false)), "no map width must mean no texture");
     let on = screen(&ctx(&w, canopy_on(), true));
     let (mut west, mut east) = (0, 0);
     for y in 0..GH {
@@ -744,4 +746,100 @@ fn km_tile_snow_facing_reads_the_grid_gradient() {
     let (rise, fall) = (row_luma(0), row_luma(2));
     println!("rows with a rising tile gradient {rise:.2}, falling {fall:.2}");
     assert!((rise - fall).abs() < 1.0, "the snow facing followed the sub-cell ripple: {rise:.2} vs {fall:.2}");
+}
+
+// ---- Ruling FG, F3: the land jitter keyed to kilometres -----------------
+
+/// Protects: at the 800 km / 2 048 anchor the km-keyed jitter is the per-cell
+/// jitter **bit for bit** at every footprint the screen and the tiles use
+/// (each lattice is under `LAND_GRAIN_MAX_KM` there and wide enough not to
+/// fade) -- the shipped region look is untouched -- and the reference branch
+/// ignores the scale entirely.
+#[test]
+fn the_km_grain_is_the_per_cell_grain_at_the_anchor() {
+    let gw = 2048;
+    let on = TerrainAppearance::default();
+    let off = TerrainAppearance { land_grain_warp: 0.0, ..TerrainAppearance::default() };
+    for cpp in [1.0, 0.25, 0.01] {
+        let gs = Some(render::GrainScale { km_per_cell: KM_PER_CELL, cells_per_px: cpp });
+        for k in 0..300 {
+            let (x, y) = (k as f64 * 3.17 + 0.5, k as f64 * 1.91 + 0.25);
+            let (a, b) = (render::land_grain(&on, x, y, gw, None), render::land_grain(&on, x, y, gw, gs));
+            assert_eq!((a.0.to_bits(), a.1.to_bits(), a.2.to_bits()), (b.0.to_bits(), b.1.to_bits(), b.2.to_bits()), "anchor moved at cpp {cpp}");
+            let (r, q) = (render::land_grain(&off, x, y, gw, None), render::land_grain(&off, x, y, gw, gs));
+            assert_eq!((r.0.to_bits(), r.1.to_bits(), r.2.to_bits()), (q.0.to_bits(), q.1.to_bits(), q.2.to_bits()), "the reference branch read the scale");
+        }
+    }
+}
+
+/// Protects: on a 40 075 km / 2 048 world the lattice is capped at 20 km of
+/// ground (literal frequency `L / 20` cycles per cell) and, at the base map's
+/// one pixel per cell, faded out entirely -- so the fit view carries no
+/// continent-scale mottle (bar B8) -- while a deep tile (0.01 cells per pixel)
+/// draws it at full strength. And the 1 200 km / 512 region's longest lattice
+/// is capped too, its finer ones untouched.
+#[test]
+fn the_km_grain_is_capped_in_km_and_fades_by_footprint() {
+    let l = 40075.0 / 2048.0;
+    let base = render::GrainScale { km_per_cell: l, cells_per_px: 1.0 };
+    let deep = render::GrainScale { km_per_cell: l, cells_per_px: 0.01 };
+    let (f, vis) = render::grain_lattice(0.06, base);
+    assert_eq!(f, l / 20.0);
+    assert_eq!(vis, 0.0, "a 1-cell lattice at one pixel per cell must fade out");
+    assert_eq!(render::grain_lattice(0.06, deep), (l / 20.0, 1.0));
+    let on = TerrainAppearance::default();
+    for k in 0..100 {
+        let (x, y) = (k as f64 * 7.3 + 0.5, k as f64 * 2.9 + 0.25);
+        assert_eq!(render::land_grain(&on, x, y, 2048, Some(base)), (0.5, 0.5, 0.5), "world fit kept a lattice");
+    }
+    // 1 200 km / 512: `n_low` is 16.7 cells = 39 km, capped; `bio_jitter`'s
+    // `150/gw` lattice is 3.4 cells = 8 km, kept bit for bit and never faded
+    // (it is under the cap), even at one pixel per cell where 3.4 cells is
+    // inside the fade band -- the fade is for capped lattices only.
+    let r = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 0.05 };
+    assert_eq!(render::grain_lattice(0.06, r).0, 1200.0 / 512.0 / 20.0);
+    assert_eq!(render::grain_lattice(150.0 / 512.0, r), (150.0 / 512.0, 1.0));
+    let r1 = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 1.0 };
+    assert_eq!(render::grain_lattice(150.0 / 512.0, r1), (150.0 / 512.0, 1.0));
+    assert_eq!(render::LAND_GRAIN_MAX_KM, 20.0);
+}
+
+/// Protects: Ruling FG's biome roughness `ρ` -- the findings' F1 values at
+/// each pure class, as literals, and that it is a blend in between.
+#[test]
+fn the_detail_roughness_follows_the_biome() {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-12;
+    assert!(close(render::detail_roughness(-20.0, 0.5), 0.8), "cold");
+    assert!(close(render::detail_roughness(30.0, 0.01), 0.25), "hot desert");
+    assert!(close(render::detail_roughness(15.0, 0.8), 0.5), "temperate forest");
+    assert!(close(render::detail_roughness(15.0, 0.24), 0.35), "temperate grassland");
+    // The forest ramp's midpoint (`smoothstep(0.25, 0.55, 0.4)` = 0.5): half
+    // way between grassland and forest.
+    let mid = render::detail_roughness(15.0, 0.4);
+    assert!(close(mid, 0.425), "a forest edge blends: {mid}");
+}
+
+/// Protects: on a world the shared warp's period is capped with the lattices
+/// (20 km of ground, not 24 cells = 470 km), so a capped lattice is still bent
+/// within a cell or two of its own -- `n_low` written out by hand: rotation
+/// `(0.8290, 0.5592)`, warp seeds 45/47 at period `20 / L` cells and
+/// amplitude `land_grain_warp · 0.5`, lattice seed 11 at `L / 20` cycles per
+/// cell, fully visible at a deep tile's footprint.
+#[test]
+fn the_world_warp_is_capped_with_its_lattices() {
+    let l = 40075.0 / 2048.0;
+    let a = TerrainAppearance::default();
+    let gs = render::GrainScale { km_per_cell: l, cells_per_px: 0.01 };
+    let k = a.land_grain_warp * 0.5;
+    assert!(k > 0.0, "premise: the shipped look warps the grain");
+    let p = 20.0 / l;
+    let f = l / 20.0;
+    for i in 0..200 {
+        let (x, y) = (i as f64 * 0.731 + 3.0, i as f64 * 0.377 + 5.0);
+        let (rx, ry) = (x * 0.8290 + y * 0.5592, -x * 0.5592 + y * 0.8290);
+        let wu = (vnoise(rx / p, ry / p, 45) - 0.5) * k;
+        let wv = (vnoise(ry / p, rx / p, 47) - 0.5) * k;
+        let want = vnoise(rx * f + wu, ry * f + wv, 11);
+        assert_eq!(render::land_grain(&a, x, y, 2048, Some(gs)).0, want, "n_low at ({x}, {y})");
+    }
 }

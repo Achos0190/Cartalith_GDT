@@ -63,7 +63,7 @@ use rayon::prelude::*;
 /// every EF test pins.
 const TILE_PX: usize = 256;
 /// Octaves stop growing at `z_base + 6` (`world_amplify_opts` /
-/// `lod_bridge::MAX_LEVEL = 10` at `z_base = 4`): the plan's "recorded knee".
+/// `lod_bridge::BASE_MAX_LEVEL = 10` at `z_base = 4`): the plan's "recorded knee".
 const KNEE_OCTAVES: i32 = 6;
 /// Default window edge in tiles. Judgement: 16x16 = 256 tiles is the order of
 /// one desktop viewport's tile count at a deep level (`MAX_LOD_TILES_PER_UPDATE`

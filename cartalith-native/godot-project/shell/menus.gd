@@ -5966,7 +5966,7 @@ func _on_tiled_lod(id: int) -> void:
 ## than working around it.
 ##
 ## The range is §2.5's own 0-8. The engine's ceiling is higher
-## (`lod_bridge::MAX_LEVEL` is 10), so the clamp is the spec's, not a
+## (`lod_bridge::MAX_LEVEL` is 16 since Ruling FG), so the clamp is the spec's, not a
 ## capability limit. Each rung carries its tile count, because depth 8 is
 ## 87 381 tiles and a synchronous bake that deep is a decision rather than a
 ## click -- the same reason the dock already prints the count before the user

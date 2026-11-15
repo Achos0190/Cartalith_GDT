@@ -36,7 +36,7 @@ use cartalith_terrain::tile_render::{shade_tile, u8_clamped};
 // functions, so the number measured here is the number that path pays.
 const TILE_PX: usize = 256; // lod_bridge's own tile edge in pixels
 const REFERENCE_TILE_PX: usize = 1024; // lod_bridge's reference tile size, used only to compute z_base()'s offset above
-const MAX_LEVEL: i32 = 10; // lod_bridge's own deepest pyramid level clamp
+const MAX_LEVEL: i32 = 10; // lod_bridge::BASE_MAX_LEVEL, the reference-schedule depth (a km-law map may go deeper since Ruling FG)
 // SUN_AZ_DEG/EXAG/SHADE_RATIO_MID/SHADE_RATIO_GAIN below no longer mirror
 // `lod_bridge` -- as of LOD-D2 (2026-09-21) that crate stopped fixing them,
 // reading TerrainAppearance's live sun/exaggeration instead (see

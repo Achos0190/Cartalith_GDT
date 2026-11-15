@@ -1,0 +1,24 @@
+gain KILLED
+floor KILLED
+max_oct KILLED
+cap_frac KILLED
+no_curvature KILLED
+no_floor KILLED
+no_softcap KILLED
+no_shape_weight KILLED
+no_rough KILLED
+no_shore KILLED
+lap_sign KILLED
+depth_no_margin KILLED
+ceiling17 KILLED
+floor_km KILLED
+no_base_floor KILLED
+tier_flat KILLED
+to_ignores_cap KILLED
+grain_cap25 KILLED
+grain_no_fade KILLED
+Traceback (most recent call last):
+  File "C:\cw\fg_mut.py", line 52, in <module>
+    assert src.count(o) == 1, f"{name}: literal occurs {src.count(o)} times"
+           ^^^^^^^^^^^^^^^^^
+AssertionError: grain_no_cap: literal occurs 0 times

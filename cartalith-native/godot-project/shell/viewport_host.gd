@@ -4245,8 +4245,9 @@ func _update_lod() -> void:
 	## retired `lod_tile_cells() == 0` check did.
 	var z: int = _bridge.lod_level_for_zoom(screen_px_per_cell)
 	## `PARITY_AUDIT.md` §23 F14: `lod_level_for_zoom` already clamps to
-	## `lod_bridge::MAX_LEVEL` internally today, so this is currently a
-	## no-op in practice -- but nothing on this side enforced it, and the
+	## this world's own depth internally (`lod_bridge::max_level_for_map`,
+	## Ruling FG: 10, or deeper on a coarse-celled map under the kilometre
+	## law), so this is a no-op in practice -- but nothing on this side enforced it, and the
 	## engine's own ceiling (`lod_max_level()`, real and callable, just
 	## unread until now) is the honest source of truth for it rather than a
 	## number this file would otherwise have to assume. `> 0` guard: a

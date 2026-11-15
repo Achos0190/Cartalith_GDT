@@ -85,8 +85,13 @@ pub struct LodBudget {
     /// How many backlog entries `_process()` drains per frame.
     /// `viewport_host.gd`'s `MAX_LOD_TILES_PER_CATCHUP` was a flat 6.
     pub tiles_per_catchup: usize,
-    /// The deepest pyramid level this tier will enter. The scope's own
-    /// example is *"Android Performance gets `MAX_LEVEL − 1`"*.
+    /// The deepest pyramid level this tier will enter **on a base-depth
+    /// map** (`lod_bridge::BASE_MAX_LEVEL`, the scope's `MAX_LEVEL` of the
+    /// time). The scope's own example is *"Android Performance gets
+    /// `MAX_LEVEL − 1`"*. Since Ruling FG a coarse-celled map's pyramid may be
+    /// deeper (`lod_bridge::max_level_for_map`); `WorldGen` carries this
+    /// number onto it as the same count of levels short of that map's own
+    /// depth (`lod_tier_max_level`), so a tier stays "one shallower" there.
     pub max_level: i32,
     /// How many tiles the shell keeps alive after they leave the view, so
     /// panning back or re-entering a level costs no synthesis at all. Tiles
@@ -184,10 +189,10 @@ pub struct LodBudget {
 /// re-deriving.
 pub fn budget_for_tier(tier: QualityTier) -> LodBudget {
     match tier {
-        QualityTier::Performance => LodBudget { tiles_per_update: 16, tiles_per_catchup: 3, max_level: lod_bridge::MAX_LEVEL - 1, cache_tiles: 32, max_in_flight: 2, ef9_refine: false },
-        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 32, max_in_flight: 3, ef9_refine: true },
-        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 4, ef9_refine: true },
-        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::MAX_LEVEL, cache_tiles: 35, max_in_flight: 6, ef9_refine: true },
+        QualityTier::Performance => LodBudget { tiles_per_update: 16, tiles_per_catchup: 3, max_level: lod_bridge::BASE_MAX_LEVEL - 1, cache_tiles: 32, max_in_flight: 2, ef9_refine: false },
+        QualityTier::Balanced => LodBudget { tiles_per_update: 32, tiles_per_catchup: 4, max_level: lod_bridge::BASE_MAX_LEVEL, cache_tiles: 32, max_in_flight: 3, ef9_refine: true },
+        QualityTier::Quality => LodBudget { tiles_per_update: 48, tiles_per_catchup: 6, max_level: lod_bridge::BASE_MAX_LEVEL, cache_tiles: 35, max_in_flight: 4, ef9_refine: true },
+        QualityTier::Ultra => LodBudget { tiles_per_update: 48, tiles_per_catchup: 8, max_level: lod_bridge::BASE_MAX_LEVEL, cache_tiles: 35, max_in_flight: 6, ef9_refine: true },
     }
 }
 
@@ -2602,7 +2607,7 @@ mod tests {
     fn the_tier_budgets_are_the_documented_literals() {
         let p = budget_for_tier(QualityTier::Performance);
         assert_eq!((p.tiles_per_update, p.tiles_per_catchup, p.cache_tiles, p.max_in_flight), (16, 3, 32, 2));
-        assert_eq!(p.max_level, 9, "Performance caps one level shallower than MAX_LEVEL = 10");
+        assert_eq!(p.max_level, 9, "Performance caps one level shallower than BASE_MAX_LEVEL = 10");
         let b = budget_for_tier(QualityTier::Balanced);
         assert_eq!((b.tiles_per_update, b.tiles_per_catchup, b.cache_tiles, b.max_in_flight, b.max_level), (32, 4, 32, 3, 10));
         let q = budget_for_tier(QualityTier::Quality);

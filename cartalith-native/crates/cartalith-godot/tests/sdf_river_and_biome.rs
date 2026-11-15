@@ -510,11 +510,21 @@ fn moved(a: &[u8], b: &[u8], tol: u8) -> f64 {
 ///
 /// It holds **by control flow**: with both strengths at `0.0` neither field is
 /// built, so `cell_color` takes the same length test it always took and
-/// `land_color` is handed the literal `1.0` its jitter has always used.
+/// `land_color` is handed the literal `1.0` its jitter has always used. Since
+/// Ruling FG the shipped looks' land jitter (`render::land_grain`) is the one
+/// stage that reads the width on purpose; the default look is checked with it
+/// at its reference branch (see the comment in the body).
 #[test]
 fn attaching_a_map_scale_changes_nothing_at_the_default() {
     let s = synth();
-    for (name, a) in [("default", TerrainAppearance::default()), ("js_reference", TerrainAppearance::js_reference())] {
+    // Ruling FG (F3, owner 2026-11-15): the shipped looks' land jitter reads
+    // the map width on purpose -- a lattice longer than 20 km of ground is
+    // capped there (`render::LAND_GRAIN_MAX_KM`), which on this 128-cell
+    // fixture is `n_low`'s 104 km -- so the default look is checked with that
+    // one stage at its reference branch (`land_grain_warp` 0, which never
+    // reads the scale). Every other stage must still ignore the width.
+    let default_no_grain = TerrainAppearance { land_grain_warp: 0.0, ..TerrainAppearance::default() };
+    for (name, a) in [("default (land_grain_warp 0)", default_no_grain), ("js_reference", TerrainAppearance::js_reference())] {
         assert_eq!(screen(&s, &a, None), screen(&s, &a, Some(800.0)), "{name}: attaching a map scale moved the on-screen raster");
         assert_eq!(bake(&s, &a, None), bake(&s, &a, Some(800.0)), "{name}: attaching a map scale moved the export raster");
         // And the map width itself must not leak into the image while the

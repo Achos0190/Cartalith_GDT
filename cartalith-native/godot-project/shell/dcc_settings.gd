@@ -474,7 +474,7 @@ static func set_autosave_minutes(minutes: int) -> void:
 ## bake that finishes in a plausible interactive wait.
 ##
 ## Clamped 0..8 to §2.5's own range. The ENGINE's ceiling is higher --
-## `lod_bridge::MAX_LEVEL` is 10 -- so this clamp is the spec's, not a
+## `lod_bridge::MAX_LEVEL` is 16 since Ruling FG -- so this clamp is the spec's, not a
 ## capability limit, and raising it needs only this line.
 static func bake_depth() -> int:
 	_ensure_loaded()

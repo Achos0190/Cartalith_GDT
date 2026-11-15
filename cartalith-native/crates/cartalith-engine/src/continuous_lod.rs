@@ -222,7 +222,7 @@ pub fn plus_one_threshold(lam_zoom: f64, gain: f64, z0: i32, z_cap: i32) -> Opti
 
 /// The level whose tiles span about [`BOOST_FOOTPRINT_CELLS`] coarse cells
 /// across a `gw`-wide world: `round(log2((gw - 1) / 8))`, clamped to `0..=10`
-/// (`lod_bridge::MAX_LEVEL`'s value, restated because the engine cannot name the
+/// (`lod_bridge::BASE_MAX_LEVEL`'s value, restated because the engine cannot name the
 /// bridge). 512 wide gives 6, 2048 wide gives 8.
 #[must_use]
 pub fn boost_level(gw: usize) -> u32 {

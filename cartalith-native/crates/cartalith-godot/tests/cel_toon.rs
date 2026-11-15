@@ -213,11 +213,24 @@ fn default_js_reference_and_the_looks_are_bit_identical_to_the_pre_toon_tree() {
     // (`zoom_detail_km` 0) are unchanged. Was (tile): default
     // `0x9882_95c8_1204_7ed5`, Natural Vibrant `0xe0c9_910e_98e9_9851`,
     // Antique Parchment `0xb79c_ec07_9617_25b3`.
+    //
+    // RE-BASELINED 2026-11-16 under Ruling FG (owner, 2026-11-15; F1 and F3
+    // of `WORLD_EMBOSS_FINDINGS_2026-11-15.md`): this 128-cell fixture over
+    // 800 km is 6.25 km per cell, so the land jitter's `n_low` lattice (104
+    // km) is capped at 20 km and faded at one pixel per cell (F3: grid, bake
+    // and tile), and its tile is a kilometre-law tile whose amplitude now
+    // follows the coarse relief (F1: tile). All three shipped looks' grid,
+    // bake and tile digests moved; all three `js_reference` digests
+    // (`land_grain_warp` 0, `zoom_detail_km` 0) are unchanged. Was (grid,
+    // bake, tile): default `0xae5d_fa30_6ce4_7318`, `0x5180_5269_7c77_be2b`,
+    // `0xe100_ebb6_6d65_4f59`; Natural Vibrant `0xba06_790b_1d47_a841`,
+    // `0x1480_e699_4c15_e955`, `0x4d75_ac7f_0782_fa55`; Antique Parchment
+    // `0x5317_49d9_ce38_56f7`, `0x7230_f8a2_e6f9_5b0d`, `0xc962_58b8_f63e_f70c`.
     let pinned: [(&str, TerrainAppearance, u64, u64, u64); 4] = [
-        ("default", TerrainAppearance::default(), 0xae5d_fa30_6ce4_7318, 0x5180_5269_7c77_be2b, 0xe100_ebb6_6d65_4f59),
+        ("default", TerrainAppearance::default(), 0x8fe6_9f4f_0613_ad3b, 0xa05a_db0a_0450_7b62, 0xcf94_dfd9_9b9b_a77f),
         ("js_reference", TerrainAppearance::js_reference(), 0x5599_a657_c30e_4029, 0x6c8d_5b5b_8c05_f0ba, 0x730d_4ccc_05c5_da94),
-        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0xba06_790b_1d47_a841, 0x1480_e699_4c15_e955, 0x4d75_ac7f_0782_fa55),
-        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x5317_49d9_ce38_56f7, 0x7230_f8a2_e6f9_5b0d, 0xc962_58b8_f63e_f70c),
+        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x0b0f_d6e9_8463_cec0, 0x9171_9aaf_068c_fc33, 0xfe94_5515_2962_e847),
+        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xf72a_9ae8_d198_ca95, 0x1281_3978_16e3_a287, 0x2b73_1ed9_08db_cbd8),
     ];
     for (name, a, g, b, t) in pinned {
         assert_eq!(fnv1a(&grid(&s, &a)), g, "{name}: the screen (cell_color) render moved");

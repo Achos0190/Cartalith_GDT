@@ -5475,6 +5475,18 @@ impl<'a> RenderCtx<'a> {
         })
     }
 
+    /// [`land_color`]'s per-raster input to the land colour jitter in km
+    /// (Ruling FG, F3; [`land_grain`]), for an output pixel `cells_per_px` grid
+    /// cells wide: `None` -- the per-cell lattices exactly as before -- under
+    /// the reference branch (`land_grain_warp <= 0`), without a map width, or
+    /// for a degenerate footprint.
+    pub fn grain_scale(&self, cells_per_px: f64) -> Option<GrainScale> {
+        if self.appearance.land_grain_warp <= 0.0 || !(cells_per_px.is_finite() && cells_per_px > 0.0) {
+            return None;
+        }
+        Some(GrainScale { km_per_cell: self.km_per_cell()?, cells_per_px })
+    }
+
     /// Distance to the nearest land in **km** at the integer cell `i`, for
     /// [`sea_color_core`]'s coast shelf: `None` unless the shelf is on, its
     /// field was built and the map width is known (each "off", never a guess).
@@ -6645,6 +6657,64 @@ const LAND_ROT: (f64, f64) = (0.8290, 0.5592);
 /// (46.5), so it bends every one of them within a lattice cell or two.
 const LAND_WARP_CELLS: f64 = 24.0;
 
+/// [`land_grain`]'s scale input (Ruling FG, F3), resolved once per raster or
+/// tile by [`RenderCtx::grain_scale`]: the map's kilometres per grid cell and
+/// the output pixel's footprint in grid cells.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrainScale {
+    /// Kilometres per grid cell (the map width over the grid width).
+    pub km_per_cell: f64,
+    /// Grid cells per output pixel: `1` for the screen raster, the step for
+    /// an export, the texel for a tile.
+    pub cells_per_px: f64,
+}
+
+/// The longest wavelength, in km, any [`land_grain`] lattice may have once
+/// keyed to ground units (Ruling FG, F3). **20 km, a labelled judgement**: just
+/// above the longest lattice at the 800 km / 2 048 anchor (`bio_jitter`'s
+/// `44/gw`, i.e. `800/44 = 18.2 km` at any grid of an 800 km map), so the
+/// anchor's colour is untouched (byte for byte, by control flow), while a
+/// 40 075 km world's blotch falls from ~327 km (`WORLD_EMBOSS_FINDINGS_
+/// 2026-11-15.md` §2.4) to at most this.
+pub const LAND_GRAIN_MAX_KM: f64 = 20.0;
+
+/// A **capped** [`land_grain`] lattice ([`grain_lattice`]) is drawn at full
+/// strength only once its wavelength spans `2 ×` this many output pixels,
+/// fading in from this many (the canopy
+/// texture's rule, [`CANOPY_NYQ_PX`], applied to the colour jitter). Below it
+/// the lattice would alias into per-pixel speckle -- exactly what a capped
+/// 20 km lattice on a world's 19.6 km cells would be at the fit view -- so it
+/// fades to its mean instead. At the anchor no lattice is capped, so nothing
+/// fades there.
+const LAND_GRAIN_NYQ_PX: f64 = CANOPY_NYQ_PX;
+
+/// One [`land_grain`] lattice under Ruling FG's F3: its frequency `f` (cycles
+/// per grid cell, the reference's) replaced by the frequency of
+/// [`LAND_GRAIN_MAX_KM`] when its wavelength `1/f` cells is longer than that
+/// on the ground, and -- **only then** -- its visibility at the output
+/// footprint ([`LAND_GRAIN_NYQ_PX`]). Returns `(f', vis)`. A lattice the cap
+/// does not touch returns `(f, 1.0)`, the same float, so it is drawn exactly
+/// as before at every footprint: the fade exists because the cap can raise a
+/// lattice's frequency to about one cell, and it must not reach the lattices a
+/// small grid already draws near pixel scale by the reference's own design
+/// (`bio_jitter`'s `150/gw` is under one cell on a 128-cell grid).
+#[inline]
+pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+    if (1.0 / f) * gs.km_per_cell <= LAND_GRAIN_MAX_KM {
+        return (f, 1.0);
+    }
+    let f2 = gs.km_per_cell / LAND_GRAIN_MAX_KM;
+    let px = gs.cells_per_px * LAND_GRAIN_NYQ_PX;
+    (f2, smoothstep(px, 2.0 * px, 1.0 / f2))
+}
+
+/// `0.5 + (n − 0.5)·vis` -- a lattice faded toward its mean -- with `vis >= 1`
+/// returning `n` itself, so a fully visible lattice is byte-identical.
+#[inline]
+fn grain_fade(n: f64, vis: f64) -> f64 {
+    if vis >= 1.0 { n } else { 0.5 + (n - 0.5) * vis }
+}
+
 /// The land colour's three jitter samples `(n_low, n_hi, n_bio)` at grid
 /// position `(x, y)`, for [`land_color`].
 ///
@@ -6662,9 +6732,25 @@ const LAND_WARP_CELLS: f64 = 24.0;
 /// the `0.6`/`0.4` octave mix are the reference's, so each sample keeps its
 /// amplitude and scale and loses only its square, axis-aligned cells.
 ///
+/// **Ruling FG, F3** (owner, 2026-11-15), when the caller knows the map's
+/// scale (`grain` is `Some`, [`RenderCtx::grain_scale`]): the lattices were per
+/// **grid cell**, so one `n_low` blotch was ~16.7 cells -- a few km on a
+/// region, ~327 km on a 40 075 km world, the low-zoom camouflage of the
+/// owner's `1.webp` (`WORLD_EMBOSS_FINDINGS_2026-11-15.md` §2.4). Each lattice
+/// is now capped at [`LAND_GRAIN_MAX_KM`] of ground ([`grain_lattice`]), the
+/// shared warp's period with it, and a capped lattice is faded toward its
+/// mean where its wavelength is under [`LAND_GRAIN_NYQ_PX`] output pixels. So a world's base
+/// map draws terrain, not continent-scale noise, and the jitter arrives as the
+/// view zooms in, at the scale a region has it. The findings also proposed a
+/// fade on **low relief** at far zoom; it is not built, because the footprint
+/// fade already removes every capped lattice at a world's far zoom, and on a
+/// region the anchor's lattices are untouched by construction -- a relief term
+/// would have nothing left to fade. `None` (no map width) is the per-cell
+/// branch exactly as before.
+///
 /// Must never be read by anything but [`land_color`]: the jitter's whole
 /// meaning is the colour it moves.
-pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> (f64, f64, f64) {
+pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
     if a.land_grain_warp <= 0.0 {
         return (vnoise(x * 0.06, y * 0.06, 11), vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23), bio_jitter(x, y, gw));
     }
@@ -6673,11 +6759,24 @@ pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> (f
     // Seeds 45/47: unused by any other land stage (`grep vnoise` in this
     // file); 41/43 are the sea warp's.
     let k = a.land_grain_warp * 0.5;
-    let wu = (vnoise(rx / LAND_WARP_CELLS, ry / LAND_WARP_CELLS, 45) - 0.5) * k;
-    let wv = (vnoise(ry / LAND_WARP_CELLS, rx / LAND_WARP_CELLS, 47) - 0.5) * k;
+    // Ruling FG: the warp's period capped with the lattices it bends, so a
+    // capped lattice is still bent within a cell or two of its own.
+    let warp_cells = match grain {
+        Some(gs) if LAND_WARP_CELLS * gs.km_per_cell > LAND_GRAIN_MAX_KM => LAND_GRAIN_MAX_KM / gs.km_per_cell,
+        _ => LAND_WARP_CELLS,
+    };
+    let wu = (vnoise(rx / warp_cells, ry / warp_cells, 45) - 0.5) * k;
+    let wv = (vnoise(ry / warp_cells, rx / warp_cells, 47) - 0.5) * k;
     // Each lattice at its own frequency `f` (cycles per cell), displaced by
-    // the shared warp in units of its own cell.
-    let at = |f: f64, seed: i32| vnoise(rx * f + wu, ry * f + wv, seed);
+    // the shared warp in units of its own cell; under Ruling FG at its capped
+    // frequency and faded by footprint.
+    let at = |f: f64, seed: i32| match grain {
+        None => vnoise(rx * f + wu, ry * f + wv, seed),
+        Some(gs) => {
+            let (f2, vis) = grain_lattice(f, gs);
+            if vis <= 0.0 { 0.5 } else { grain_fade(vnoise(rx * f2 + wu, ry * f2 + wv, seed), vis) }
+        }
+    };
     let n_low = at(0.06, 11);
     let n_hi = at(96.0 / g, 23);
     let n_bio = 0.6 * at(44.0 / g, 31) + 0.4 * at(150.0 / g, 33);
@@ -7218,14 +7317,14 @@ pub(crate) fn flat_land_light(a: &TerrainAppearance, w_macro: f64, w_meso: f64, 
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>, volc: Option<volcano_look::VolcanoPx>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<LithoSample>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>, slope_k: Option<f64>, canopy: Option<CanopyScale>, cpaint: Option<(&cartalith_spatial::colour_paint::ColourPaint, cartalith_spatial::colour_paint::PaintQuery)>, volc: Option<volcano_look::VolcanoPx>, grain: Option<GrainScale>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
     // why that identity has to be a branch and not a formula.
     let stack_default = appearance.layers.is_default();
 
-    let (n_low, n_hi, n_bio) = land_grain(appearance, x, y, gw);
+    let (n_low, n_hi, n_bio) = land_grain(appearance, x, y, gw, grain);
 
     // B4's ecotone widener (`eK`, reference 7763-7765). `1.0` is the
     // reference's own "off" and the value every caller passed before the
@@ -10209,7 +10308,9 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             ctx.colour_paint_query(x as f64, y as f64, 1.0, false),
             // Ruling CW's volcano colours at one pixel per cell (`None`
             // outside Satellite relief).
-            ctx.volcano_at(x as f64, y as f64, 1.0));
+            ctx.volcano_at(x as f64, y as f64, 1.0),
+            // Ruling FG's F3: the land jitter in km, at one pixel per cell.
+            ctx.grain_scale(1.0));
         // Ruling ET follow-up: a dried lake basin's salt flat, on the land colour.
         let c = playa_apply(&ctx.appearance, ctx.playa, c, x as f64, y as f64, ctx.gw, ctx.gh, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
@@ -10742,6 +10843,9 @@ impl BakeFields {
                 ctx.colour_paint_query(gx, gy, step.0.max(step.1), false),
                 // Ruling CW's volcano colours at this export's own footprint.
                 ctx.volcano_at(gx, gy, step.0.max(step.1)),
+                // Ruling FG's F3: the land jitter in km at this export's own
+                // footprint.
+                ctx.grain_scale(step.0.max(step.1)),
             );
             // Ruling ET follow-up: the salt flat, in `cell_color`'s slot.
             let c = playa_apply(&ctx.appearance, ctx.playa, c, gx, gy, gw, gh, sea_grain(&ctx.appearance, gx, gy, gw));
@@ -12900,7 +13004,7 @@ pub fn add_tile_furrows(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, p
 /// query, which build their own opts from `AmplifyOpts::default()` and stay
 /// the JS-parity data products (`DECISIONS.md` §7p, the Ruling CI entry).
 pub fn tile_amplify_opts(ctx: &RenderCtx, seed: i32, z_base: i32) -> cartalith_terrain::amplify::AmplifyOpts {
-    let km = zoom_detail_km_law(ctx.map_width_km, ctx.gw, ctx.appearance.zoom_detail_km);
+    let km = zoom_detail_km_law(ctx.map_width_km, ctx.gw, ctx.appearance.zoom_detail_km, ctx.sea_level);
     // `top`: the coarse field's own top (exactly 1.0 unless the world was
     // generated under Ruling DB's higher ceiling), so the deep-zoom tiles
     // keep a summit above 1 instead of clipping it flat. One pass over the
@@ -13383,29 +13487,85 @@ pub(crate) fn rock_styled_tile(ctx: &RenderCtx, tile: &[f32], pw: usize, ph: usi
     Some(out)
 }
 
-/// Ruling CI's kilometre law for a world `gw` cells wide over `map_width_km`,
-/// at `strength` ([`TerrainAppearance::zoom_detail_km`]) -- or `None`, the
-/// reference schedule, when the strength is not above zero or the width is
-/// absent or not a positive finite number. Shared by [`tile_amplify_opts`]
-/// and `info_tile.rs` (whose source carries a width but no `RenderCtx`), so
-/// the terrain tiles and the info views over them run one law.
-pub fn zoom_detail_km_law(map_width_km: Option<f64>, gw: usize, strength: f64) -> Option<cartalith_terrain::amplify::KmZoomDetail> {
+/// Ruling CI's kilometre law, as re-based by Ruling FG, for a world `gw` cells
+/// wide over `map_width_km` with sea level `sea`, at `strength`
+/// ([`TerrainAppearance::zoom_detail_km`]) -- or `None`, the reference
+/// schedule, when the strength is not above zero or the width is absent or not
+/// a positive finite number. Shared by [`tile_amplify_opts`] and `info_tile.rs`
+/// (whose source carries a width but no `RenderCtx`), so the terrain tiles and
+/// the info views over them run one law. The excursion cap is
+/// `ZOOM_DETAIL_KM_CAP_FRAC` of the land's height range (`1 − sea`), the
+/// findings' *"≤ peak_m / 10"* in normalised height.
+pub fn zoom_detail_km_law(map_width_km: Option<f64>, gw: usize, strength: f64, sea: f64) -> Option<cartalith_terrain::amplify::KmZoomDetail> {
     use cartalith_terrain::amplify::{
-        KmZoomDetail, ZOOM_DETAIL_KM_ELEVATION_GAIN, ZOOM_DETAIL_KM_MAX_OCTAVES, ZOOM_DETAIL_KM_NYQUIST_MARGIN, ZOOM_DETAIL_KM_OCTAVE_GAIN,
-        ZOOM_DETAIL_KM_RELIEF_FLOOR,
+        KmZoomDetail, ZOOM_DETAIL_KM_CAP_FRAC, ZOOM_DETAIL_KM_MAX_OCTAVES, ZOOM_DETAIL_KM_NYQUIST_MARGIN, ZOOM_DETAIL_KM_OCTAVE_GAIN, ZOOM_DETAIL_KM_RELIEF_FLOOR,
+        ZOOM_DETAIL_KM_RELIEF_GAIN,
     };
     match map_width_km {
         Some(w) if strength > 0.0 && w.is_finite() && w > 0.0 && gw > 0 => Some(KmZoomDetail {
             km_per_cell: cartalith_spatial::cell_km(w, gw),
             octave_gain: ZOOM_DETAIL_KM_OCTAVE_GAIN,
             strength,
+            relief_gain: ZOOM_DETAIL_KM_RELIEF_GAIN,
             relief_floor: ZOOM_DETAIL_KM_RELIEF_FLOOR,
             max_octaves: ZOOM_DETAIL_KM_MAX_OCTAVES,
             nyquist_margin: ZOOM_DETAIL_KM_NYQUIST_MARGIN,
-            elevation_gain: ZOOM_DETAIL_KM_ELEVATION_GAIN,
+            // A sea level at or above 1 leaves no land range: no cap rather
+            // than a zero one (a zero cap is "none" to `soft_cap` anyway).
+            cap: if sea < 1.0 { ZOOM_DETAIL_KM_CAP_FRAC * (1.0 - sea) } else { f64::INFINITY },
         }),
         _ => None,
     }
+}
+
+/// The biome and rock roughness `ρ` Ruling FG's kilometre law scales its
+/// sub-cell relief by (`cartalith_terrain::amplify::KmZoomDetail`, F1 of
+/// `WORLD_EMBOSS_FINDINGS_2026-11-15.md`), from the grid's own temperature `t`
+/// (°C) and moisture `m` (`0..1`, the rainfall field [`material_weights`]
+/// reads). Rock is not a class here: steep and rocky ground already carries a
+/// large local relief, which the law multiplies by.
+///
+/// Three blends, each on [`material_weights`]' own thresholds where it has
+/// one, so the roughness follows the colour's own biome boundaries:
+///
+/// - **cold** -- `smoothstep(3, −5, t)`, `material_weights`' snow ramp:
+///   alpine and snow ground, `ρ = 0.8`;
+/// - **dry and hot** -- `smoothstep(0.24, 0.05, m) · smoothstep(17, 26, t)`,
+///   `material_weights`' sand ramp: sand and dune fields, `ρ = 0.25`;
+/// - otherwise **forest** -- `smoothstep(0.25, 0.55, m)` (a labelled
+///   judgement; no colour threshold matches the canopy's) -- `ρ = 0.5`, and
+///   grassland `ρ = 0.35`.
+///
+/// The values are the findings' F1 list, labelled judgements set before the
+/// measurement (rock/alpine 1.0, forest 0.5, grassland 0.35, sand 0.25); cold
+/// ground takes 0.8 rather than 1.0 because its snow and ice cover smooth the
+/// finest relief. A pure function, so the tile and its neighbour agree on
+/// their shared edge; must never read anything that is not a function of the
+/// coarse coordinate.
+pub fn detail_roughness(t: f64, m: f64) -> f64 {
+    let cold = smoothstep(3.0, -5.0, t);
+    let dry = smoothstep(0.24, 0.05, m) * smoothstep(17.0, 26.0, t);
+    let forest = smoothstep(0.25, 0.55, m);
+    let warm = dry * DETAIL_RHO_SAND + (1.0 - dry) * (forest * DETAIL_RHO_FOREST + (1.0 - forest) * DETAIL_RHO_GRASS);
+    cold * DETAIL_RHO_COLD + (1.0 - cold) * warm
+}
+
+/// [`detail_roughness`]'s cold-ground value. A labelled judgement (see there).
+pub const DETAIL_RHO_COLD: f64 = 0.8;
+/// [`detail_roughness`]'s forest value. A labelled judgement (the findings' F1).
+pub const DETAIL_RHO_FOREST: f64 = 0.5;
+/// [`detail_roughness`]'s grassland value. A labelled judgement (the findings' F1).
+pub const DETAIL_RHO_GRASS: f64 = 0.35;
+/// [`detail_roughness`]'s sand value. A labelled judgement (the findings' F1).
+pub const DETAIL_RHO_SAND: f64 = 0.25;
+
+/// [`detail_roughness`] at coarse coordinate `(cx, cy)` of a world whose
+/// temperature and moisture rasters are `t` and `m` (`gw × gh`), bilinearly
+/// sampled and clamped at the edges like the amplifier's own coarse sampler --
+/// the [`cartalith_terrain::amplify::Roughness`] the deep-zoom tiles and the
+/// info tiles hand the kilometre law, so the two read one roughness.
+pub fn detail_roughness_at(t: &[f32], m: &[f32], gw: usize, gh: usize, cx: f64, cy: f64) -> f64 {
+    detail_roughness(sample_arr(t, cx, cy, gw, gh), sample_arr(m, cx, cy, gw, gh))
 }
 
 /// `tileShadeExag(bounds, W)` (DCC line v2.25, `RC_ENGINE_CHANGES.md` §4) —
@@ -13662,7 +13822,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     // so every water test is unchanged, and `base_tile` keeps the elevation
     // colour and the cryosphere/micro-band residual on the unstyled height.
     let base_tile = tile;
-    let styled = if zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km).is_some() && ctx.rock_detail.is_some() {
+    let styled = if zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km, ctx.sea_level).is_some() && ctx.rock_detail.is_some() {
         rock_styled_tile(ctx, tile, pw, ph, padf, bounds, bounds.w / (w.max(2) - 1) as f64, bounds.h / (h.max(2) - 1) as f64)
     } else {
         None
@@ -13835,10 +13995,11 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     // Ruling CI's canopy texture at this tile's texel footprint (`None` =
     // off), once per tile.
     let canopy_k = ctx.canopy_scale(cx.max(cy));
+    let grain_k = ctx.grain_scale(cx.max(cy));
     // Whether this tile's heights carry the kilometre zoom-detail law -- the
     // same test `tile_amplify_opts` makes -- which decides the slope the
     // materials read below and whether the sub-cell relief becomes tone.
-    let km_tile = zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km).is_some();
+    let km_tile = zoom_detail_km_law(ctx.map_width_km, gw, a.zoom_detail_km, ctx.sea_level).is_some();
     let mut rgb = vec![0u8; w * h * 3];
     // Per-tile grade influence, sampled from the grid's. Built only when the
     // grid's exists, so the flat-grade fast path in `apply_color_grade` is
@@ -14086,6 +14247,9 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         ctx.colour_paint_query(wx, wy, cells_per_px, false),
                         // Ruling CW's volcano colours at this tile's pixel.
                         ctx.volcano_at(wx, wy, cells_per_px),
+                        // Ruling FG's F3: the land jitter in km at the tile
+                        // texel's footprint, resolved once per tile.
+                        grain_k,
                     );
                     // Ruling ET follow-up: a dried lake basin's salt flat, on the
                     // land colour (the playa mask rides the tile fields).
