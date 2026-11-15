@@ -1,0 +1,81 @@
+Town housing after Ruling EX: the FH-R2 building-count drop, broken down (2026-11-15)
+
+Question (OUTSTANDING_WORK.md, "Town placement" row): fh_r2_baseline's three largest towns' buildings, summed over the 20 harness
+worlds, fell 236 747 (3ae0e658) -> 205 261 (head, civ.river_front off) -> 173 439 (head). Which cause, and is it correct?
+
+Tools (both #[ignore]d measurements, assert nothing; run alone in release):
+  fh_r2_baseline.rs::fh_r2_urban_breakdown   per town of the harness rows (FH_R2_URBAN_FRONT, _BANK, _ONLY, _DEBUG)
+  town_river_census.rs::town_housing_audit   every town of seeds 483920/912345/246371, urban_riverbank off and on
+Files: fh_r2_breakdown.txt (configurations A-D and the variants V1, V2, per town), fh_r2_debug_*.txt (DBG lines),
+housing_<grid>_head.txt and _variant_V1/_V2.txt (one row per town, switch off | on), viewer_*.png.
+
+1. Split by cause (fh_r2_breakdown.txt; each total reproduces the AT_CURRENT figure):
+   A 3ae0e658 behaviour        236 747 buildings, housed 91.2 % of target, per-town median 92 %
+   B EX switchless fixes only  205 261 (-31 486)   79.4 %   median 87 %   target unchanged (same 59/60 towns, same pops)
+   C + civ.river_front         173 439 (-31 822)   67.3 %   median 73 %   target +1.1 % (more towns at the 20 000 cap)
+   pop_target did not fall. No block was dropped as wet in any number that matters: the wet share of a town box went from
+   0.00 (A: the river point half a cell south-east, the stem outside the box) to 0.04-0.05 (C: a 30-46 m channel across a
+   1.7 km box). What changed is where the river runs: B moves the stem onto the town (traced_to_cell), C moves every big town
+   onto a river (river_front + the river constraint): all 59 C towns are 'river' (48) or 'riverthrough' (11) sites with a
+   2-6 point real stem through the box (wet share 0.02-0.07). In A, 34 of the 59 had a real stem that never reached the
+   box (wet 0.00), so they were laid out as if dry; they housed a median 92 % (37-125 %).
+
+2. Mechanism, read at the symbols and measured (fh_r2_debug_D_app.txt, urban_riverbank on as in the app):
+   - generate pins a real-water town's market at the box centre (v0.98/v1.00), which since Ruling EX is on the river's bank.
+   - grow's far-bank rule (rule 3, reference): on a 'river' site the far bank grows only within bridgehead_distance (190 m) of
+     the bridge, with probability 0.35 - written for the synthetic river laid across the box's lower third, the market
+     60-240 m inland (placeAnchors), where the far bank is a strip. With the market on the bank it is half the growth disk.
+   - the reference lays no bridge on real water (addRiverBridges returns when usesRealWater): 40 of 60 towns had no
+     crossing at all (D), so not even the bridgehead forms. 54 of 60 D towns have 10 % or less of their buildings on the
+     second bank (DBG "sides", the centroid's side of the nearest centreline segment).
+   - riverbank off (the harness): the bridge point is one of the stem's 2 km-apart vertices, often outside the box; the
+     market fallback and primaries then fail. Zero-building towns: 3 in C (404/800/24 #0, 404/40075/6 #6, 404/40075/24 #15),
+     1 in A (24601/40075/6 #2), 0 in D.
+   So the old counts were partly towns laid out as if their river were not there (the town at (43,34): A_before_EX.png, a
+   round walled town with no river in its box), and the new ones are towns on their river that build on one bank only.
+
+3. Verdict: a regression for towns of 5 000 and up. In the app (D), the 60 harness towns house a median 76 % of target
+   (p10 46 %, 42 under 80 %), against 92 % before. Across the three census seeds (housing_*_head.txt, riverbank on) towns
+   of 5 000 and up house a median 87 % at 384 and 74 % at 2 048 (under 80 %: 9 of 27 and 12 of 23). Villages are the
+   opposite: median 139-142 % of target (the over-build already routed as the riverbank row's item (3)).
+
+4. Two fixes built and measured under urban_riverbank, NEITHER SHIPPED:
+   V1 far-bank rule lifted when the market stands within 60 m of its river (placeAnchors' nearest distance) + a bridge at the
+      bridge point joined to the town: harness 254 312 buildings, housed 96.5 %, median 95 %, 7 under 80 %; census towns
+      >= 5 000: under 80 % 9 -> 0 (384), 12 -> 4 (2 048). Rejected on the look: town (43,34) (variant_V1.png) is walled
+      across both banks round an empty far-bank interior, the wall crossing the river twice, and a 400-target village at
+      2 048 went to 783 buildings (703 %).
+   V2 the joined bridge only: harness 191 944, median 76 %, 39 under 80 % (big towns unchanged: under 80 % 9 -> 8, 12 -> 12);
+      villages over 200 % rose 119 -> 145 and 143 -> 186. Rejected: it does not fix the regression and worsens the over-build.
+   The choice is a design call (owner): let a river town grow on both banks (V1's rule, with the wall made to follow), or keep
+   the reference's one-bank town and give it its disk (place the market and box inland of the river, as the synthetic site does).
+
+5. Requested app numbers (town_housing_audit, villages on, params::defaults, riverbank on as the app):
+                        buildings   housed % p10 / median / p90 / max   under 80 %   in water
+   384x288   off         147 671     0 / 105 / 191 / 1826                253          0
+   384x288   on (app)    168 795     48 / 139 / 221 / 389                145          0
+   2048x1311 off         135 605     41 / 112 / 192 / 554                207          457
+   2048x1311 on (app)    154 056     53 / 142 / 228 / 378                140          457
+   In water at 2 048: 457 buildings in 6 'bay' towns of seed 483920 (#32 117 of 120, #165 193 of 194, #225 96 of 101,
+   #167 46, #178 3, #122 2), the same off and on: not river sites, not caused or touched by anything here. Found, not
+   diagnosed; routed. 0 at 384. (Test: a footprint sample in a sea or lake cell of the 22 m open-water raster, the channel,
+   or water_poly; town_river_census.rs::wet_buildings.)
+
+6. Settlement #6, seed 483920, 384x288 (the coordinator's framegap.txt reads 226 houses off, 86 on, in the app's world).
+   This census's world (CPU, villages on) gives #6 as a 'riverthrough' village, 118 buildings off, 43 on (-64 %): same
+   direction, different world and kind, so not the same layout. Measured on it: its river is a two-point traced stem that ENDS
+   at the marker ((850, 2708) -> (850, 625) in box metres). Off, the bridge point and river port sit at the stem's far vertex,
+   2 km outside the box, with no quay: 122 parcels, 5 190 m of street. On, the resampled centreline puts the bridge point at
+   (850, 1279), 29 m past the box's south edge, and the river port at (850, 1183), 67 m inside it, with 477 m of quay: 53
+   parcels, 3 111 m of street. Reading, not measured further: a port town's growth demand is measured from its quay
+   (grow: d_m = min(market, quay + 35)), so growth gathers at the box edge, where segments are refused 40 m short of it.
+   That is the riverbank row's routed item (4), the river port far from the town; ed6e3b96's "housed rises" is a median over
+   all river layouts and #6 does not contradict it.
+
+7. Screenshots (City Viewer, _viewerframe_probe.gd --seed 12345 --grid 384x246 --villages 0, windowed, scratch APPDATA; the
+   after shot taken twice, byte-identical): the worst harness row 12345/800/6, towns at (43,34) and (108,71):
+   town43-34_A_before_EX (pre-EX, the round town with no river), town43-34_head_app (one bank, walled along the river),
+   town43-34_variant_V1 (rejected: walled across both banks), town108-71_head_riverbank_off (the harness's layout),
+   town108-71_head_app, town108-71_variant_V1. The probe generates through the app (engine_bridge.generate), the harness
+   through generate_world on the CPU; both give 28 settlements, but that the two worlds and indices are identical is NOT
+   verified. Read the shots as the app's towns #0 and #4 of that seed, not as the harness's numbers.

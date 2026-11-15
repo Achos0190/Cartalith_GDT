@@ -57,6 +57,11 @@
 //! test, `WorldParams::urban_river_kind_map`: the "before" of Ruling EX's
 //! follow-up (c)). Its numbers are in
 //! `docs/evidence/town-river-2026-11-14/placement_audit.txt`.
+//!
+//! **`town_housing_audit`** (2026-11-15, the FH-R2 building-count drop) lays
+//! every town out with `urban_riverbank` off and on and reports buildings,
+//! housed population against `pop_target` and buildings in water; see its
+//! doc comment.
 
 /// `fh_r2_baseline::generate_world`'s world (the app's `params::defaults()`,
 /// 800 km, 6 factions, CPU), with the river frontage term (Ruling EX) set to
@@ -1106,4 +1111,129 @@ fn riverbank_gap_audit() {
     println!(
         "  buildings in water: channel {wet_channel}, sea or lake {wet_open}, water_poly {wet_poly} (of {bld_total} buildings); on the stamped 22 m mask {wet_mask} (drawn only with the switch off)"
     );
+}
+
+/// Buildings of layout `l` standing in water, by the riverbank audit's three
+/// tests (see [`riverbank_gap_audit`]): a footprint the river channel reaches
+/// or crosses (centreline within half `river_w`), a sample (vertex, edge
+/// midpoint, centroid) in a sea or lake cell of the town's open-water raster
+/// (`open`, the mask before the river band is stamped), or a sample inside
+/// `water_poly`. A building counted by two tests is counted once. Zero is the
+/// bar with `urban_riverbank` on.
+fn wet_buildings(l: &cartalith_civ::urban_adapter::UrbanLayout, open: Option<(&[u8], usize, usize, f64)>) -> usize {
+    let river: Vec<(f64, f64)> = l.river.iter().map(|v| (v.x, v.y)).collect();
+    let wpoly: Vec<(f64, f64)> = l.water_poly.iter().map(|v| (v.x, v.y)).collect();
+    let mut wet = 0usize;
+    for b in &l.buildings {
+        let poly: Vec<(f64, f64)> = b.poly.iter().map(|v| (v.x, v.y)).collect();
+        let n = poly.len();
+        let mut samples = poly.clone();
+        let (mut cx, mut cy) = (0.0, 0.0);
+        for k in 0..n {
+            samples.push(((poly[k].0 + poly[(k + 1) % n].0) / 2.0, (poly[k].1 + poly[(k + 1) % n].1) / 2.0));
+            cx += poly[k].0 / n as f64;
+            cy += poly[k].1 / n as f64;
+        }
+        samples.push((cx, cy));
+        let channel = river.windows(2).any(|rw| (0..n).any(|k| segs_cross(rw[0], rw[1], poly[k], poly[(k + 1) % n])))
+            || samples.iter().any(|&q| line_dist(q, &river).is_some_and(|d| d < l.river_w / 2.0));
+        let sea = open.is_some_and(|o| samples.iter().any(|&q| mask_dist(o, q, 0) == Some(0.0)));
+        let in_poly_ = wpoly.len() >= 3 && samples.iter().any(|&q| in_poly(q, &wpoly));
+        wet += usize::from(channel || sea || in_poly_);
+    }
+    wet
+}
+
+/// **The housing audit** (2026-11-15, the fh_r2 building-count drop: the
+/// three largest towns' buildings on the 20 FH-R2 worlds fell 27 % across the
+/// lake runoff share and Ruling EX, `OUTSTANDING_WORK.md`'s "Town placement"
+/// row). For every settlement of each seed, laid out as the app lays it out
+/// (`params::defaults`, the wall hug as the app sets it), twice: with
+/// `urban_riverbank` off and on. Per switch state it prints the buildings, the
+/// housed population against the layout's own target (`pop` / `pop_target`:
+/// median, p10, and the towns under 80 %), and the buildings in water
+/// ([`wet_buildings`]; must be 0 with the switch on).
+///
+/// It answers "do towns house their target", which a building count cannot:
+/// `pop_target` is the settlement's population clamped to 400..20 000
+/// (`cartalith_urban::generate`), so a town the civ pass made smaller asks for
+/// fewer houses, and a town over its target was built past what it asked for.
+///
+/// `TOWN_RIVER_GW`, `TOWN_RIVER_GH`, `TOWN_RIVER_VILLAGES`, `TOWN_RIVER_SEEDS`
+/// and `TOWN_RIVER_FRONT` as for the placement audit; `TOWN_RIVER_LIST=1`
+/// prints a row per town with both switch states side by side. A
+/// measurement, not a gate. Numbers quoted in `STATUS.md` are in
+/// `docs/evidence/town-housing-2026-11-15/`.
+#[test]
+#[ignore = "measurement; see the doc comment"]
+fn town_housing_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
+    let front = std::env::var("TOWN_RIVER_FRONT").map_or(true, |v| v != "0");
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    // Index 0: `urban_riverbank` off; 1: on.
+    let mut bld = [0usize; 2];
+    let mut wet = [0usize; 2];
+    let mut ratio: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut ratio_river: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut towns = 0usize;
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, front);
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
+        };
+        let mut seed_bld = [0usize; 2];
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let mut row = Vec::new();
+            for (k, bank) in [false, true].into_iter().enumerate() {
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, ..Default::default() };
+                let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+                let Some(l) = run_layout(&ctx, None) else { continue };
+                let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+                let w = wet_buildings(&l, open);
+                let r = 100.0 * l.pop / l.pop_target;
+                bld[k] += l.buildings.len();
+                seed_bld[k] += l.buildings.len();
+                wet[k] += w;
+                ratio[k].push(r);
+                if l.site_kind == "river" || l.site_kind == "riverthrough" {
+                    ratio_river[k].push(r);
+                }
+                towns += usize::from(k == 0);
+                row.push(format!("{:>12} bld {:5} housed {:6.0}/{:6.0} ({r:5.1} %) wet {w}", l.site_kind, l.buildings.len(), l.pop, l.pop_target));
+            }
+            if list && !row.is_empty() {
+                println!("  #{i:3} off: {} | on: {}", row[0], row.get(1).map_or("-", |s| s.as_str()));
+            }
+        }
+        println!("seed {seed} at {gw}x{gh}: buildings off {} on {}", seed_bld[0], seed_bld[1]);
+    }
+    for (k, name) in ["off", "on"].iter().enumerate() {
+        let under = ratio[k].iter().filter(|&&r| r < 80.0).count();
+        println!(
+            "all seeds at {gw}, civ.river_front {front}, urban_riverbank {name}: {towns} towns, buildings {}, in water {}; housed % of pop_target {}; under 80 %: {under}; river-kind {}",
+            bld[k],
+            wet[k],
+            spread(&mut ratio[k].clone()),
+            spread(&mut ratio_river[k].clone())
+        );
+    }
 }

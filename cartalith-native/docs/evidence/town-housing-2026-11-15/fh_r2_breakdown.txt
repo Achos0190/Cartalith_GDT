@@ -1,0 +1,117 @@
+fh_r2_urban_breakdown (fh_r2_baseline.rs), 2026-11-15: the three most populous towns of each of the 20 FH-R2 harness worlds
+(5 seeds x 800 / 40 075 km x 6 / 24 factions, 384 cells), laid out as fingerprint() lays them.
+Totals reproduce the figures in fh_r2_baseline.rs's AT_CURRENT comments: A 236 747 (at 3ae0e658), B 205 261, C 173 439.
+housed = UrbanLayout::pop (5.2 a built lot); target = pop_target (settlement pop clamped 400..20 000). Run in release, one thread.
+
+A: 3ae0e658's behaviour reproduced at head: civ.river_front off, and traced_to_cell, um_water_ctx's stem-in-box test and box_water_kind reverted by temporary switches (removed)
+   buildings 236747, housed 1081546 of target 1185659 (91.2 %); per town (n 59) housed % p10 70 median 92 max 132; under 80 %: 10; zero-building: 1
+B: head, civ.river_front off: Ruling EX's switchless water fixes only
+   buildings 205261, housed 941142 of target 1185659 (79.4 %); per town (n 59) housed % p10 2 median 87 max 117; under 80 %: 21; zero-building: 3
+C: head as the harness runs it (urban_riverbank off)
+   buildings 173439, housed 807113 of target 1198904 (67.3 %); per town (n 59) housed % p10 55 median 73 max 96; under 80 %: 44; zero-building: 3
+D: head with urban_riverbank on, as the app lays towns out
+   buildings 180104, housed 833993 of target 1198904 (69.6 %); per town (n 60) housed % p10 46 median 76 max 92; under 80 %: 42; zero-building: 0
+V1: VARIANT, NOT SHIPPED: D plus grow's far-bank rule lifted when the market stands within 60 m of its river, plus a bridge laid at the bridge point and joined to the town
+   buildings 254312, housed 1156398 of target 1198904 (96.5 %); per town (n 60) housed % p10 76 median 95 max 141; under 80 %: 7; zero-building: 0
+V2: VARIANT, NOT SHIPPED: D plus the joined bridge only
+   buildings 191944, housed 894815 of target 1198904 (74.6 %); per town (n 60) housed % p10 60 median 76 max 110; under 80 %: 39; zero-building: 0
+
+A, B and C were run before the harness printed its row line on a line of its own, so each lost one town line (12345/800/6's third
+town) to the test runner's notice: n 59. Their totals are the harness's own sums and include it.
+
+Per town (world, settlement index): placement, layout kind, river path points, wet share of the box mask, housed %, buildings
+ 12345/40075/24 #2   A: (121,139) river  rp2 wet0.00  90%  3835 | B: (121,139) landlo rp0 wet0.00  94%  4127 | C: (133,141) river  rp3 wet0.04  66%  2788 | D: (133,141) river  rp3 wet0.04  70%  2970 | V1: (133,141) river  rp3 wet0.04  95%  4099 | V2: (133,141) river  rp3 wet0.04  70%  2970
+ 12345/40075/24 #6   A: (180,77) river  rp2 wet0.00 106%  4726 | B: (180,77) river  rp2 wet0.01  64%  2660 | C: (83,86) river  rp4 wet0.05  70%  2986 | D: (83,86) river  rp4 wet0.05  79%  3332 | V1: (83,86) river  rp4 wet0.05  95%  4267 | V2: (83,86) river  rp4 wet0.05  87%  3568
+ 12345/40075/24 #10  A: - | B: - | C: (154,77) river  rp3 wet0.05  83%  3347 | D: (154,77) river  rp3 wet0.05  77%  3377 | V1: (154,77) river  rp3 wet0.05  96%  4277 | V2: (154,77) river  rp3 wet0.05  77%  3247
+ 12345/40075/24 #19  A: (189,48) river  rp3 wet0.01  70%  2892 | B: (189,48) landlo rp0 wet0.00  91%  4009 | C: - | D: - | V1: - | V2: -
+  12345/40075/6 #0   A: (159,96) river  rp2 wet0.00  90%  3698 | B: (159,96) river  rp3 wet0.05  83%  3425 | C: (159,96) river  rp3 wet0.05  75%  3202 | D: (159,96) river  rp3 wet0.05  57%  2577 | V1: (159,96) river  rp3 wet0.05 102%  4426 | V2: (159,96) river  rp3 wet0.05  76%  3279
+  12345/40075/6 #5   A: (195,162) rivert rp2 wet0.00  89%  3974 | B: (195,162) rivert rp2 wet0.01  79%  3408 | C: - | D: - | V1: - | V2: -
+  12345/40075/6 #6   A: - | B: - | C: (83,86) river  rp4 wet0.05  70%  2986 | D: (83,86) river  rp4 wet0.05  79%  3337 | V1: (83,86) river  rp4 wet0.05  95%  4271 | V2: (83,86) river  rp4 wet0.05  87%  3573
+  12345/40075/6 #10  A: (11,45) river  rp3 wet0.00  89%  3863 | B: (11,45) landlo rp0 wet0.00  99%  4313 | C: - | D: - | V1: - | V2: -
+  12345/40075/6 #13  A: - | B: - | C: (10,46) river  rp3 wet0.06  56%  2282 | D: (10,46) river  rp3 wet0.06  54%  2181 | V1: (10,46) river  rp3 wet0.06 115%  4988 | V2: (10,46) river  rp3 wet0.06  71%  2953
+   12345/800/24 #4   A: (191,62) rivert rp3 wet0.09 132%  5564 | B: (191,62) coast  rp0 wet0.09 102%  4505 | C: (108,71) river  rp3 wet0.05  74%  3146 | D: (108,71) river  rp3 wet0.05  74%  3112 | V1: (108,71) river  rp3 wet0.05  96%  4104 | V2: (108,71) river  rp3 wet0.05  74%  3112
+   12345/800/24 #5   A: - | B: - | C: (77,49) river  rp3 wet0.05  74%  3194 | D: (77,49) river  rp3 wet0.05  71%  2995 | V1: (77,49) river  rp3 wet0.05 115%  5146 | V2: (77,49) river  rp3 wet0.05  71%  2995
+   12345/800/24 #6   A: - | B: - | C: (70,27) river  rp3 wet0.07  71%  3031 | D: (70,27) river  rp3 wet0.07  67%  2945 | V1: (70,27) river  rp3 wet0.07  98%  4352 | V2: (70,27) river  rp3 wet0.07  71%  3053
+   12345/800/24 #15  A: (100,68) river  rp4 wet0.04  93%  3843 | B: (100,68) landlo rp0 wet0.00  98%  4111 | C: - | D: - | V1: - | V2: -
+   12345/800/24 #20  A: (76,43) river  rp3 wet0.00 125%  5327 | B: (76,43) landlo rp0 wet0.00  88%  3767 | C: - | D: - | V1: - | V2: -
+    12345/800/6 #0   A: - | B: - | C: (43,34) river  rp3 wet0.05  68%  3038 | D: (43,34) river  rp3 wet0.05  60%  2585 | V1: (43,34) river  rp3 wet0.05  80%  3543 | V2: (43,34) river  rp3 wet0.05  60%  2585
+    12345/800/6 #1   A: (43,34) river  rp3 wet0.00  94%  4220 | B: (43,34) river  rp3 wet0.05  85%  3478 | C: - | D: - | V1: - | V2: -
+    12345/800/6 #4   A: - | B: - | C: - | D: (108,71) river  rp3 wet0.05  80%  3483 | V1: (108,71) river  rp3 wet0.05  82%  3548 | V2: (108,71) river  rp3 wet0.05  76%  3195
+    12345/800/6 #15  A: - | B: - | C: (2,131) river  rp4 wet0.04  71%  2974 | D: (2,131) river  rp4 wet0.04  86%  3808 | V1: (2,131) river  rp4 wet0.04  87%  3676 | V2: (2,131) river  rp4 wet0.04  69%  2911
+    12345/800/6 #21  A: (223,5) bay    rp0 wet0.00  71%  3008 | B: (223,5) landlo rp0 wet0.00  83%  3485 | C: - | D: - | V1: - | V2: -
+ 24601/40075/24 #1   A: (217,120) rivert rp0 wet0.00  98%  4280 | B: (217,120) landlo rp0 wet0.00  89%  3764 | C: - | D: - | V1: - | V2: -
+ 24601/40075/24 #5   A: - | B: - | C: (295,144) river  rp3 wet0.04  70%  3004 | D: (295,144) river  rp3 wet0.04  67%  3000 | V1: (295,144) river  rp3 wet0.04 115%  5138 | V2: (295,144) river  rp3 wet0.04  79%  3404
+ 24601/40075/24 #6   A: - | B: - | C: (217,121) rivert rp2 wet0.02  78%  3373 | D: (217,121) rivert rp2 wet0.02  86%  3707 | V1: (217,121) rivert rp2 wet0.02  86%  3707 | V2: (217,121) rivert rp2 wet0.02  86%  3707
+ 24601/40075/24 #19  A: (321,104) river  rp0 wet0.00  86%  3732 | B: (321,104) landlo rp0 wet0.00 104%  4638 | C: (297,118) river  rp3 wet0.05  73%  3083 | D: (297,118) river  rp3 wet0.05  80%  3506 | V1: (297,118) river  rp3 wet0.05  95%  4110 | V2: (297,118) river  rp3 wet0.05  81%  3389
+ 24601/40075/24 #21  A: (242,135) river  rp3 wet0.00  88%  3773 | B: (242,135) landlo rp0 wet0.00 105%  4617 | C: - | D: - | V1: - | V2: -
+  24601/40075/6 #1   A: (217,120) rivert rp0 wet0.00 117%  5180 | B: (217,120) landlo rp0 wet0.00  96%  4221 | C: - | D: - | V1: - | V2: -
+  24601/40075/6 #2   A: (356,133) river  rp4 wet0.01   0%     0 | B: (356,133) landlo rp0 wet0.00  99%  4242 | C: - | D: - | V1: - | V2: -
+  24601/40075/6 #4   A: (269,57) rivert rp0 wet0.00 100%  4522 | B: (269,57) rivert rp2 wet0.01  79%  3466 | C: - | D: - | V1: - | V2: -
+  24601/40075/6 #5   A: - | B: - | C: (295,144) river  rp3 wet0.04  70%  3004 | D: (295,144) river  rp3 wet0.04  67%  3000 | V1: (295,144) river  rp3 wet0.04 115%  5138 | V2: (295,144) river  rp3 wet0.04  79%  3404
+  24601/40075/6 #6   A: - | B: - | C: (217,121) rivert rp2 wet0.02  78%  3374 | D: (217,121) rivert rp2 wet0.02  86%  3711 | V1: (217,121) rivert rp2 wet0.02  86%  3711 | V2: (217,121) rivert rp2 wet0.02  86%  3711
+  24601/40075/6 #10  A: - | B: - | C: (82,123) river  rp3 wet0.05  71%  2993 | D: (82,123) river  rp3 wet0.05  88%  3948 | V1: (82,123) river  rp3 wet0.05  98%  4318 | V2: (82,123) river  rp3 wet0.05  80%  3593
+   24601/800/24 #0   A: (149,149) river  rp4 wet0.00  91%  4031 | B: (149,149) river  rp4 wet0.05  94%  3981 | C: - | D: - | V1: - | V2: -
+   24601/800/24 #2   A: (309,136) rivert rp0 wet0.00 102%  4380 | B: (309,136) landlo rp0 wet0.00  87%  3855 | C: - | D: - | V1: - | V2: -
+   24601/800/24 #4   A: - | B: - | C: (98,92) river  rp3 wet0.05  69%  3102 | D: (98,92) river  rp3 wet0.05  70%  3116 | V1: (98,92) river  rp3 wet0.05  90%  3901 | V2: (98,92) river  rp3 wet0.05  70%  3116
+   24601/800/24 #5   A: - | B: - | C: (137,112) rivert rp2 wet0.40  92%  3888 | D: (137,112) rivert rp2 wet0.40  60%  2580 | V1: (137,112) rivert rp2 wet0.40  60%  2580 | V2: (137,112) rivert rp2 wet0.40  60%  2580
+   24601/800/24 #15  A: (201,151) rivert rp0 wet0.00 131%  5575 | B: (201,151) landlo rp0 wet0.00  90%  3749 | C: (349,162) river  rp3 wet0.05  68%  2954 | D: (349,162) river  rp3 wet0.05  82%  3558 | V1: (349,162) river  rp3 wet0.05 127%  5687 | V2: (349,162) river  rp3 wet0.05  74%  3123
+    24601/800/6 #0   A: (149,149) river  rp4 wet0.00  91%  4031 | B: (149,149) river  rp4 wet0.05  94%  3981 | C: (149,149) river  rp4 wet0.05  86%  3782 | D: (149,149) river  rp4 wet0.05  76%  3270 | V1: (149,149) river  rp4 wet0.05  76%  3270 | V2: (149,149) river  rp4 wet0.05  76%  3270
+    24601/800/6 #1   A: - | B: - | C: (60,87) river  rp3 wet0.05  80%  3493 | D: (60,87) river  rp3 wet0.05  78%  3377 | V1: (60,87) river  rp3 wet0.05 114%  5147 | V2: (60,87) river  rp3 wet0.05  91%  3875
+    24601/800/6 #2   A: (309,136) rivert rp0 wet0.00 102%  4380 | B: (309,136) landlo rp0 wet0.00  87%  3855 | C: - | D: - | V1: - | V2: -
+    24601/800/6 #5   A: (60,87) river  rp4 wet0.00 112%  4896 | B: (60,87) river  rp3 wet0.05  86%  3754 | C: (137,112) rivert rp2 wet0.40  92%  3888 | D: (137,112) rivert rp2 wet0.40  60%  2580 | V1: (137,112) rivert rp2 wet0.40  60%  2580 | V2: (137,112) rivert rp2 wet0.40  60%  2580
+314159/40075/24 #1   A: - | B: - | C: (145,96) river  rp3 wet0.05   2%    82 | D: (145,96) river  rp3 wet0.05   8%   330 | V1: (145,96) river  rp3 wet0.05  57%  2474 | V2: (145,96) river  rp3 wet0.05   8%   330
+314159/40075/24 #2   A: (145,96) river  rp3 wet0.00 101%  4599 | B: (145,96) river  rp3 wet0.05   2%    59 | C: - | D: - | V1: - | V2: -
+314159/40075/24 #6   A: (276,80) river  rp3 wet0.00  96%  4077 | B: (276,80) river  rp2 wet0.01  74%  3189 | C: - | D: - | V1: - | V2: -
+314159/40075/24 #16  A: - | B: - | C: (106,41) rivert rp2 wet0.02  78%  3313 | D: (106,41) rivert rp2 wet0.02  84%  3761 | V1: (106,41) rivert rp2 wet0.02  84%  3761 | V2: (106,41) rivert rp2 wet0.02  84%  3761
+314159/40075/24 #20  A: (187,147) river  rp5 wet0.00  37%  1680 | B: (187,147) landlo rp0 wet0.00  88%  3868 | C: (137,159) river  rp3 wet0.06  67%  2963 | D: (137,159) river  rp3 wet0.06  76%  3306 | V1: (137,159) river  rp3 wet0.06 141%  6280 | V2: (137,159) river  rp3 wet0.06  97%  4280
+ 314159/40075/6 #0   A: (288,66) river  rp3 wet0.01  71%  2884 | B: (288,66) river  rp2 wet0.01  75%  3198 | C: (285,71) river  rp3 wet0.05  83%  3491 | D: (285,71) river  rp3 wet0.05  40%  1604 | V1: (285,71) river  rp3 wet0.05 102%  4432 | V2: (285,71) river  rp3 wet0.05  47%  1973
+ 314159/40075/6 #1   A: - | B: - | C: (145,96) river  rp3 wet0.05   2%    82 | D: (145,96) river  rp3 wet0.05   8%   330 | V1: (145,96) river  rp3 wet0.05  57%  2474 | V2: (145,96) river  rp3 wet0.05   8%   330
+ 314159/40075/6 #2   A: (145,96) river  rp3 wet0.00  90%  4045 | B: (145,96) river  rp3 wet0.05   2%    72 | C: - | D: - | V1: - | V2: -
+ 314159/40075/6 #4   A: (231,18) river  rp3 wet0.04  86%  3616 | B: (231,18) river  rp4 wet0.05   1%    50 | C: (234,9) river  rp3 wet0.05  77%  3369 | D: (234,9) river  rp3 wet0.05  83%  3578 | V1: (234,9) river  rp3 wet0.05  99%  4325 | V2: (234,9) river  rp3 wet0.05  66%  2680
+  314159/800/24 #2   A: (134,95) river  rp4 wet0.00  87%  3836 | B: (134,95) river  rp3 wet0.05  83%  3751 | C: (134,95) river  rp3 wet0.05  80%  3469 | D: (134,95) river  rp3 wet0.05  91%  4081 | V1: (134,95) river  rp3 wet0.05 129%  5877 | V2: (134,95) river  rp3 wet0.05  80%  3472
+  314159/800/24 #4   A: (99,113) river  rp3 wet0.00  91%  3989 | B: (99,113) river  rp3 wet0.05  68%  2822 | C: (74,124) rivert rp3 wet0.33  64%  2689 | D: (74,124) rivert rp3 wet0.33  52%  2183 | V1: (74,124) rivert rp3 wet0.33  75%  3084 | V2: (74,124) rivert rp3 wet0.33  75%  3084
+  314159/800/24 #6   A: - | B: - | C: (127,198) river  rp3 wet0.04  84%  3616 | D: (127,198) river  rp3 wet0.04  77%  3359 | V1: (127,198) river  rp3 wet0.04 124%  5588 | V2: (127,198) river  rp3 wet0.04  85%  3685
+  314159/800/24 #20  A: (221,97) river  rp3 wet0.00  85%  3628 | B: (221,97) landlo rp0 wet0.00 106%  4656 | C: - | D: - | V1: - | V2: -
+   314159/800/6 #0   A: (211,64) rivert rp3 wet0.00  90%  3762 | B: (211,64) landlo rp0 wet0.00 108%  4530 | C: - | D: - | V1: - | V2: -
+   314159/800/6 #1   A: - | B: - | C: (151,75) river  rp3 wet0.05  84%  3723 | D: (151,75) river  rp3 wet0.05  76%  3321 | V1: (151,75) river  rp3 wet0.05  93%  4061 | V2: (151,75) river  rp3 wet0.05  76%  3321
+   314159/800/6 #2   A: (134,95) river  rp4 wet0.00  94%  4221 | B: (134,95) river  rp3 wet0.05  78%  3308 | C: - | D: - | V1: - | V2: -
+   314159/800/6 #4   A: - | B: - | C: (74,124) rivert rp3 wet0.33  65%  2832 | D: (74,124) rivert rp3 wet0.33  46%  1907 | V1: (74,124) rivert rp3 wet0.33  87%  3765 | V2: (74,124) rivert rp3 wet0.33  87%  3765
+   314159/800/6 #6   A: - | B: - | C: (127,198) river  rp3 wet0.04  84%  3618 | D: (127,198) river  rp3 wet0.04  77%  3359 | V1: (127,198) river  rp3 wet0.04 124%  5590 | V2: (127,198) river  rp3 wet0.04  85%  3688
+   314159/800/6 #16  A: (39,203) bay    rp0 wet0.00  96%  3763 | B: (39,203) landlo rp0 wet0.00  96%  3763 | C: - | D: - | V1: - | V2: -
+   404/40075/24 #6   A: (298,34) river  rp3 wet0.00  92%  3989 | B: (298,34) river  rp3 wet0.07  69%  3041 | C: (176,77) river  rp3 wet0.05  77%  3315 | D: (176,77) river  rp3 wet0.05  76%  3335 | V1: (176,77) river  rp3 wet0.05  79%  3424 | V2: (176,77) river  rp3 wet0.05  76%  3335
+   404/40075/24 #15  A: - | B: - | C: (271,35) river  rp6 wet0.05   0%     0 | D: (271,35) river  rp6 wet0.05  36%  1481 | V1: (271,35) river  rp6 wet0.05  84%  3644 | V2: (271,35) river  rp6 wet0.05  49%  1971
+   404/40075/24 #16  A: (150,78) river  rp4 wet0.00  97%  3942 | B: (150,78) landlo rp0 wet0.00 117%  4891 | C: - | D: - | V1: - | V2: -
+   404/40075/24 #19  A: - | B: - | C: (193,29) river  rp3 wet0.04  59%  2497 | D: (193,29) river  rp3 wet0.04  81%  3428 | V1: (193,29) river  rp3 wet0.04 101%  4397 | V2: (193,29) river  rp3 wet0.04  70%  2893
+   404/40075/24 #21  A: (160,52) river  rp0 wet0.00  81%  3531 | B: (160,52) landlo rp0 wet0.00  90%  3911 | C: - | D: - | V1: - | V2: -
+    404/40075/6 #1   A: - | B: - | C: (298,34) river  rp3 wet0.07  71%  3031 | D: (298,34) river  rp3 wet0.07  92%  4053 | V1: (298,34) river  rp3 wet0.07  95%  4193 | V2: (298,34) river  rp3 wet0.07  88%  4038
+    404/40075/6 #2   A: (125,119) rivert rp2 wet0.05  58%  2627 | B: (125,119) rivert rp2 wet0.02 114%  5177 | C: (295,104) river  rp2 wet0.01  66%  2849 | D: (295,104) river  rp2 wet0.01  66%  2775 | V1: (295,104) river  rp2 wet0.01 102%  4515 | V2: (295,104) river  rp2 wet0.01  66%  2775
+    404/40075/6 #6   A: - | B: - | C: (176,77) river  rp3 wet0.05   0%     0 | D: (176,77) river  rp3 wet0.05  76%  3380 | V1: (176,77) river  rp3 wet0.05  95%  4187 | V2: (176,77) river  rp3 wet0.05  69%  2898
+    404/40075/6 #9   A: (231,10) river  rp0 wet0.00 104%  4026 | B: (231,10) landlo rp0 wet0.00  87%  3224 | C: - | D: - | V1: - | V2: -
+    404/40075/6 #20  A: (336,142) river  rp4 wet0.00  94%  4142 | B: (336,142) river  rp3 wet0.02   0%     0 | C: - | D: - | V1: - | V2: -
+     404/800/24 #0   A: - | B: - | C: (284,212) river  rp3 wet0.04   0%     0 | D: (284,212) river  rp3 wet0.04   4%   159 | V1: (284,212) river  rp3 wet0.04  95%  4170 | V2: (284,212) river  rp3 wet0.04  67%  2922
+     404/800/24 #2   A: (296,183) river  rp3 wet0.00  92%  4046 | B: (296,183) landlo rp0 wet0.00 100%  4509 | C: - | D: - | V1: - | V2: -
+     404/800/24 #4   A: (76,3) river  rp4 wet0.00 124%  5337 | B: (76,3) river  rp2 wet0.01  71%  3178 | C: - | D: - | V1: - | V2: -
+     404/800/24 #9   A: - | B: - | C: (75,4) river  rp4 wet0.05  76%  3096 | D: (75,4) river  rp4 wet0.05  65%  2579 | V1: (75,4) river  rp4 wet0.05 112%  4858 | V2: (75,4) river  rp4 wet0.05  75%  3122
+     404/800/24 #10  A: (106,27) river  rp4 wet0.00 121%  5213 | B: (106,27) river  rp4 wet0.04   0%     0 | C: - | D: - | V1: - | V2: -
+     404/800/24 #15  A: - | B: - | C: (81,26) river  rp4 wet0.04  65%  2808 | D: (81,26) river  rp4 wet0.04  80%  3504 | V1: (81,26) river  rp4 wet0.04  90%  3883 | V2: (81,26) river  rp4 wet0.04  79%  3334
+      404/800/6 #0   A: (284,212) river  rp3 wet0.00  92%  4216 | B: (284,212) river  rp3 wet0.04  74%  3159 | C: (284,212) river  rp3 wet0.04  55%  2308 | D: (284,212) river  rp3 wet0.04  62%  2648 | V1: (284,212) river  rp3 wet0.04  97%  4170 | V2: (284,212) river  rp3 wet0.04  79%  3307
+      404/800/6 #2   A: - | B: - | C: (14,5) river  rp3 wet0.04  87%  3577 | D: (14,5) river  rp3 wet0.04  89%  3769 | V1: (14,5) river  rp3 wet0.04 100%  4429 | V2: (14,5) river  rp3 wet0.04  73%  3170
+      404/800/6 #5   A: (383,172) rivert rp2 wet0.35  57%  2404 | B: (383,172) coast  rp0 wet0.35  80%  3290 | C: (7,126) river  rp3 wet0.05  87%  3858 | D: (7,126) river  rp3 wet0.05  84%  3579 | V1: (7,126) river  rp3 wet0.05  92%  4076 | V2: (7,126) river  rp3 wet0.05  74%  3128
+      404/800/6 #10  A: (106,27) river  rp4 wet0.00 112%  4791 | B: (106,27) river  rp4 wet0.04   0%     0 | C: - | D: - | V1: - | V2: -
+   707/40075/24 #2   A: (379,104) river  rp3 wet0.00 107%  4902 | B: (379,104) river  rp3 wet0.04  63%  2645 | C: (357,78) rivert rp3 wet0.01  77%  3386 | D: (357,78) rivert rp3 wet0.01  89%  3842 | V1: (357,78) rivert rp3 wet0.01 110%  4881 | V2: (357,78) rivert rp3 wet0.01 110%  4881
+   707/40075/24 #4   A: (357,78) rivert rp3 wet0.02  88%  3908 | B: (357,78) rivert rp3 wet0.01  74%  3140 | C: - | D: - | V1: - | V2: -
+   707/40075/24 #19  A: - | B: - | C: (256,54) river  rp3 wet0.04  67%  2901 | D: (256,54) river  rp3 wet0.04  65%  2737 | V1: (256,54) river  rp3 wet0.04  85%  3697 | V2: (256,54) river  rp3 wet0.04  65%  2737
+   707/40075/24 #20  A: (363,98) river  rp0 wet0.00  70%  3008 | B: (363,98) river  rp2 wet0.01  77%  3410 | C: (281,99) river  rp3 wet0.04  76%  3324 | D: (281,99) river  rp3 wet0.04  67%  2828 | V1: (281,99) river  rp3 wet0.04  94%  4115 | V2: (281,99) river  rp3 wet0.04  67%  2828
+    707/40075/6 #0   A: (299,109) river  rp3 wet0.00  94%  4001 | B: (299,109) river  rp2 wet0.01  69%  2858 | C: (298,110) river  rp3 wet0.05  92%  3991 | D: (298,110) river  rp3 wet0.05  76%  3151 | V1: (298,110) river  rp3 wet0.05  94%  4081 | V2: (298,110) river  rp3 wet0.05  85%  3729
+    707/40075/6 #2   A: - | B: - | C: (357,78) rivert rp3 wet0.01  77%  3388 | D: (357,78) rivert rp3 wet0.01  89%  3844 | V1: (357,78) rivert rp3 wet0.01 110%  4882 | V2: (357,78) rivert rp3 wet0.01 110%  4882
+    707/40075/6 #4   A: (357,78) rivert rp3 wet0.02  88%  3908 | B: (357,78) rivert rp3 wet0.01  74%  3140 | C: - | D: - | V1: - | V2: -
+    707/40075/6 #5   A: (150,39) rivert rp3 wet0.00  85%  3795 | B: (150,39) landlo rp0 wet0.00 103%  4526 | C: (171,47) rivert rp3 wet0.05  68%  2915 | D: (171,47) rivert rp3 wet0.05  65%  2730 | V1: (171,47) rivert rp3 wet0.05  96%  4274 | V2: (171,47) rivert rp3 wet0.05  96%  4274
+     707/800/24 #2   A: (279,158) river  rp0 wet0.00  86%  3756 | B: (279,158) landlo rp0 wet0.00  98%  4286 | C: (305,148) river  rp3 wet0.04  67%  2859 | D: (305,148) river  rp3 wet0.04  70%  3019 | V1: (305,148) river  rp3 wet0.04 116%  5195 | V2: (305,148) river  rp3 wet0.04  80%  3414
+     707/800/24 #4   A: (302,148) river  rp0 wet0.00  67%  2769 | B: (302,148) landlo rp0 wet0.00  92%  4020 | C: - | D: - | V1: - | V2: -
+     707/800/24 #6   A: (184,76) rivert rp3 wet0.00  92%  3963 | B: (184,76) landlo rp0 wet0.00  90%  3878 | C: (300,49) river  rp4 wet0.05  72%  3030 | D: (300,49) river  rp4 wet0.05  67%  2919 | V1: (300,49) river  rp4 wet0.05  92%  4103 | V2: (300,49) river  rp4 wet0.05  73%  3168
+     707/800/24 #10  A: - | B: - | C: (217,170) river  rp3 wet0.04  80%  3510 | D: (217,170) river  rp3 wet0.04  67%  2914 | V1: (217,170) river  rp3 wet0.04 102%  4473 | V2: (217,170) river  rp3 wet0.04  67%  2914
+      707/800/6 #2   A: (279,158) river  rp0 wet0.00  75%  3267 | B: (279,158) landlo rp0 wet0.00  95%  4183 | C: (305,148) river  rp3 wet0.04  77%  3471 | D: (305,148) river  rp3 wet0.04  77%  3400 | V1: (305,148) river  rp3 wet0.04  99%  4291 | V2: (305,148) river  rp3 wet0.04  80%  3334
+      707/800/6 #4   A: - | B: - | C: (108,55) rivert rp2 wet0.02  96%  4031 | D: (108,55) rivert rp2 wet0.02  91%  3944 | V1: (108,55) rivert rp2 wet0.02 101%  4416 | V2: (108,55) rivert rp2 wet0.02 101%  4416
+      707/800/6 #5   A: (183,242) rivert rp4 wet0.00  99%  4410 | B: (183,242) landlo rp0 wet0.00  92%  4064 | C: - | D: - | V1: - | V2: -
+      707/800/6 #6   A: (184,76) rivert rp3 wet0.00  92%  3963 | B: (184,76) landlo rp0 wet0.00  90%  3878 | C: - | D: - | V1: - | V2: -
+      707/800/6 #10  A: - | B: - | C: (217,170) river  rp3 wet0.04  75%  3135 | D: (217,170) river  rp3 wet0.04  69%  2912 | V1: (217,170) river  rp3 wet0.04  96%  4263 | V2: (217,170) river  rp3 wet0.04  69%  2912

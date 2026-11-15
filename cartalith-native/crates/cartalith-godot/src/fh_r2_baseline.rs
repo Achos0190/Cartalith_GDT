@@ -76,7 +76,7 @@
 
 use cartalith_civ::relations::{civ_faction_relations, FactionRelationsInput};
 use cartalith_civ::trade::{trade_flows, TradeFlow, TradeInput};
-use cartalith_civ::urban_adapter::{run_layout, um_place_context, UrbanWorld};
+use cartalith_civ::urban_adapter::{run_layout, um_place_context, UrbanWorld, Vec2};
 
 /// The world's trade flows, built exactly as `WorldGen::trade_network` builds
 /// them for the `civ_belief_run` `#[func]` (same `TradeInput` members, the
@@ -1037,4 +1037,164 @@ fn fh_r2_m3_rite_only() {
     assert!(same > 0 && changed > 0, "both populations must be non-empty");
     assert!(houses_moved > 0, "the fixture must move a house, or the explained-by check measures nothing");
     assert_eq!(unexplained, 0, "every moved house must sit under a place of worship");
+}
+
+/// **The urban column's breakdown** (2026-11-15, the FH-R2 building-count
+/// drop: the three largest towns' buildings fell 27 % across the lake runoff
+/// share and Ruling EX, `OUTSTANDING_WORK.md`'s "Town placement" row). For
+/// each of the 20 harness worlds and each of the three towns
+/// [`fingerprint`]'s urban column lays out, it prints one `BLD` line: the
+/// placement, the siting proxy's kind and the layout's, whether the layout
+/// uses real water, the real river path's point count, the share of the town
+/// box's 22 m water mask that is wet, the box's sea share, `pop_target`,
+/// housed population (`UrbanLayout::pop`) and its share of the target, the
+/// buildings, parcels and street length; then a `BLDROW` per world and a
+/// `BLDTOTAL`. Its `BLDTOTAL` buildings equal the sum of the `AT_CURRENT`
+/// comments' building counts, the column it explains.
+///
+/// Environment: `FH_R2_URBAN_FRONT=0` generates with `civ.river_front` off
+/// (Ruling EX's placement term and river constraint; the rest of
+/// `params::defaults` unchanged); `FH_R2_URBAN_BANK=1` lays the towns out with
+/// `urban_riverbank` on, as the app does (the harness passes it off);
+/// `FH_R2_URBAN_ONLY=seed/width/factions` runs one world;
+/// `FH_R2_URBAN_DEBUG=1` adds a `DBG` line per town: the market, the bridge
+/// point, the recorded crossings, the river's first vertices, the street
+/// classes and the buildings on each side of the river centreline.
+///
+/// A measurement, not a gate: it asserts nothing. Run alone in release:
+/// `cargo test --release -p cartalith-godot --lib fh_r2_urban_breakdown -- --ignored --nocapture --test-threads 1`.
+/// The numbers quoted in `STATUS.md` are in
+/// `docs/evidence/town-housing-2026-11-15/fh_r2_breakdown.txt`.
+#[test]
+#[ignore = "measurement over 20 generated worlds; see the doc comment"]
+fn fh_r2_urban_breakdown() {
+    let front = std::env::var("FH_R2_URBAN_FRONT").map_or(true, |v| v != "0");
+    let bank = std::env::var("FH_R2_URBAN_BANK").is_ok_and(|v| v == "1");
+    let debug = std::env::var("FH_R2_URBAN_DEBUG").is_ok_and(|v| v == "1");
+    let only = std::env::var("FH_R2_URBAN_ONLY").ok();
+    let (mut tot_b, mut tot_pop, mut tot_tgt) = (0usize, 0.0f64, 0.0f64);
+    for &seed in SEEDS.iter() {
+        for &width in [800u32, 40_075].iter() {
+            for &factions in [6i32, 24].iter() {
+                if only.as_ref().is_some_and(|o| *o != format!("{seed}/{width}/{factions}")) {
+                    continue;
+                }
+                // `generate_world`'s body with the frontage switch exposed.
+                let world = width >= 40_075;
+                let gh = crate::reference_grid_h(GW, world);
+                let mut p = crate::with_call_args(crate::params::defaults(), seed, f64::from(width), GW, gh);
+                p.world = world;
+                p.civ.factions = factions;
+                p.use_gpu = false;
+                p.civ.river_front = front;
+                let ws = cartalith_engine::generate_terrain(&p);
+                let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, GW, gh, p.world, ws.sea_level, &p);
+                let civ = crate::compute_civilisation(
+                    &ws, GW, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
+                    &mut Vec::new(), None, p.lake_balance,
+                );
+                let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+                    (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, GW, gh, 1),
+                    _ => Vec::new(),
+                };
+                // The same `UrbanWorld` as `fingerprint`'s.
+                let uw = UrbanWorld {
+                    field: &ws.field,
+                    flow: &ws.flow_discharge,
+                    water_bodies: &civ.water_bodies,
+                    order: ws.stream_order.as_deref(),
+                    river_polys: &river_polys,
+                    gw: GW,
+                    gh,
+                    sea_level: ws.sea_level,
+                    map_width_km: p.map_width_km,
+                    flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
+                    world_seed: seed,
+                    river_kind_from_map: false,
+                };
+                let mut order: Vec<usize> = (0..civ.settlements.len()).collect();
+                order.sort_by(|&a, &b| civ.settlements[b].pop.cmp(&civ.settlements[a].pop).then(a.cmp(&b)));
+                let mut row_b = 0usize;
+                for &i in order.iter().take(3) {
+                    let s = &civ.settlements[i];
+                    let o = cartalith_civ::urban_adapter::PlaceOverrides { faith: civ.town_faith(s), riverbank: bank, ..Default::default() };
+                    let ctx = cartalith_civ::urban_adapter::um_place_context_with(&uw, s, &civ.ways, &o);
+                    let proxy = cartalith_civ::urban_adapter::um_site_kind_from_terrain(&uw, s.placement.x as f64, s.placement.y as f64);
+                    let (wet, sea, rp) = ctx.water.as_ref().map_or((0.0, 0.0, 0), |u| {
+                        let n = u.ctx.mask.len() as f64;
+                        (u.ctx.mask.iter().filter(|&&m| m != 0).count() as f64 / n, u.sea_frac, u.ctx.river_path.as_ref().map_or(0, |r| r.len()))
+                    });
+                    let Some(l) = run_layout(&ctx, None) else {
+                        println!("BLD {seed}/{width}/{factions} #{i} no layout");
+                        continue;
+                    };
+                    row_b += l.buildings.len();
+                    tot_pop += l.pop;
+                    tot_tgt += l.pop_target;
+                    if debug {
+                        debug_line(&l);
+                    }
+                    println!(
+                        "BLD {seed}/{width}/{factions} #{i} at ({},{}) pop {} proxy {proxy} kind {} real {} rpath {rp} rw {:.0} wet {wet:.3} sea {sea:.3} tgt {:.0} housed {:.0} ({:.0}%) bld {} parcels {} street {:.0}",
+                        s.placement.x, s.placement.y, s.pop, l.site_kind, l.uses_real_water, l.river_w, l.pop_target, l.pop,
+                        100.0 * l.pop / l.pop_target, l.buildings.len(), l.parcels.len(), l.street_len
+                    );
+                }
+                tot_b += row_b;
+                // On its own line: the harness's "has been running" notice
+                // otherwise lands at the start of the next one.
+                println!("\nBLDROW {seed}/{width}/{factions} {row_b}");
+            }
+        }
+    }
+    println!("BLDTOTAL {tot_b} housed {tot_pop:.0} target {tot_tgt:.0}");
+}
+
+/// [`fh_r2_urban_breakdown`]'s `DBG` line for one layout: which side of the
+/// river centreline each building's centroid stands on (by the sign of the
+/// cross product with the nearest centreline segment; `L`/`R` are the two
+/// sides, not compass directions), the market and its side, the bridge point,
+/// the crossings `detect_river_crossings` recorded, the first six river
+/// vertices, and each street class's edge count and length.
+fn debug_line(l: &cartalith_civ::urban_adapter::UrbanLayout) {
+    let mut cls: std::collections::BTreeMap<&str, (usize, f64)> = Default::default();
+    for e in &l.edges {
+        let c = cls.entry(e.cls).or_default();
+        c.0 += 1;
+        c.1 += e.a.dist(e.b);
+    }
+    let side = |q: Vec2| -> i32 {
+        let mut best = (f64::INFINITY, 0i32);
+        for w in l.river.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let ab = b - a;
+            let t = (((q - a).x * ab.x + (q - a).y * ab.y) / (ab.x * ab.x + ab.y * ab.y)).clamp(0.0, 1.0);
+            let d = q.dist(a + ab * t);
+            if d < best.0 {
+                best = (d, if ab.x * (q - a).y - ab.y * (q - a).x > 0.0 { 1 } else { -1 });
+            }
+        }
+        best.1
+    };
+    let (mut left, mut right) = (0, 0);
+    for b in &l.buildings {
+        let c = b.poly.iter().fold(Vec2::new(0.0, 0.0), |s, v| s + *v) * (1.0 / b.poly.len() as f64);
+        if side(c) > 0 {
+            left += 1;
+        } else {
+            right += 1;
+        }
+    }
+    println!(
+        "  DBG market ({:.0},{:.0}) side {} bridge_pt {:?} bridges {} ford {} river {:?} edges {:?} blocks {} sides L{left}/R{right}",
+        l.market.x,
+        l.market.y,
+        side(l.market),
+        l.bridge_pt.map(|b| (b.x.round(), b.y.round())),
+        l.bridges.as_ref().map_or(0, |b| b.len()),
+        l.ford.is_some(),
+        l.river.iter().map(|v| (v.x.round() as i64, v.y.round() as i64)).take(6).collect::<Vec<_>>(),
+        cls.iter().map(|(k, v)| format!("{k}:{}/{:.0}", v.0, v.1)).collect::<Vec<_>>(),
+        l.blocks.len(),
+    );
 }

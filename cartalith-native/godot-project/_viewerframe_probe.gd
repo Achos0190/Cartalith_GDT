@@ -3,7 +3,7 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--villages 0|1]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
@@ -114,6 +114,10 @@ func _ready() -> void:
 	var gh := 288
 	var shots := ""
 	var riverbank := -1
+	## `--villages 0` makes the world without villages, as the FH-R2 harness
+	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
+	## as the shell's probes ask.
+	var villages := true
 	var ids: Array[int] = []
 	var args := OS.get_cmdline_user_args()
 	var i := 0
@@ -126,6 +130,7 @@ func _ready() -> void:
 				gh = int(wh[1])
 			"--shots": shots = args[i + 1]
 			"--riverbank": riverbank = int(args[i + 1])
+			"--villages": villages = int(args[i + 1]) != 0
 			"--ids":
 				for t in String(args[i + 1]).split(",", false):
 					ids.append(int(t))
@@ -143,7 +148,7 @@ func _ready() -> void:
 	vp.add_child(app)
 	await get_tree().create_timer(1.0).timeout
 	var bridge = app.bridge
-	bridge.generate({"seed": seed_n, "width_km": 800.0, "grid_w": gw, "grid_h": gh, "archetype": "", "villages": true})
+	bridge.generate({"seed": seed_n, "width_km": 800.0, "grid_w": gw, "grid_h": gh, "archetype": "", "villages": villages})
 	while bridge.generating:
 		await get_tree().create_timer(0.25).timeout
 	await get_tree().create_timer(1.0).timeout
