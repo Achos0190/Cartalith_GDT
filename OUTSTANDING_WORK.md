@@ -93,18 +93,33 @@ document, and `STATUS.md` records what lands)
   2026-11-14; see `STATUS.md` ("Snapdragon generation measured on the Pad 3 and 6T") and `PERFORMANCE_BENCHMARKS.md`
   section 12. Release builds now use LTO; the ISA baseline and thread-pool changes were measured and not kept. Its
   three leftovers are the rows below.
-- **Generation keeps about two cores busy on the handsets** (measured 2026-11-14, `PERFORMANCE_BENCHMARKS.md` section
-  12.3): terrain averages 1.92 busy cores of 8 on the Pad 3 and 1.78 of 6 on the 6T; erosion 1.13/1.17 and hydrology
-  1.11/1.11; tectonics, the largest stage (7.8 s Pad, 20.7 s 6T, 38 % of the total), 2.13/2.15. More cores do not help
-  until those stages run in parallel; that is `CPU_MULTITHREADING_SCOPE.md`'s ground (and, for stream power,
-  `GPU_STREAM_POWER_SCOPE.md`). Re-measure with `device_stage_bench` on both handsets. Belongs with the "Performance
-  pass across devices" row below.
-- **The GPU path makes a different world on each handset, and is slower on the 6T, while the shell turns it on at boot**
-  (measured 2026-11-14, `PERFORMANCE_BENCHMARKS.md` section 12.3): seed 12345 at 2048 x 1311 with `use_gpu` on gives
-  `terrain=a98006fb0982d1fa` (63 ways) on the Pad 3's Adreno and `terrain=14fa38faada65f7a` (64 ways) on the 6T's, while
-  the CPU path is identical on the PC and both handsets; and it costs the 6T 56.65 s (56.26..56.83) against 54.51 s
-  (54.16..54.84) on the CPU (no difference on the Pad). `engine_bridge.gd` sets `use_gpu` true at boot. Whether a seed
-  must give the same world across devices, and whether the phone default should be the CPU path, are owner questions.
+- ~~**Generation keeps about two cores busy on the handsets**~~ -- worked 2026-11-15 on the PC and the 6T (the Pad was
+  off); see `STATUS.md` ("Serial generation stages parallelised, bit-identically") and `PERFORMANCE_BENCHMARKS.md`
+  section 12.6. The 6T went from 54.09 s to 39.83 s and its terrain from 1.78 to 2.74 busy cores; the PC from 10.47 s
+  to 7.14 s; the world digest is unchanged on both. Its leftovers are the rows below.
+- **The serial floor left in generation needs algorithm changes (section 7p) to go parallel** (measured 2026-11-15,
+  `PERFORMANCE_BENCHMARKS.md` section 12.6): the priority floods (stream power's fill, 7 per world, about 0.2 s each on
+  the PC and 0.6 s on the 6T; the routing surface; `build_water_bodies`; `dry_active_craters`; the glacial fill), whose
+  pop order decides tie-breaks; the in-place jump floods `cartalith_terrain::assign_plates` and `cartalith_civ`'s
+  `jfa_dist` (a ping-pong form is a different, also valid, answer); and the D8 accumulation. Each would move generated
+  output, so each needs an owner ruling and a re-baseline. Not scheduled.
+- **The thread rule reaches the app only when generation builds the pool first** (2026-11-15,
+  `cartalith_engine::auto_thread_count`, section 12.6): rayon's global pool is built once per process, and a shell
+  `par_iter` (render, sample, bake) before the first generation builds it at rayon's own default, which reads 6 on the
+  6T. `engine_bridge.gd::_restore_cpu_pref` pushes only a stored non-zero count; pushing `0` (auto) at boot as well
+  would apply the rule. A one-line GDScript change, left for the shell lane; verify with `cpu_thread_count_active()` on
+  the 6T after a cold start.
+- **Re-measure generation on the Pad 3 with the 2026-11-15 build** (`PERFORMANCE_BENCHMARKS.md` section 12.6,
+  "For the Pad 3"): `device_stage_bench` before/after interleaved with the 60 s cooldown, the CPU path's digest, and
+  whether more busy cores bring the sustained throttling of section 12.4 point 3 sooner.
+- **The GPU path makes a different world on each device** (measured 2026-11-14 and 2026-11-15, `PERFORMANCE_BENCHMARKS.md`
+  sections 12.3 and 12.6): `gpu_divergence_bench` feeds each GPU kernel the same CPU inputs on the PC and the 6T and
+  names the kernels whose output differs; the cause is the arithmetic WGSL leaves to the driver (FMA contraction,
+  division and `exp` precision), amplified by the floods into a different world. The GPU path measured no end-to-end gain
+  on either machine (6T 43.29 s against 41.62 s on the CPU at the same workers; PC 7.33 s against 7.14 s), so the
+  phones keep Ruling EY's CPU default. Making it identical across devices would need fixed-point kernels (a section 7p
+  change of every GPU world); not proposed. Whether the PC's default should also become the CPU path is an owner
+  question.
 - **How generation feels in the app on the Pad 3 is not yet measured** (2026-11-14): the harness above times
   `generate_terrain` plus `compute_civilisation` only, not `absorb()`, `warm_render_caches()`, the first draw or the
   shell's idle-mode frame pacing. The owner's report ("generation in the pad feels as slow") is not reproduced by the

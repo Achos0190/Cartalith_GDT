@@ -167,6 +167,11 @@ fn device_stage_bench() {
     let gh = crate::reference_grid_h(gw, false);
     let mut p = crate::with_call_args(crate::params::defaults(), seed, width_km, gw, gh);
     p.use_gpu = use_gpu;
+    // Build the pool the way generation does before anything below touches
+    // rayon: `rayon::current_num_threads()` in the CONFIG line would otherwise
+    // build the global pool implicitly at rayon's default and bypass
+    // `auto_thread_count` (found 2026-11-15: the 6T then ran 6 workers).
+    cartalith_engine::ensure_thread_pool();
 
     println!(
         "CONFIG gw={gw} gh={gh} seed={seed} use_gpu={use_gpu} reps={reps} warm={warm} rayon_threads={} available_parallelism={:?}",

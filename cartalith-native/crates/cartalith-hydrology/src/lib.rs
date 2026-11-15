@@ -137,7 +137,9 @@ fn flow_sort_desc(field: &[f32], n: usize) -> Vec<u32> {
 /// single downstream receiver in strict descending-height order, a genuine
 /// wavefront dependency, confirmed here rather than assumed. `sm` is also
 /// a running sum (not a max), so left sequential for the same
-/// floating-point-reordering reason `stream_power_kernel::ss` is.
+/// floating-point-reordering reason `stream_power_kernel::ss` is. Only the
+/// per-cell receivers (and, beside them, the sort) run in parallel
+/// (2026-11-15), which moves no value.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
     compute_flow_with(gw, gh, field, rain, use_rain, world, None)
 }
@@ -150,7 +152,14 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
 /// valid for either. Must never be handed a roughness on a JS-parity path.
 pub fn compute_flow_with(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool, rough: Option<&Roughness>) -> Vec<f32> {
     let n = gw * gh;
-    let order = flow_sort_desc(field, n);
+    // Every cell's receiver, in parallel, while the (serial) radix sort runs
+    // beside it; then the accumulation alone in the serial descending order
+    // (2026-11-15, `PERFORMANCE_BENCHMARKS.md` §12.6). The receiver is a pure
+    // function of `field` (and the roughness noise), so computing it ahead
+    // changes no value; the additions into each `acc[best]` still happen in
+    // exactly the reference's order, which is what decides their f32
+    // rounding. `rayon::join` returns both results whatever ran first.
+    let (order, recv) = rayon::join(|| flow_sort_desc(field, n), || flow_receivers_with(field, gw, gh, world, rough));
 
     let mut acc = vec![0f32; n];
     if use_rain {
@@ -168,14 +177,9 @@ pub fn compute_flow_with(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32
         acc.fill(1.0);
     }
 
-    let d8 = d8_table();
-
     for &i in &order {
         let i = i as usize;
-        let best = match rough {
-            None => d8_receiver(field, gw, gh, i, world, &d8),
-            Some(r) => rough::rough_receiver(field, gw, gh, i, world, &d8, r),
-        };
+        let best = recv[i];
         if best >= 0 {
             let best = best as usize;
             acc[best] = (acc[best] as f64 + acc[i] as f64) as f32;
@@ -555,9 +559,14 @@ pub fn flow_receivers(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<i
 /// [`flow_receivers`] with the world's optional [`Roughness`] (Ruling ER):
 /// the tree [`compute_flow_with`] accumulates along with the same argument.
 /// `None` is `flow_receivers` exactly.
+///
+/// Parallel per cell (2026-11-15): each receiver reads only `field` and, with
+/// roughness, the precomputed noise, so the cells are independent and the
+/// result is the serial one bit for bit (`collect` keeps index order).
 pub fn flow_receivers_with(field: &[f32], gw: usize, gh: usize, world: bool, rough: Option<&Roughness>) -> Vec<i32> {
     let d8 = d8_table();
     (0..gw * gh)
+        .into_par_iter()
         .map(|i| match rough {
             None => d8_receiver(field, gw, gh, i, world, &d8) as i32,
             Some(r) => rough::rough_receiver(field, gw, gh, i, world, &d8, r) as i32,

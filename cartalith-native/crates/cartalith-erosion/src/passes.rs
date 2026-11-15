@@ -61,6 +61,7 @@
 //! JS-propagates-NaN / Rust-absorbs-NaN split is unreachable here.
 
 use crate::{d8_table, MinHeap};
+use rayon::prelude::*;
 use cartalith_jsmath::{js_hypot, js_log, js_round};
 use cartalith_noise::vnoise;
 use std::cmp::Ordering;
@@ -804,45 +805,70 @@ fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialPa
 
     let mut flow = vec![0f32; n];
     let mut delta = vec![0f32; n];
+    // The fill's discovery tree (`receiver[j]` = the cell that reached `j`)
+    // split into its independent trees, once: `order` and `receiver` do not
+    // change between passes. `None` only if `order` were not
+    // parents-before-children, which the fill guarantees; the serial loop
+    // then runs as before. Not built with a single worker, where it would
+    // only add passes (as for stream power's incision, §12.6).
+    let groups = if rayon::current_num_threads() > 1 { crate::basin_groups(&order, &receiver, None) } else { None };
     for _ in 0..p.passes {
         flow.fill(1.0);
         // Downstream accumulation, reverse fill order. `flow[r] += flow[i]`
         // rounds each contribution to `f32` individually: one receiver takes
-        // several donors within the same pass.
-        for k in (0..n).rev() {
-            let i = order[k] as usize;
-            let r = receiver[i];
-            if r >= 0 {
-                let r = r as usize;
-                flow[r] = (flow[r] as f64 + flow[i] as f64) as f32;
+        // several donors within the same pass. Tree by tree in parallel
+        // (2026-11-15): each tree is walked backward in `order` sequence, so
+        // every receiver takes its donors in the reference's order and the
+        // sums are bit-identical (`crate::BasinGroups`).
+        match groups.as_ref() {
+            Some(g) => crate::accumulate_by_basin(&mut flow, g, &receiver),
+            None => {
+                for k in (0..n).rev() {
+                    let i = order[k] as usize;
+                    let r = receiver[i];
+                    if r >= 0 {
+                        let r = r as usize;
+                        flow[r] = (flow[r] as f64 + flow[i] as f64) as f32;
+                    }
+                }
             }
         }
         delta.fill(0.0);
-        // Walked in fill order, ascending: `order` is a permutation and the
-        // rank is the loop's whole point, so it is indexed, not iterated.
-        #[allow(clippy::needless_range_loop)]
-        for k in 0..n {
-            let i = order[k] as usize;
-            if (fld[i] as f64) < snow_el || temp[i] as f64 >= 0.0 {
-                continue;
-            }
-            let r = receiver[i];
-            if r < 0 {
-                continue;
-            }
-            let r = r as usize;
-            // JS `dist[i]||1`: a border-seeded cell never got a distance.
-            let dd = dist[i] as f64;
-            let denom = if dd != 0.0 { dd } else { 1.0 };
-            let slope = (fld[i] as f64 - fld[r] as f64).max(0.0) / denom;
-            let e = p.kg * p.g * (flow[i] as f64).powf(p.mg) * slope * 0.001;
-            // GF-4 (§4.4): scale by the exposed rock's `γ^c`. `fld` is not
-            // written until this pass's `delta` is applied below, so this is
-            // the pass-start surface. Without rock, `e` is the reference's.
-            let e = match (rock, gamma_c.as_ref()) {
-                (Some(r), Some(t)) => e * t[r.exposed_code(i, fld[i])],
-                _ => e,
-            };
+        // Each eroding cell's `e`, in fill order. It reads only `fld`, `flow`,
+        // `dist` and `temp`, none of which the scatter below writes, so it is
+        // computed for every cell in parallel (2026-11-15; `collect` keeps the
+        // fill order); only the scatter into `delta`, where a cell's lateral
+        // neighbours take several contributions, stays serial and in the
+        // reference's order. Cells that do not erode (below the snowline,
+        // thawed, or with no receiver) are left out, as the loop skipped them.
+        let eroding: Vec<(usize, usize, f64)> = order
+            .par_iter()
+            .filter_map(|&oi| {
+                let i = oi as usize;
+                if (fld[i] as f64) < snow_el || temp[i] as f64 >= 0.0 {
+                    return None;
+                }
+                let r = receiver[i];
+                if r < 0 {
+                    return None;
+                }
+                let r = r as usize;
+                // JS `dist[i]||1`: a border-seeded cell never got a distance.
+                let dd = dist[i] as f64;
+                let denom = if dd != 0.0 { dd } else { 1.0 };
+                let slope = (fld[i] as f64 - fld[r] as f64).max(0.0) / denom;
+                let e = p.kg * p.g * (flow[i] as f64).powf(p.mg) * slope * 0.001;
+                // GF-4 (§4.4): scale by the exposed rock's `γ^c`. `fld` is not
+                // written until this pass's `delta` is applied below, so this is
+                // the pass-start surface. Without rock, `e` is the reference's.
+                let e = match (rock, gamma_c.as_ref()) {
+                    (Some(rk), Some(t)) => e * t[rk.exposed_code(i, fld[i])],
+                    _ => e,
+                };
+                Some((i, r, e))
+            })
+            .collect();
+        for &(i, r, e) in &eroding {
             delta[i] = (delta[i] as f64 - e) as f32;
             let x = (i % w) as i64;
             let y = (i / w) as i64;
@@ -860,10 +886,11 @@ fn glacial_core(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &GlacialPa
                 delta[i] = (delta[i] as f64 - e * 0.6) as f32;
             }
         }
-        for i in 0..n {
-            let v = fld[i] as f64 + delta[i] as f64;
-            store_clamped01(&mut fld[i], v, top);
-        }
+        // Per cell, independent: parallel.
+        fld.par_iter_mut().zip(delta.par_iter()).for_each(|(f, &d)| {
+            let v = *f as f64 + d as f64;
+            store_clamped01(f, v, top);
+        });
     }
 }
 

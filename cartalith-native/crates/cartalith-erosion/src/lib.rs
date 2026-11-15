@@ -517,76 +517,86 @@ pub(crate) fn d8_table() -> [f64; 9] {
 /// shape" — this exact sift-up/sift-down comparison and swap order is
 /// the thing being ported, not just "a min-heap."
 pub(crate) struct MinHeap {
-    p: Vec<f32>,
-    v: Vec<i32>,
+    /// `(priority, value)` pairs in heap layout. One array of pairs rather
+    /// than the reference's two parallel arrays (2026-11-15): a sift reads
+    /// and moves both halves of an entry together, so keeping them in one
+    /// cache line is the whole saving. The layout of entries is unchanged.
+    e: Vec<(f32, i32)>,
     len: usize,
 }
 
 impl MinHeap {
-    /// Preallocates both parallel arrays to `cap` (the grid's cell count —
-    /// the heap never holds more than one entry per cell), so `push` never
+    /// Preallocates the entry array to `cap` (the grid's cell count -- the
+    /// heap never holds more than one entry per cell), so `push` never
     /// reallocates mid-fill.
     pub(crate) fn new(cap: usize) -> Self {
-        Self { p: vec![0.0; cap], v: vec![0; cap], len: 0 }
+        Self { e: vec![(0.0, 0); cap], len: 0 }
     }
 
-    /// Current entry count (not capacity) — callers loop `while size() > 0`
+    /// Current entry count (not capacity) -- callers loop `while size() > 0`
     /// to drain the heap.
     pub(crate) fn size(&self) -> usize {
         self.len
     }
 
     /// Appends `(prio, val)` and sifts it up toward the root by parent
-    /// comparison, matching the JS `MinHeap.push`'s swap order exactly (the
-    /// tie-break this port must reproduce, per the struct's own doc comment).
+    /// comparison, matching the JS `MinHeap.push` exactly (the tie-break this
+    /// port must reproduce, per the struct's own doc comment). Written with a
+    /// moving hole instead of the reference's pairwise swaps (2026-11-15):
+    /// every comparison is the reference's, made against the same value (the
+    /// entry being sifted, which a swap would have carried along), so every
+    /// entry ends in the slot the swap form leaves it in, with fewer writes.
+    /// `minheap_matches_the_swap_form_pop_for_pop` holds it to the swap form.
     pub(crate) fn push(&mut self, prio: f32, val: i32) {
         let mut i = self.len;
         self.len += 1;
-        self.p[i] = prio;
-        self.v[i] = val;
         while i > 0 {
             let par = (i - 1) / 2;
-            if self.p[par] <= self.p[i] {
+            if self.e[par].0 <= prio {
                 break;
             }
-            self.p.swap(par, i);
-            self.v.swap(par, i);
+            self.e[i] = self.e[par];
             i = par;
         }
+        self.e[i] = (prio, val);
     }
 
-    /// Removes and returns the minimum-priority value: swaps the last entry
-    /// into the root slot, shrinks `len`, then sifts the new root down by
-    /// picking the smaller child at each step — the same left-child-first,
+    /// Removes and returns the minimum-priority value: takes the last entry
+    /// as the one to sift, shrinks `len`, then sifts it down from the root by
+    /// picking the smaller child at each step -- the same left-child-first,
     /// then-right-child comparison order as the JS `MinHeap.pop`, which is
-    /// what makes the fill order (and therefore lake shape) reproducible.
-    /// Must never be called on an empty heap (indexes `v[0]`/`p[0]`
+    /// what makes the fill order (and therefore lake shape) reproducible. A
+    /// moving hole, as in [`MinHeap::push`]: each child is compared with the
+    /// sifted entry's priority, exactly as the swap form compares it with
+    /// the slot the entry currently occupies.
+    /// Must never be called on an empty heap (indexes `e[0]`
     /// unconditionally); callers guard with [`MinHeap::size`].
     pub(crate) fn pop(&mut self) -> i32 {
-        let rv = self.v[0];
+        let rv = self.e[0].1;
         self.len -= 1;
         let last = self.len;
         if last > 0 {
-            self.p[0] = self.p[last];
-            self.v[0] = self.v[last];
+            let x = self.e[last];
             let mut i = 0usize;
             loop {
                 let l = 2 * i + 1;
                 let r = 2 * i + 2;
                 let mut s = i;
-                if l < last && self.p[l] < self.p[s] {
+                let mut sp = x.0;
+                if l < last && self.e[l].0 < sp {
                     s = l;
+                    sp = self.e[l].0;
                 }
-                if r < last && self.p[r] < self.p[s] {
+                if r < last && self.e[r].0 < sp {
                     s = r;
                 }
                 if s == i {
                     break;
                 }
-                self.p.swap(s, i);
-                self.v.swap(s, i);
+                self.e[i] = self.e[s];
                 i = s;
             }
+            self.e[i] = x;
         }
         rv
     }
@@ -900,8 +910,34 @@ fn stream_power_core(
     p: &StreamPowerParams,
     pinned: Option<&[bool]>,
     area_seed: Option<&[f32]>,
+    rock: Option<&mut StreamPowerRock>,
+    refresh_every: Option<std::num::NonZeroUsize>,
+) {
+    stream_power_core_with(fld, stress, resist, rain, w, h, p, pinned, area_seed, rock, refresh_every, true);
+}
+
+/// [`stream_power_core`] with the basin-parallel schedule as a switch:
+/// `basins = false` runs incision and deposition as the reference's single
+/// serial loops, `true` (every production caller) runs each independent
+/// drainage tree on its own rayon task ([`BasinGroups`]). The two are
+/// bit-identical; the switch exists so
+/// `basin_parallel_stream_power_is_bit_identical_to_the_serial_loops` can
+/// prove it. The rock path (`rock` is `Some`) always runs serially: its
+/// column is one `&mut` the tasks would share.
+#[allow(clippy::too_many_arguments)]
+fn stream_power_core_with(
+    fld: &mut [f32],
+    stress: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    pinned: Option<&[bool]>,
+    area_seed: Option<&[f32]>,
     mut rock: Option<&mut StreamPowerRock>,
     refresh_every: Option<std::num::NonZeroUsize>,
+    basins: bool,
 ) {
     let n = w * h;
     if let Some(m) = pinned {
@@ -970,6 +1006,37 @@ fn stream_power_core(
     // kernel by control flow).
     let StreamPowerRouting { mut order, mut rcv, mut rdist, mut area, mut cc } =
         stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
+    // Deposition's capacity factor `0.005 * area^0.5`, once per routing and in
+    // parallel, instead of once per cell per iteration inside the serial
+    // reverse-order carry (2026-11-15, `PERFORMANCE_BENCHMARKS.md` §12.6).
+    // `area` is fixed between routings, and the carry computes
+    // `0.005 * area.powf(0.5) * slope` left to right, so multiplying this
+    // stored product by `slope` is the same two roundings on the same values:
+    // bit-identical. Empty when the call deposits nothing.
+    let cap_k = |area: &[f32]| -> Vec<f64> {
+        if dep > 0.0 {
+            area.par_iter().map(|&a| 0.005 * (a as f64).powf(0.5)).collect()
+        } else {
+            Vec::new()
+        }
+    };
+    let mut cap_area = cap_k(&area);
+    // The independent drainage trees of the receiver forest, rebuilt with
+    // each routing (`BasinGroups`). Incision alone may cut the forest at
+    // pinned cells, whose heights never change; deposition carries sediment
+    // through pinned cells, so with deposition on the trees stay whole.
+    // With one worker the trees would run one after another anyway, so the
+    // grouping's extra passes would be pure cost: measured on the 6T at
+    // `RAYON_NUM_THREADS=1` (§12.6), the serial loops are then the faster form.
+    let use_basins = basins && rock.is_none() && rayon::current_num_threads() > 1;
+    let groups_for = |order: &[i32], rcv: &[i32]| -> Option<BasinGroups> {
+        if use_basins {
+            basin_groups(order, rcv, if dep > 0.0 { None } else { pinned })
+        } else {
+            None
+        }
+    };
+    let mut groups = groups_for(&order, &rcv);
     // The rock multiplier at cell `i`, read at its current height through
     // §2.5's exposure rule (`GeologyColumn::exposed`). A column always has a
     // top rock (GF-1 writes one per cell). An out-of-range code is refused
@@ -981,23 +1048,30 @@ fn stream_power_core(
         kc[k as usize]
     };
 
-    // NOT parallelized, this whole loop: a genuine donor-receiver
-    // wavefront dependency, not just across `p.iters` iterations but
-    // WITHIN a single iteration too -- `fld[i]`'s update reads `fld[r]`,
-    // which the receivers-before-donors comment below confirms was
-    // *already updated earlier in this same pass*. The deposition
-    // sub-loop below has the identical shape in reverse (scatters into
-    // `sed[r]`). Same category as `area`'s flow accumulation above.
+    // A genuine donor-receiver wavefront dependency, not just across
+    // `p.iters` iterations but WITHIN a single iteration too -- `fld[i]`'s
+    // update reads `fld[r]`, which the receivers-before-donors comment below
+    // confirms was *already updated earlier in this same pass*; deposition
+    // has the same shape in reverse (scatters into `sed[r]`). The dependency
+    // runs only along one drainage tree, though, so since 2026-11-15 each
+    // tree runs on its own task (`BasinGroups`, bit-identical); the
+    // whole-grid serial loops below are kept for the rock path and as the
+    // fallback.
     for it in 0..p.iters {
         if let Some(every) = refresh_every {
             if it > 0 && it as usize % every.get() == 0 {
                 StreamPowerRouting { order, rcv, rdist, area, cc } =
                     stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
+                cap_area = cap_k(&area);
+                groups = groups_for(&order, &rcv);
             }
         }
         let old_h: Option<Vec<f32>> = if dep > 0.0 { Some(fld.to_vec()) } else { None };
         // receivers-before-donors: `order` runs low-to-high fill order,
         // so a cell's receiver (always lower) is updated before it is.
+        if let Some(g) = groups.as_ref() {
+            incise_by_basin(fld, g, &rcv, &u, &cc, dt, pinned);
+        } else {
         #[allow(clippy::needless_range_loop)]
         for k in 0..n {
             let i = order[k] as usize;
@@ -1030,12 +1104,17 @@ fn stream_power_core(
                 }
             }
         }
+        }
         if dep > 0.0 {
             let old_h = old_h.expect("old_h is Some whenever dep > 0.0");
+            // Each cell's eroded column, independent per cell: parallel.
             let mut sed = vec![0f32; n];
-            for i in 0..n {
-                sed[i] = ((old_h[i] as f64 + dt * u[i] as f64 - fld[i] as f64).max(0.0)) as f32;
-            }
+            sed.par_iter_mut().enumerate().for_each(|(i, s)| {
+                *s = ((old_h[i] as f64 + dt * u[i] as f64 - fld[i] as f64).max(0.0)) as f32;
+            });
+            if let Some(g) = groups.as_ref() {
+                deposit_by_basin(fld, &mut sed, g, &DepositInputs { rcv: &rcv, rdist: &rdist, cap_area: &cap_area, old_h: &old_h, u: &u, dt, dep, sea, pinned });
+            } else {
             for k in (0..n).rev() {
                 let i = order[k] as usize;
                 let r = rcv[i];
@@ -1045,7 +1124,7 @@ fn stream_power_core(
                 let r = r as usize;
                 let rd = if rdist[i] != 0.0 { rdist[i] as f64 } else { 1.0 };
                 let slope = ((fld[i] as f64 - fld[r] as f64) / rd).max(1e-6);
-                let cap = 0.005 * (area[i] as f64).powf(0.5) * slope;
+                let cap = cap_area[i] * slope;
                 let ceil = old_h[i] as f64 + dt * u[i] as f64;
 
                 // A pinned cell deposits nothing (its height is fixed) and
@@ -1073,6 +1152,7 @@ fn stream_power_core(
                 }
                 sed[r] = (sed[r] as f64 + sed[i] as f64) as f32;
             }
+            }
         }
     }
 
@@ -1087,6 +1167,392 @@ fn stream_power_core(
 /// `w * h` long. `rcv[i]` is `-1` for a cell with no lower neighbour (a pit
 /// or the fill's own boundary), and such a cell's `cc[i]` is `0.0` and is
 /// never read.
+/// Cells per block of [`mfd_area_scatter`]'s parallel weight pass. A
+/// labelled judgement, not a measurement: 32 768 cells of [`MfdFan`] (104
+/// bytes each) is 3.4 MB of scratch, small beside the grid's own buffers on a
+/// phone, and each block is thousands of cells per rayon task. The value
+/// cannot move the output -- it only decides how far ahead of the serial
+/// scatter the weights are computed -- and the tests run block sizes that do
+/// not divide the grid.
+const MFD_AREA_BLOCK: usize = 32_768;
+
+/// One cell's downslope fan for [`mfd_area_scatter`]: the receiving
+/// neighbours in the reference's `dy`-then-`dx` visiting order (`j`, ended by
+/// `-1` when fewer than eight), each neighbour's `sl.powf(1.1)` weight, and
+/// their sum `sw` accumulated in that same order.
+#[derive(Clone, Copy)]
+struct MfdFan {
+    j: [i32; 8],
+    pw: [f64; 8],
+    sw: f64,
+}
+
+/// The stream-power routing's multiple-flow-direction drainage area: walks
+/// `order` from its end to its start (high to low) and has each cell hand its
+/// `area` to every strictly lower neighbour in proportion to `slope^1.1`
+/// (`p = 1.1`, the reference's MFD exponent). Must never be fed a `filled`
+/// that changes during the pass; `area` is updated in place.
+///
+/// The weights are computed in parallel a block at a time and the scatter
+/// replays them serially in the reference's order -- see the call site for
+/// why that is bit-identical to the one-loop form it replaced (kept as the
+/// oracle in `mfd_area_blocked_is_bit_identical_to_the_serial_pass`).
+fn mfd_area_scatter(area: &mut [f32], order: &[i32], filled: &[f32], w: usize, h: usize, wrap: bool, d8: &[f64; 9]) {
+    // With one worker there is nothing to overlap, and staging the weights
+    // through the block only adds memory traffic (measured on the 6T at
+    // `RAYON_NUM_THREADS=1`, §12.6), so the one-loop form runs instead.
+    if rayon::current_num_threads() > 1 {
+        mfd_area_scatter_blocked(area, order, filled, w, h, wrap, d8, MFD_AREA_BLOCK);
+    } else {
+        mfd_area_scatter_serial(area, order, filled, w, h, wrap, d8);
+    }
+}
+
+/// The MFD area pass as one loop, exactly as `stream_power_routing` carried
+/// it before 2026-11-15: each cell's weights are computed where they are
+/// scattered. The single-worker path of [`mfd_area_scatter`], and the oracle
+/// `mfd_area_blocked_is_bit_identical_to_the_serial_pass` holds the blocked
+/// form to.
+fn mfd_area_scatter_serial(area: &mut [f32], order: &[i32], filled: &[f32], w: usize, h: usize, wrap: bool, d8: &[f64; 9]) {
+    let n = order.len();
+    for k in (0..n).rev() {
+        let i = order[k] as usize;
+        let x = (i % w) as i64;
+        let y = (i / w) as i64;
+        let hh = filled[i] as f64;
+        let a = area[i] as f64;
+        let mut sw = 0.0f64;
+        for dy in -1i64..=1 {
+            for dx in -1i64..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let mut nx = x + dx;
+                let ny = y + dy;
+                if wrap {
+                    nx = ((nx % w as i64) + w as i64) % w as i64;
+                } else if nx < 0 || nx >= w as i64 {
+                    continue;
+                }
+                if ny < 0 || ny >= h as i64 {
+                    continue;
+                }
+                let j = (ny * w as i64 + nx) as usize;
+                let sl = (hh - filled[j] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                if sl > 0.0 {
+                    sw += sl.powf(1.1);
+                }
+            }
+        }
+        if sw > 0.0 {
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let mut nx = x + dx;
+                    let ny = y + dy;
+                    if wrap {
+                        nx = ((nx % w as i64) + w as i64) % w as i64;
+                    } else if nx < 0 || nx >= w as i64 {
+                        continue;
+                    }
+                    if ny < 0 || ny >= h as i64 {
+                        continue;
+                    }
+                    let j = (ny * w as i64 + nx) as usize;
+                    let sl = (hh - filled[j] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                    if sl > 0.0 {
+                        area[j] = (area[j] as f64 + a * sl.powf(1.1) / sw) as f32;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// [`mfd_area_scatter`] with the block size as an argument, so the tests can
+/// prove the block size moves nothing. `block` must be at least 1.
+#[allow(clippy::too_many_arguments)]
+fn mfd_area_scatter_blocked(
+    area: &mut [f32],
+    order: &[i32],
+    filled: &[f32],
+    w: usize,
+    h: usize,
+    wrap: bool,
+    d8: &[f64; 9],
+    block: usize,
+) {
+    assert!(block >= 1, "mfd_area_scatter_blocked: block must be at least 1");
+    let n = order.len();
+    let mut fans = vec![MfdFan { j: [-1; 8], pw: [0.0; 8], sw: 0.0 }; block.min(n)];
+    let mut hi = n;
+    while hi > 0 {
+        let lo = hi.saturating_sub(block);
+        let fans = &mut fans[..hi - lo];
+        // Slot `s` holds order position `hi - 1 - s`, so walking the slots
+        // upward walks the order downward, as the reference does.
+        fans.par_iter_mut().enumerate().for_each(|(s, f)| {
+            let i = order[hi - 1 - s] as usize;
+            let x = (i % w) as i64;
+            let y = (i / w) as i64;
+            let hh = filled[i] as f64;
+            let mut sw = 0.0f64;
+            let mut m = 0usize;
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let mut nx = x + dx;
+                    let ny = y + dy;
+                    if wrap {
+                        nx = ((nx % w as i64) + w as i64) % w as i64;
+                    } else if nx < 0 || nx >= w as i64 {
+                        continue;
+                    }
+                    if ny < 0 || ny >= h as i64 {
+                        continue;
+                    }
+                    let j = (ny * w as i64 + nx) as usize;
+                    let sl = (hh - filled[j] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                    if sl > 0.0 {
+                        let pw = sl.powf(1.1);
+                        sw += pw;
+                        f.j[m] = j as i32;
+                        f.pw[m] = pw;
+                        m += 1;
+                    }
+                }
+            }
+            if m < 8 {
+                f.j[m] = -1;
+            }
+            f.sw = sw;
+        });
+        for (s, f) in fans.iter().enumerate() {
+            if f.sw > 0.0 {
+                let a = area[order[hi - 1 - s] as usize] as f64;
+                for m in 0..8 {
+                    let j = f.j[m];
+                    if j < 0 {
+                        break;
+                    }
+                    let j = j as usize;
+                    area[j] = (area[j] as f64 + a * f.pw[m] / f.sw) as f32;
+                }
+            }
+        }
+        hi = lo;
+    }
+}
+
+/// A `*mut T` that rayon tasks may share. Sound only under the discipline
+/// [`BasinGroups`] provides: every cell is written by exactly one task, and
+/// a task reads another cell only when that cell belongs to the same task
+/// (its receiver, or a cell whose value no task writes).
+#[derive(Clone, Copy)]
+struct SharedMut<T>(*mut T);
+// SAFETY: see the type's doc comment; the pointer is only dereferenced at
+// indices the owning basin task alone writes.
+unsafe impl<T: Send> Send for SharedMut<T> {}
+// SAFETY: as for `Send`.
+unsafe impl<T: Send> Sync for SharedMut<T> {}
+
+/// The receiver forest of one stream-power routing split into its
+/// independent trees ("basins"), each tree's cells kept in `order` sequence
+/// (2026-11-15, `PERFORMANCE_BENCHMARKS.md` §12.6; the scope's §2.2 found the
+/// fill order is only a topological order).
+///
+/// **Why this is bit-identical to the serial loops.** Incision (7a) updates a
+/// cell from its own old height and its receiver's height *after this pass*;
+/// deposition (7b) reads its receiver's height before 7b touches it and adds
+/// its sediment into the receiver. A cell's receiver is always in its own
+/// tree, so a tree never reads or writes another tree's cells, and walking
+/// one tree's cells in their `order` sequence (forward for 7a, backward for
+/// 7b) performs, for every cell, the same operations on the same values as
+/// the whole-grid loop -- including the order of the f32 additions of
+/// several donors into one receiver's `sed`, which is their relative order
+/// in `order`. Trees run on separate rayon tasks, largest first.
+///
+/// `cut` (incision without deposition only) ends a tree at a pinned cell:
+/// a pinned cell's height never changes, so its donors may start trees of
+/// their own; pinned cells are then left out, since incision skips them.
+pub(crate) struct BasinGroups {
+    /// Cell indices, tree by tree, each tree in `order` sequence.
+    cells: Vec<u32>,
+    /// Tree `g` is `cells[starts[g]..starts[g + 1]]`; trees largest first.
+    starts: Vec<usize>,
+}
+
+impl BasinGroups {
+    /// Runs `f` on every tree's cells, the trees in parallel.
+    fn for_each(&self, f: impl Fn(&[u32]) + Sync) {
+        (0..self.starts.len() - 1).into_par_iter().with_max_len(1).for_each(|g| f(&self.cells[self.starts[g]..self.starts[g + 1]]));
+    }
+}
+
+/// Splits `order`'s receiver forest into [`BasinGroups`]. `None` when
+/// `order` is not receivers-before-donors at some cell (the fill guarantees
+/// it is, scope §2.2), so the caller falls back to the serial loops rather
+/// than schedule a cell ahead of its receiver.
+pub(crate) fn basin_groups(order: &[i32], rcv: &[i32], cut: Option<&[bool]>) -> Option<BasinGroups> {
+    let n = order.len();
+    let skip = |c: usize| cut.is_some_and(|m| m[c]);
+    // Each cell's tree root, and each root's cell count.
+    let mut root = vec![u32::MAX; n];
+    let mut slot = vec![0u32; n];
+    for &c in order {
+        let c = c as usize;
+        if skip(c) {
+            continue;
+        }
+        let r = rcv[c];
+        let g = if r < 0 || skip(r as usize) {
+            c as u32
+        } else {
+            let g = root[r as usize];
+            if g == u32::MAX {
+                return None;
+            }
+            g
+        };
+        root[c] = g;
+        slot[g as usize] += 1;
+    }
+    let mut roots: Vec<u32> = (0..n as u32).into_par_iter().filter(|&c| slot[c as usize] > 0).collect();
+    roots.par_sort_unstable_by(|&a, &b| slot[b as usize].cmp(&slot[a as usize]).then(a.cmp(&b)));
+    let mut starts = Vec::with_capacity(roots.len() + 1);
+    let mut at = 0usize;
+    for &g in &roots {
+        starts.push(at);
+        let len = slot[g as usize] as usize;
+        slot[g as usize] = at as u32;
+        at += len;
+    }
+    starts.push(at);
+    let mut cells = vec![0u32; at];
+    for &c in order {
+        let c = c as usize;
+        if skip(c) {
+            continue;
+        }
+        let g = root[c] as usize;
+        cells[slot[g] as usize] = c as u32;
+        slot[g] += 1;
+    }
+    Some(BasinGroups { cells, starts })
+}
+
+/// One incision pass (scope phase 7a, no rock column) tree by tree: the
+/// serial loop's `(fld[i] + dt*u[i] + c*fld[r]) / (1 + c)`, unchanged.
+fn incise_by_basin(fld: &mut [f32], g: &BasinGroups, rcv: &[i32], u: &[f32], cc: &[f64], dt: f64, pinned: Option<&[bool]>) {
+    let fp = SharedMut(fld.as_mut_ptr());
+    g.for_each(|cells| {
+        let fp = fp;
+        for &c in cells {
+            let i = c as usize;
+            let r = rcv[i];
+            if r < 0 || pinned.is_some_and(|m| m[i]) {
+                continue;
+            }
+            let c = cc[i];
+            // SAFETY: `i` and its receiver are in this tree only (see
+            // `BasinGroups`), or the receiver is pinned and never written.
+            unsafe {
+                let val = (*fp.0.add(i) as f64 + dt * u[i] as f64 + c * *fp.0.add(r as usize) as f64) / (1.0 + c);
+                *fp.0.add(i) = val as f32;
+            }
+        }
+    });
+}
+
+/// A single-receiver accumulation `acc[r] += acc[i]` over `g`'s trees, each
+/// walked backward in `order` sequence, the trees in parallel. Every
+/// receiver takes its donors' f32 additions in the reference's order, so the
+/// result is the serial reverse-order loop's, bit for bit (`BasinGroups`).
+/// Used by the glacial pass's ice-flux accumulation.
+pub(crate) fn accumulate_by_basin(acc: &mut [f32], g: &BasinGroups, rcv: &[i32]) {
+    let ap = SharedMut(acc.as_mut_ptr());
+    g.for_each(|cells| {
+        let ap = ap;
+        for &c in cells.iter().rev() {
+            let i = c as usize;
+            let r = rcv[i];
+            if r >= 0 {
+                // SAFETY: `i` and `r` are in this tree only (`BasinGroups`).
+                unsafe {
+                    let ar = ap.0.add(r as usize);
+                    *ar = (*ar as f64 + *ap.0.add(i) as f64) as f32;
+                }
+            }
+        }
+    });
+}
+
+/// What [`deposit_by_basin`] reads besides the two fields it writes.
+struct DepositInputs<'a> {
+    rcv: &'a [i32],
+    rdist: &'a [f32],
+    cap_area: &'a [f64],
+    old_h: &'a [f32],
+    u: &'a [f32],
+    dt: f64,
+    dep: f64,
+    sea: f64,
+    pinned: Option<&'a [bool]>,
+}
+
+/// One deposition pass (scope phase 7b) tree by tree, each tree walked
+/// backward: the serial loop's capacity clamp, below-sea dump and
+/// `sed[r] += sed[i]` carry, unchanged.
+fn deposit_by_basin(fld: &mut [f32], sed: &mut [f32], g: &BasinGroups, d: &DepositInputs) {
+    let fp = SharedMut(fld.as_mut_ptr());
+    let sp = SharedMut(sed.as_mut_ptr());
+    g.for_each(|cells| {
+        let (fp, sp) = (fp, sp);
+        for &c in cells.iter().rev() {
+            let i = c as usize;
+            let r = d.rcv[i];
+            if r < 0 {
+                continue;
+            }
+            let r = r as usize;
+            // SAFETY: `i` and `r` belong to this tree alone (the groups are
+            // built uncut whenever deposition runs).
+            unsafe {
+                let fld_i = fp.0.add(i);
+                let sed_i = sp.0.add(i);
+                let rd = if d.rdist[i] != 0.0 { d.rdist[i] as f64 } else { 1.0 };
+                let slope = ((*fld_i as f64 - *fp.0.add(r) as f64) / rd).max(1e-6);
+                let cap = d.cap_area[i] * slope;
+                let ceil = d.old_h[i] as f64 + d.dt * d.u[i] as f64;
+                if !d.pinned.is_some_and(|m| m[i]) {
+                    if *sed_i as f64 > cap {
+                        let mut dd = (*sed_i as f64 - cap) * d.dep;
+                        if *fld_i as f64 + dd > ceil {
+                            dd = (ceil - *fld_i as f64).max(0.0);
+                        }
+                        *fld_i = (*fld_i as f64 + dd) as f32;
+                        *sed_i = (*sed_i as f64 - dd) as f32;
+                    }
+                    if *fld_i as f64 <= d.sea && *sed_i as f64 > 0.0 {
+                        let mut dd = *sed_i as f64 * d.dep * 0.8;
+                        if *fld_i as f64 + dd > ceil {
+                            dd = (ceil - *fld_i as f64).max(0.0);
+                        }
+                        *fld_i = (*fld_i as f64 + dd) as f32;
+                        *sed_i = (*sed_i as f64 - dd) as f32;
+                    }
+                }
+                let sed_r = sp.0.add(r);
+                *sed_r = (*sed_r as f64 + *sed_i as f64) as f32;
+            }
+        }
+    });
+}
+
 struct StreamPowerRouting {
     /// Cell indices in priority-flood order, lowest filled height first, so a
     /// receiver is always updated before its donors.
@@ -1253,69 +1719,27 @@ fn stream_power_routing(
         *rdist_i = brd;
     });
 
-    // NOT parallelized: descending-order flow accumulation -- each cell
-    // scatters its own accumulated `area` into its downstream donors
-    // (`area[j] += ...`), the same genuine cross-cell dependency already
-    // confirmed unsafe for `cartalith-hydrology::compute_flow` and flagged
-    // in `CPU_MULTITHREADING_SCOPE.md`/`GPU_LAYER_INTEGRATION_SCOPE.md`.
+    // Descending-order MFD area accumulation, split into a parallel half and
+    // a serial half (2026-11-15, owner: *"use the multicore/multithreading"*;
+    // `PERFORMANCE_BENCHMARKS.md` §12.6). The scatter `area[j] += ...` is a
+    // real cross-cell dependency -- a cell's own `area` is final only once
+    // every higher donor has scattered into it, and the order of the f32
+    // additions into one `area[j]` decides its rounding -- so the scatter
+    // itself stays serial, in exactly the reference's order. What does not
+    // depend on `area` at all is each cell's eight slope weights
+    // `sl.powf(1.1)` and their sum `sw`: they read only `filled`, which is
+    // fixed for the whole pass. Those (two `powf` per downslope neighbour,
+    // most of the cost) are computed in parallel for a block of the order at
+    // a time, then the serial scatter replays the reference's arithmetic,
+    // `area[j] + a * pw / sw`, with the very same `f64` values. Bit-identical
+    // by construction, not by tolerance: same operands, same operations, same
+    // order of additions into every cell. Protected by
+    // `mfd_area_blocked_is_bit_identical_to_the_serial_pass`.
     let mut area = match area_seed {
         Some(a) => a.to_vec(),
         None => vec![1f32; n],
     };
-    for k in (0..n).rev() {
-        let i = order[k] as usize;
-        let x = (i % w) as i64;
-        let y = (i / w) as i64;
-        let hh = filled[i] as f64;
-        let a = area[i] as f64;
-        let mut sw = 0.0f64;
-        for dy in -1i64..=1 {
-            for dx in -1i64..=1 {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                let mut nx = x + dx;
-                let ny = y + dy;
-                if wrap {
-                    nx = ((nx % w as i64) + w as i64) % w as i64;
-                } else if nx < 0 || nx >= w as i64 {
-                    continue;
-                }
-                if ny < 0 || ny >= h as i64 {
-                    continue;
-                }
-                let j = (ny * w as i64 + nx) as usize;
-                let sl = (hh - filled[j] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                if sl > 0.0 {
-                    sw += sl.powf(1.1);
-                }
-            }
-        }
-        if sw > 0.0 {
-            for dy in -1i64..=1 {
-                for dx in -1i64..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let mut nx = x + dx;
-                    let ny = y + dy;
-                    if wrap {
-                        nx = ((nx % w as i64) + w as i64) % w as i64;
-                    } else if nx < 0 || nx >= w as i64 {
-                        continue;
-                    }
-                    if ny < 0 || ny >= h as i64 {
-                        continue;
-                    }
-                    let j = (ny * w as i64 + nx) as usize;
-                    let sl = (hh - filled[j] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                    if sl > 0.0 {
-                        area[j] = (area[j] as f64 + a * sl.powf(1.1) / sw) as f32;
-                    }
-                }
-            }
-        }
-    }
+    mfd_area_scatter(&mut area, &order, &filled, w, h, wrap, &d8);
 
     // `order[k]` only ever supplies an index `i` here -- the computation
     // itself doesn't depend on `k`/visitation order, and `order` visits
@@ -1550,5 +1974,224 @@ mod pinned_refreshed_tests {
             }
         }
         assert!(lowered > 50, "the unpinned box was barely incised: {lowered}");
+    }
+}
+
+#[cfg(test)]
+mod mfd_area_tests {
+    use super::*;
+
+    /// A field with flats (quantised to 1/64, so ties and zero slopes occur),
+    /// a random area seed, and a shuffled visiting order -- the pass's
+    /// bit-identity cannot depend on the order being a valid fill order.
+    fn case(w: usize, h: usize, seed: u32) -> (Vec<f32>, Vec<f32>, Vec<i32>) {
+        let mut r = Mulberry32::new(seed);
+        let n = w * h;
+        let filled: Vec<f32> = (0..n).map(|_| ((r.next_f64() * 64.0).floor() / 64.0) as f32).collect();
+        let area: Vec<f32> = (0..n).map(|_| (0.5 + r.next_f64()) as f32).collect();
+        let mut order: Vec<i32> = (0..n as i32).collect();
+        for k in (1..n).rev() {
+            let j = (r.next_f64() * (k + 1) as f64) as usize;
+            order.swap(k, j);
+        }
+        (filled, area, order)
+    }
+
+    /// Protects: the weight pass's scratch stays the 3.4 MB its constant's
+    /// doc comment states (32 768 cells of a 104-byte fan), so a change to
+    /// either is a change to the stated phone memory cost.
+    #[test]
+    fn mfd_area_block_scratch_is_three_point_four_megabytes() {
+        assert_eq!(std::mem::size_of::<MfdFan>(), 104);
+        assert_eq!(MFD_AREA_BLOCK * std::mem::size_of::<MfdFan>(), 3_407_872);
+    }
+
+    /// Protects: the blocked, parallel-weight MFD pass gives the same bits as
+    /// the serial loop it replaced, wrapping and not, for block sizes that
+    /// are 1, do not divide the grid, equal it and exceed it -- so the
+    /// generated world (`device_stage_bench`'s digest) cannot move with it.
+    #[test]
+    fn mfd_area_blocked_is_bit_identical_to_the_serial_pass() {
+        let d8 = d8_table();
+        for &(w, h, wrap, seed) in &[(37usize, 23usize, false, 1u32), (37, 23, true, 2), (2, 5, true, 3), (64, 40, true, 4)] {
+            let (filled, area0, order) = case(w, h, seed);
+            let mut want = area0.clone();
+            mfd_area_scatter_serial(&mut want, &order, &filled, w, h, wrap, &d8);
+            assert!(want.iter().zip(&area0).any(|(a, b)| a != b), "fixture must move some area");
+            for block in [1usize, 7, 300, w * h, w * h + 5] {
+                let mut got = area0.clone();
+                mfd_area_scatter_blocked(&mut got, &order, &filled, w, h, wrap, &d8, block);
+                let same = got.iter().zip(&want).all(|(a, b)| a.to_bits() == b.to_bits());
+                assert!(same, "{w}x{h} wrap={wrap} block={block}: differs from the serial pass");
+            }
+            let mut got = area0.clone();
+            mfd_area_scatter(&mut got, &order, &filled, w, h, wrap, &d8);
+            assert!(got.iter().zip(&want).all(|(a, b)| a.to_bits() == b.to_bits()), "default block differs");
+        }
+    }
+}
+
+#[cfg(test)]
+mod minheap_tests {
+    use super::*;
+
+    /// The reference's two-array, pairwise-swap heap exactly as this file
+    /// carried it before 2026-11-15, kept as the oracle.
+    struct SwapHeap {
+        p: Vec<f32>,
+        v: Vec<i32>,
+        len: usize,
+    }
+    impl SwapHeap {
+        fn push(&mut self, prio: f32, val: i32) {
+            let mut i = self.len;
+            self.len += 1;
+            self.p[i] = prio;
+            self.v[i] = val;
+            while i > 0 {
+                let par = (i - 1) / 2;
+                if self.p[par] <= self.p[i] {
+                    break;
+                }
+                self.p.swap(par, i);
+                self.v.swap(par, i);
+                i = par;
+            }
+        }
+        fn pop(&mut self) -> i32 {
+            let rv = self.v[0];
+            self.len -= 1;
+            let last = self.len;
+            if last > 0 {
+                self.p[0] = self.p[last];
+                self.v[0] = self.v[last];
+                let mut i = 0usize;
+                loop {
+                    let l = 2 * i + 1;
+                    let r = 2 * i + 2;
+                    let mut s = i;
+                    if l < last && self.p[l] < self.p[s] {
+                        s = l;
+                    }
+                    if r < last && self.p[r] < self.p[s] {
+                        s = r;
+                    }
+                    if s == i {
+                        break;
+                    }
+                    self.p.swap(s, i);
+                    self.v.swap(s, i);
+                    i = s;
+                }
+            }
+            rv
+        }
+    }
+
+    /// Protects: the hole-sift, paired-array heap pops values in exactly the
+    /// swap form's order under heavy ties (priorities drawn from eight
+    /// levels), interleaved pushes and pops, and full drains -- the
+    /// tie order is what decides fill order and lake shape downstream.
+    #[test]
+    fn minheap_matches_the_swap_form_pop_for_pop() {
+        let mut r = Mulberry32::new(7);
+        let cap = 4000;
+        let mut a = MinHeap::new(cap);
+        let mut b = SwapHeap { p: vec![0.0; cap], v: vec![0; cap], len: 0 };
+        let mut next = 0i32;
+        let mut pops = 0usize;
+        for _ in 0..20_000 {
+            if a.size() < cap && (a.size() == 0 || r.next_f64() < 0.55) {
+                let prio = ((r.next_f64() * 8.0).floor() / 8.0) as f32;
+                a.push(prio, next);
+                b.push(prio, next);
+                next += 1;
+            } else {
+                assert_eq!(a.pop(), b.pop(), "pop {pops} differs");
+                pops += 1;
+            }
+            assert_eq!(a.size(), b.len);
+        }
+        while a.size() > 0 {
+            assert_eq!(a.pop(), b.pop(), "drain pop {pops} differs");
+            pops += 1;
+        }
+        assert!(pops > 5_000, "the sequence must exercise many pops ({pops})");
+    }
+}
+
+#[cfg(test)]
+mod basin_parallel_tests {
+    use super::*;
+
+    /// A rough 97 x 61 surface (a dome, ripples and quantised noise, so the
+    /// receiver forest has many trees, flats and a sea), its stress, rain and
+    /// resistance, and a pinned mask outside a central box.
+    fn fixture(seed: u32) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<bool>, usize, usize) {
+        let (w, h) = (97usize, 61usize);
+        let mut r = Mulberry32::new(seed);
+        let f: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f64, (i / w) as f64);
+                let dome = 0.5 * (-((x - 48.0).powi(2) + (y - 30.0).powi(2)) / 600.0).exp();
+                let noise = (r.next_f64() * 32.0).floor() / 32.0 * 0.06;
+                (0.25 + dome + 0.03 * (x * 0.7).sin() * (y * 0.4).cos() + noise) as f32
+            })
+            .collect();
+        let stress: Vec<f32> = (0..w * h).map(|_| (r.next_f64() - 0.4) as f32).collect();
+        let rain: Vec<f32> = (0..w * h).map(|_| r.next_f64() as f32).collect();
+        let resist: Vec<f32> = (0..w * h).map(|_| r.next_f64() as f32).collect();
+        let pinned: Vec<bool> = (0..w * h).map(|i| !((20..77).contains(&(i % w)) && (10..50).contains(&(i / w)))).collect();
+        (f, stress, rain, resist, pinned, w, h)
+    }
+
+    /// Protects: the basin-parallel incision and deposition give the same
+    /// bits as the serial loops, in the shapes production runs -- the
+    /// orogen dissection (pinned, routing refreshed, no deposition), the
+    /// light pass (deposition on), a pinned run with deposition (uncut
+    /// trees) and the world wrap -- so `device_stage_bench`'s digest cannot
+    /// move with the schedule.
+    #[test]
+    fn basin_parallel_stream_power_is_bit_identical_to_the_serial_loops() {
+        let base = StreamPowerParams { k: 0.03, uplift: 0.002, deposit: 0.0, climate_k: 0.5, iters: 9, resist: 0.4, g: 1.0, world: false, sea: 0.3 };
+        let every = std::num::NonZeroUsize::new(4);
+        for (name, dep, pin, wrap, refresh) in [
+            ("dissect", 0.0, true, false, every),
+            ("light", 0.3, false, false, None),
+            ("pinned+deposit", 0.3, true, false, every),
+            ("world", 0.3, false, true, None),
+        ] {
+            let (f0, stress, rain, resist, pinned, w, h) = fixture(11);
+            let p = StreamPowerParams { deposit: dep, world: wrap, iters: if refresh.is_some() { 12 } else { 9 }, ..base };
+            let pin = pin.then_some(pinned.as_slice());
+            let mut serial = f0.clone();
+            stream_power_core_with(&mut serial, &stress, &resist, &rain, w, h, &p, pin, None, None, refresh, false);
+            let mut par = f0.clone();
+            stream_power_core_with(&mut par, &stress, &resist, &rain, w, h, &p, pin, None, None, refresh, true);
+            let moved = serial.iter().zip(&f0).filter(|(a, b)| a != b).count();
+            assert!(moved > 500, "{name}: the fixture must erode ({moved} cells moved)");
+            let same = serial.iter().zip(&par).all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "{name}: basin-parallel result differs from the serial loops");
+        }
+    }
+
+    /// Protects: the trees really are independent and complete -- every
+    /// unskipped cell appears once, in `order` sequence within its tree, and
+    /// its receiver (when not a root or cut) is in the same tree.
+    #[test]
+    fn basin_groups_partition_the_forest() {
+        // order 0..6 ascending; receivers: 1->0, 2->0, 3->1, 4 root, 5->4.
+        let order = [0, 1, 2, 3, 4, 5];
+        let rcv = [-1, 0, 0, 1, -1, 4];
+        let g = basin_groups(&order, &rcv, None).expect("topological order");
+        assert_eq!(g.starts, vec![0, 4, 6], "two trees, the larger first");
+        assert_eq!(g.cells, vec![0, 1, 2, 3, 4, 5]);
+        // Cutting at cell 1 (pinned): 1 drops out, 3 starts its own tree.
+        let cut = [false, true, false, false, false, false];
+        let g = basin_groups(&order, &rcv, Some(&cut)).expect("topological order");
+        assert_eq!(g.cells.len(), 5);
+        assert_eq!(g.starts.len() - 1, 3, "trees {{0,2}}, {{4,5}} and {{3}}");
+        // A donor ahead of its receiver is refused, not scheduled.
+        assert!(basin_groups(&[1, 0], &[0, -1], None).is_none());
     }
 }

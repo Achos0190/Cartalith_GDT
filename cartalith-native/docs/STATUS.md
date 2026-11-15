@@ -50,6 +50,36 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Serial generation stages parallelised, bit-identically; GPU per stage and the big.LITTLE thread rule (2026-11-15, owner: "use the multicore/multithreading ... a base for the pad and other mobile devices")
+
+Measured on the PC and the OnePlus 6T over `adb` (the Pad 3 was off) with `device_stage_bench`, release with LTO,
+interleaved, before = `2e9fd4db` in its own worktree. Full tables and method: `PERFORMANCE_BENCHMARKS.md` section 12.6.
+
+- **Result, median (min..max), 5 runs:** 6T 54.09 s (53.75..54.19) to **39.83 s** (39.64..40.25), terrain busy cores
+  1.78 to 2.74; PC 10.47 s (10.34..10.90) to **7.14 s** (6.99..7.25). Per stage, 6T: tectonics 20.48 to 14.40, erosion
+  7.19 to 3.72, hydrology 2.07 to 1.59, climate 8.32 to 7.10, civilisation 13.06 to 10.45.
+- **Built, all bit-identical** (same operands, operations and f32 addition order; each has a test against the form it
+  replaced): stream power's MFD area pass with its weights computed in parallel per block (`mfd_area_scatter`);
+  incision and deposition per independent drainage tree (`BasinGroups`, `incise_by_basin`, `deposit_by_basin`; the
+  CPU half of `GPU_STREAM_POWER_SCOPE.md` SP-G1's bit-identical reformulation for phases 5, 7a and 7b, by trees rather
+  than levels); `MinHeap` with a moving hole; D8 flow receivers in parallel (`compute_flow_with`); the glacial ice-flux
+  accumulation per tree; `compute_stress` without a per-cell `Vec`; the coast SDF's two jump floods side by side; the
+  capitals' Dijkstras in 64 MiB batches (`territory_dijkstra_batch`). With one worker the MFD and tree paths fall back
+  to the serial loops.
+- **Thread rule** (`cartalith_engine::auto_thread_count`): auto = every core in `/proc/self/status`'s
+  `Cpus_allowed_list` when larger than `available_parallelism()` (which reads 6 of the 6T's 8 because of core parking);
+  8 workers beat 6 by 4 % on the 6T. No per-device or big/little table.
+- **GPU:** no end-to-end gain on either machine (6T 43.29 s GPU vs 41.62 s CPU at 6 workers; PC 7.33 vs 7.14 s).
+  New `cartalith-engine/src/gpu_divergence_bench.rs` feeds each GPU kernel the same CPU inputs on each device; the
+  section names which kernels differ between the PC and the 6T and why. Ruling EY's CPU default on touch devices stands.
+- **Determinism:** CPU digest `terrain=632b22edf25908e1 civ=65905050eba0a3e3` (40 settlements, 60 ways) on the PC and
+  the 6T before and after, at 1, 6, 8 and 16 workers (the civ half moved from 12.3's value with `32d032fd`, before this
+  work). GPU digests unchanged before/after on each device (and different between them).
+- **Verified:** `cargo test --workspace --no-fail-fast`: 278 result lines, 8 387 passed, 0 failed, 177 ignored. 14 mutants (the two new constants, the block and tree orders, the cut rule, the heap comparison, the glacial accumulation, the territory merge order, the stress neighbour, the receiver wrap): 14 killed. The final Android build on the 6T at its defaults: 8 workers chosen while `available_parallelism()` read 6, 39.19 s (39.14..39.33), same digest. No GDScript touched; no APK built (test binaries per `ANDROID_BUILD_SCOPE.md` section 3.14's Cargo step).
+- **Left** (rows in `OUTSTANDING_WORK.md`): the section 7p floor (priority floods, in-place jump floods), the thread
+  rule reaching the app before a shell `par_iter` builds the pool, the Pad 3 re-measurement, and the GPU path's
+  per-device world.
+
 ### Tablet landscape dock at 320 dp (2026-11-15): BUILT, verified by probe and screenshots
 
 **Built:** `DccTheme.W_DOCK_TABLET` and `ROLE` `w_left_dock`/`w_right_dock` are 320 (were 400); portrait keeps `TABLET_PORTRAIT`'s 232. The content reflow that had blocked it: new `DccWidgets.stack_slider_row()` and `dock_slider()` (the two-line label/readout over track cell, one-way, tablet only, a no-op on desktop and phone), used by every slider in the CARTO workspace's docked panels, the render workspace's Look/NPR/layer rows, CIVIL's Crowding/exposure/timeline/sim sliders and WORLD's sculpt parameter, brush and paint sliders; `world_workspace.gd::_wrap_slider_cell` now mounts its two-line cell on both tablet orientations; `journey_planner_view.gd::_animal_pair` stacks its label above the two spin boxes and the "ANIMAL DEFINITIONS" label wraps; the Icons placement chips (`cartography_workspace.gd::_build_icon_placement`) and the sculpt presets (`world_workspace.gd::_build_presets`) are `HFlowContainer`s on tablet; the landmark cap rows narrow their track to `LM_TABLET_TRACK_W` (48, a labelled judgement; `_lm_track_w()` reads it so the under-bars stay flush). **Measured (windowless, `_ds03fit_probe.gd --force-touch`, 2560x1600 and 1700x1000, wiped APPDATA):** 32 failures at 320 before, 4 after, the same 4 as at 400 (`boot world/b`, `boot civilization/factions` and `infra`, `world civilization/factions`: "the panel still carries its inventory", unrelated to width). **Desktop (1600x900 `_ds03fit`, `_dockfit` 1920/1366, `_worldportraitgrid`, `_ds03reflow`) and phone (`_ds03fit` 1080x2400 `--density 2.625`, 81 failures before and after) outputs are identical to origin/main apart from pointer ids, build hash and a random seed.** Probe literals 400 became 320 in `_tabfit`, `_vfy_tabfit`, `_compfit`, `_worldportraitgrid` and `_tabletparity` (its 15 pre-existing failures are unchanged). **Screenshots (windowed, `--force-touch --density=1.0`):** `C:/cw/dock320_shots/{1700x1000,2560x1600,900x1400}/`, one per rail node reflowed; 900x1400 keeps the 232 dock. **Not done:** the `Original` paint slider and the tool-options bar rows keep the one-line shape (they fit); no on-device pass.
@@ -59,6 +89,7 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 **Opened:** `DccTheme.W_DOCK_TABLET`, `ROLE["w_left_dock"/"w_right_dock"]`, `TABLET_PORTRAIT`, `is_tablet_portrait()`, `tablet_dock_plan()`, `tablet_bar_whole()`, `DccShell._build_desktop_shell()`, `_build_tool_options_bar()`, `_build_rail()`; the canvas `design/mcp-2026-09-07/Cartalith Tablet.dc.html` lines 55-140 and `valsShell()`. **Already built, so not rebuilt:** the 232 portrait docks (`TABLET_PORTRAIT`, wired through `role_px()`), the MS-7 520 dp docking rule, the short menu bar (a hamburger and four menus below 1 180 dp, `TABLET_WHOLE_BAR_DP`), and a horizontal tool bar of `h_tool_options` = 56 under the menu bar that already holds the tool buttons. **The row misread the canvas:** `--railH:56` is the tool/options bar (five tool buttons, brush options, undo/redo), not a replacement for the vertical domain rail; the canvas draws a vertical `--railW:52` domain rail as well, as the shell does. The menu bar's 3 menus (File, World, Data) are older than Rulings DU Q7 and DY PQ6, which the shell follows.
 **Measured, landscape 320 (windowless, `_ds03fit_probe.gd --force-touch`, 2560x1600, wiped `APPDATA`):** with `W_DOCK_TABLET` and both `ROLE` rows at 320, 17 checks failed beyond the 4 already failing at 400 (32 before one label fix): seven left-dock panels still force the dock to 331-372 px (the planner, Style, Layers, Labels, Icons, Landmarks, World b), all from one shared cause, the slider/label rows (`ROW_LABEL_W` 132 + track 90 + readout 44 + separations = 290-312 plus 36 of margins) and one chip row of four buttons (321). So the earlier reversal still holds; the 320 landscape dock needs the slider-row reflow that `world_workspace.gd::_wrap_slider_cell` does for portrait, extended to CIVIL and CARTO's panels. All edits reverted; the tree is unchanged by this pass.
 **Screenshots (this machine, windowed, `--force-touch --density=1.0`):** `C:/cw/t9_shots/tablet_land_1700x1000.png` (whole bar, 400 docks, tool bar, vertical rail), `tablet_port_900x1400.png` (short bar, 232 dock, right dock floated), `desktop_1600x900.png`. Without `--density` a 1600x900 touch window is a phone (412 dp short side), as designed.
+
 
 ### Marker card click-through, and private notes never sent to the assistant (owner choices 2026-11-14: "Click-through", "Never send private")
 

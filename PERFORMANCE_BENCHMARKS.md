@@ -811,7 +811,7 @@ the shell's boot default (`use_gpu` on, `engine_bridge.gd`), one seed therefore 
 ### 12.5 What shipped, and reproducing it
 
 `[profile.release] lto = "fat", codegen-units = 1` in `cartalith-native/Cargo.toml`, with this table's figures in its
-comment. No `.cargo/config.toml` and no thread-pool change. The ISA baseline tried was chosen as one both handsets'
+comment. No `.cargo/config.toml` and no thread-pool change (a thread rule came later, with the parallel stages: 12.6). The ISA baseline tried was chosen as one both handsets'
 cores implement: Armv8.2-A with dot product on the SD845's Cortex-A75/A55-derived cores (Arm, *Exploring the Arm dot
 product instructions*, developer.arm.com community blog, which names the Cortex-A55 and A75 as implementing them), fp16
 as the 6T's own `fphp asimdhp` features show, and RCpc. The 6T's kernel does not advertise `asimddp` or `lrcpc`, so
@@ -829,3 +829,192 @@ adb shell "cd /data/local/tmp && SNAP_REPS=1 SNAP_WARM=0 ./snap_bench device_sta
 
 Environment: `SNAP_REPS`, `SNAP_WARM`, `SNAP_GW`, `SNAP_SEED`, `SNAP_GPU` (the module comment). Run one variant per
 process with a cooldown between runs on the Pad, or its throttling becomes the measurement.
+
+### 12.6 Parallelising the serial stages, the GPU per stage, and the thread rule (2026-11-15)
+
+**The request** (owner, 2026-11-15): *"6t is still connected, can use it also to do test with parallelisation on
+android. Same idea as the pc version. See where the gpu gives a benefit and use the multicore/multithreading. Should
+provide a base of for the pad and other mobile devices."* The Pad 3 was off; everything here is the PC and the 6T.
+
+**Method.** The same harness and world as 12.1 (2048 x 1311, seed 12345, `params::defaults()`), release with LTO, run
+alone: on the 6T one variant per process, interleaved, 20 s cooldown, the app guard of 12.1; on the PC interleaved, 5 s
+apart (the PC read 0-37 % background load from other sessions between runs; the spreads below include it). "Before" is
+`origin/main` at `2e9fd4db`, built in its own worktree. Where the serial time went was found first with temporary
+segment timers (not committed): every statement of `generate_terrain_inner` and `compute_civilisation`, run once at
+16 threads and once at `RAYON_NUM_THREADS=1` on the PC, and once on the 6T with `/proc` CPU time per segment.
+
+**Where the serial time was (one run each, PC 16 threads, before):** the orogen dissection's stream power 3.33 s and
+the light pass's 1.06 s, of which the MFD drainage-area pass was 0.30 s per routing (7 routings) and the priority
+flood 0.21 s per routing; the in-place jump flood of `assign_plates` 0.28 s; four D8 flow accumulations about 0.11 s
+each; in civilisation the coast SDF's two jump floods 0.81 s, the capitals' Dijkstras 0.53 s, the water bodies' flood
+0.31 s. On the 6T the same places, larger, plus two the PC hides: memory-latency-bound serial loops (the dissection's
+incision loop took 1.74 s there against 0.13 s on the PC, in the instrumented non-LTO build: the PC's L3 holds the working set, the 6T's 2 MB does not),
+and a heap allocation per cell in `compute_stress` (1.31 s at 1.71 busy cores).
+
+**What changed, all bit-identical** (every change keeps the same operands, operations and order of every f32
+addition; the digest below is unchanged on both machines, the JS goldens pass, and each change has its own
+bit-identity test against the form it replaced):
+
+- **Stream power, MFD drainage area** (`cartalith-erosion`, `mfd_area_scatter`): the two `powf` per downslope
+  neighbour depend only on the fixed fill surface, so they are computed in parallel for a block of the order at a time;
+  the scatter replays them serially in the reference's order. PC: 0.30 s to 0.04 s per routing.
+- **Stream power, incision and deposition** (`BasinGroups`, `incise_by_basin`, `deposit_by_basin`): the receiver
+  forest's trees are independent (`GPU_STREAM_POWER_SCOPE.md` 2.2: the fill order is only a topological order), so each
+  tree runs on its own task, in `order` sequence; the dissection cuts trees at pinned cells (3 420 trees, the largest
+  5 % of the active cells), the light pass keeps them whole (254 trees, the largest 31 %). Deposition's capacity factor
+  `0.005 * area^0.5` is computed once per routing. PC: dissection incision 0.13 s to 0.01 s, light pass 1.06 s to 0.53 s.
+- **`MinHeap`** (the fill's heap): paired array and a moving hole instead of pairwise swaps; the same comparisons, so
+  the same pop order (`minheap_matches_the_swap_form_pop_for_pop`). About 5 % of the flood in one run on the PC, inside the noise.
+- **D8 flow** (`cartalith-hydrology::compute_flow_with`): receivers in parallel beside the radix sort; the accumulation
+  alone stays serial. PC: 0.11 s to 0.03 s per call.
+- **Glacial pass**: the ice-flux accumulation tree by tree, the erosion term per cell in parallel, the lateral scatter
+  serial in order.
+- **`compute_stress`**: a fixed array instead of a `Vec` per cell, and its two blurs side by side.
+- **Civilisation**: the coast SDF's two jump floods side by side; the capitals' Dijkstras in batches bounded by 64 MiB
+  (six at 2048 x 1311, one at 8192^2), merged in settlement order.
+- **With one worker** (`RAYON_NUM_THREADS=1`), the MFD and basin paths fall back to the serial loops: measured on the
+  6T, staging the work only added memory traffic there (with the fallback the 6T at one worker takes 85.55 s (85.37..86.41) against 86.95 s before; without it, 98.32 s).
+
+**Left serial, and why** (each needs an algorithm change, i.e. a `DECISIONS.md` section 7p ruling, to go parallel):
+the priority floods (stream power's fill, 7 per world, about 0.2 s each on the PC and 0.6 s on the 6T; the routing
+surface; the water bodies; the active-crater pools; the glacial fill): their pop order decides tie-breaks and so the
+world. The in-place jump floods (`assign_plates`, `jfa_dist`): each pass reads cells it has already updated in scan
+order, so a ping-pong version gives a different (also valid) answer. The D8 accumulation: summing donors in order
+needs per-receiver donor lists, which cost about what they would save.
+
+#### Per stage, before and after (median, min..max, seconds)
+
+| stage | 6T before (6 thr) | 6T after (8 thr) | 6T busy cores before / after | PC before | PC after |
+|---|---|---|---|---|---|
+| Tectonics | 20.48 (20.36..20.59) | 14.40 (14.31..14.77) | 2.15 / 3.37 | 4.51 (4.47..4.88) | 2.71 (2.67..2.75) |
+| Volcanism & impacts | 2.88 (2.81..3.07) | 2.58 (2.41..2.65) | 1.85 / 2.25 | 0.41 (0.40..0.42) | 0.32 (0.31..0.33) |
+| Erosion | 7.19 (7.14..7.44) | 3.72 (3.60..4.26) | 1.17 / 2.74 | 1.09 (1.01..1.10) | 0.50 (0.48..0.53) |
+| Hydrology | 2.07 (2.04..2.08) | 1.59 (1.55..1.62) | 1.11 / 1.48 | 0.30 (0.30..0.32) | 0.18 (0.17..0.18) |
+| Climate (to the end of terrain) | 8.32 (8.12..8.37) | 7.10 (7.00..7.23) | 1.55 / 1.97 | 1.29 (1.27..1.30) | 1.09 (1.07..1.10) |
+| terrain total | 41.02 (40.74..41.08) | 29.41 (29.14..29.84) | 1.78 / 2.74 | 7.61 (7.46..7.99) | 4.83 (4.72..4.85) |
+| civilisation | 13.06 (12.99..13.17) | 10.45 (10.25..10.50) | 2.74 / 3.77 | 2.88 (2.85..3.17) | 2.34 (2.26..2.39) |
+| **total** | **54.09 (53.75..54.19)** | **39.83 (39.64..40.25)** | | **10.47 (10.34..10.90)** | **7.14 (6.99..7.25)** |
+
+5 runs each. The 6T's "after" is the new code at `RAYON_NUM_THREADS=8` (what the thread rule below picks), built before the
+one-worker fallback, which does not touch the 8-worker path; the final build at its defaults took 39.19 s (39.14..39.33),
+3 runs. At 6 workers the new code took 41.62 s
+(41.20..42.24), 4 runs. So the 6T generates **26 % faster**, the PC **32 %**; on the 6T the terrain now keeps 2.74
+cores busy on average instead of 1.78.
+
+#### CPU serial, CPU parallel and GPU, per stage (after; median, min..max, seconds)
+
+| stage | 6T serial (1 thr) | 6T parallel | 6T GPU (6 thr) | PC serial (1 thr) | PC parallel (16) | PC GPU (16) |
+|---|---|---|---|---|---|---|
+| Tectonics | 33.89 (33.78..34.07) | 14.40 (14.31..14.77) | 16.01 (15.89..16.23) | 10.65 (10.38..10.80) | 2.71 (2.67..2.75) | 2.62 (2.59..2.87) |
+| Volcanism & impacts | 3.83 (3.82..3.90) | 2.58 (2.41..2.65) | 2.55 (2.55..2.57) | 0.63 (0.59..0.72) | 0.32 (0.31..0.33) | 0.31 (0.31..0.34) |
+| Erosion | 7.38 (7.35..7.74) | 3.72 (3.60..4.26) | 4.36 (4.16..4.45) | 1.21 (1.15..1.21) | 0.50 (0.48..0.53) | 0.57 (0.53..0.58) |
+| Hydrology | 1.89 (1.87..1.90) | 1.59 (1.55..1.62) | 1.58 (1.56..1.60) | 0.30 (0.30..0.32) | 0.18 (0.17..0.18) | 0.18 (0.18..0.19) |
+| Climate | 9.99 (9.53..10.07) | 7.10 (7.00..7.23) | 7.20 (7.11..7.53) | 1.67 (1.63..1.69) | 1.09 (1.07..1.10) | 1.07 (1.05..1.09) |
+| civilisation | 28.89 (28.42..29.02) | 10.45 (10.25..10.50) | 11.55 (11.45..11.76) | 8.46 (8.36..8.90) | 2.34 (2.26..2.39) | 2.52 (2.46..2.55) |
+| **total** | 85.55 (85.37..86.41) | 39.83 (39.64..40.25) | 43.29 (42.97..43.88) | 23.03 (22.41..23.54) | 7.14 (6.99..7.25) | 7.33 (7.17..7.50) |
+
+Serial: 3 runs each of the final build (with the one-worker fallback; the PC's ran at 5-49 % background load from other sessions, so read it as "no faster, no slower" than before). GPU: 3 runs on the 6T (at its then-default 6 workers; compare 41.62 s, the CPU at 6), 5 on the
+PC. Before the change, serial was 86.95 s (86.84..87.05) on the 6T and 22.50 s (22.49..23.51) on the PC; the GPU path
+54.57 s (54.56..55.11) and 10.47 s (10.30..10.83).
+
+**Where the GPU helps: nowhere end to end.** On the 6T the GPU path is slower than the CPU at the same worker count
+(43.29 against 41.62 s, 4 %, ranges apart), as in 12.2. On the PC (RX 7800 XT, Vulkan) the GPU path's tectonics is
+within the CPU's range and its total is slower (7.33 against 7.14 s, ranges overlap at the edges: no gain established).
+Per kernel (fed identical CPU inputs, median of 3; table below) the PC's GPU is 1.5 to 25 times faster, the 6T's only
+for plate assignment (318 against 1 014 ms) and the base blur (189 against 356 ms) and slower or level for warp,
+stress, heterogeneity and weather; but those kernels are not where the stages spend their time, which is the serial
+floods above, and opening the device and moving the grids eats the rest. So **no stage is both faster and identical
+to the CPU on the GPU**, and Ruling EY's default (GPU off on touch devices) stands; on the PC the GPU path is a
+different world for no measured gain. One narrower option is recorded for the owner: plate assignment and the blur
+are faster on the 6T's GPU **and** give the same bits on both GPUs measured, so a GPU path restricted to them (CPU
+warp, heterogeneity and weather) would be the same world on the PC and the 6T; it is still a different world from the
+CPU path (plate assignment differs in 4 cells), so it is a section 7p choice, and it would save about 1 s of 40 on
+the 6T before the device's start-up cost. Not built.
+
+#### Why the GPU's world differs between devices
+
+New ignored harness `cartalith-engine/src/gpu_divergence_bench.rs`: it builds the CPU path's own substrate, feeds
+every GPU kernel the handsets run **the same CPU-made inputs**, and prints each kernel's output hash, so a difference
+cannot be inherited from an earlier GPU kernel. PC (RX 7800 XT) against the 6T (Adreno 630):
+
+| kernel (CPU inputs) | GPU hash, PC | GPU hash, 6T | same on both? | cells unlike the CPU stage | GPU / CPU ms, PC | GPU / CPU ms, 6T |
+|---|---|---|---|---|---|---|
+| warp (x) | `b6f9c648` | `abb0cb86` | **no** | all (different noise, section 7c) | 6 / 80 | 338 / 328 |
+| plate assignment | `6772947d` | `6772947d` | yes | 4 of 2 684 928 | 11 / 279 | 318 / 1 014 |
+| stress field | `7b869fb9` | `7b869fb9` | yes | 723 022, at most 4.8e-7 (mask identical) | 24 / 63 | 646 / 544 |
+| base-field blur | `d99f0762` | `d99f0762` | yes | 1 196 573, at most 3.0e-7 (bit-identical to its f32 CPU mirror) | 4 / 47 | 189 / 356 |
+| heterogeneity | `29a576a9` | `3e7f9860` | **no** | all (different noise, section 7c) | 7 / 26 | 159 / 182 |
+| weather | `effcd018` | `3bcde0dd` | **no** | 1.2 M, at most 1.1e-5 | 17 / 26 | 345 / 285 |
+
+Hashes are the first 8 hex digits of each output's FNV-1a; median of 3; the CPU column on the 6T is at 6 workers.
+
+Reading it: **warp and heterogeneity** use the GPU-safe f32 noise (`DECISIONS.md` section 7c), so they differ from the
+CPU everywhere by design; **the three kernels that differ between the devices are exactly the three whose arithmetic is floating-point
+heavy** (the value-noise interpolation `a*(1-u)*(1-v) + ...` and `f32(h) / 4294967295.0` in warp and heterogeneity;
+`exp` and divisions in weather), while the three that agree use comparisons, integer arithmetic and plain sums in a
+fixed per-cell order (plate assignment, stress, the blur, which also equals its CPU f32 mirror bit for bit). That
+pattern points at the driver's code generation, not at any race; it is inferred from which kernels differ, not traced
+instruction by instruction. The CPU path, by contrast, printed the same digest on the PC and the 6T in
+every run. The mechanisms the WGSL leaves to the driver are the usual three: **FMA contraction** (`a * b + c` may be
+fused or not; WGSL permits either and has no `precise` qualifier), **division and `exp` precision** (f32 division is
+specified to 2.5 ULP, `exp` to 3 + 2|x| ULP, and the shaders divide in the hash-to-unit step and the weather kernel),
+and **reduction order** (none here: every kernel writes its own cell, and the blur's sums are per cell). A one-ULP
+difference in a warp or a stress value then moves a plate boundary cell, a fill tie-break or a channel head, and the
+priority floods and erosion amplify it into a different world (63 ways on the Pad, 64 on the 6T, 67 on the PC).
+**Making the GPU path identical across devices would mean integer or fixed-point arithmetic in every kernel** (the
+noise lattice in integers, the interpolation in fixed point): a section 7p change that would also change every GPU
+world, for a path that measured no gain. Not proposed; the CPU path is the cross-device-identical one.
+
+#### The thread rule for big.LITTLE (`cartalith_engine::auto_thread_count`)
+
+**Rule: "auto" builds the pool with every core the process may be scheduled on, whatever its type**, read from
+`/proc/self/status`'s `Cpus_allowed_list` on Linux and Android when it is larger than `available_parallelism()`;
+elsewhere, `available_parallelism()`. A user setting and `RAYON_NUM_THREADS` still win. No per-device table, no
+big/little split.
+
+- **Why not `available_parallelism()` alone:** on the 6T it read 6 in 35 of 36 harness starts on 2026-11-15 and 8 in one, although
+  `Cpus_allowed_list` is `0-7` and all eight cores are online: the Snapdragon kernel parks cores at idle and
+  `sched_getaffinity` leaves parked cores out. Under load the kernel unparks them.
+- **Measured on the 6T with the new code:** 8 workers 39.83 s (39.64..40.25), 6 workers 41.62 s (41.20..42.24):
+  4 % faster, ranges apart. (In 12.2, before the stages were parallel, 8 workers made no established difference.) The
+  final build with no environment set chose 8 workers by this rule while `available_parallelism()` read 6, and took
+  39.19 s (39.14..39.33), 3 runs, same digest.
+- **Why no big/little weighting:** rayon's work stealing gives a slower core fewer chunks, and the serial stages run on
+  the calling thread, which the scheduler keeps on a fast core (12.4: the 6T's big cores carried 77-78 % of the
+  ticks). A pool smaller than the cpuset would leave cores idle in the parallel stages; a larger one would only add
+  switching.
+- **For the Pad 3 and other devices:** the Pad reports 8 of 8 (12.4), so its pool is unchanged at 8. A phone the
+  system has put in a smaller cpuset (a background app) gets that cpuset's size. Re-measure on the Pad with the
+  commands in 12.5; its sustained throttling (12.4, point 3) is the thing to watch, since more busy cores means more
+  heat.
+- **In the app:** `ensure_thread_pool` applies the rule when generation is the first thing to use the pool. Rayon's
+  global pool is built once per process, and the shell can reach a `par_iter` (a render, a sample) before the first
+  generation, in which case rayon's own default (`available_parallelism()`) is what runs. The harness itself hit this:
+  its `CONFIG` line's `rayon::current_num_threads()` built the pool first, so a 6T run without `RAYON_NUM_THREADS` ran
+  6 workers until the harness was changed to call `ensure_thread_pool()` first. Routed as a row in
+  `OUTSTANDING_WORK.md`.
+
+#### Block size of the MFD pass
+
+Measured on the 6T at 8 workers with a temporary environment override (non-LTO build, not committed, 3 interleaved
+runs each): 32 768 cells per block 40.40 s (40.27..40.60), 4 096 44.07 s (44.01..44.67), 1 024 51.38 s
+(50.47..53.23). Smaller blocks cost more rayon dispatches than the scratch saves, so `MFD_AREA_BLOCK` stays 32 768 (its
+doc comment and `mfd_area_block_scratch_is_three_point_four_megabytes` say so). At one worker the 6T ran the new code
+**slower** than the old (98.32 s (97.82..99.03) against 86.95 s, tectonics 46.06 against 35.02 s): staging the MFD
+weights and grouping the trees only adds memory traffic when nothing runs beside them. Both paths therefore fall back
+to the serial loops when the pool has one worker; see the serial column above for the final build.
+
+#### Reproducing
+
+```
+cargo test --release -p cartalith-godot --lib device_stage_bench -- --ignored --nocapture --test-threads 1
+cargo test --release -p cartalith-engine --lib gpu_divergence_bench -- --ignored --nocapture --test-threads 1
+cargo ndk -t arm64-v8a test --release -p cartalith-godot -p cartalith-engine --lib --no-run
+```
+
+On the handset, push both test binaries to `/data/local/tmp` and run each with the same arguments (`SNAP_GPU=1` for the
+GPU path, `RAYON_NUM_THREADS=1` for serial). Determinism: every CPU run here, before and after, on the PC and the 6T, at
+1, 6, 8 and 16 workers, printed `terrain=632b22edf25908e1 civ=65905050eba0a3e3` (40 settlements, 60 ways; the civ
+digest moved from 12.3's `f6708d1a30982bb1` with `32d032fd`, Ruling EX's town placement, before this work). The GPU path
+printed the same digest before and after on each device: `terrain=dcdd2bce8534e95e civ=f23e16afb93fbc19` (67 ways) on
+the PC, `terrain=14fa38faada65f7a civ=a06b729d7654569a` (64 ways) on the 6T.

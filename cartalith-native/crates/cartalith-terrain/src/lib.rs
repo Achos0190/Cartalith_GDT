@@ -819,17 +819,26 @@ pub fn compute_stress(
         for x in 0..gw {
             let i = y * gw + x;
             let a = plate_id[i] as usize;
-            let mut neighbors: Vec<usize> = Vec::with_capacity(3);
+            // At most three forward neighbours, in the reference's order. A
+            // fixed array, not a per-cell `Vec` (2026-11-15): the heap
+            // allocation per cell was most of this loop's cost on the 6T
+            // (`PERFORMANCE_BENCHMARKS.md` §12.6); the visiting order, and so
+            // every addition below, is unchanged.
+            let mut neighbors = [0usize; 3];
+            let mut nn = 0usize;
             if x + 1 < gw {
-                neighbors.push(i + 1);
+                neighbors[nn] = i + 1;
+                nn += 1;
             }
             if y + 1 < gh {
-                neighbors.push(i + gw);
+                neighbors[nn] = i + gw;
+                nn += 1;
             }
             if world && x == gw - 1 {
-                neighbors.push(y * gw);
+                neighbors[nn] = y * gw;
+                nn += 1;
             }
-            for j in neighbors {
+            for &j in &neighbors[..nn] {
                 let b = plate_id[j] as usize;
                 if b == a {
                     continue;
@@ -857,10 +866,19 @@ pub fn compute_stress(
         }
     }
 
-    let mut stress_field = gauss_blur(&raw, blur_r, gw, gh, world);
-    normalize_by_abs_max(&mut stress_field);
-    let mut shear_field = gauss_blur(&raw_s, blur_r, gw, gh, world);
-    normalize_by_abs_max(&mut shear_field);
+    // The two blurs read separate inputs: side by side, each unchanged.
+    let (stress_field, shear_field) = rayon::join(
+        || {
+            let mut f = gauss_blur(&raw, blur_r, gw, gh, world);
+            normalize_by_abs_max(&mut f);
+            f
+        },
+        || {
+            let mut f = gauss_blur(&raw_s, blur_r, gw, gh, world);
+            normalize_by_abs_max(&mut f);
+            f
+        },
+    );
 
     StressResult {
         boundary_mask,

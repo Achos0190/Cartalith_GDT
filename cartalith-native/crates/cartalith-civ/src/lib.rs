@@ -2903,8 +2903,11 @@ pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32
             land[i] = 1;
         }
     }
-    let d_to_land = jfa_dist(&land, gw, gh);
-    let d_to_water = jfa_dist(&water, gw, gh);
+    // The two transforms read disjoint inputs and write their own outputs, so
+    // they run side by side (2026-11-15, `PERFORMANCE_BENCHMARKS.md` §12.6).
+    // Each stays the serial in-place jump flood it was -- its scan order is
+    // part of its (approximate) answer -- so both results are bit-identical.
+    let (d_to_land, d_to_water) = rayon::join(|| jfa_dist(&land, gw, gh), || jfa_dist(&water, gw, gh));
     let mut sdf = vec![0f32; n];
     for i in 0..n {
         sdf[i] = if (field[i] as f64) < sea {
@@ -7100,8 +7103,10 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 /// float-comparison order the goldens depend on; only *independent sources*
 /// (whole separate calls) may be parallelised, which is what the four
 /// `par_iter()` call sites below do. The fifth caller, `territory_sweep`,
-/// stays sequential on purpose: its running per-cell min is *meant* to
-/// compare across capitals in order (see the comment at its own call).
+/// runs its capitals' traversals side by side in bounded batches
+/// (2026-11-15) but merges them one at a time in settlement order: its
+/// running per-cell min is *meant* to compare across capitals in that order
+/// (see the comment at its own call).
 #[allow(clippy::too_many_arguments)]
 fn road_dijkstra(
     cost: &[f32],
@@ -8490,6 +8495,23 @@ struct TerritorySweep {
     rival: Vec<i32>,
 }
 
+/// Transient memory [`territory_sweep`] may spend on capitals' distance
+/// grids at once (`f32`, `4 * gw * gh` bytes each). A labelled judgement,
+/// not a measurement: 64 MiB lets six 2048 x 1311 grids (10.7 MB each, the
+/// New World default) run side by side, while a 4096^2 grid (67 MB) or the
+/// 8192^2 ceiling (268 MB) gets a batch of one -- exactly the memory the
+/// one-capital-at-a-time loop used, so the large grids `MEMORY_OPTIMIZATION_SCOPE.md`
+/// guards cost nothing extra. The batch size cannot move `owner`; see the
+/// loop.
+const TERRITORY_DIST_BUDGET_BYTES: usize = 64 << 20;
+
+/// How many capitals' Dijkstras [`territory_sweep`] runs at once: the
+/// [`TERRITORY_DIST_BUDGET_BYTES`] budget over one grid's bytes, at most the
+/// rayon pool's thread count, never below one.
+fn territory_dijkstra_batch(n_cells: usize) -> usize {
+    (TERRITORY_DIST_BUDGET_BYTES / (4 * n_cells.max(1))).clamp(1, rayon::current_num_threads().max(1))
+}
+
 /// The one cost-distance Voronoi sweep both [`assign_territory`] and
 /// [`territory_influence`] run — written once so the two cannot drift into
 /// disagreeing about who owns a cell.
@@ -8524,70 +8546,96 @@ fn territory_sweep(
     world: bool,
     want_rival: bool,
 ) -> TerritorySweep {
+    territory_sweep_batched(settlements, cost, gw, gh, world, want_rival, territory_dijkstra_batch(gw * gh))
+}
+
+/// [`territory_sweep`] with the Dijkstra batch size as an argument, so
+/// `territory_batch_size_moves_no_owner` can prove the batch moves nothing.
+/// `batch` must be at least 1.
+fn territory_sweep_batched(
+    settlements: &[NamedSettlement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    want_rival: bool,
+    batch: usize,
+) -> TerritorySweep {
     let n = gw * gh;
     let mut owner = vec![0i32; n];
     let mut best_effective = vec![f64::INFINITY; n];
     let mut rival_effective = if want_rival { vec![f64::INFINITY; n] } else { Vec::new() };
     let mut rival = if want_rival { vec![0i32; n] } else { Vec::new() };
-    for s in settlements {
-        if !s.placement.capital {
-            continue;
-        }
+    // Each capital's Dijkstra depends only on `cost` and its own seat, so a
+    // batch of them runs side by side (2026-11-15, `PERFORMANCE_BENCHMARKS.md`
+    // §12.6); the merge below still takes them one at a time in settlement
+    // order, which is the order the running per-cell min must compare them
+    // in. Every traversal is the same sequential one, so `owner` is
+    // bit-identical to the one-capital-at-a-time loop. The batch is bounded
+    // by [`TERRITORY_DIST_BUDGET_BYTES`] so a large grid keeps today's
+    // memory (one distance grid at a time at 8192^2).
+    let capitals: Vec<&NamedSettlement> = settlements.iter().filter(|s| s.placement.capital).collect();
+    for chunk in capitals.chunks(batch) {
         // R7: this sweep only ever read `dist`; `want_prev: false` stops the
         // `4 * gw * gh` predecessor grid being built and dropped per capital.
-        let (dist, _) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None, false);
-        let weight = territory_weight(s.pop);
-        // One capital's Dijkstra pass at a time, same order as before
-        // (needed: the running per-cell min IS meant to compare across
-        // capitals in this order) -- but within one capital's own pass,
-        // each cell's compare-and-maybe-update is independent of every
-        // other cell, safe to parallelize.
-        if want_rival {
-            let fid = s.placement.faction;
-            owner
-                .par_iter_mut()
-                .zip(best_effective.par_iter_mut())
-                .zip(rival_effective.par_iter_mut().zip(rival.par_iter_mut()))
-                .enumerate()
-                .for_each(|(i, ((o, be), (re, rf)))| {
-                    if dist[i].is_infinite() {
-                        return;
-                    }
-                    let effective = dist[i] as f64 / weight;
-                    if effective < *be {
-                        // The outgoing winner becomes the runner-up, but
-                        // only when it was a *different* faction's and was
-                        // real: `*be` is `INFINITY` and `*o` is `0`
-                        // (Unclaimed) until some capital reaches this cell
-                        // at all, and recording that as a claim would make
-                        // every first-touched cell read as contested with
-                        // nobody.
-                        if fid != *o && be.is_finite() {
-                            *re = *be;
-                            *rf = *o;
+        let dists: Vec<Vec<f32>> = chunk
+            .par_iter()
+            .map(|s| road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None, false).0)
+            .collect();
+        for (s, dist) in chunk.iter().zip(dists) {
+            let weight = territory_weight(s.pop);
+            // One capital's Dijkstra pass at a time, same order as before
+            // (needed: the running per-cell min IS meant to compare across
+            // capitals in this order) -- but within one capital's own pass,
+            // each cell's compare-and-maybe-update is independent of every
+            // other cell, safe to parallelize.
+            if want_rival {
+                let fid = s.placement.faction;
+                owner
+                    .par_iter_mut()
+                    .zip(best_effective.par_iter_mut())
+                    .zip(rival_effective.par_iter_mut().zip(rival.par_iter_mut()))
+                    .enumerate()
+                    .for_each(|(i, ((o, be), (re, rf)))| {
+                        if dist[i].is_infinite() {
+                            return;
                         }
-                        *be = effective;
-                        *o = fid;
-                    } else if fid != *o && effective < *re {
-                        *re = effective;
-                        *rf = fid;
-                    }
-                });
-        } else {
-            owner
-                .par_iter_mut()
-                .zip(best_effective.par_iter_mut())
-                .enumerate()
-                .for_each(|(i, (o, be))| {
-                    if dist[i].is_infinite() {
-                        return;
-                    }
-                    let effective = dist[i] as f64 / weight;
-                    if effective < *be {
-                        *be = effective;
-                        *o = s.placement.faction;
-                    }
-                });
+                        let effective = dist[i] as f64 / weight;
+                        if effective < *be {
+                            // The outgoing winner becomes the runner-up, but
+                            // only when it was a *different* faction's and was
+                            // real: `*be` is `INFINITY` and `*o` is `0`
+                            // (Unclaimed) until some capital reaches this cell
+                            // at all, and recording that as a claim would make
+                            // every first-touched cell read as contested with
+                            // nobody.
+                            if fid != *o && be.is_finite() {
+                                *re = *be;
+                                *rf = *o;
+                            }
+                            *be = effective;
+                            *o = fid;
+                        } else if fid != *o && effective < *re {
+                            *re = effective;
+                            *rf = fid;
+                        }
+                    });
+            } else {
+                owner
+                    .par_iter_mut()
+                    .zip(best_effective.par_iter_mut())
+                    .enumerate()
+                    .for_each(|(i, (o, be))| {
+                        if dist[i].is_infinite() {
+                            return;
+                        }
+                        let effective = dist[i] as f64 / weight;
+                        if effective < *be {
+                            *be = effective;
+                            *o = s.placement.faction;
+                        }
+                    });
+            }
         }
     }
     TerritorySweep { owner, best_effective, rival_effective, rival }
@@ -21912,6 +21960,44 @@ mod tests {
     fn territory_weight_is_monotonic_in_population() {
         assert!(territory_weight(1000) < territory_weight(15000));
         assert!(territory_weight(15000) < territory_weight(30000));
+    }
+
+    /// Protects: batching the capitals' Dijkstras moves no territory value.
+    #[test]
+    fn territory_batch_size_moves_no_owner() {
+        // Protects: running the capitals' Dijkstras in batches (2026-11-15)
+        // leaves owner, rival and both effective distances bit-identical to
+        // one capital at a time, for batch sizes 1, 2 and more than the
+        // capital count, with ties (equal populations) and three factions.
+        let (w, h) = (23usize, 17usize);
+        let cost: Vec<f32> = (0..w * h).map(|i| if i % 7 == 3 { f32::INFINITY } else { 1.0 + (i % 5) as f32 * 0.25 }).collect();
+        let settlements = vec![
+            named_capital(1, 1, 1, 15000),
+            named_capital(20, 2, 2, 15000),
+            named_capital(11, 15, 3, 40000),
+            named_capital(5, 12, 1, 8000),
+            named_capital(17, 9, 2, 15000),
+        ];
+        let want = territory_sweep_batched(&settlements, &cost, w, h, false, true, 1);
+        assert!(want.owner.iter().filter(|&&o| o != 0).count() > 100, "the fixture must assign territory");
+        for batch in [2usize, 3, 9] {
+            let got = territory_sweep_batched(&settlements, &cost, w, h, false, true, batch);
+            assert_eq!(got.owner, want.owner, "batch {batch}: owner");
+            assert_eq!(got.rival, want.rival, "batch {batch}: rival");
+            let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<u64>>();
+            assert_eq!(bits(&got.best_effective), bits(&want.best_effective), "batch {batch}: best");
+            assert_eq!(bits(&got.rival_effective), bits(&want.rival_effective), "batch {batch}: rival effective");
+        }
+    }
+
+    /// Protects: the batch budget's arithmetic -- six New World grids
+    /// (2048 x 1311 `f32`, 10.7 MB each) fit 64 MiB, and the 8192^2 ceiling
+    /// gets a batch of one, i.e. today's memory.
+    #[test]
+    fn territory_batch_budget_fits_six_default_grids_and_one_at_the_ceiling() {
+        assert_eq!(TERRITORY_DIST_BUDGET_BYTES / (4 * 2048 * 1311), 6);
+        assert_eq!(territory_dijkstra_batch(8192 * 8192), 1);
+        assert!(territory_dijkstra_batch(2048 * 1311) >= 1);
     }
 
     /// Protects: each capital's own cell is owned by that capital's faction, whatever

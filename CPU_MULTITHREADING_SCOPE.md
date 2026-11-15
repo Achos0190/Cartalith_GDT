@@ -454,6 +454,18 @@ hydrology. So the real remaining sequential cost is the hard-hazard
 functions alone. Full record: `OUTSTANDING_WORK.md` §2.6's closed
 "`cartalith-godot`'s own sequential orchestration" row.
 
+## Pass 4 (2026-11-15) — the "inherently serial" loops, split where the dependency allows
+
+Owner, 2026-11-15: *"Same idea as the pc version ... use the multicore/multithreading. Should provide a base for the
+pad and other mobile devices."* Three of the loops this document classified as unsafe were split into a parallel half
+and a serial half that keeps the reference's order of every f32 addition, so the output stays bit-identical: the
+stream-power MFD area (weights in parallel, scatter serial), stream-power incision and deposition and the glacial
+ice-flux accumulation (one task per independent drainage tree, `cartalith_erosion::BasinGroups`), and D8 flow
+(receivers in parallel, accumulation serial). Independent whole calls were run side by side (the coast SDF's two jump
+floods, the capitals' Dijkstras in bounded batches, `compute_stress`'s two blurs). What each measured, what stayed
+serial and why, and the pool-size rule for big.LITTLE handsets are in `PERFORMANCE_BENCHMARKS.md` section 12.6; the
+status is `STATUS.md`'s.
+
 ## Separate idea, recorded here and built elsewhere: using the integrated GPU too
 
 Also raised by the owner on 2026-08-16: this machine has an integrated GPU

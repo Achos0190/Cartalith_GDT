@@ -198,6 +198,12 @@ pub mod rock_paint;
 /// Wired: `cartalith-godot`'s static `WorldGen::preview_land_mask` calls it.
 pub mod preview;
 
+/// Per-kernel GPU-versus-CPU hashes and timings, run on each device to find
+/// which GPU kernel makes a seed's world differ between devices
+/// (`PERFORMANCE_BENCHMARKS.md` §12.6). An `#[ignore]`d measurement.
+#[cfg(test)]
+mod gpu_divergence_bench;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors_with, apply_ocean_currents, compute_temperature, simulate_weather_with,
     ClimateParams, CoarseUpsample, WeatherParams,
@@ -1852,6 +1858,64 @@ pub fn logical_core_count() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
 }
 
+/// The pool size "auto" builds with (2026-11-15, owner: *"Should provide a
+/// base for the pad and other mobile devices"*; `PERFORMANCE_BENCHMARKS.md`
+/// §12.6): **every core this process may be scheduled on**, whatever their
+/// type. On Linux and Android that is the CPU list of `/proc/self/status`'s
+/// `Cpus_allowed_list` (the cpuset the system put the process in) when it is
+/// larger than [`logical_core_count`]; elsewhere, and whenever the file
+/// cannot be read or parsed, it is [`logical_core_count`] unchanged.
+///
+/// Why the two differ: a Snapdragon kernel's core control parks cores while
+/// the phone idles and `sched_getaffinity` leaves parked cores out, so the
+/// OnePlus 6T's `available_parallelism()` reads 6 at process start although
+/// its `Cpus_allowed_list` is `0-7` and all eight cores are online (read on
+/// the device 2026-11-15); the kernel brings the parked cores back under
+/// load. Measured there with this pass's code: 8 workers beat 6 by about 4 %
+/// (§12.6), so the parked cores are worth having.
+///
+/// Why no per-core-type rule (big.LITTLE: the 6T's 4 x 1.77 GHz + 4 x 2.80
+/// GHz, the Pad 3's 6 x 3.53 + 2 x 4.32): rayon's work stealing hands a slow
+/// core fewer chunks, and the serial stages run on the calling thread, which
+/// the scheduler moves to a fast core when it is busy (§12.4: the 6T's big
+/// cores carried 77-78 % of the ticks). Must never return 0, and must never
+/// exceed the allowed list: oversubscribing a cpuset only adds switching.
+#[must_use]
+pub fn auto_thread_count() -> usize {
+    let seen = logical_core_count();
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        if let Some(n) = std::fs::read_to_string("/proc/self/status").ok().as_deref().and_then(cpus_allowed_count) {
+            return n.max(seen);
+        }
+    }
+    seen
+}
+
+/// The number of CPUs in a `/proc/<pid>/status` text's `Cpus_allowed_list`
+/// line (proc(5): a comma-separated list of indices and `a-b` ranges, e.g.
+/// `0-3,6,8-9`), or `None` when the line is missing, malformed or empty. Pure,
+/// so it is tested on every platform.
+fn cpus_allowed_count(status: &str) -> Option<usize> {
+    let list = status.lines().find_map(|l| l.strip_prefix("Cpus_allowed_list:"))?.trim();
+    let mut n = 0usize;
+    for part in list.split(',') {
+        let part = part.trim();
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<usize>().ok()?, b.trim().parse::<usize>().ok()?),
+            None => {
+                let v = part.parse::<usize>().ok()?;
+                (v, v)
+            }
+        };
+        if b < a {
+            return None;
+        }
+        n += b - a + 1;
+    }
+    (n > 0).then_some(n)
+}
+
 /// **Engine init.** Builds Rayon's global pool sized from
 /// [`CONFIGURED_THREADS`] -- called at the top of `generate_terrain_inner`,
 /// the one function every generation reaches, and of `cartalith_godot::
@@ -1870,6 +1934,12 @@ pub fn ensure_thread_pool() {
         let mut b = rayon::ThreadPoolBuilder::new();
         if want > 0 {
             b = b.num_threads(want);
+        } else if std::env::var_os("RAYON_NUM_THREADS").is_none() {
+            // "Auto": every core the process may run on, not the count
+            // `available_parallelism()` happens to see at this instant
+            // ([`auto_thread_count`]). `RAYON_NUM_THREADS`, when set, still
+            // wins, as it does for Rayon's own default.
+            b = b.num_threads(auto_thread_count());
         }
         // `Err` whenever the global pool already exists -- which is the
         // ordinary case in the Godot shell, not an exotic one: an implicit
@@ -4367,6 +4437,43 @@ pub fn refresh_climate(
 /// against the CPU reference. Not golden-parity tests (those live in
 /// `tests/golden_parity_*.rs`) -- these check this crate's own internal
 /// contracts, most of which have no JS analogue to diff against.
+#[cfg(test)]
+mod thread_count_tests {
+    use super::*;
+
+    /// Protects: the `Cpus_allowed_list` reader counts ranges and single
+    /// CPUs as proc(5) writes them, and refuses rather than guesses on a
+    /// missing, empty, reversed or non-numeric list (the caller then keeps
+    /// `available_parallelism()`).
+    #[test]
+    fn cpus_allowed_count_reads_the_proc_list() {
+        assert_eq!(cpus_allowed_count("Name:	x
+Cpus_allowed:	ff
+Cpus_allowed_list:	0-7
+"), Some(8));
+        assert_eq!(cpus_allowed_count("Cpus_allowed_list:	0-3,6,8-9
+"), Some(7));
+        assert_eq!(cpus_allowed_count("Cpus_allowed_list:	5
+"), Some(1));
+        assert_eq!(cpus_allowed_count("Cpus_allowed_list:	
+"), None);
+        assert_eq!(cpus_allowed_count("Cpus_allowed_list:	4-2
+"), None);
+        assert_eq!(cpus_allowed_count("Cpus_allowed_list:	x
+"), None);
+        assert_eq!(cpus_allowed_count("Cpus_allowed:	ff
+"), None);
+    }
+
+    /// Protects: auto never shrinks below what `available_parallelism()`
+    /// reports, and is never zero.
+    #[test]
+    fn auto_thread_count_is_at_least_the_logical_core_count() {
+        assert!(auto_thread_count() >= logical_core_count());
+        assert!(auto_thread_count() >= 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
