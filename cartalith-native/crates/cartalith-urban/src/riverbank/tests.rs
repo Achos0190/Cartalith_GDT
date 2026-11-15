@@ -1051,3 +1051,355 @@ fn a_short_street_village_is_given_more_lanes() {
     assert_eq!(calls.borrow().last().copied(), Some(8.0), "{:?}", calls.borrow());
     assert!((t.pop - 310.0).abs() < 1e-9, "{}", t.pop);
 }
+
+// ------------------------------------- the waterfront (judgement change 5) --
+
+/// A town whose cross streets stop 70 m from the water (north bank): the
+/// streets the fixture builds for [`super::lay_back_street`].
+fn stand_back_town() -> Vec<(Vec2, Vec2)> {
+    let r = RIVER_Y;
+    (0..8).map(|k| {
+        let x = 400.0 + k as f64 * 80.0;
+        (Vec2::new(x, r - 220.0), Vec2::new(x, r - 70.0))
+    }).collect()
+}
+
+/// Protects `lay_back_street` (literals): on the fixture's straight river a
+/// town whose cross streets stop 70 m from the water gets a back street on its
+/// own (north) bank only, every vertex `river_w / 2` + 35..45 m from the
+/// centreline (one depth per bank), water lanes down to the embankment's line
+/// (15 m out), and nothing on the south bank, where no street stands.
+#[test]
+fn a_town_standing_back_gets_a_waterfront_back_street() {
+    let (site, mut g) = bank_site_and_streets(&stand_back_town());
+    let wf = super::lay_back_street(&site, &mut g, None, None, 5);
+    let (streets, lanes) = (wf.streets, wf.lanes);
+    assert_eq!(streets.len(), 1, "one back street, north bank: {streets:?}");
+    let off = (RIVER_Y - streets[0][0].y) - RW / 2.0;
+    assert!((35.0..=45.0).contains(&off), "back street {off} m from the channel's edge");
+    for v in &streets[0] {
+        assert!(v.y < RIVER_Y, "a back-street vertex on the south bank: {v:?}");
+        assert!(((RIVER_Y - v.y) - RW / 2.0 - off).abs() < 1e-6, "the back street is not parallel: {v:?}");
+    }
+    let len: f64 = streets[0].windows(2).map(|w| w[0].dist(w[1])).sum();
+    assert!(len >= 560.0, "the back street spans the town's 560 m of river: {len} m");
+    // A lane at each end and one every 60-120 m between: at least 560 / 120 + 1.
+    assert!(lanes >= 5, "{lanes} water lanes");
+    for e in g.edges.iter().filter(|e| e.alive && e.cls == "lane") {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        let near = (RIVER_Y - a.y).min(RIVER_Y - b.y);
+        assert!((near - 15.0).abs() < 1e-6, "a water lane ends {near} m from the centreline, not at the embankment's 15 m");
+    }
+}
+
+/// Protects `lay_back_street`'s refusals (literals): no back street where the
+/// town's nearest edge is over `EMBANKMENT_REACH` (46 m) from the back
+/// street's line (streets ending 140 m from the water), where the town already
+/// has a street along the river nearer the channel than `BACK_EXISTING_M.0`
+/// (20 m), across a wall, or through the square.
+#[test]
+fn a_back_street_is_refused_far_from_the_town_beside_a_riverside_street_or_across_a_wall() {
+    let r = RIVER_Y;
+    let far: Vec<(Vec2, Vec2)> = (0..8).map(|k| (Vec2::new(400.0 + k as f64 * 80.0, r - 300.0), Vec2::new(400.0 + k as f64 * 80.0, r - 140.0))).collect();
+    let (site, mut g) = bank_site_and_streets(&far);
+    assert!(super::lay_back_street(&site, &mut g, None, None, 5).water_pts.is_empty(), "a town 140 m back is not reached");
+    // A riverside street 13 m from the channel's edge (25 m out): the town is
+    // at the water already, nothing is laid.
+    let mut at_water = stand_back_town();
+    at_water.push((Vec2::new(380.0, r - 25.0), Vec2::new(1000.0, r - 25.0)));
+    let (site, mut g) = bank_site_and_streets(&at_water);
+    let n0 = g.edges.len();
+    assert!(super::lay_back_street(&site, &mut g, None, None, 5).water_pts.is_empty(), "a street at the water needs no waterfront");
+    assert_eq!(g.edges.len(), n0, "nothing laid");
+    // The same town with a wall whose water side slants across the back
+    // street's line (from 66 m out at x 300 to 30 m out at x 1100, crossing it
+    // near x 655): the back street is cut where it would cross; the piece
+    // inside the wall (east) is laid and tied, the piece outside it (west)
+    // could be tied into the town only through the wall, so it is not laid;
+    // and no laid piece, lane or tie crosses the wall.
+    let ring = [Vec2::new(300.0, r - 66.0), Vec2::new(1100.0, r - 30.0), Vec2::new(1100.0, r - 300.0), Vec2::new(300.0, r - 300.0)];
+    let (site, mut g) = bank_site_and_streets(&stand_back_town());
+    let wf = super::lay_back_street(&site, &mut g, Some(&ring), None, 5);
+    let s = wf.streets;
+    assert!(!s.is_empty(), "premise: the piece inside the wall is laid");
+    assert!(s.iter().flatten().all(|v| v.x > 620.0), "the piece outside the wall stands alone and is not laid: {s:?}");
+    for l in &s {
+        for w in l.windows(2) {
+            assert!(!super::crosses_wall(w[0], w[1], Some(&ring)), "a back street crosses the wall at {w:?}");
+        }
+    }
+    for e in g.edges.iter().filter(|e| e.alive) {
+        assert!(!super::crosses_wall(g.nodes[e.a].pt(), g.nodes[e.b].pt(), Some(&ring)), "a {} edge crosses the wall: {:?} {:?} {}", e.cls, g.nodes[e.a].pt(), g.nodes[e.b].pt(), e.prov);
+    }
+    // A square over the whole stretch.
+    let sq = [Vec2::new(300.0, r - 70.0), Vec2::new(1100.0, r - 70.0), Vec2::new(1100.0, r - 25.0), Vec2::new(300.0, r - 25.0)];
+    let (site, mut g) = bank_site_and_streets(&stand_back_town());
+    assert!(super::lay_back_street(&site, &mut g, None, Some(&sq), 5).water_pts.is_empty(), "a back street through the square");
+}
+
+/// Protects `BACK_EXISTING_M` (literals): a street along the river 40 m from
+/// the channel's edge (52 m out) is the waterfront's back line, so no new back
+/// street is laid beside it (only on past its ends, within the town's 46 m
+/// reach), the water lanes run from it down to the embankment's line
+/// (15 m out), and the embankment then runs along the whole waterfront, though
+/// without it only the street's two end nodes (620 m apart) stand within its
+/// own 46 m reach of the bank.
+#[test]
+fn an_existing_riverside_street_is_the_back_line() {
+    let r = RIVER_Y;
+    let along = [(Vec2::new(380.0, r - 52.0), Vec2::new(1000.0, r - 52.0))];
+    let (site, mut g) = bank_site_and_streets(&along);
+    let wf = super::lay_back_street(&site, &mut g, None, None, 5);
+    // No second street beside the first; a new piece only carries the back
+    // line on past the old street's ends, as far as the town reaches (46 m).
+    for l in &wf.streets {
+        let (lo, hi) = l.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v.x), hi.max(v.x)));
+        assert!(hi <= 380.0 + 8.0 || lo >= 1000.0 - 8.0, "a new back street beside the old one: {l:?}");
+        assert!(lo >= 380.0 - 46.0 - 8.0 && hi <= 1000.0 + 46.0 + 8.0, "a new back street beyond the town's reach: {l:?}");
+    }
+    assert!(wf.lanes >= 5, "{} lanes", wf.lanes);
+    for e in g.edges.iter().filter(|e| e.alive && e.cls == "lane") {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        let (lo, hi) = ((r - a.y).min(r - b.y), (r - a.y).max(r - b.y));
+        // From the old street (52 m out), or from a new piece past its ends
+        // (12 m half-width plus 35-45 m).
+        assert!((lo - 15.0).abs() < 1e-6 && (47.0 - 1e-6..=57.0 + 1e-6).contains(&hi), "a lane from {hi} m to {lo} m out");
+    }
+    let from_old = g.edges.iter().filter(|e| e.alive && e.cls == "lane").filter(|e| {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        ((r - a.y).max(r - b.y) - 52.0).abs() < 1e-6
+    }).count();
+    assert!(from_old >= 4, "{from_old} lanes from the old street");
+    // Without the waterfront the embankment reaches the bank only by the
+    // street's two end nodes (37 m from it), a short run at each end.
+    let len = |e: &super::Embankment| e.runs.iter().map(|l| l.windows(2).map(|w| w[0].dist(w[1])).sum::<f64>()).sum::<f64>();
+    let (site, mut g0) = bank_site_and_streets(&along);
+    let bare = len(&super::build_embankment(&site, &mut g0, None, None));
+    assert!(bare < 120.0, "premise: the street is beyond the embankment's reach but at its ends ({bare} m)");
+    let run_len = len(&super::build_embankment_with(&site, &mut g, None, None, &wf.water_pts));
+    assert!(run_len >= 560.0, "the embankment runs along the waterfront: {run_len} m");
+}
+
+/// Protects `BACK_STREET_M` (literals): over twenty seeds every back street
+/// stands 35-45 m from the channel's edge, never outside.
+#[test]
+fn the_back_street_depth_is_drawn_from_35_to_45_metres() {
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for seed in 0..20u32 {
+        let (site, mut g) = bank_site_and_streets(&stand_back_town());
+        let wf = super::lay_back_street(&site, &mut g, None, None, seed);
+        let off = (RIVER_Y - wf.streets[0][1].y) - RW / 2.0;
+        lo = lo.min(off);
+        hi = hi.max(off);
+    }
+    assert!(lo >= 35.0 && hi <= 45.0, "drawn {lo}..{hi} m");
+    assert!(lo < 37.0 && hi > 43.0, "premise: twenty draws span the range ({lo}..{hi})");
+}
+
+/// Protects `BACK_EXISTING_M` and `BACK_PARALLEL_DEG` at their edges
+/// (literals): a street along the river 18 m from the channel's edge means the
+/// town is at the water (nothing laid); at 22 m and at 66 m it is the back
+/// line (lanes from it, no new street beside it); at 74 m it is too far back,
+/// so a new back street is laid in front of it; and a street 40 m back but
+/// crossing the river's line at 40 degrees is not a riverside street (a new
+/// back street is laid).
+#[test]
+fn the_back_line_window_and_angle_are_exact() {
+    let r = RIVER_Y;
+    let edge = RW / 2.0;
+    let run = |out: f64| {
+        let (site, mut g) = bank_site_and_streets(&[(Vec2::new(380.0, r - edge - out), Vec2::new(1000.0, r - edge - out))]);
+        super::lay_back_street(&site, &mut g, None, None, 5)
+    };
+    assert!(run(18.0).water_pts.is_empty(), "18 m: at the water");
+    for out in [22.0, 66.0] {
+        let wf = run(out);
+        assert!(wf.lanes >= 5, "{out} m: lanes from the back line ({})", wf.lanes);
+        // (A new back street is simplified to its two ends, so the check is
+        // that no new line spans the old street's middle.)
+        assert!(!wf.streets.iter().any(|l| l.iter().any(|v| v.x < 640.0) && l.iter().any(|v| v.x > 740.0)), "{out} m: a second street beside the first");
+    }
+    let far = run(74.0);
+    // (A straight back street is simplified to its two ends.)
+    let spans = |wf: &super::Waterfront, x: f64| wf.streets.iter().any(|l| l.iter().any(|v| v.x < x - 50.0) && l.iter().any(|v| v.x > x + 50.0));
+    assert!(spans(&far, 690.0), "74 m: a new back street in front of it: {:?}", far.streets);
+    // 40 degrees off the river's line, through the back line 40 m out at x 690.
+    let d = Vec2::new(40f64.to_radians().cos(), -40f64.to_radians().sin());
+    let c = Vec2::new(690.0, r - edge - 40.0);
+    let mut streets = stand_back_town();
+    streets.push((c - d * 60.0, c + d * 60.0));
+    let (site, mut g) = bank_site_and_streets(&streets);
+    let wf = super::lay_back_street(&site, &mut g, None, None, 5);
+    assert!(spans(&wf, 690.0), "a 40-degree street is a cross street, not the back line: {:?}", wf.streets);
+}
+
+/// Protects `BACK_RUN_MIN_M` and the town-streets-only reach (literals): a
+/// single street stub ending 90 m from the centreline reaches 52 m of back
+/// line, under the 60 m minimum, so nothing is laid; and a primary road alone
+/// within reach (no street, lane or ring road) does not make a waterfront.
+#[test]
+fn a_short_reach_or_a_primary_alone_makes_no_waterfront() {
+    let r = RIVER_Y;
+    let (site, mut g) = bank_site_and_streets(&[(Vec2::new(700.0, r - 200.0), Vec2::new(700.0, r - 90.0))]);
+    assert!(super::lay_back_street(&site, &mut g, None, None, 5).water_pts.is_empty(), "a 52 m reach is under the minimum");
+    let (site, mut g) = bank_site_and_streets(&[]);
+    for k in 0..8 {
+        let x = 400.0 + k as f64 * 80.0;
+        g.add_street(x, r - 220.0, x, r - 70.0, "primary", 6.0, 0, "test");
+    }
+    assert!(super::lay_back_street(&site, &mut g, None, None, 5).water_pts.is_empty(), "primaries alone are not the town");
+}
+
+/// Protects `generate`'s call of `lay_back_street` (literals, the fixture's
+/// straight river): a chartered town (6 000) lays water lanes on some of the
+/// twelve seeds 4240-4251, and a village (400) on none of them; and
+/// `urban_market_scale` sizes a riverbank town's square from its population:
+/// the same seed's square is `square_scale(6000)^2` times the unscaled one's
+/// area, or one of the shrunk tries' squares.
+#[test]
+fn a_chartered_river_town_gets_its_waterfront_and_a_scaled_square() {
+    let lanes = |pop: f64, s: u32| generate(s, &GenOpts { pop: Some(pop), ..opts(true, true) }).embankment.map_or(0, |e| e.water_lanes);
+    assert!((4240..4252u32).any(|s| lanes(6000.0, s) > 0), "no town laid a waterfront");
+    assert!((4240..4252u32).all(|s| lanes(400.0, s) == 0), "a village laid a waterfront");
+    let area = |p: &crate::plaza::Plaza| crate::geom::poly_area(&p.poly).abs();
+    let k = crate::plaza::square_scale(6000.0);
+    let tries: Vec<f64> = std::iter::successors(Some(k), |&s| (s > 1.0).then(|| (s * 0.85).max(1.0))).collect();
+    let mut checked = 0;
+    let mut grown = 0;
+    for s in 4240..4252u32 {
+        let off = generate(s, &GenOpts { pop: Some(6000.0), ..opts(true, true) });
+        let on = generate(s, &GenOpts { pop: Some(6000.0), market_scale: true, ..opts(true, true) });
+        let (Some(a), Some(b)) = (off.plaza.as_ref(), on.plaza.as_ref()) else { continue };
+        let ratio = area(b) / area(a);
+        assert!(tries.iter().any(|t| (ratio - t * t).abs() < 1e-6), "seed {s}: square {ratio} of the reference's, tries {tries:?}");
+        checked += 1;
+        grown += usize::from((ratio - k * k).abs() < 1e-6);
+    }
+    assert!(checked >= 10, "premise: squares on most seeds ({checked})");
+    // On the fixture's long straight bank most squares fit at full size.
+    assert!(grown * 2 >= checked, "{grown} of {checked} squares at the full scale");
+}
+
+/// Protects the riverside tofts (`village::plat_tofts`, change 5): a street
+/// village on a riverbank site plats some of its tofts along the embankment's
+/// quay or bank edges (houses on the quay or on the water) on at least one of
+/// twelve seeds, and none of them stands in the channel.
+#[test]
+fn a_river_village_plats_tofts_on_its_waterfront() {
+    let mut on_water = 0;
+    for s in 4240..4252u32 {
+        let t = generate(s, &GenOpts { pop: Some(400.0), street_village: true, ..opts(true, true) });
+        on_water += t.parcels.iter().filter(|p| p.par.id.starts_with("toft") && matches!(p.par.edge_cls, "quay" | "bank")).count();
+        for p in t.parcels.iter().filter(|p| p.par.id.starts_with("toft")) {
+            assert!(p.par.poly.iter().all(|v| (v.y - RIVER_Y).abs() >= RW / 2.0), "a toft in the channel");
+        }
+    }
+    assert!(on_water > 0, "no toft on the waterfront");
+}
+
+/// Protects the joined-run rule and the inside-the-wall rule in
+/// `lay_back_street` (literals): a town street running along the river 78 m
+/// from the channel's edge reaches a new back street (47-57 m out) along its
+/// whole length, and the back street is tied in at its ends. With a wall
+/// enclosing only the strip by the river (13-70 m out), the back street is
+/// inside it but no tie can reach the town without crossing it, and a back
+/// street joined to nothing would stand alone by the river, so nothing is
+/// laid. With a wall enclosing the town but not the strip (70-400 m out),
+/// the back street would stand outside the wall, so nothing is laid either.
+#[test]
+fn a_back_street_joined_to_nothing_or_outside_the_wall_is_not_laid() {
+    let r = RIVER_Y;
+    let far = [(Vec2::new(380.0, r - RW / 2.0 - 78.0), Vec2::new(1000.0, r - RW / 2.0 - 78.0))];
+    let (site, mut g) = bank_site_and_streets(&far);
+    let open = super::lay_back_street(&site, &mut g, None, None, 5);
+    assert!(!open.streets.is_empty(), "premise: without a wall the back street is laid and tied");
+    let strip = [Vec2::new(0.0, r - 13.0), Vec2::new(1700.0, r - 13.0), Vec2::new(1700.0, r - 70.0), Vec2::new(0.0, r - 70.0)];
+    let town = [Vec2::new(0.0, r - 70.0), Vec2::new(1700.0, r - 70.0), Vec2::new(1700.0, r - 400.0), Vec2::new(0.0, r - 400.0)];
+    for (ring, why) in [(strip, "joined to nothing"), (town, "outside the wall")] {
+        let (site, mut g) = bank_site_and_streets(&far);
+        let n0 = g.edges.len();
+        let walled = super::lay_back_street(&site, &mut g, Some(&ring), None, 5);
+        assert!(walled.water_pts.is_empty() && walled.streets.is_empty(), "{why}: {:?}", walled.streets);
+        assert_eq!(g.edges.len(), n0, "{why}: nothing laid");
+    }
+}
+
+/// Protects `build_embankment_with`'s waterfront points (literals): with a
+/// wall whose water side runs 20 m out, between the back line (47-57 m out,
+/// inside it) and the embankment's line (15 m out), no water lane can be laid,
+/// so only the waterfront points carry the embankment along the new back
+/// street, whose own nodes are its two ends; without them the embankment runs
+/// only where those ends reach.
+#[test]
+fn the_waterfront_points_carry_the_embankment() {
+    let r = RIVER_Y;
+    let ring = [Vec2::new(0.0, r - 20.0), Vec2::new(1700.0, r - 20.0), Vec2::new(1700.0, r - 400.0), Vec2::new(0.0, r - 400.0)];
+    let (site, mut g) = bank_site_and_streets(&stand_back_town());
+    let wf = super::lay_back_street(&site, &mut g, Some(&ring), None, 5);
+    assert_eq!(wf.lanes, 0, "premise: every water lane crosses the wall");
+    assert!(!wf.streets.is_empty() && !wf.water_pts.is_empty(), "premise: the back street is laid");
+    let len = |e: &super::Embankment| e.runs.iter().chain(e.banks.iter()).map(|l| l.windows(2).map(|w| w[0].dist(w[1])).sum::<f64>()).sum::<f64>();
+    let mut g2 = g.clone();
+    let with = len(&super::build_embankment_with(&site, &mut g, None, None, &wf.water_pts));
+    let without = len(&super::build_embankment(&site, &mut g2, None, None));
+    assert!(with >= 560.0 && without < with - 200.0, "embankment {with} m with the waterfront points, {without} m without");
+}
+
+/// Protects the inside-the-wall rule for an existing back line (literals): a
+/// riverside street 40 m from the channel's edge outside a wall that starts
+/// 60 m out is not taken as a back line, so no water lane runs from it.
+#[test]
+fn an_existing_back_line_outside_the_wall_is_not_used() {
+    let r = RIVER_Y;
+    let along = [(Vec2::new(380.0, r - 52.0), Vec2::new(1000.0, r - 52.0))];
+    let ring = [Vec2::new(0.0, r - 72.0), Vec2::new(1700.0, r - 72.0), Vec2::new(1700.0, r - 400.0), Vec2::new(0.0, r - 400.0)];
+    let (site, mut g) = bank_site_and_streets(&along);
+    assert!(super::lay_back_street(&site, &mut g, None, None, 5).lanes > 0, "premise: without the wall it is the back line");
+    let (site, mut g) = bank_site_and_streets(&along);
+    let wf = super::lay_back_street(&site, &mut g, Some(&ring), None, 5);
+    assert!(wf.lanes == 0 && wf.water_pts.is_empty(), "{wf:?}");
+}
+
+/// Protects the riverbank-only gate on waterfront tofts (`village::plat_tofts`,
+/// literals): a street village on a coast site with the riverbank geometry
+/// off plats no toft along a harbour quay, on any of twelve seeds where its
+/// harbour has one.
+#[test]
+fn a_village_off_the_riverbank_never_plats_a_harbour_quay() {
+    let mut quays = 0;
+    for s in 4240..4252u32 {
+        let t = generate(s, &GenOpts { pop: Some(400.0), site: Some("coast".into()), street_village: true, ..GenOpts::default() });
+        quays += usize::from(t.graph.edges.iter().any(|e| e.cls == "quay"));
+        assert!(!t.parcels.iter().any(|p| p.par.id.starts_with("toft") && matches!(p.par.edge_cls, "quay" | "bank")), "seed {s}: a toft on a harbour quay");
+    }
+    assert!(quays > 0, "premise: a harbour quay on some seed");
+}
+
+/// Protects the riverbank square's fit test at the scaled size
+/// (`plaza::build_plaza_with`, literals): on the fixture's bank a city's
+/// square (20 000 people, `square_scale` 1.59) on a primary 1.2 times the
+/// reference's drawn length (plus 2 m) is tried at each shrinking size and
+/// placed at the first that fits, the third (1.15 times the length), never a
+/// larger square overhanging its street.
+#[test]
+fn a_riverbank_square_is_fitted_at_its_scaled_size() {
+    let r = RIVER_Y;
+    let anchors = crate::routes::Anchors { market: Vec2::new(850.0, r - 80.0), prov: "test" };
+    let lay = |len: f64, scale: bool| {
+        let (site, mut g) = bank_site_and_streets(&[]);
+        g.add_street(850.0 - len / 2.0, r - 80.0, 850.0 + len / 2.0, r - 80.0, "primary", 6.0, 0, "test");
+        crate::plaza::build_plaza_with(7, &site, &anchors, &mut g, 20000.0, false, scale).expect("a primary")
+    };
+    let base = lay(800.0, false);
+    let l0 = base.poly[0].dist(base.poly[1]);
+    let area = |p: &crate::plaza::Plaza| crate::geom::poly_area(&p.poly).abs();
+    let k = crate::plaza::square_scale(20000.0);
+    // Room for the third try (1.59 x 0.85^2 = 1.15 of the reference's length)
+    // but not the second (1.35).
+    let len = 1.2 * l0 + 2.0;
+    let fitted = lay(len, true);
+    let ratio = area(&fitted) / area(&base);
+    let third = k * 0.85 * 0.85;
+    assert!((ratio - third * third).abs() < 1e-6, "square {ratio} of the reference's, the third try {} (full scale {})", third * third, k * k);
+    assert!(fitted.poly[0].dist(fitted.poly[1]) <= len + 1e-6, "the square overhangs its {len} m street");
+}

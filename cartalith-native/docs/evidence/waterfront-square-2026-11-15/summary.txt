@@ -1,0 +1,67 @@
+Fuller waterfront and market square sized with the town (TOWN_GENERATOR_JUDGEMENT.md changes 5 and 6;
+Ruling EZ item 1), 2026-11-15.
+
+Before = cc0e83b2 (origin/main at the fork). After = this commit. Census: cartalith-godot town_river_census
+(both_banks_audit, town_housing_audit, riverbank_gap_audit), seeds 483920, 912345, 246371, villages on
+(TOWN_RIVER_VILLAGES=1), release build, at 384 and 2048 cells. The before run used the same census source
+as the after run (the new lines were added to both_banks_audit first and built onto origin/main's urban code),
+except "with a riverside street too", added later and so only in the after logs. Full logs beside this file:
+audit_*, housing_*, gap_*; audit_after_squareoff_* is the after build with urban_market_scale off
+(TOWN_RIVER_MS=0), the control for the square's own effect.
+
+Change 5, the waterfront (rides urban_riverbank), river towns of 1 500 and up:
+                                      384 before -> after        2048 before -> after
+ houses within 2 street widths        2.4 % -> 2.7 % (bar 15 %)  2.4 % -> 2.6 %        MISSED
+ every house over 2 widths, >= 1500   0 -> 0                     1 -> 0
+   ... all river towns (villages too) 14 -> 6                    81 -> 77              (brief's bar: none) MISSED
+ built reach fronted (house or quay)  61.3 % -> 65.3 % (bar 70)  60.2 % -> 61.2 %      MISSED
+   ... counting a riverside street    n/a -> 76.0 %              n/a -> 70.7 %
+ built-to-bank over the widest street 263 -> 192 of 649          341 -> 276 of 679     (riverbank_gap_audit)
+ frontage over the widest street      58 -> 21 of 649            136 -> 102 of 679
+ buildings in water (all three tests) 0 -> 0                     0 -> 0
+
+Why 15 % cannot be met by the front: a waterfront is one row of houses along the town's reach of bank.
+The audit's built reach at 384 is 5 028 bank samples (8 m of bank each, both banks) against 86 149 houses
+in the 33 towns: even a house on every 8 m of it is under 6 % of the houses. The bar needs towns that stretch
+along their river (a growth change), not a fuller front.
+
+Change 6, the square (new switch urban_market_scale), towns of 5 000 and up:
+                                      384 before -> after        2048 before -> after
+ square in 0.4-1.2 % of settled area  7 of 28 -> 27 of 28        9 of 24 -> 21 of 24
+ square % of settled, median          0.33 -> 0.68               0.35 -> 0.67
+ square ha, median                    0.21 -> 0.46               0.22 -> 0.50
+ housed median vs square off          103 -> 100 (5 000+)        97 -> 98              (bar: within 3 points)
+                                      99 -> 99 (1 500+)          99 -> 101
+ village greens over 4 % of settled   160 of 648 -> 157 of 648   175 of 685 -> 169    MISSED (by decision)
+ market square outside the wall       2 -> 1                     1 -> 1
+
+The brief's no-regression list (both changes together):
+ market square outside the wall       2 -> 1                     1 -> 1
+ unbuilt patch inside the wall >1 ha  1 -> 0                     1 -> 1 (the same 4.47 ha town)
+ wall / hull median, p90              1.04, 1.10 -> 1.03, 1.07   1.03, 1.17 -> 1.03, 1.15
+ vertices over the bar                1 -> 1                     2 -> 2
+Also: walls crossing the river 13 -> 11 and 18 -> 14, of them round an empty far bank 4 -> 5 and 9 -> 6;
+towns of 1 500 and up housed median 98 -> 99 and 96 -> 101, p90 131 -> 139 and 146 -> 137 (the waterfront
+plats more lots); villages under 80 % of target 91 -> 91 and 57 -> 56.
+
+Tried and not shipped (measured on seed 483920 or all three at 384 on the way):
+ - a village green scaled like the square (1 % of the law; also 1.5 %, 1.8 %, 2 % and 2.57 % on 483920):
+   23 of 648 greens over 4 % (bar met) but 115 villages under 80 % of target against 91 (2.57 %, the
+   reference's size at 400 people, kept the 35 of 217 on 483920; every smaller share lost 7-10). Villages
+   keep Ruling FE item 2's green.
+ - a square shrunk for towns under ~5 300 people: chartered towns of 1 500 changed how they grew; 12345 #0
+   (2 039 people, a kept wall) left more of its interior unbuilt in the frame. They keep the reference's.
+ - a waterfront outside the wall: the rampart sweep (cleanup::clear_fort_zone) kills a street crossing the
+   curtain without a gate, then keeps the largest connected street piece (prune_largest), so a waterfront
+   tied to the town through the wall lost every street and kept its houses (483920 #18 at 384 x 288 in the
+   app's world; #24 at 2048 in the census). The back line is now laid only inside the wall and only where it
+   meets the town or can be tied to it.
+
+Frames: viewer/pair_<seed>_<id>.png, the City Viewer's opening frame before (left, cc0e83b2) and after
+(right), _viewerframe_probe.gd at 384 x 288 (the app's own world, not the census's): 483920 #18, #6, #11,
+#4 (24 426 people) and 12345 #2 (23 648) and #0 (2 039, square unchanged by the floor); villages 483920
+#70 (river), #148, #207 and 12345 #138 (landlocked: the only places off a river in these worlds at 384 are
+villages, so no town off a river could be framed). All looked at.
+
+Mutants: mutants.py (exact replace, the file's own line endings kept, restore in finally, hashes checked);
+results in mutants.txt.

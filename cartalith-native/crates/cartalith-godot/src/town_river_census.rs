@@ -99,6 +99,15 @@ fn street_village(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_SV").map_or(p.urban_street_village, |v| v != "0")
 }
 
+/// Whether the census sizes market squares with the town
+/// (`TOWN_GENERATOR_JUDGEMENT.md` change 6): the app's
+/// (`WorldParams::urban_market_scale` from `params::defaults`, on) unless
+/// `TOWN_RIVER_MS=0` asks for the reference's one size, the "before" of
+/// change 6 (2026-11-15).
+fn market_scale(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_MS").map_or(p.urban_market_scale, |v| v != "0")
+}
+
 /// The river-town test the census lays towns out with: the app's
 /// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
 /// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
@@ -1089,6 +1098,120 @@ fn unbuilt_inside_wall(
     (best as f64 * cell, total)
 }
 
+/// The cell of [`settled_area_m2`], metres: `TOWN_GENERATOR_JUDGEMENT.md`'s
+/// own "settled area" (the judge's scratch `an.py`, `C:/cw/judge_scripts/`),
+/// so the square-size bars read against the area that judgement measured.
+const SETTLED_CELL_M: f64 = 20.0;
+
+/// **The settled area of a layout** (2026-11-15, the judgement's change 6
+/// bars): the [`SETTLED_CELL_M`] cells within one cell (the 3 x 3
+/// neighbourhood) of any building's vertex-mean centre, in square metres.
+/// The judgement's measure exactly (`an.py`: `cents`, `cells`), which it
+/// calls tighter than the research's settled area. A measurement only.
+fn settled_area_m2(buildings: &[Vec<(f64, f64)>]) -> f64 {
+    let mut cells = std::collections::HashSet::new();
+    for b in buildings.iter().filter(|b| !b.is_empty()) {
+        let n = b.len() as f64;
+        let (cx, cy) = (b.iter().map(|p| p.0).sum::<f64>() / n, b.iter().map(|p| p.1).sum::<f64>() / n);
+        let (i, j) = ((cx / SETTLED_CELL_M).floor() as i64, (cy / SETTLED_CELL_M).floor() as i64);
+        for di in -1..=1 {
+            for dj in -1..=1 {
+                cells.insert((i + di, j + dj));
+            }
+        }
+    }
+    cells.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M
+}
+
+/// How far from every street a house's centre may stand before the audit
+/// calls it streetless, metres ([`both_banks_audit`]). **A labelled
+/// judgement**: the platting's deepest lot (`build_parcels`' 46 m depth cap)
+/// less a little, so a rear outbuilding on a deep lot is not counted and a
+/// block whose streets are gone is.
+const ORPHAN_M: f64 = 40.0;
+
+/// The shoelace area of polygon `p`, square metres (unsigned).
+fn poly_area_xy(p: &[(f64, f64)]) -> f64 {
+    let n = p.len();
+    ((0..n).map(|k| p[k].0 * p[(k + 1) % n].1 - p[(k + 1) % n].0 * p[k].1).sum::<f64>() / 2.0).abs()
+}
+
+/// How far from the bank, metres, a building or a quay's water side must be
+/// for a stretch of the built reach to count as fronted
+/// ([`bank_frontage`]): two street widths ([`BANK_STREET_W`]), the same
+/// line as the judgement's first waterfront bar.
+const FRONTED_M: f64 = 2.0 * BANK_STREET_W;
+/// How far inland a bank point's nearest building may be for that point to
+/// lie in the town's **built reach** ([`bank_frontage`]), metres. A labelled
+/// judgement: `EMBANKMENT_REACH` (46 m, the reference's harbour back-street
+/// depth) rounded up, so the reach is the bank the town's own streets come
+/// down to.
+const BUILT_REACH_M: f64 = 50.0;
+
+/// **The waterfront's frontage share** (2026-11-15, `TOWN_GENERATOR_JUDGEMENT.md`
+/// change 5's third bar, *"at least 70 % of the built reach's bank length
+/// fronted by a building or a quay"*). The centreline is walked every 8 m
+/// inside the box; each sample gives a bank point on each side
+/// (`river_w / 2` out along the local normal). A bank point is in the built
+/// reach when a building centre on its side lies within [`BUILT_REACH_M`],
+/// and fronted when a building vertex or a `quay` edge's water side lies
+/// within [`FRONTED_M`] of it. Returns `(fronted, fronted or with any
+/// street's water side within FRONTED_M, in reach)` sample counts: the second
+/// also counts a riverside `street`, `lane` or `primary` (Ruling EZ item 1's
+/// *"a street in between the river and house"*, a quay street by another
+/// class). A measurement only.
+fn bank_frontage(l: &cartalith_civ::urban_adapter::UrbanLayout, river: &[(f64, f64)]) -> (usize, usize, usize) {
+    let (mut fronted, mut fronted_st, mut reach) = (0usize, 0usize, 0usize);
+    if river.len() < 2 {
+        return (0, 0, 0);
+    }
+    let cents: Vec<(f64, f64)> = l.buildings.iter().map(|b| {
+        let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+        (c.x, c.y)
+    }).collect();
+    let verts: Vec<(f64, f64)> = l.buildings.iter().flat_map(|b| b.poly.iter().map(|v| (v.x, v.y))).collect();
+    let quays: Vec<((f64, f64), (f64, f64), f64)> =
+        l.edges.iter().filter(|e| e.cls == "quay").map(|e| ((e.a.x, e.a.y), (e.b.x, e.b.y), e.w)).collect();
+    let streets: Vec<((f64, f64), (f64, f64), f64)> = l
+        .edges
+        .iter()
+        .filter(|e| matches!(e.cls, "street" | "lane" | "primary"))
+        .map(|e| ((e.a.x, e.a.y), (e.b.x, e.b.y), e.w))
+        .collect();
+    let inside = |q: (f64, f64)| q.0 >= 0.0 && q.1 >= 0.0 && q.0 <= l.wm && q.1 <= l.hm;
+    for w in river.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        if len < 1e-9 {
+            continue;
+        }
+        let (dx, dy) = ((b.0 - a.0) / len, (b.1 - a.1) / len);
+        let steps = (len / 8.0).ceil() as usize;
+        for k in 0..steps {
+            let t = k as f64 * len / steps as f64;
+            let c = (a.0 + dx * t, a.1 + dy * t);
+            if !inside(c) {
+                continue;
+            }
+            for s in [1.0, -1.0] {
+                let q = (c.0 - dy * s * l.river_w / 2.0, c.1 + dx * s * l.river_w / 2.0);
+                let on_side = |p: (f64, f64)| ((p.0 - c.0) * -dy + (p.1 - c.1) * dx) * s > 0.0;
+                let near_b = cents.iter().any(|&p| on_side(p) && (p.0 - q.0).hypot(p.1 - q.1) <= BUILT_REACH_M);
+                if !near_b {
+                    continue;
+                }
+                reach += 1;
+                let by_bld = verts.iter().any(|&p| on_side(p) && (p.0 - q.0).hypot(p.1 - q.1) <= FRONTED_M);
+                let by_quay = quays.iter().any(|&(qa, qb, qw)| seg_dist(q, qa, qb) - qw / 2.0 <= FRONTED_M && on_side(((qa.0 + qb.0) / 2.0, (qa.1 + qb.1) / 2.0)));
+                fronted += usize::from(by_bld || by_quay);
+                let by_street = streets.iter().any(|&(qa, qb, qw)| seg_dist(q, qa, qb) - qw / 2.0 <= FRONTED_M && on_side(((qa.0 + qb.0) / 2.0, (qa.1 + qb.1) / 2.0)));
+                fronted_st += usize::from(by_bld || by_quay || by_street);
+            }
+        }
+    }
+    (fronted, fronted_st, reach)
+}
+
 /// p10 / median / p90 / max of a sample, for the riverbank audit's rows.
 fn spread(v: &mut [f64]) -> String {
     if v.is_empty() {
@@ -1167,7 +1290,7 @@ fn riverbank_gap_audit() {
         };
         let mut seed_gap = Vec::new();
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1410,7 +1533,7 @@ fn town_housing_audit() {
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -1480,6 +1603,12 @@ const BANK_STREET_W: f64 = 5.4;
 ///   wall by more than [`BANK_STREET_W`], and each walled town's largest
 ///   unbuilt patch inside the wall ([`unbuilt_inside_wall`]); villages' lots
 ///   with no building centroid in them (the trim's emptied plots among them).
+/// - (2026-11-15, `TOWN_GENERATOR_JUDGEMENT.md` changes 5 and 6) for river
+///   towns of `PLAZA_MARKET_POP` and up: the share of houses within two
+///   [`BANK_STREET_W`] of the bank, the towns with none, and the built reach's
+///   fronted share ([`bank_frontage`]); the market square's area against the
+///   settled area ([`settled_area_m2`]) for towns of 5 000 and up, and a
+///   village green's; and the houses over [`ORPHAN_M`] from every street.
 ///
 /// `TOWN_RIVER_LIST=1` prints a row per town (with what the wall hug did and
 /// its cell position); `TOWN_RIVER_PLOT=<dir>` writes one JSON per town
@@ -1528,6 +1657,22 @@ fn both_banks_audit() {
     // towns of `PLAZA_MARKET_POP` and up with houses: wall over hull length,
     // and vertices over length / [`WALL_VERTEX_RUN_M`].
     let (mut w_hull, mut w_vert): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
+    // The judgement's waterfront bars (change 5, Ruling EZ item 1), river
+    // towns of `PLAZA_MARKET_POP` and up with houses: houses within two
+    // street widths of the bank, towns with none, and the built reach's
+    // fronted share ([`bank_frontage`]).
+    let (mut houses_big, mut within2_big, mut all_far_big) = (0usize, 0usize, 0usize);
+    let (mut front_n, mut front_st_n, mut reach_n) = (0usize, 0usize, 0usize);
+    let mut front_share: Vec<f64> = Vec::new();
+    // The judgement's square bars (change 6): a market square's area as a
+    // percentage of the settled area ([`settled_area_m2`]) in towns of 5 000
+    // and up, its area in hectares by class, and a village green's share.
+    let (mut sq_share_big, mut sq_ha_town, mut sq_ha_big, mut green_share): (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    // Buildings standing more than [`ORPHAN_M`] from every live street edge
+    // (2026-11-15, the waterfront's frames: a riverside block left with its
+    // lots and houses after its streets were swept), and the towns with any.
+    let (mut orphans, mut orphan_towns) = (0usize, 0usize);
     for seed in seeds {
         let (ws, civ, gh, p) = generate_world(seed, gw, true);
         let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
@@ -1551,22 +1696,53 @@ fn both_banks_audit() {
             river_kind_from_map: river_kind_map(&p),
         };
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
+            // Houses with no street near them.
+            let segs: Vec<((f64, f64), (f64, f64))> = l.edges.iter().map(|e| ((e.a.x, e.a.y), (e.b.x, e.b.y))).collect();
+            let town_orphans = l
+                .buildings
+                .iter()
+                .filter(|b| {
+                    let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+                    !segs.iter().any(|&(a, e)| seg_dist((c.x, c.y), a, e) <= ORPHAN_M)
+                })
+                .count();
+            orphans += town_orphans;
+            orphan_towns += usize::from(town_orphans > 0);
+            // The square against the settled area (change 6).
+            let mut sq_txt = String::new();
+            if let Some(z) = l.plaza.as_ref().filter(|_| !l.buildings.is_empty()) {
+                let bl: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|v| (v.x, v.y)).collect()).collect();
+                let settled = settled_area_m2(&bl);
+                let za = poly_area_xy(&z.poly.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>());
+                let share = 100.0 * za / settled.max(1.0);
+                if l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
+                    sq_ha_town.push(za / 1e4);
+                    if l.pop_target >= 5000.0 {
+                        sq_share_big.push(share);
+                        sq_ha_big.push(za / 1e4);
+                    }
+                } else {
+                    green_share.push(share);
+                }
+                sq_txt = format!(" square {:.2} ha = {share:.2} % of settled {:.1} ha", za / 1e4, settled / 1e4);
+            }
             // `TOWN_RIVER_PLOT=<dir>`: one JSON per town for a quick plan plot
             // (buildings, edges by class, river, ring, market), in box metres.
             if let Ok(dir) = std::env::var("TOWN_RIVER_PLOT") {
                 let pts = |v: &[Vec2]| v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",");
                 let json = format!(
-                    "{{\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0},\"plaza\":[{}]}}",
+                    "{{\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0},\"plaza\":[{}],\"blocks\":[{}]}}",
                     l.market.x, l.market.y, l.river_w, pts(&l.river), pts(&l.water_poly),
                     l.wall.ring.as_deref().map_or(String::new(), pts),
                     l.buildings.iter().map(|b| format!("[{}]", pts(&b.poly))).collect::<Vec<_>>().join(","),
                     l.edges.iter().map(|e| format!("[\"{}\",{:.1},{:.1},{:.1},{:.1},{:.1}]", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y)).collect::<Vec<_>>().join(","),
                     l.parcels.iter().map(|q| format!("[\"{}\",[{}]]", q.edge_cls, pts(&q.poly))).collect::<Vec<_>>().join(","),
                     l.pop, l.pop_target,
-                    l.plaza.as_ref().map_or(String::new(), |z| pts(&z.poly))
+                    l.plaza.as_ref().map_or(String::new(), |z| pts(&z.poly)),
+                    l.blocks.iter().map(|b| format!("[{}]", pts(b))).collect::<Vec<_>>().join(",")
                 );
                 let _ = std::fs::write(format!("{dir}/{seed}_{gw}_{i}.json"), json);
             }
@@ -1610,7 +1786,7 @@ fn both_banks_audit() {
             wet_poly += b_poly;
             wet_shore += b_shore;
             let mut row = format!(
-                "  #{i:3} {:>12} target {:6.0} housed {r:5.1} % bld {:5} wet ch/open/poly {b_ch}/{b_open}/{b_poly} shore-line {b_shore}",
+                "  #{i:3} {:>12} target {:6.0} housed {r:5.1} % bld {:5} wet ch/open/poly {b_ch}/{b_open}/{b_poly} shore-line {b_shore} streetless {town_orphans}{sq_txt}",
                 l.site_kind,
                 l.pop_target,
                 l.buildings.len()
@@ -1684,11 +1860,13 @@ fn both_banks_audit() {
                     ((b.0 - a.0) * (q.1 - a.1) - (b.1 - a.1) * (q.0 - a.0)).signum()
                 };
                 let (mut near_all, mut far_n) = (f64::INFINITY, 0usize);
+                let mut town_within2 = 0usize;
                 for b in &l.buildings {
                     let d = b.poly.iter().map(|v| bank_d((v.x, v.y))).fold(f64::INFINITY, f64::min);
                     houses_river += 1;
                     within1 += usize::from(d <= BANK_STREET_W);
                     within2 += usize::from(d <= 2.0 * BANK_STREET_W);
+                    town_within2 += usize::from(d <= 2.0 * BANK_STREET_W);
                     near_all = near_all.min(d);
                     let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
                     far_n += usize::from(side((c.x, c.y)) < 0.0);
@@ -1698,6 +1876,19 @@ fn both_banks_audit() {
                 // would otherwise read a one-bank town as all far bank).
                 far_n = far_n.min(l.buildings.len() - far_n);
                 all_far += usize::from(near_all > 2.0 * BANK_STREET_W);
+                if big {
+                    houses_big += l.buildings.len();
+                    within2_big += town_within2;
+                    all_far_big += usize::from(near_all > 2.0 * BANK_STREET_W);
+                    let (f, fs, rch) = bank_frontage(&l, &river);
+                    front_n += f;
+                    front_st_n += fs;
+                    reach_n += rch;
+                    if rch > 0 {
+                        front_share.push(100.0 * f as f64 / rch as f64);
+                    }
+                    row += &format!(" within2 {:.0} % fronted {f}/{rch}", 100.0 * town_within2 as f64 / l.buildings.len() as f64);
+                }
                 let far_share = far_n as f64 / l.buildings.len() as f64;
                 let crosses = l.bridges.as_ref().is_some_and(|b| !b.is_empty());
                 crossing += usize::from(crosses);
@@ -1758,6 +1949,25 @@ fn both_banks_audit() {
         100.0 * within1 as f64 / houses_river.max(1) as f64,
         100.0 * within2 as f64 / houses_river.max(1) as f64
     );
+    println!(
+        "  river-kind towns >= 1500 with houses {river_big}: houses within 2 street widths of the bank {:.1} % (of {houses_big}); every house over 2 street widths: {all_far_big}; built reach fronted {:.1} % ({front_n} of {reach_n} bank samples; with a riverside street too {:.1} %; per town {})",
+        100.0 * within2_big as f64 / houses_big.max(1) as f64,
+        100.0 * front_n as f64 / reach_n.max(1) as f64,
+        100.0 * front_st_n as f64 / reach_n.max(1) as f64,
+        spread(&mut front_share.clone())
+    );
+    println!(
+        "  market squares: towns >= 1500 ha {}; towns >= 5000 ha {}; >= 5000 square % of settled area {} (in 0.4..1.2: {} of {}); village greens % of settled area {} (over 4 %: {} of {})",
+        spread2(&mut sq_ha_town.clone()),
+        spread2(&mut sq_ha_big.clone()),
+        spread2(&mut sq_share_big.clone()),
+        sq_share_big.iter().filter(|&&v| (0.4..=1.2).contains(&v)).count(),
+        sq_share_big.len(),
+        spread2(&mut green_share.clone()),
+        green_share.iter().filter(|&&v| v > 4.0).count(),
+        green_share.len()
+    );
+    println!("  houses over {ORPHAN_M} m from every street: {orphans} in {orphan_towns} towns");
     println!("  with a crossing {crossing} ({crossing_big} >= 1500); on both banks {both} ({both_big} >= 1500)");
     println!("  walled river towns {walled_river}: wall crosses the river {wall_cross}, of which around an empty far bank {wall_pointless}");
     println!(

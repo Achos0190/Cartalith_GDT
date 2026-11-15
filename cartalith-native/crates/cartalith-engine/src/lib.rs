@@ -1193,6 +1193,22 @@ pub struct WorldParams {
     /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the villages it
     /// was saved with.
     pub urban_street_village: bool,
+    /// **The market square sized with the town** (`TOWN_GENERATOR_JUDGEMENT.md`
+    /// change 6, 2026-11-15): on the organic plan a town's market square, or
+    /// a village's green, is sized from its population
+    /// (`cartalith_urban::plaza::square_scale`: a labelled share of the
+    /// research's settled-area law) instead of the reference's one size of
+    /// about 0.2 ha from a hamlet to a city, and placed nearest the market point
+    /// where it fits. Every town, river or not, so it is its own switch rather
+    /// than `urban_riverbank`'s.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p): the
+    /// urban goldens pin the reference's square. Read fresh each time a layout
+    /// is asked for (never stored), so it moves no generated field and needs no
+    /// regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the squares it
+    /// was saved with.
+    pub urban_market_scale: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1422,6 +1438,9 @@ impl WorldParams {
             // app boundary (2026-11-15) -- see the field's own doc comment.
             urban_riverbank: false,
             urban_street_village: false,
+            // Off: the reference's one square size. On at the app boundary
+            // (change 6) -- see the field's own doc comment.
+            urban_market_scale: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

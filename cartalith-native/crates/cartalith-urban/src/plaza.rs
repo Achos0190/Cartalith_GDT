@@ -275,7 +275,82 @@ pub fn square_near(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f64, c
 /// realised `pop` [`crate::hinterland::build_details`] reads. It decides
 /// [`PlazaKind`] only; the geometry above this point does not read it.
 pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64) -> Option<Plaza> {
-    build_plaza_with(seed, site, anchors, g, pop, false)
+    build_plaza_with(seed, site, anchors, g, pop, false, false)
+}
+
+/// The research's settled-area law, `settled ha = a * N^b`: Cesaretti et al.
+/// on 173 cities (`MEDIEVAL_TOWN_GROWTH_RESEARCH.md` rule 1, which the
+/// judgement rates **strong**), `a` = 0.12, `b` = 0.714. [`square_scale`]
+/// sizes the market square as a share of it, so the square grows as a town's
+/// settled area grows, not as its head count.
+pub const SETTLED_LAW: (f64, f64) = (0.12, 0.714);
+
+/// A chartered town's market square as a share of [`SETTLED_LAW`]'s settled
+/// area for its `pop_target` ([`square_scale`]). **A labelled judgement**
+/// (`TOWN_GENERATOR_JUDGEMENT.md` change 6: *"about 0.5 to 1 % of the built
+/// area for an organic town, and I do not claim a source for it"*;
+/// `MEDIEVAL_TOWN_GROWTH_RESEARCH.md` section 7 found no sourced ratio). The
+/// generator's towns settle about 0.4 to 0.6 of the law's area (the
+/// judgement's measure), so 0.4 % of the law is about 0.7 to 1 % of what a
+/// town really covers: 0.09 ha at 1 500 people, 0.21 ha at 5 000 (the
+/// reference's fixed draw), 0.56 ha at 20 000.
+pub const SQUARE_LAW_SHARE: f64 = 0.004;
+
+/// The mean area of the reference's two draws, `range(55, 80)` by
+/// `range(26, 40)`: 67.5 x 33 m. **The reference's** numbers; [`square_scale`]
+/// scales both draws by one factor, so the mean square is the target area and
+/// each town keeps its own drawn proportions.
+const DRAW_MEAN_AREA_M2: f64 = 67.5 * 33.0;
+
+/// How much smaller each next try is when a scaled square finds no room
+/// ([`build_plaza_with`]). **A labelled judgement**: about one seventh off the
+/// area a step, so at most four steps bring the largest city's square back to
+/// the reference's size.
+const SQUARE_SHRINK: f64 = 0.85;
+
+/// **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 6, 2026-11-15,
+/// behind `GenOpts::market_scale`): the factor both of `build_plaza`'s draws
+/// are multiplied by for a chartered town, so the square's area is
+/// [`SQUARE_LAW_SHARE`] of [`SETTLED_LAW`]'s area for `pop`, on average over
+/// the draws. Why: the reference's square is one size, about 0.2 ha, from a
+/// hamlet of 400 to a city of 20 000, which the judgement measured at 0.28 %
+/// of a large town's built area. `pop` is the `pop_target` (`build_civic`'s,
+/// not the realised count). Must never be read with the switch off, nor for a
+/// village (below).
+///
+/// **A village keeps its green** ([`build_plaza_with`] does not scale it):
+/// the street village's green of `9cd4c7c7` (Ruling FE item 2) is kept. A
+/// green scaled the same way (1 % of the law, 0.09 ha at 400 people) met the
+/// judgement's 4 % bar (23 of 648 villages over it against 160) but left 115
+/// villages under 80 % of their target against 91 on the census at 384
+/// (three seeds, `docs/evidence/waterfront-square-2026-11-15/`): fewer back
+/// lanes grew off the smaller green's streets. Routed, not shipped.
+///
+/// **Nor is a square shrunk**: a town whose factor is under 1 (under about
+/// 5 300 people) keeps the reference's square, size and place.
+/// `TOWN_GENERATOR_JUDGEMENT.md`'s bar is set for towns of 5 000 and up, the
+/// reference's square is already 0.8 to 2 % of a smaller town's settled area,
+/// and a smaller square moved where such a town grew, by chance worse in the
+/// one frame of it looked at (seed 12345 #0 at 384 x 288, 2 039 people: more
+/// of its kept wall's interior left unbuilt).
+pub fn square_scale(pop: f64) -> f64 {
+    let law_m2 = SETTLED_LAW.0 * pop.max(1.0).powf(SETTLED_LAW.1) * 1e4;
+    (SQUARE_LAW_SHARE * law_m2 / DRAW_MEAN_AREA_M2).sqrt()
+}
+
+/// The factors [`build_plaza_with`] tries for a square scaled by `k`, in
+/// order: `k` itself, then [`SQUARE_SHRINK`] times the last while that is
+/// still over 1, then 1 (the reference's size). A square at or under the
+/// reference's size is tried once: a smaller square fits wherever a larger
+/// one would.
+fn scale_tries(k: f64) -> Vec<f64> {
+    let mut out = vec![k];
+    let mut s = k;
+    while s > 1.0 {
+        s = (s * SQUARE_SHRINK).max(1.0);
+        out.push(s);
+    }
+    out
 }
 
 /// [`build_plaza`], with `green_at_market` (**not the reference**; Ruling FE
@@ -284,7 +359,21 @@ pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop
 /// ([`square_near_market`]), the landing or the crossroads, instead of at the
 /// nearest primary's middle. `false` is [`build_plaza`] exactly. The two draws
 /// are the same either way, so no other stream moves.
-pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64, green_at_market: bool) -> Option<Plaza> {
+///
+/// `scale` (**not the reference**; `TOWN_GENERATOR_JUDGEMENT.md` change 6,
+/// 2026-11-15, `GenOpts::market_scale`): for a chartered town whose
+/// [`square_scale`] is over 1 (a village's green, and a smaller town's square,
+/// are never scaled, see [`square_scale`]) both draws are multiplied by [`square_scale`]`(pop)`,
+/// and the square is placed by the searches below,
+/// each tried at [`scale_tries`]' sizes from the largest down, the first that
+/// fits winning. A chartered town on a site neither search above takes (no
+/// riverbank geometry) is placed by [`square_near_market`] too, nearest the
+/// market point on a live primary, because a square larger than the
+/// reference's no longer fits on any edge the reference's middle-of-the-edge
+/// rule picks; if none fits, the reference's placement stands at the
+/// reference's size. The draws are still exactly
+/// two, so no other stream moves. `false` changes nothing.
+pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64, green_at_market: bool, scale: bool) -> Option<Plaza> {
     let mut r = stream(seed, "plaza");
 
     // Nearest live primary edge to the market. Strict `<`, so a tie keeps the
@@ -309,33 +398,63 @@ pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph
     let mut dir = (b - a).norm();
     let mut mid = a.lerp(b, 0.5);
     // European market place band (M-DEN-6). Two draws, in declaration order.
-    let l = r.range(55.0, 80.0);
-    let wd = r.range(26.0, 40.0);
+    let l0 = r.range(55.0, 80.0);
+    let wd0 = r.range(26.0, 40.0);
+    // Change 6 (see the doc comment): the sizes to try, largest first. With
+    // the switch off, the reference's one size.
+    // A village keeps the reference's green, and a town whose law-sized
+    // square would be smaller than the reference's keeps the reference's
+    // (see `square_scale`).
+    let scale = scale && pop >= PLAZA_MARKET_POP && square_scale(pop) > 1.0;
+    let k = if scale { square_scale(pop) } else { 1.0 };
+    let tries = if scale { scale_tries(k) } else { vec![1.0] };
+    let (mut l, mut wd) = (l0 * tries[0], wd0 * tries[0]);
+    // Whether a search below placed the square; only with `scale` does the
+    // unplaced case change size (to `min(k, 1)` at the reference's place).
+    let mut placed = false;
     // **Not the reference** (2026-11-15, riverbank sites only): a chartered
     // town's market square beside the market, on its bank, rather than at
     // the middle of the nearest primary (`riverbank_square`). Not a village
     // green: a village has no wall to keep it in, and moving its green moved
     // where 24 more villages grew, under 80 % of their target (the census at
     // 2 048, 3 seeds, measured with the green moved too).
-    if site.riverbank()
-        && pop >= PLAZA_MARKET_POP
-        && let Some((d, m)) = riverbank_square(site, anchors, g, l, wd)
-    {
-        dir = d;
-        mid = m;
+    if site.riverbank() && pop >= PLAZA_MARKET_POP {
+        for &t in &tries {
+            if let Some((d, m)) = riverbank_square(site, anchors, g, l0 * t, wd0 * t) {
+                (dir, mid, l, wd, placed) = (d, m, l0 * t, wd0 * t, true);
+                break;
+            }
+        }
     }
     // Ruling FE item 2 (see `build_plaza_with`): a street village's green at
     // the market point. The street budget changes with it
     // (`crate::village::STREET_PER_HEAD_M`) and the tofts fill to the target
     // (`crate::village::plat_tofts`), which is what the recorded attempt above
     // lacked: it moved the green alone and the old growth followed it.
-    if green_at_market
-        && pop < PLAZA_MARKET_POP
-        && let Some((d, m)) = square_near(site, anchors, g, l, wd, GREEN_RIVER_CLEAR_M, true, true)
-            .or_else(|| square_near(site, anchors, g, l, wd, GREEN_RIVER_CLEAR_M, false, true))
-    {
-        dir = d;
-        mid = m;
+    if green_at_market && pop < PLAZA_MARKET_POP {
+        for &t in &tries {
+            let (lt, wt) = (l0 * t, wd0 * t);
+            if let Some((d, m)) = square_near(site, anchors, g, lt, wt, GREEN_RIVER_CLEAR_M, true, true)
+                .or_else(|| square_near(site, anchors, g, lt, wt, GREEN_RIVER_CLEAR_M, false, true))
+            {
+                (dir, mid, l, wd, placed) = (d, m, lt, wt, true);
+                break;
+            }
+        }
+    }
+    // Change 6: a scaled chartered town's square that neither search above
+    // placed (a site without the riverbank geometry) stands nearest the market
+    // point on a primary it fits on; else at the reference's place and size.
+    if scale && !placed && pop >= PLAZA_MARKET_POP && !site.riverbank() {
+        for &t in &tries {
+            if let Some((d, m)) = square_near_market(site, anchors, g, l0 * t, wd0 * t, SQUARE_RIVER_CLEAR_M) {
+                (dir, mid, l, wd, placed) = (d, m, l0 * t, wd0 * t, true);
+                break;
+            }
+        }
+    }
+    if scale && !placed {
+        (l, wd) = (l0, wd0);
     }
 
     // Widen on the side away from the river: probe 20 m either way along the

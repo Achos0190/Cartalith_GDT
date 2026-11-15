@@ -644,3 +644,94 @@ fn the_laid_streets_carry_the_provenance_for_their_own_kind() {
         }
     }
 }
+
+// ------------------------------------ the square sized with the town (change 6) --
+
+/// The area of a plaza's quad, square metres.
+fn quad_area(p: &crate::plaza::Plaza) -> f64 {
+    crate::geom::poly_area(&p.poly).abs()
+}
+
+/// Protects `square_scale` against its constants (literals, computed by hand
+/// from the law 0.12 N^0.714 ha and the draw mean 67.5 x 33 m): a city of
+/// 20 000 gets 0.4 % of 141.2 ha, 5 647 m2, a factor of 1.592; a town of 5 000
+/// 0.4 % of 52.4 ha, a factor of 0.970; a town of 1 500 0.4 % of 22.3 ha, a
+/// factor of 0.633.
+#[test]
+fn the_square_scale_follows_the_settled_area_law() {
+    use crate::plaza::square_scale;
+    let near = |got: f64, want: f64| assert!((got - want).abs() < 2e-3, "{got} != {want}");
+    near(square_scale(20000.0), 1.592);
+    near(square_scale(5000.0), 0.970);
+    near(square_scale(1500.0), 0.633);
+}
+
+/// Protects the switch's off state: `build_plaza_with(.., scale: false)` is
+/// `build_plaza` exactly on every captured scenario (the golden's quads), so
+/// the reference's square is untouched with `urban_market_scale` off.
+#[test]
+fn an_unscaled_square_is_the_references() {
+    for c in golden::GOLDEN.iter().filter(|c| !c.empty) {
+        let (site, anchors, mut g) = setup(c);
+        let a = build_plaza(c.seed, &site, &anchors, &mut g, 20000.0);
+        let (site, anchors, mut g) = setup(c);
+        let b = crate::plaza::build_plaza_with(c.seed, &site, &anchors, &mut g, 20000.0, false, false);
+        assert_eq!(a, b, "{}", c.name);
+    }
+}
+
+/// Protects the scaled square's size and its fallbacks (literals): on a
+/// landlocked fixture with one long primary through the market, a city's
+/// square is `square_scale(20 000)`^2 = 2.53 times the reference's drawn area,
+/// placed nearest the market point; a hamlet's green (400), a village's
+/// (1 499) and a small town's square (1 500 and 5 000, whose factors are under
+/// 1) keep the reference's size and place, while 6 000 people get
+/// `square_scale(6 000)`^2 times it; on a primary too short for the city's square (100 m) the
+/// tries shrink it until it fits (between the reference's size and the full
+/// scale); and with no room anywhere (a 30 m primary) the reference's place
+/// stands at the reference's size, never larger.
+#[test]
+fn a_scaled_square_grows_with_the_town_and_shrinks_to_fit() {
+    let site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
+    let anchors = Anchors { market: Vec2::new(850.0, 600.0), prov: "fixture" };
+    let lay = |len: f64, pop: f64, scale: bool| {
+        let mut g = Graph::new();
+        g.add_street(850.0 - len / 2.0, 600.0, 850.0 + len / 2.0, 600.0, "primary", 6.0, 0, "fixture");
+        crate::plaza::build_plaza_with(7, &site, &anchors, &mut g, pop, false, scale).expect("a primary")
+    };
+    let base = quad_area(&lay(800.0, 20000.0, false));
+    let city = lay(800.0, 20000.0, true);
+    let k = crate::plaza::square_scale(20000.0);
+    assert!((quad_area(&city) / base - k * k).abs() < 1e-6, "city square {} vs {} x {}", quad_area(&city), base, k * k);
+    assert!(city.center.dist(anchors.market) < 70.0, "the city's square stands by the market: {:?}", city.center);
+    for pop in [400.0, 1499.0, 1500.0, 5000.0] {
+        assert_eq!(lay(800.0, pop, true), lay(800.0, pop, false), "a place of {pop} keeps the reference's square");
+    }
+    let k6 = crate::plaza::square_scale(6000.0);
+    assert!(k6 > 1.0, "premise: 6 000 people are scaled ({k6})");
+    assert!((quad_area(&lay(800.0, 6000.0, true)) / base - k6 * k6).abs() < 1e-6, "a town of 6 000 is scaled");
+    // A 100 m primary: the reference's draw (55-80 m long) fits, the city's
+    // 1.59 times it (88-127 m) may not; the tries settle in between.
+    let short = quad_area(&lay(100.0, 20000.0, true)) / base;
+    assert!((1.0 - 1e-9..k * k).contains(&short), "shrunk to {short} of the reference's area");
+    // A 30 m primary: no try fits, so the reference's middle-of-the-edge place
+    // and size.
+    let none = lay(30.0, 20000.0, true);
+    let refq = lay(30.0, 20000.0, false);
+    assert_eq!(none, refq, "no room: the reference's square, no larger");
+}
+
+/// Protects `scale_tries` and `SQUARE_SHRINK` (literals): a city's factor of
+/// 1.592 is tried at 1.592, then 0.85 times each last (1.3532, 1.1502) while
+/// over 1, then at 1 (the reference's size), and a factor of 1 or under once.
+#[test]
+fn the_square_tries_shrink_by_fifteen_percent_to_the_reference() {
+    let t = super::scale_tries(1.592);
+    let want = [1.592, 1.3532, 1.15022, 1.0];
+    assert_eq!(t.len(), want.len(), "{t:?}");
+    for (g, w) in t.iter().zip(want) {
+        assert!((g - w).abs() < 1e-9, "{t:?}");
+    }
+    assert_eq!(super::scale_tries(1.0), vec![1.0]);
+    assert_eq!(super::scale_tries(0.7), vec![0.7]);
+}

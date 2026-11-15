@@ -104,8 +104,10 @@ const HOUSEHOLD: f64 = 5.2;
 /// house, at 5.2 a lot, counting the block lots that will be built
 /// (`build_buildings`' floors and, with `terrain_aware`, its suitability bar).
 ///
-/// Every live street but a quay or a riverside frontage (`riverbank::BANK_CLASS`)
-/// is cut into frontages of [`TOFT_FRONTAGE`] from its first node; each frontage
+/// Every live street (and, on a riverbank site only, the embankment's quay and
+/// riverside frontage, `riverbank::BANK_CLASS`: change 5 of
+/// `TOWN_GENERATOR_JUDGEMENT.md`, 2026-11-15; elsewhere a quay is a harbour's
+/// and stays unplatted, as before) is cut into frontages of [`TOFT_FRONTAGE`] from its first node; each frontage
 /// on each side is a candidate toft [`TOFT_DEPTH_M`] deep (cut back to a street
 /// behind it), kept when it is dry (`blocks::lot_is_wet`), inside the box,
 /// clear of the green, of every street but its own and of every lot so far, and
@@ -142,7 +144,13 @@ pub fn plat_tofts(
     // Every candidate: its distance to the market, the quad (front edge
     // first, `poly[0]`-`poly[1]` on the street), and the street's class.
     let mut cands: Vec<(f64, Vec<Vec2>, &'static str)> = Vec::new();
-    for e in g.edges.iter().filter(|e| e.alive && e.cls != "quay" && e.cls != crate::riverbank::BANK_CLASS) {
+    // The riverside edges count as frontage only on a riverbank site
+    // (`TOWN_GENERATOR_JUDGEMENT.md` change 5, Ruling EZ item 1): there the
+    // embankment's quay and bank stretches are the village's waterfront, and a
+    // toft on them is a house on the quay or on the water. Elsewhere a `quay`
+    // is a harbour's, and the reference's village never fronted it.
+    let waterside = |c: &str| c == "quay" || c == crate::riverbank::BANK_CLASS;
+    for e in g.edges.iter().filter(|e| e.alive && (site.riverbank() || !waterside(e.cls))) {
         let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
         let len = a.dist(b);
         if len < 6.0 || crate::geom::dist_pt_seg(market, a, b) > reach {

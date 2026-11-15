@@ -801,6 +801,9 @@ impl WorldGen {
                 // Ruling FE item 2: villages line their roads. Read live, like
                 // the two above.
                 street_village: self.params.urban_street_village,
+                // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
+                // the town. Read live, like the three above.
+                market_scale: self.params.urban_market_scale,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

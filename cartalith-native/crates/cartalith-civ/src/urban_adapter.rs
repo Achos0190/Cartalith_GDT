@@ -1932,6 +1932,9 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::street_village`], carried to
     /// `GenOpts::street_village` (Ruling FE item 2).
     pub street_village: bool,
+    /// [`PlaceOverrides::market_scale`], carried to `GenOpts::market_scale`
+    /// (`TOWN_GENERATOR_JUDGEMENT.md` change 6).
+    pub market_scale: bool,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -2008,6 +2011,13 @@ pub struct PlaceOverrides<'a> {
     /// unmoved by control flow. The app sets it from
     /// `WorldParams::urban_street_village` (`DECISIONS.md` section 7p).
     pub street_village: bool,
+    /// `TOWN_GENERATOR_JUDGEMENT.md` change 6 (2026-11-15): the market square
+    /// is sized from the town's population (`cartalith_urban::GenOpts::market_scale`).
+    /// **Not a `_umPlaceContext` field** and not in the reference, so `false`
+    /// (the `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_market_scale` (`DECISIONS.md` section 7p).
+    pub market_scale: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2091,6 +2101,7 @@ pub fn um_place_context_with(
         wall_hug: o.wall_hug,
         riverbank: o.riverbank,
         street_village: o.street_village,
+        market_scale: o.market_scale,
     }
 }
 
@@ -2428,6 +2439,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         wall_hug: ctx.wall_hug,
         riverbank: ctx.riverbank,
         street_village: ctx.street_village,
+        market_scale: ctx.market_scale,
     };
     let t = generate(ctx.seed, &opts);
 

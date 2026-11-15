@@ -1,0 +1,64 @@
+Mutation runs for changes 5 and 6 (mutants.py, then mutants2.py and mutants3.py re-running the survivors
+after fixtures were added). Each: exact replace, restore in finally, hashes checked; cargo test -p cartalith-urban
+--lib -- riverbank:: plaza:: village::. 34 distinct mutants: 29 killed, 5 survived (below).
+
+== pass 1 (mutants.py)
+square share: KILLED by plaza::tests::the_square_scale_follows_the_settled_area_law, plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+law exponent: KILLED by plaza::tests::the_square_scale_follows_the_settled_area_law, plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit, riverbank::tests::a_chartered_river_town_gets_its_waterfront_and_a_scaled_square
+law coefficient: KILLED by plaza::tests::the_square_scale_follows_the_settled_area_law, plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+draw mean: KILLED by plaza::tests::the_square_scale_follows_the_settled_area_law
+shrink step: KILLED by plaza::tests::the_square_tries_shrink_by_fifteen_percent_to_the_reference
+tries floor: KILLED by plaza::tests::the_square_tries_shrink_by_fifteen_percent_to_the_reference
+greens scaled: SURVIVED
+floor >=: SURVIVED
+scale ignored: KILLED by plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+unplaced size kept: KILLED by plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+small squares shrunk: KILLED by plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+landlocked search off: KILLED by plaza::tests::a_scaled_square_grows_with_the_town_and_shrinks_to_fit
+riverbank square unscaled: SURVIVED
+back depth low: KILLED by riverbank::tests::a_town_standing_back_gets_a_waterfront_back_street, riverbank::tests::an_existing_riverside_street_is_the_back_line, riverbank::tests::the_back_street_depth_is_drawn_from_35_to_45_metres
+back depth high: KILLED by riverbank::tests::the_back_street_depth_is_drawn_from_35_to_45_metres
+existing low: KILLED by riverbank::tests::the_back_line_window_and_angle_are_exact
+existing high down: SURVIVED
+existing high up: KILLED by riverbank::tests::a_back_street_joined_to_nothing_or_outside_the_wall_is_not_laid, riverbank::tests::the_back_line_window_and_angle_are_exact
+parallel angle: SURVIVED
+run min: KILLED by riverbank::tests::a_back_street_is_refused_far_from_the_town_beside_a_riverside_street_or_across_a_wall, riverbank::tests::a_short_reach_or_a_primary_alone_makes_no_waterfront, riverbank::tests::the_back_line_window_and_angle_are_exact
+lane gap: KILLED by riverbank::tests::a_town_standing_back_gets_a_waterfront_back_street, riverbank::tests::an_existing_riverside_street_is_the_back_line, riverbank::tests::the_back_line_window_and_angle_are_exact
+break drop: SURVIVED
+primary reaches: KILLED by riverbank::tests::a_short_reach_or_a_primary_alone_makes_no_waterfront
+embankment ignores waterfront: SURVIVED
+existing pair checked: SURVIVED
+street over existing: SURVIVED
+at-water arm: KILLED by riverbank::tests::a_back_street_is_refused_far_from_the_town_beside_a_riverside_street_or_across_a_wall, riverbank::tests::the_back_line_window_and_angle_are_exact
+plaza point: SKIP (occurs 0 times)
+lane wall: KILLED by riverbank::tests::a_back_street_is_refused_far_from_the_town_beside_a_riverside_street_or_across_a_wall, riverbank::tests::a_big_river_town_bridges_its_river_and_builds_on_both_banks, riverbank::tests::the_far_bank_grows_past_the_bridgehead
+unjoined run laid: KILLED by riverbank::tests::a_back_street_joined_to_nothing_or_outside_the_wall_is_not_laid
+outside the wall: SURVIVED
+village waterfront: KILLED by riverbank::tests::a_chartered_river_town_gets_its_waterfront_and_a_scaled_square
+no waterfront tofts: KILLED by riverbank::tests::a_river_village_plats_tofts_on_its_waterfront
+harbour tofts: SURVIVED
+all files restored (hashes match)
+
+== pass 2 (mutants2.py: survivors re-run after new fixtures; 'plaza point' with its string corrected)
+riverbank square unscaled: SURVIVED
+existing high down: KILLED by riverbank::tests::the_back_line_window_and_angle_are_exact
+parallel angle: KILLED by riverbank::tests::the_back_line_window_and_angle_are_exact
+break drop: SURVIVED
+embankment ignores waterfront: KILLED by riverbank::tests::the_waterfront_points_carry_the_embankment
+existing pair checked: SURVIVED
+street over existing: KILLED by riverbank::tests::an_existing_riverside_street_is_the_back_line, riverbank::tests::the_back_line_window_and_angle_are_exact
+outside the wall: KILLED by riverbank::tests::an_existing_back_line_outside_the_wall_is_not_used
+harbour tofts: KILLED by riverbank::tests::a_village_off_the_riverbank_never_plats_a_harbour_quay
+plaza point: SURVIVED
+all files restored (hashes match)
+
+== pass 3 (mutants3.py)
+riverbank square unscaled: KILLED by riverbank::tests::a_riverbank_square_is_fitted_at_its_scaled_size
+all files restored (hashes match)
+
+== The five survivors
+greens scaled: equivalent; square_scale(pop) > 1 already excludes every village (k > 1 only from about 5 300 people).
+floor >=: equivalent at any whole population; square_scale is exactly 1 only near 5 420.3 people.
+break drop (2 -> 1): one dropped vertex also clears the 11 m snap (24 m apart); two is a labelled margin (BACK_BREAK_DROP's doc).
+existing pair checked: equivalent; two consecutive points on one existing street are joined by that street, which is dry and crosses no wall or square.
+plaza point: masked; a back street through the square is still refused by the segment test (crosses_plaza) and its unjoined pieces by the tie rule.

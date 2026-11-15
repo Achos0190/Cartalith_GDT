@@ -291,6 +291,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         // The reference has no wall hug: every captured case runs with it off.
         wall_hug: false,
         riverbank: false,
+        // Nor a population-scaled square (change 6): the reference's one size.
+        market_scale: false,
     }
 }
 

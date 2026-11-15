@@ -1,0 +1,21 @@
+
+running 1 test
+test town_river_census::both_banks_audit ... all seeds at 2048, urban_riverbank Some(true)
+  villages (pop_target < 1500) housed % n 685 min 2 p10 82 median 100 p90 100 max 125; under 80 %: 56; over 200 %: 0
+  towns (pop_target >= 1500) housed % n 35 min 28 p10 78 median 99 p90 136 max 185; under 80 %: 6; over 200 %: 0
+  towns >= 5000 housed % n 24 min 28 p10 68 median 97 p90 134 max 146; under 80 %: 4; over 200 %: 0
+  river-kind towns with houses 685 (35 >= 1500): houses within 1 street width of the bank 1.1 %, within 2 4.4 % (of 180250); every house over 2 street widths: 77
+  river-kind towns >= 1500 with houses 35: houses within 2 street widths of the bank 2.5 % (of 84854); every house over 2 street widths: 0; built reach fronted 60.2 % (3121 of 5186 bank samples; with a riverside street too 70.2 %; per town n 35 min 12 p10 32 median 58 p90 81 max 91)
+  market squares: towns >= 1500 ha n 35 min 0.15 p10 0.17 median 0.22 p90 0.29 max 0.31; towns >= 5000 ha n 24 min 0.15 p10 0.17 median 0.22 p90 0.29 max 0.31; >= 5000 square % of settled area n 24 min 0.17 p10 0.19 median 0.35 p90 0.66 max 2.17 (in 0.4..1.2: 9 of 24); village greens % of settled area n 685 min 1.68 p10 2.38 median 3.32 p90 4.85 max 49.28 (over 4 %: 169 of 685)
+  houses over 40 m from every street: 5085 in 32 towns
+  with a crossing 276 (26 >= 1500); on both banks 193 (14 >= 1500)
+  walled river towns 34: wall crosses the river 18, of which around an empty far bank 9
+  villages' lots with no building: 2075 of 51787 (4.0 %); villages with 10 or more: 33
+  walled towns >= 1500 with houses: wall / hull length n 34 min 1.00 p10 1.00 median 1.02 p90 1.18 max 1.30; vertices / (length / 35 m) n 34 min 0.50 p10 0.52 median 0.57 p90 0.67 max 4.05 (over 1: 3)
+  villages with houses: street m per building n 685 min 3.78 p10 6.76 median 10.76 p90 17.80 max 36.30; green to market point m n 685 min 31 p10 33 median 39 p90 80 max 743 (within 60 m: 603 of 685; of the market point or a river crossing: 624)
+  walled towns with houses 34: market square outside the wall 1; largest unbuilt patch inside the wall (ares, 100 m2) n 34 min 0 p10 0 median 6 p90 47 max 447; over 0.5 ha 3, over 1 ha 1, over 2 ha 1
+  buildings in water: river channel 0, sea or lake cell 0, water_poly 0; within half river_w of a coast's shoreline polyline (not water) 460
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1393 filtered out; finished in 86.71s
+

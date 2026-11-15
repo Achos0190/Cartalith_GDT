@@ -36,7 +36,7 @@
 //! site's centreline is clipped and resampled first ([`fine_river_path`]).
 
 use crate::districts::TERRAIN_BUILD_MIN;
-use crate::geom::{Vec2, dist_pt_seg, js_or, seg_int, simplify};
+use crate::geom::{Vec2, dist_pt_seg, js_or, point_in_poly, seg_int, simplify};
 use crate::graph::Graph;
 use crate::plaza::PLAZA_MARKET_POP;
 use crate::rng::stream;
@@ -224,6 +224,13 @@ pub struct Embankment {
     /// Field and pasture strips `generate` swept for crossing the water; 0
     /// from [`build_embankment`] itself.
     pub fields_swept: usize,
+    /// Each waterfront back street [`lay_back_street`] laid (change 5 of
+    /// `TOWN_GENERATOR_JUDGEMENT.md`), as laid, simplified. Empty from
+    /// [`build_embankment`] itself and for a town it is not asked for.
+    pub back_streets: Vec<Vec<Vec2>>,
+    /// Water lanes [`lay_back_street`] laid from its back streets down to the
+    /// bank.
+    pub water_lanes: usize,
 }
 
 /// Which side of the centreline `p` lies on: `+1.0` left of the nearest
@@ -329,6 +336,16 @@ fn crosses_wall(a: Vec2, b: Vec2, wall: Option<&[Vec2]>) -> bool {
 /// would is not laid, so no street passes the curtain without a gate (the
 /// embankment is a `quay`, which the rampart sweep `clear_fort_zone` exempts).
 pub fn build_embankment(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, frontage: Option<u32>) -> Embankment {
+    build_embankment_with(site, g, wall, frontage, &[])
+}
+
+/// [`build_embankment`], with `waterfront`: embankment points
+/// ([`Waterfront::water_pts`], change 5 of `TOWN_GENERATOR_JUDGEMENT.md`) that
+/// belong to the town whatever its streets' reach, so the quay and bank
+/// stretches run along the whole waterfront [`lay_back_street`] made. A bank
+/// point within [`RIVER_STEP`]` / 2` of one counts. Empty is
+/// [`build_embankment`] exactly.
+pub fn build_embankment_with(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, frontage: Option<u32>, waterfront: &[Vec2]) -> Embankment {
     let mut out = Embankment::default();
     let r = &site.river;
     if !site.riverbank() || r.len() < 2 {
@@ -361,7 +378,8 @@ pub fn build_embankment(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, front
             .iter()
             .map(|&(c, nl)| {
                 let q = c + nl * (off * side);
-                town.iter().any(|&(p, s)| s == side && p.dist(q) <= EMBANKMENT_REACH).then_some((q, c, nl))
+                (town.iter().any(|&(p, s)| s == side && p.dist(q) <= EMBANKMENT_REACH) || waterfront.iter().any(|w| w.dist(q) <= RIVER_STEP / 2.0))
+                    .then_some((q, c, nl))
             })
             .collect();
         let mut run: Vec<(Vec2, Vec2, Vec2)> = Vec::new();
@@ -473,6 +491,319 @@ pub fn build_embankment(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, front
                     out.ties += 1;
                 }
             }
+        }
+    }
+    out
+}
+
+/// How far from the channel's edge a chartered river town's waterfront back
+/// street runs ([`lay_back_street`]), metres: one depth drawn per bank.
+/// **A labelled judgement** inside `TOWN_GENERATOR_JUDGEMENT.md` change 5's
+/// *"35 to 50 m back from the water"*, capped at 45 m so the back street
+/// stands within [`EMBANKMENT_REACH`] (46 m) of the embankment's line and the
+/// embankment is laid along all of it. It is also the reference's own harbour
+/// block: `buildHarbour` lays its back street 36-46 m inland of the quay.
+pub const BACK_STREET_M: (f64, f64) = (35.0, 45.0);
+
+/// The back street's width, metres. **The reference's** harbour back street
+/// (`buildHarbour`, 4.0), the street this one is modelled on.
+pub const BACK_STREET_W: f64 = 4.0;
+
+/// The angle, degrees, under which an existing street counts as running
+/// along the river ([`BACK_EXISTING_M`]). **A labelled judgement**:
+/// a street within 30 degrees of the bank's line is a riverside street; one
+/// crossing the back street's line at a steeper angle is a cross street that
+/// the back street meets at a junction.
+pub const BACK_PARALLEL_DEG: f64 = 30.0;
+
+/// The shortest back street [`lay_back_street`] lays, metres. **A labelled
+/// judgement**: one block of the engine's 60-150 m (`grow`'s street segments,
+/// `parallelStreetSpacing`); a shorter piece closes no waterfront block.
+pub const BACK_RUN_MIN_M: f64 = 60.0;
+
+/// The spacing of the water lanes down from a back street to the bank,
+/// metres: the shortest and longest gap, one drawn per lane. **A labelled
+/// judgement**: the engine's own block length along a street (60-150 m,
+/// above), shortened to 60-120 m because a waterfront block is reached from
+/// the water lane as well as the back street (King's Lynn's lanes to the
+/// river, `MEDIEVAL_TOWN_GROWTH_RESEARCH.md` rule 19, are its pattern).
+pub const WATER_LANE_GAP_M: (f64, f64) = (60.0, 120.0);
+
+/// How far from the channel's edge an existing street running along the
+/// river serves as a waterfront's back line ([`lay_back_street`]), metres:
+/// nearer than the first, the town already has a street at the water (the
+/// embankment's own reach, [`EMBANKMENT_REACH`], closes that bank); between
+/// the two, the street stays and only the water lanes are added; beyond the
+/// second, a new back street is laid at [`BACK_STREET_M`]. **A labelled
+/// judgement**: [`BACK_STREET_M`] widened by 15 m below (about a lot's
+/// shallowest depth beyond the half-widths, so a new street never runs a
+/// sliver away from an old one) and 25 m above, so a street that already stands about where the back
+/// street would go is used rather than doubled (the measured case: seed
+/// 483920 #18 at 384 x 246, a riverside street 55-60 m from the water left
+/// the bank between unbuilt, because it stood beyond the embankment's reach
+/// and too near for a second street).
+pub const BACK_EXISTING_M: (f64, f64) = (20.0, 70.0);
+
+/// What [`lay_back_street`] laid (change 5 of `TOWN_GENERATOR_JUDGEMENT.md`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Waterfront {
+    /// Each new back street, as laid, simplified.
+    pub streets: Vec<Vec<Vec2>>,
+    /// Water lanes laid from a back line down to the bank.
+    pub lanes: usize,
+    /// The embankment points of every centreline vertex the waterfront
+    /// covers: [`build_embankment`] lays its quay or bank stretch there
+    /// whether or not a town street comes within its reach.
+    pub water_pts: Vec<Vec2>,
+}
+
+/// How many centreline vertices ([`RIVER_STEP`], 8 m apart) a back street
+/// leaves out on each side of a segment it refuses ([`lay_back_street`]).
+/// With no drop the two run ends stood 8 m apart, inside `Graph::add_street`'s
+/// 11 m node snap (`attach_point`'s `SNAP`, the reference's), and the wall
+/// fixture caught a snapped end laying the street through the curtain. Two
+/// puts them 40 m apart. **A labelled judgement**: one (24 m) would also
+/// clear the snap; two leaves a margin for a centreline whose vertices are
+/// closer than [`RIVER_STEP`] at a bend.
+pub const BACK_BREAK_DROP: usize = 2;
+
+/// The water lane's width, metres. **The reference's** lane width
+/// (`lanePass`, 2.6 m, `crate::cleanup::lane_pass`).
+pub const WATER_LANE_W: f64 = 2.6;
+
+/// The provenance string of a back street [`lay_back_street`] lays.
+const BACK_STREET_PROV: &str = "Waterfront back street (not the reference; 2026-11-15, TOWN_GENERATOR_JUDGEMENT.md \
+     change 5, Ruling EZ item 1): the street behind the riverside plots, which run from it to the water.";
+
+/// The provenance string of a water lane [`lay_back_street`] lays.
+const WATER_LANE_PROV: &str = "Water lane (not the reference; 2026-11-15, TOWN_GENERATOR_JUDGEMENT.md change 5): \
+     a lane from the waterfront back street down to the bank.";
+
+/// **Not the reference** -- `TOWN_GENERATOR_JUDGEMENT.md` change 5 (2026-11-15;
+/// owner Ruling EZ item 1: *"Riverside houses are fine, as well as having a
+/// street in between the river and house. So both conditions can exist"*): a
+/// chartered river town's waterfront. Along each bank the town reaches, a back
+/// street [`BACK_STREET_M`] from the channel's edge, water lanes from it down
+/// to the bank every [`WATER_LANE_GAP_M`], and ties from its ends into the
+/// town, so that [`build_embankment`] (called next) lays its quay and bank
+/// stretches along the whole of it and the strip between becomes waterfront
+/// blocks: plots from the back street and from the water, houses on the water
+/// where the embankment lays a [`BANK_CLASS`] stretch and behind a quay where
+/// it lays a quay.
+///
+/// **Why.** Measured on the census at 384 (`town_river_census.rs::both_banks_audit`,
+/// three seeds, `docs/evidence/waterfront-2026-11-15/`): 2.4 % of a chartered
+/// river town's houses stood within two street widths of the bank and 39 % of
+/// the bank its town reaches had no house or quay on it. The embankment is laid
+/// only where a town street comes within [`EMBANKMENT_REACH`] of the water, and
+/// a riverside face closes into a block only where streets meet it, so a town
+/// whose streets stop 50-90 m from the water kept an open band along its river.
+///
+/// **What it does.** For each bank, each centreline vertex (one every
+/// [`RIVER_STEP`]) looks out across its bank for a live street, lane, primary
+/// or ring road running along the river ([`BACK_PARALLEL_DEG`]). One nearer the
+/// channel than [`BACK_EXISTING_M`]`.0` means the town is already at the water
+/// there (nothing to do); one within [`BACK_EXISTING_M`] is the back line; with
+/// none, a back-street point is taken [`BACK_STREET_M`] (one depth per bank)
+/// from the channel's edge, kept when one of the town's own streets (a
+/// street, lane or ring road; not a primary, which runs out into the country
+/// and over the bridge) stands within [`EMBANKMENT_REACH`] of it (the town
+/// reaches it). Points off the market
+/// square (`plaza`) and inside the town's wall (`wall`, when it has one: a
+/// waterfront outside it lost its streets to the rampart sweep's
+/// largest-piece prune and kept its houses) whose joining segments are dry on their bank
+/// ([`dry_on_side_w`]) and cross no wall make a run; each run of at least
+/// [`BACK_RUN_MIN_M`] has its new points laid as a `street` of
+/// [`BACK_STREET_W`] (joined to the existing back line where the two meet), a
+/// `lane` down to the embankment's line at each end and every
+/// [`WATER_LANE_GAP_M`] between (drawn from its own `riverbank/waterfront`
+/// substream, so no reference draw moves), and each new end tied to the
+/// nearest town node on its bank within [`EMBANKMENT_REACH`]. A run that
+/// neither meets an existing street nor can be tied at an end is not laid: it
+/// would be a block standing alone by the river. The run's
+/// embankment points are returned ([`Waterfront::water_pts`]) for
+/// [`build_embankment_with`], which lays the waterfront along all of them.
+///
+/// **Must only be called on a riverbank site** ([`Site::riverbank`]), and by
+/// `generate` only for a town of [`BOTH_BANKS_MIN_POP`] and up on the organic
+/// plan. It must never lay an edge in the water, across the river, outside the
+/// box, across the town wall (`wall`) or through the square, and it adds edges
+/// only.
+pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32) -> Waterfront {
+    let mut out = Waterfront::default();
+    let r = &site.river;
+    if !site.riverbank() || r.len() < 2 {
+        return out;
+    }
+    let mut rng = stream(seed, "riverbank/waterfront");
+    // Every street the town has, for the back line; the town's own streets
+    // (not the primaries, which run out into the country and across bridges)
+    // for whether the town reaches a stretch of bank.
+    let town_cls = |c: &str| matches!(c, "street" | "lane" | "primary" | "ringroad");
+    let town: Vec<(Vec2, Vec2, bool)> = g
+        .edges
+        .iter()
+        .filter(|e| e.alive && town_cls(e.cls))
+        .map(|e| (g.nodes[e.a].pt(), g.nodes[e.b].pt(), e.cls != "primary"))
+        .collect();
+    let cos_par = BACK_PARALLEL_DEG.to_radians().cos();
+    let in_plaza = |p: Vec2| plaza.is_some_and(|z| z.len() >= 3 && point_in_poly(p, z));
+    // Inside the town's wall, when it has one: the rampart sweep
+    // (`cleanup::clear_fort_zone`) kills every street crossing the curtain
+    // without a gate and then keeps only the largest connected piece of the
+    // street graph (`prune_largest`), so a waterfront outside the wall, tied
+    // to the town through it, lost every street while its lots and houses
+    // stayed: a block standing alone by the river (seed 483920 #18 at
+    // 384 x 288 and #24 at 2 048 x 1 311, 2026-11-15).
+    let in_wall = |p: Vec2| wall.is_none_or(|r| r.len() < 3 || point_in_poly(p, r));
+    let crosses_plaza = |a: Vec2, b: Vec2| plaza.is_some_and(|z| z.len() >= 3 && (0..z.len()).any(|k| seg_int(a, b, z[k], z[(k + 1) % z.len()]).is_some()));
+    let water_off = site.river_w / 2.0 + EMBANKMENT_CLEAR + EMBANKMENT_W / 2.0;
+    let fine: Vec<(Vec2, Vec2)> = (0..r.len())
+        .map(|i| {
+            let (a, b) = if i + 1 < r.len() { (r[i], r[i + 1]) } else { (r[i - 1], r[i]) };
+            (r[i], (b - a).norm())
+        })
+        .collect();
+    for side in [1.0, -1.0] {
+        let back_off = site.river_w / 2.0 + rng.range(BACK_STREET_M.0, BACK_STREET_M.1);
+        // Each vertex's back line point, whether it is on a street the town
+        // already has (`true`) or a new back street (`false`), and the
+        // embankment point it looks down to; `None` where the vertex has no
+        // waterfront to make.
+        let pts: Vec<Option<(Vec2, bool, Vec2)>> = fine
+            .iter()
+            .map(|&(c, dir)| {
+                let nl = dir.rot90() * side;
+                let w = c + nl * water_off;
+                // The nearest existing street running along the river on
+                // this bank, out to `BACK_EXISTING_M.1` from the channel.
+                let (o, far) = (c + nl * (site.river_w / 2.0), c + nl * (site.river_w / 2.0 + BACK_EXISTING_M.1));
+                let mut hit: Option<(f64, Vec2)> = None;
+                for &(a, e, _) in &town {
+                    let l = a.dist(e);
+                    if l <= 1e-9 || ((e - a).dot(dir) / l).abs() < cos_par {
+                        continue;
+                    }
+                    if let Some(h) = seg_int(o, far, a, e)
+                        && hit.is_none_or(|(t, _)| h.t < t)
+                    {
+                        hit = Some((h.t, h.pt));
+                    }
+                }
+                match hit {
+                    // A riverside street already at the water: the
+                    // embankment's own reach covers it.
+                    Some((t, _)) if t * BACK_EXISTING_M.1 < BACK_EXISTING_M.0 => None,
+                    // A riverside street the right depth back: it is the back
+                    // line, and only the water lanes are added.
+                    Some((_, p)) => (!in_plaza(p) && in_wall(p)).then_some((p, true, w)),
+                    None => {
+                        let b = c + nl * back_off;
+                        let reached = town.iter().any(|&(a, e, own)| own && dist_pt_seg(b, a, e) <= EMBANKMENT_REACH);
+                        (reached && side_of(site, b) == side && !in_plaza(b) && in_wall(b)).then_some((b, false, w))
+                    }
+                }
+            })
+            .collect();
+        let seg_ok = |a: Vec2, b: Vec2| dry_on_side_w(site, a, b, side, BACK_STREET_W) && !crosses_wall(a, b, wall) && !crosses_plaza(a, b);
+        let mut runs: Vec<Vec<(Vec2, bool, Vec2)>> = Vec::new();
+        let mut run: Vec<(Vec2, bool, Vec2)> = Vec::new();
+        // Vertices still to drop after a refused segment (below).
+        let mut skip = 0usize;
+        for q in pts.into_iter().chain(std::iter::once(None)) {
+            match q {
+                Some(_) if skip > 0 => skip -= 1,
+                // Two existing-street points need no segment between them
+                // (the street is there); any pair with a new point does.
+                Some(q) if run.last().is_none_or(|l| (l.1 && q.1) || seg_ok(l.0, q.0)) => run.push(q),
+                // A refused segment (wet, across the wall or the square): the
+                // run stops [`BACK_BREAK_DROP`] vertices short of it and the
+                // next starts as many past it, so `Graph::add_street`'s 11 m
+                // node snap cannot join the two ends across what refused it.
+                Some(_) => {
+                    let mut done = std::mem::take(&mut run);
+                    done.truncate(done.len().saturating_sub(BACK_BREAK_DROP));
+                    runs.push(done);
+                    skip = BACK_BREAK_DROP - 1;
+                }
+                None => {
+                    runs.push(std::mem::take(&mut run));
+                    skip = 0;
+                }
+            }
+        }
+        for run in runs {
+            let len: f64 = run.windows(2).map(|w| w[0].2.dist(w[1].2)).sum();
+            if run.len() < 2 || len < BACK_RUN_MIN_M {
+                continue;
+            }
+            // Each new end's tie into the town on its bank: the nearest town
+            // node within `EMBANKMENT_REACH` whose tie is dry, crosses no wall
+            // and misses the square.
+            let tie = |q: Vec2| {
+                let mut best: Option<(Vec2, f64)> = None;
+                for &(a, e, _) in &town {
+                    for p in [a, e] {
+                        let d = p.dist(q);
+                        if d > 1.0 && d <= EMBANKMENT_REACH && side_of(site, p) == side && best.is_none_or(|(_, bd)| d < bd) {
+                            best = Some((p, d));
+                        }
+                    }
+                }
+                best.map(|(p, _)| p).filter(|&p| seg_ok(p, q))
+            };
+            let ties: Vec<(Vec2, Vec2)> =
+                [run[0], run[run.len() - 1]].into_iter().filter(|t| !t.1).filter_map(|t| tie(t.0).map(|p| (p, t.0))).collect();
+            // A run joined to the town by neither an existing street nor a
+            // tie would stand alone by the river, a block with no way into the
+            // town (seen at seed 483920 #24 at 2 048 before this rule): not laid.
+            if ties.is_empty() && !run.iter().any(|t| t.1) {
+                continue;
+            }
+            // The new back street, piece by piece: every stretch of
+            // consecutive points with a new one in each pair.
+            let mut piece: Vec<Vec2> = Vec::new();
+            for k in 0..run.len() {
+                let joins = k + 1 < run.len() && !(run[k].1 && run[k + 1].1);
+                if joins || (k > 0 && !(run[k - 1].1 && run[k].1)) {
+                    piece.push(run[k].0);
+                }
+                if !joins && piece.len() >= 2 {
+                    let line = simplify(&piece, 0.8);
+                    for w in line.windows(2) {
+                        g.add_street(w[0].x, w[0].y, w[1].x, w[1].y, "street", BACK_STREET_W, 0, BACK_STREET_PROV);
+                    }
+                    out.streets.push(line);
+                }
+                if !joins {
+                    piece.clear();
+                }
+            }
+            // Water lanes: at the run's first vertex, then every drawn gap,
+            // and at its last.
+            let mut at: Vec<usize> = vec![0];
+            let (mut walked, mut next) = (0.0, rng.range(WATER_LANE_GAP_M.0, WATER_LANE_GAP_M.1));
+            for k in 1..run.len() {
+                walked += run[k - 1].2.dist(run[k].2);
+                if walked >= next && len - walked >= WATER_LANE_GAP_M.0 / 2.0 {
+                    at.push(k);
+                    walked = 0.0;
+                    next = rng.range(WATER_LANE_GAP_M.0, WATER_LANE_GAP_M.1);
+                }
+            }
+            at.push(run.len() - 1);
+            for k in at {
+                let (b, _, w) = run[k];
+                if dry_on_side_w(site, b, w, side, WATER_LANE_W) && !crosses_wall(b, w, wall) && !crosses_plaza(b, w) {
+                    g.add_street(b.x, b.y, w.x, w.y, "lane", WATER_LANE_W, 0, WATER_LANE_PROV);
+                    out.lanes += 1;
+                }
+            }
+            // Each new end tied into the town on its bank.
+            for (p, q) in ties {
+                g.add_street(p.x, p.y, q.x, q.y, "street", BACK_STREET_W, 0, BACK_STREET_PROV);
+            }
+            out.water_pts.extend(run.iter().map(|t| t.2));
         }
     }
     out

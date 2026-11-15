@@ -91,7 +91,7 @@ use crate::hinterland::{
 };
 use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
-use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, build_embankment, fine_river_path, lay_town_bridge};
+use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, fine_river_path, lay_town_bridge};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
@@ -204,6 +204,14 @@ pub struct GenOpts {
     /// `false` is the reference, byte for byte, so every JS-captured golden and
     /// every other `GenOpts` literal is unmoved by control flow.
     pub street_village: bool,
+    /// **Not the reference** -- `TOWN_GENERATOR_JUDGEMENT.md` change 6
+    /// (2026-11-15): on the organic plan the market square (or a village's
+    /// green) is sized from the town's `pop_target`
+    /// ([`crate::plaza::square_scale`]) instead of the reference's one size,
+    /// and placed nearest the market point where it fits. `false` is the
+    /// reference, byte for byte, so every JS-captured golden and every other
+    /// `GenOpts` literal is unmoved by control flow.
+    pub market_scale: bool,
 }
 
 // ------------------------------------------------------------------- output --
@@ -570,7 +578,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         // BEFORE `grow`: the market square's three streets are in the graph
         // before the epoch loop, so the town accretes around it.
         // A street village's green at the market point (`build_plaza_with`).
-        plaza = crate::plaza::build_plaza_with(seed, &site, &anchors, &mut g, pop_target, street_village);
+        // `TOWN_GENERATOR_JUDGEMENT.md` change 6 (`GenOpts::market_scale`):
+        // the square sized from the town (organic plan only; this branch).
+        plaza = crate::plaza::build_plaza_with(seed, &site, &anchors, &mut g, pop_target, street_village, opts.market_scale);
         harbour_outcome = build_harbour(seed, &site, &anchors, &mut g, Some(&harbour_opts));
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
@@ -655,7 +665,23 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
     // **Not the reference** (2026-11-15, `crate::riverbank`): the river town's
     // embankment, after the last street pass and before the faces become
     // blocks, so the riverside blocks it closes are platted like any other.
-    let embankment = if riverbank { Some(build_embankment(&site, &mut g, wall_state.ring.as_deref(), Some(seed))) } else { None };
+    // **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 5, Ruling EZ
+    // item 1; `crate::riverbank::lay_back_street`): a chartered river town's
+    // waterfront back street and water lanes, laid first so the embankment
+    // below runs along all of it and the strip between closes into waterfront
+    // blocks. Organic plan only (the radial plan lays its own rings).
+    let waterfront = if riverbank && pop_target >= BOTH_BANKS_MIN_POP && profile.planning != "radial" {
+        Some(crate::riverbank::lay_back_street(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed))
+    } else {
+        None
+    };
+    let embankment = if riverbank {
+        let wf = waterfront.unwrap_or_default();
+        let e = crate::riverbank::build_embankment_with(&site, &mut g, wall_state.ring.as_deref(), Some(seed), &wf.water_pts);
+        Some(crate::riverbank::Embankment { back_streets: wf.streets, water_lanes: wf.lanes, ..e })
+    } else {
+        None
+    };
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));

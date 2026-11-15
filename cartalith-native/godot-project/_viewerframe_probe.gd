@@ -217,6 +217,9 @@ func _ready() -> void:
 		if kind == "bay":
 			print("  BAY #%d" % k)
 		if not (kind in ["river", "riverthrough"]):
+			## Listed so a frame of a town off the river can be asked for by index (2026-11-15, the
+			## waterfront and market-square changes needed two such towns beside the river towns).
+			print("  NONRIVER #%d %s pop %d" % [k, kind, int(places[k].get("population", 0))])
 			continue
 		n_river += 1
 		cv._layout = lay

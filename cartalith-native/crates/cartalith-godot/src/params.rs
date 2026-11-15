@@ -199,6 +199,11 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's layouts every urban golden pins
     // (`DECISIONS.md` section 7p). See `WorldParams::urban_street_village`.
     p.urban_street_village = true;
+    // `TOWN_GENERATOR_JUDGEMENT.md` change 6 (2026-11-15): the market square
+    // is sized with the town. Off in `WorldParams::defaults`, the reference's
+    // square every urban golden pins (`DECISIONS.md` section 7p). See
+    // `WorldParams::urban_market_scale`.
+    p.urban_market_scale = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -416,6 +421,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_street_village", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Villages line their roads", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_street_village), set_fn: |p, v| p.urban_street_village = v != 0.0 },
+    // `TOWN_GENERATOR_JUDGEMENT.md` change 6 (2026-11-15): the market square
+    // sized with the town. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control (the reference's square is
+    // one size). A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read
+    // fresh whenever a layout is asked for, so it invalidates nothing and
+    // `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_market_scale", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Market square sized with the town", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_market_scale), set_fn: |p, v| p.urban_market_scale = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1077,6 +1091,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_riverbank", ""),
     // Port-only (Ruling FE item 2); the reference lays a village out as a small town.
     ("urban_street_village", ""),
+    // Port-only (change 6); the reference's market square is one size.
+    ("urban_market_scale", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1411,6 +1427,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Street villages (Ruling FE item 2, 2026-11-15): every save without the
     // key drew its villages as the reference's small-town blocks.
     ("urban_street_village", Value::Bool(false)),
+    // The market square sized with the town (change 6, 2026-11-15): every
+    // save without the key drew the reference's one-size square.
+    ("urban_market_scale", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),
