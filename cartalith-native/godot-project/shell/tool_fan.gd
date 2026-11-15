@@ -567,6 +567,14 @@ class _Pill:
 		var h := _pt(44)
 		custom_minimum_size = Vector2(w, h)
 
+	## The chip's label size in px. On the phone `FS_SMALL` (11) was drawn unscaled, so it read about 4 mm tall on a 2.6x screen
+	## (the coordinator's "POI in tiny text"); there it goes through the phone's font scale like every other phone label
+	## (`phone_font`, the floor the probe asserts). Desktop and tablet keep `FS_SMALL`.
+	func label_font_size() -> int:
+		if DccTheme.is_phone():
+			return fan.app.phone_font(DccTheme.FS_SMALL)
+		return DccTheme.FS_SMALL
+
 	## Paints the pill as a capsule (filled when a non-Inspect tool is armed) with
 	## the armed-tool name centred in mono. Reads `armed_visual()` and
 	## `pill_label()`; holds no state of its own.
@@ -577,7 +585,7 @@ class _Pill:
 		draw_style_box(sb, Rect2(Vector2.ZERO, size))
 		var label: String = fan.pill_label()
 		var font := DccTheme.mono(0, true)
-		var fs := DccTheme.FS_SMALL
+		var fs := label_font_size()
 		var ink := DccTheme.c("accent_ink") if fan.armed_visual() else DccTheme.c("text_bright")
 		var ts := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 		draw_string(font, Vector2((size.x - ts.x) * 0.5, size.y * 0.5 + ts.y * 0.32), label,
@@ -906,4 +914,6 @@ func pill_label() -> String:
 			return "COLOUR"
 		"colour_fill":
 			return "FILL"
+		"poi":
+			return "PINS"   ## the palette's own name; "POI" is the engine's word, not the user's
 	return String(app.armed_tool).capitalize().to_upper()

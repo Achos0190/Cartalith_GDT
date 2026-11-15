@@ -108,7 +108,12 @@ func setup(app_ref, fan_ref, host: Control) -> void:
 	name = "ToolStrip"
 	mouse_filter = Control.MOUSE_FILTER_STOP  ## the strip's own padding must not let a tap fall through to the map
 	var r: int = app.phone_px(14)
-	add_theme_stylebox_override("panel", DccTheme.pill(false, r, app.phone_px(6), app.phone_px(4)))
+	## An OPAQUE backing (the `panel` token at alpha 1). `DccTheme.pill(false, ..)` is a hairline on a transparent fill, which let the
+	## map's landmark pins show through the hint and the recents (coordinator review of the PP-6 phone frame, 2026-11-15). The strip
+	## already draws ABOVE the map overlay in the tree (the probe asserts it), so only the fill was missing.
+	var backing := DccTheme.pill(false, r, app.phone_px(6), app.phone_px(4))
+	backing.bg_color = Color(DccTheme.c("panel"), 1.0)
+	add_theme_stylebox_override("panel", backing)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", app.phone_px(4))
 	add_child(col)
