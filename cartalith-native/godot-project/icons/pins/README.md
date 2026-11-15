@@ -59,3 +59,13 @@ Generators and sheets: `design/pin-icons-2026-11-15/glyph-drawn/` (`fable_glyphs
 `painted/temple.png` is a coded painting in the first painted look (dark disc, bronze frame), option A of
 `design/pin-icons-2026-11-15/painted-drawn/temple_options.png`, approved by the owner (*"Do A"*). Its body is the
 per-pixel median of the first 20 painted pins; only the disc is painted. Generator: `painted_temple.py`.
+
+## Painted set made one look (owner-approved, 2026-11-15)
+
+The owner asked that the coded first-look paintings *"replace the painted ones that I gave earlier"* after a touch-up
+(*"the grass/floor slightly below the object"*). So the 38 landscape-style extras in `painted/` are replaced by
+coded paintings in the first look (dark disc, bronze frame, 107 x 128, body = median of the owner's first 20), with
+flat seated ground, contact shadows and grass over each base. Also: `tavern.png` is now a beer tankard (owner:
+*"it really sells it well"*), the former tavern building is `inn.png` (the engine has no Inn kind yet; routed in
+OUTSTANDING_WORK.md), and `temple.png` is re-seated. The owner's replaced landscape pins are kept in
+`design/pin-icons-2026-11-15/painted-landscape-superseded/`; the generator and sheets are in `painted-drawn/`.
