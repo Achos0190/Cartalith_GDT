@@ -1151,12 +1151,17 @@ pub struct WorldParams {
     /// riverside alternates embankment quays with houses on the water
     /// (`riverbank::BANK_CLASS`), a riverside lot is judged on its slope alone
     /// (`districts::lot_suitability`), a town of
-    /// `riverbank::BOTH_BANKS_MIN_POP` and up bridges its river
-    /// (`riverbank::lay_town_bridge`) and grows on a buildable far bank, its
-    /// wall spans the river only when both banks are built
-    /// (`wallhug::one_bank_by_lots`), and a village housing over
-    /// `riverbank::RIVER_HOUSING_CAP` of its target leaves its outermost
-    /// lots empty (`riverbank::trim_overbuilt`). **The reference's distance raster already measures from the
+    /// `riverbank::BOTH_BANKS_MIN_POP` and up that houses under its target
+    /// is laid out again with a bridge (`riverbank::lay_town_bridge`) and a
+    /// far bank grown after its own, from the shortfall
+    /// (`growth::grow_far_bank`, `riverbank::second_pass`), its wall is
+    /// refitted to the built area's outline and spans the river only when
+    /// both banks are built (`wallhug::outline`, `wallhug::one_bank_by_lots`)
+    /// with its market square beside the market and inside it
+    /// (`plaza::riverbank_square`), and a village housing over
+    /// `riverbank::RIVER_HOUSING_CAP` of its target is grown again from a
+    /// smaller street budget (`riverbank::fit_village`), emptying lots
+    /// (`riverbank::trim_overbuilt`) only for what that leaves over. **The reference's distance raster already measures from the
     /// bank** (`_umWaterCtx` stamps the river band into the mask before the
     /// distance transform), and its margins (`riverW/2+1`, `riverW/2+30`, ...)
     /// were written for the synthetic site, whose distance is to the

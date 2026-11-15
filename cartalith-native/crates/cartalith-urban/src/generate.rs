@@ -55,7 +55,7 @@
 //!
 //! | stage | reports | applied here as |
 //! |---|---|---|
-//! | [`build_markets`] | `cleared_parcels`, `removed_buildings` | flags + `Vec::remove` in reverse |
+//! | [`build_markets`](crate::amenities::build_markets) | `cleared_parcels`, `removed_buildings` | flags + `Vec::remove` in reverse |
 //! | [`apply_decay`] | `ruined_parcels`, `ruined_buildings` | flags |
 //! | [`clear_fort_zone`] | `parcels_cleared`, `buildings_removed`, `details_removed` | flags + `Vec::remove` (already descending) |
 //! | [`detect_river_crossings`] | [`Crossings`] | `site.bridges` / `site.ford` on [`TownSite`] |
@@ -74,7 +74,7 @@
 //! When `Economy` is corrected both should be deleted and the field read off
 //! `site.economy`.
 
-use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, build_markets};
+use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, build_markets_within};
 use crate::blocks::{Block, Parcel, build_blocks, build_parcels};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::courtyard::build_courtyard_rings;
@@ -91,7 +91,7 @@ use crate::hinterland::{
 };
 use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
-use crate::riverbank::{BOTH_BANKS_MIN_POP, TownBridge, build_embankment, fine_river_path, lay_town_bridge};
+use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, build_embankment, fine_river_path, lay_town_bridge};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
@@ -252,7 +252,7 @@ pub struct TownParcel {
     pub unsuitable: bool,
     pub built: bool,
     pub churchyard: bool,
-    /// `par.cleared` — set by [`build_markets`] and [`clear_fort_zone`]. Written
+    /// `par.cleared` — set by [`build_markets`](crate::amenities::build_markets) and [`clear_fort_zone`]. Written
     /// twice in block 4 and read nowhere in it; carried because it is the
     /// model's, and a renderer wants to know the lot was swept.
     pub cleared: bool,
@@ -331,10 +331,20 @@ pub struct Town {
     /// [`Self::riverbank`] is off.
     pub embankment: Option<crate::riverbank::Embankment>,
     /// **Not the reference** -- what Ruling FB's town bridge did
-    /// ([`crate::riverbank::lay_town_bridge`]): [`None`] for a town that does
-    /// not grow on both banks (the switch off, a village, the radial plan or
-    /// a site with no river).
+    /// ([`crate::riverbank::lay_town_bridge`]): [`None`] for a town laid out
+    /// once (the switch off, a village, the radial plan, a site with no
+    /// river, or a town that housed its target on its own bank); laid only
+    /// in a [`RiverbankPass::FarBank`] layout.
     pub town_bridge: Option<TownBridge>,
+    /// **Not the reference** -- whether Ruling FB's both-banks rule applies to
+    /// this town: `urban_riverbank` on, a `river` or `riverthrough` site of
+    /// [`BOTH_BANKS_MIN_POP`] and up, the organic plan. `false` with the
+    /// switch off.
+    pub both_banks: bool,
+    /// **Not the reference** -- which of `generate`'s layouts this town is
+    /// ([`RiverbankPass`]); `None` with the switch off (the reference's one
+    /// layout).
+    pub riverbank_pass: Option<RiverbankPass>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -358,8 +368,32 @@ fn or_str<'a>(s: Option<&'a str>, d: &'a str) -> &'a str {
 ///
 /// Every stage in the reference's order; see this module's header for the two
 /// orderings that are load-bearing and for the four report-and-apply stages.
-#[allow(clippy::too_many_lines)]
+///
+/// **Not the reference, with `urban_riverbank` on only** (2026-11-15, Ruling
+/// FB and the village cap): a river town on a riverbank site may be laid out
+/// twice. The first layout is [`RiverbankPass::First`]; when it houses less
+/// than its `pop_target` and may grow on both banks, or is a village housing
+/// more than `crate::riverbank::RIVER_HOUSING_CAP` of it, the town is laid out
+/// again with the second pass `crate::riverbank::second_pass` names, from the
+/// same seed, so the second differs from the first only where that pass acts
+/// (the far bank after the epochs, or a village's street budget, which
+/// `crate::riverbank::fit_village` searches over a few layouts). With the
+/// switch off the first layout is returned as it stands: the reference.
 pub fn generate(seed: u32, opts: &GenOpts) -> Town {
+    let first = generate_pass(seed, opts, RiverbankPass::First);
+    match crate::riverbank::second_pass(&first) {
+        Some(RiverbankPass::Village { .. }) => crate::riverbank::fit_village(first, |street_scale, trim| {
+            generate_pass(seed, opts, RiverbankPass::Village { street_scale, trim })
+        }),
+        Some(pass) => generate_pass(seed, opts, pass),
+        None => first,
+    }
+}
+
+/// One layout of [`generate`], under one [`RiverbankPass`] (`First` is the
+/// reference's whole `generate()` when `urban_riverbank` is off).
+#[allow(clippy::too_many_lines)]
+pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> Town {
     let profile: CultureProfile = resolve_profile(or_str(opts.culture.as_deref(), ""));
     let rules = resolve_rules(opts.rules.as_ref());
     let terrain_aware = opts.terrain_aware;
@@ -523,16 +557,17 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
         }
-        // **Not the reference** (Ruling FB, `crate::riverbank`): a big river
-        // town on a riverbank site gets a bridge joined to its streets before
-        // it grows, and grows onto the far bank where that is buildable.
-        // After the primaries, plaza and harbour, so the bridge joins the
-        // streets they laid; before `grow`, so growth radiates from it.
-        if both_banks {
-            town_bridge = Some(lay_town_bridge(&site, &anchors, &mut g, max_rf));
-        }
+        // **Not the reference** (2026-11-15, the village cap,
+        // `crate::riverbank::second_pass`): a riverbank village laid out
+        // over-built the first time is grown again from a street budget
+        // scaled to its target, so the lots it does not need are never
+        // platted (rather than platted and emptied).
+        let street_scale = match pass {
+            RiverbankPass::Village { street_scale, .. } => street_scale,
+            _ => 1.0,
+        };
         let grow_opts = GrowOpts {
-            target_len,
+            target_len: target_len * street_scale,
             max_rf,
             walls,
             wall_generations,
@@ -545,7 +580,6 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             // the radial branch sets a wet moat.
             wet_moat: false,
             pop: pop_target,
-            far_bank: town_bridge.is_some_and(|b| b != TownBridge::None),
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -558,6 +592,23 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             &grow_opts,
             &mut builder,
         );
+        // **Not the reference** (Ruling FB, `crate::riverbank`): the second
+        // layout of a both-banks town that housed under its target lays a
+        // bridge joined to its streets and grows the far bank from it, AFTER
+        // the market's bank has grown exactly as the reference grows it (the
+        // epochs above drew from the same graph the first layout's did), so
+        // that bank is not shrunk to pay for the other.
+        if let RiverbankPass::FarBank { share } = pass
+            && both_banks
+        {
+            let tb = lay_town_bridge(&site, &anchors, &mut g, max_rf);
+            if tb != TownBridge::None
+                && let Some(far_centre) = crate::riverbank::far_bridge_end(&site, anchors.market)
+            {
+                crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre);
+            }
+            town_bridge = Some(tb);
+        }
     }
 
     let harbour: Option<HarbourWorks> = match &harbour_outcome {
@@ -599,7 +650,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             fortified,
             wet_moat: profile.planning == "radial" && profile.waterway,
         };
-        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks));
+        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks, plaza.as_ref().filter(|p| p.kind == crate::plaza::PlazaKind::Market).map(|p| p.poly.as_slice())));
     }
     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
     // backing onto the wall from inside, and a faubourg against it outside.
@@ -649,9 +700,13 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     // over-built"; `crate::riverbank::trim_overbuilt`): on a riverbank site a
     // village (under `BOTH_BANKS_MIN_POP`) housing more than
     // `RIVER_HOUSING_CAP` times its target leaves its outermost inland lots
-    // vacant down to it, those outside its wall first. Before the places of
+    // vacant down to it, those outside its wall first. Only in the layout
+    // `crate::riverbank::fit_village` chose when no street scale it tried
+    // brought the village inside the cap (`trim: true`), so this empties only
+    // the remainder; every other layout's count is untrimmed, which is what
+    // `second_pass` and `fit_village` judge. Before the places of
     // worship, which claim lots of their own.
-    if riverbank && pop_target < BOTH_BANKS_MIN_POP {
+    if riverbank && pop_target < BOTH_BANKS_MIN_POP && matches!(pass, RiverbankPass::Village { trim: true, .. }) {
         crate::riverbank::trim_overbuilt(&mut lots, &mut buildings, anchors.market, pop_target, wall_state.ring.as_deref());
     }
 
@@ -716,7 +771,17 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             lots.iter().map(|l| poly_centroid(&l.par.poly)).collect();
         let building_centroids: Vec<Vec2> =
             buildings.iter().map(|b| poly_centroid(&b.poly)).collect();
-        let m = build_markets(
+        // **Not the reference** (2026-11-15, riverbank sites only,
+        // `crate::amenities::build_markets_within`): a walled riverbank
+        // town's specialised markets stand inside its wall.
+        let ring = wall_state.ring.clone().filter(|r| riverbank && r.len() >= 3);
+        let inside = |p: Vec2| {
+            ring.as_deref().is_none_or(|r| {
+                crate::geom::point_in_poly(p, r)
+                    && (0..r.len()).all(|k| crate::geom::dist_pt_seg(p, r[k], r[(k + 1) % r.len()]) >= crate::amenities::MARKET_WALL_CLEAR_M)
+            })
+        };
+        let m = build_markets_within(
             seed,
             &site,
             &anchors,
@@ -725,6 +790,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             pop_target,
             &parcel_centroids,
             &building_centroids,
+            ring.is_some().then_some(&inside as &dyn Fn(Vec2) -> bool),
         );
         for &i in &m.cleared_parcels {
             parcel_cleared[i] = true;
@@ -986,6 +1052,8 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         wall_hug: hug_outcome,
         riverbank,
         town_bridge,
+        both_banks,
+        riverbank_pass: riverbank.then_some(pass),
         embankment,
         pop,
         metrics,

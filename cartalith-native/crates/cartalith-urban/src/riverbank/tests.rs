@@ -376,15 +376,17 @@ fn minority_share(t: &crate::generate::Town) -> f64 {
 }
 
 /// Protects Ruling FB end to end on the fixture, and its size class: a town
-/// of 6 000 has a crossing at its bridge point and houses on both banks (each
-/// bank at least 10 % of them); a town of `BOTH_BANKS_MIN_POP` (1 500, a
-/// literal) is offered the treatment (`town_bridge` is `Some`, whatever it
-/// found) and one of 1 499 is not (`None`); with the switch off neither is a
-/// big one.
+/// of 6 000, which its first layout houses under target, is laid out again
+/// with a far-bank pass, has a crossing at its bridge point and houses on
+/// both banks (each bank at least 10 % of them); a town of
+/// `BOTH_BANKS_MIN_POP` (1 500, a literal) is eligible (`both_banks`) and one
+/// of 1 499 is not, and gets no bridge; with the switch off neither is a big
+/// one.
 #[test]
 fn a_big_river_town_bridges_its_river_and_builds_on_both_banks() {
-    assert!(generate(4242, &GenOpts { pop: Some(1500.0), ..opts(true, true) }).town_bridge.is_some());
+    assert!(generate(4242, &GenOpts { pop: Some(1500.0), ..opts(true, true) }).both_banks);
     let big = generate(4242, &opts(true, true));
+    assert!(matches!(big.riverbank_pass, Some(super::RiverbankPass::FarBank { .. })), "{:?}", big.riverbank_pass);
     assert!(matches!(big.town_bridge, Some(super::TownBridge::Laid) | Some(super::TownBridge::Existing)), "{:?}", big.town_bridge);
     let crosses = big.graph.edges.iter().any(|e| {
         let (a, b) = (big.graph.nodes[e.a].pt(), big.graph.nodes[e.b].pt());
@@ -393,6 +395,7 @@ fn a_big_river_town_bridges_its_river_and_builds_on_both_banks() {
     assert!(crosses, "no road spans the river");
     assert!(minority_share(&big) >= 0.10, "smaller bank holds {:.3} of the houses", minority_share(&big));
     let village = generate(4242, &GenOpts { pop: Some(1499.0), ..opts(true, true) });
+    assert!(!village.both_banks);
     assert_eq!(village.town_bridge, None);
     let off = generate(4242, &GenOpts { pop: Some(6000.0), ..opts(false, true) });
     assert_eq!(off.town_bridge, None);
@@ -683,3 +686,266 @@ fn bank_street_lengths_split_by_bank() {
     assert!((n - 100.0).abs() < 1e-9 && (f - 30.0).abs() < 1e-9, "{n} {f}");
 }
 
+
+/// The street length on each bank of the fixture's graph: `(north, south)`,
+/// by each live edge's midpoint (the market is north in
+/// `the_far_bank_pass_is_capped_and_grows_only_the_far_bank`).
+fn bank_lengths(g: &crate::graph::Graph) -> (f64, f64) {
+    let (mut n, mut s) = (0.0, 0.0);
+    for e in g.edges.iter().filter(|e| e.alive) {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        if north(a.lerp(b, 0.5)) { n += a.dist(b) } else { s += a.dist(b) }
+    }
+    (n, s)
+}
+
+/// Protects the far-bank pass's cap at its call site (2026-11-15; the
+/// coordinator's item 5, the survivor of `88fb0ef3`'s mutants): asked for
+/// ten times the market bank's street length (`share` 10.0, past anything
+/// `second_pass` asks), `crate::growth::grow_far_bank` grows the south bank
+/// and stops once its streets reach the north bank's (`FAR_BANK_MAX_RATIO`
+/// 1.0) plus at most one street (the 125 m segment cap of `grow`, a
+/// literal); and it lays nothing on the market's bank. Removing the cap, or
+/// the far-bank test on an origin, turns it red.
+#[test]
+fn the_far_bank_pass_is_capped_and_grows_only_the_far_bank() {
+    let r = RIVER_Y;
+    let mut streets: Vec<(Vec2, Vec2)> = (0..4).map(|k| (Vec2::new(500.0, r - 60.0 - k as f64 * 70.0), Vec2::new(1100.0, r - 60.0 - k as f64 * 70.0))).collect();
+    streets.push((Vec2::new(800.0, r - 40.0), Vec2::new(800.0, r - 300.0)));
+    streets.push((Vec2::new(800.0, r + 30.0), Vec2::new(800.0, r + 120.0)));
+    let (site, mut g) = bank_site_and_streets(&streets);
+    let anchors = crate::routes::Anchors { market: Vec2::new(800.0, r - 120.0), prov: "test" };
+    let (n0, s0) = bank_lengths(&g);
+    assert!((n0 - 2660.0).abs() < 1.0 && (s0 - 90.0).abs() < 1.0, "premise: {n0} {s0}");
+    let opts = crate::growth::GrowOpts { max_rf: 720.0, ..Default::default() };
+    let ws = crate::growth::WallState::default();
+    let laid = crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 10.0, Vec2::new(800.0, r + 30.0));
+    let (n1, s1) = bank_lengths(&g);
+    assert!(laid > 500.0, "the far bank grew only {laid:.0} m");
+    assert!(s1 <= n0 + 125.0, "far bank {s1:.0} m against the market bank's {n0:.0} m");
+    assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
+}
+
+// ------------------------------------- 2026-11-15, the both-banks rework --
+
+/// Protects `second_pass`'s three answers (literals; the 6 000-person
+/// fixture town's first layout, its head count set by hand): a both-banks
+/// town housing 2 000 of 6 000 (a shortfall of 2.0 times what it housed) is
+/// given `FarBank` at the cap (`share` 1.0), 4 000 of 6 000 a share of 0.5,
+/// and one at 7 000 nothing; a
+/// village of 400 housing 600 is refit at scale 400 / 600, one housing 499
+/// (under 500, the 125 % cap) is not; with the switch off, or for a layout
+/// that is already a second pass, nothing.
+#[test]
+fn second_pass_asks_for_the_shortfall_and_the_village_refit() {
+    use super::{RiverbankPass, second_pass};
+    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First);
+    assert!(first.both_banks && first.riverbank && first.riverbank_pass == Some(RiverbankPass::First));
+    let with = |pop: f64, target: f64| {
+        let mut t = first.clone();
+        t.pop = pop;
+        t.pop_target = target;
+        t
+    };
+    assert_eq!(second_pass(&with(2000.0, 6000.0)), Some(RiverbankPass::FarBank { share: 1.0 }));
+    assert_eq!(second_pass(&with(4000.0, 6000.0)), Some(RiverbankPass::FarBank { share: 0.5 }));
+    assert_eq!(second_pass(&with(7000.0, 6000.0)), None);
+    let mut village = with(600.0, 400.0);
+    village.both_banks = false;
+    assert_eq!(second_pass(&village), Some(RiverbankPass::Village { street_scale: 400.0 / 600.0, trim: false }));
+    village.pop = 499.0;
+    assert_eq!(second_pass(&village), None);
+    let mut off = with(2000.0, 6000.0);
+    off.riverbank = false;
+    assert_eq!(second_pass(&off), None);
+    let mut again = with(2000.0, 6000.0);
+    again.riverbank_pass = Some(RiverbankPass::FarBank { share: 1.0 });
+    assert_eq!(second_pass(&again), None);
+}
+
+/// Protects the coordinator's defect (c) (2026-11-15): the far bank is grown
+/// after the market's bank and from a budget of its own, so the second
+/// layout of the 6 000-person fixture town houses at least 95 % (a literal)
+/// as many on the market's bank as its first layout did, and more in all.
+#[test]
+fn growing_the_far_bank_does_not_shrink_the_market_bank() {
+    use super::RiverbankPass;
+    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First);
+    let both = generate(4242, &opts(true, true));
+    assert!(matches!(both.riverbank_pass, Some(RiverbankPass::FarBank { .. })), "{:?}", both.riverbank_pass);
+    let market_north = north(first.anchors.market);
+    let on_market_bank = |t: &crate::generate::Town| {
+        t.buildings.iter().filter(|b| north(b.poly.iter().fold(Vec2::new(0.0, 0.0), |a, v| a + *v) * (1.0 / b.poly.len() as f64)) == market_north).count()
+    };
+    let (n1, n2) = (on_market_bank(&first), on_market_bank(&both));
+    assert!(n2 as f64 >= 0.95 * n1 as f64, "market bank {n1} -> {n2} houses");
+    assert!(both.buildings.len() > first.buildings.len(), "{} -> {}", first.buildings.len(), both.buildings.len());
+}
+
+/// Protects `fit_village`'s search and its trim fallback, on stand-in
+/// layouts (the fixture town with its head count set by `lay`; target 400,
+/// so the band is 320..=500): a head count of `1 000 * scale` lands in the
+/// band on the first try (scale 0.4, untrimmed); a head count that no scale
+/// moves (900) is never in the band, so the over-cap layout is laid once
+/// more with the trim, and only that once; and a village that every rescale
+/// under-builds (200) is never taken under the band: the first layout
+/// (scale 1) is trimmed instead.
+#[test]
+fn a_village_is_refit_by_its_street_scale_and_trimmed_only_as_a_last_resort() {
+    use std::cell::RefCell;
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let mk = |pop: f64| {
+        let mut t = base.clone();
+        t.pop = pop;
+        t.pop_target = 400.0;
+        t
+    };
+    let calls = RefCell::new(Vec::new());
+    let t = super::fit_village(mk(1000.0), |s, trim| {
+        calls.borrow_mut().push((s, trim));
+        mk(1000.0 * s)
+    });
+    assert_eq!(calls.borrow().as_slice(), &[(0.4, false)]);
+    assert_eq!(t.pop, 400.0);
+    calls.borrow_mut().clear();
+    let t = super::fit_village(mk(1000.0), |s, trim| {
+        calls.borrow_mut().push((s, trim));
+        mk(if trim { 500.0 } else { 900.0 })
+    });
+    let c = calls.borrow();
+    assert_eq!(c.iter().filter(|(_, trim)| *trim).count(), 1, "{c:?}");
+    assert!(c.last().is_some_and(|(_, trim)| *trim), "{c:?}");
+    assert!(c.len() <= 1 + super::VILLAGE_FITS && c.len() >= 2, "{c:?}");
+    assert_eq!(t.pop, 500.0);
+    drop(c);
+    calls.borrow_mut().clear();
+    let t = super::fit_village(mk(1000.0), |s, trim| {
+        calls.borrow_mut().push((s, trim));
+        mk(if trim { 500.0 } else if s >= 1.0 { 1000.0 } else { 200.0 })
+    });
+    assert_eq!(calls.borrow().last(), Some(&(1.0, true)), "{:?}", calls.borrow());
+    assert_eq!(t.pop, 500.0);
+}
+
+/// Protects defect (a) end to end on the fixture (2026-11-15): with the wall
+/// hug on, the 6 000-person river town's market square stands inside its
+/// circuit, and the refit circuit does not cross itself.
+#[test]
+fn the_market_square_stays_inside_the_wall() {
+    let t = generate(4242, &GenOpts { wall_hug: true, ..opts(true, true) });
+    let ring = t.wall.ring.as_deref().expect("the fixture town is walled");
+    let plaza = t.plaza.as_ref().expect("the fixture town has a square");
+    assert!(crate::geom::point_in_poly(plaza.center, ring), "square at {:?} outside the wall ({:?})", plaza.center, t.wall_hug);
+    assert!(!crate::wallhug::ring_self_crosses(ring));
+}
+
+/// Protects `plaza::riverbank_square` (2026-11-15, defect (a); literals from
+/// the fixture's straight river at `RIVER_Y`, 24 m wide): a market on the
+/// north bank at the foot of a 600 m primary running north gets its 60 by 30
+/// square on that primary, wholly north of the channel by at least 15 m
+/// (`SQUARE_RIVER_CLEAR_M`) past its 12 m half-width, and its centre within
+/// 80 m of the market (the reference's mid-edge square would stand 300 m up
+/// the road); a primary that crosses the river to the south bank is never
+/// chosen for it.
+#[test]
+fn a_riverbank_square_stands_by_its_market_on_its_bank() {
+    let r = RIVER_Y;
+    let (site, mut g) = bank_site_and_streets(&[]);
+    g.add_street(850.0, r - 20.0, 850.0, r - 620.0, "primary", 6.0, 0, "test");
+    g.add_street(900.0, r + 300.0, 900.0, r - 20.0, "primary", 6.0, 0, "test");
+    let anchors = crate::routes::Anchors { market: Vec2::new(850.0, r - 20.0), prov: "test" };
+    let (dir, mid) = crate::plaza::riverbank_square(&site, &anchors, &g, 60.0, 30.0).expect("room for a square");
+    assert!(dir.x.abs() < 1e-9, "on the north road: {dir:?}");
+    assert!((mid.x - 850.0).abs() < 1e-6, "{mid:?}");
+    assert!(mid.y <= r - 12.0 - 15.0 - 30.0, "too near the water: {mid:?}");
+    assert!(mid.dist(anchors.market) < 80.0, "{mid:?}");
+}
+
+/// Protects `fit_village`'s secant step, its aim and its layout count
+/// (`VILLAGE_AIM_SHARE` 1.1, `VILLAGE_FITS` 4; literals worked by hand): a
+/// village of target 400 whose head count is `1 000 * scale^2` misses on the
+/// first rescale (scale 0.4: 160, under the band) and the secant through
+/// (1, 1 000) and (0.4, 160) aimed at 440 lands on scale 0.6 (360, inside
+/// the 320..=500 band), which is taken untrimmed after two layouts.
+#[test]
+fn a_village_refit_follows_the_secant_to_its_aim() {
+    use std::cell::RefCell;
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let mk = |pop: f64| {
+        let mut t = base.clone();
+        t.pop = pop;
+        t.pop_target = 400.0;
+        t
+    };
+    let calls = RefCell::new(Vec::new());
+    let t = super::fit_village(mk(1000.0), |s, trim| {
+        calls.borrow_mut().push((s, trim));
+        mk(1000.0 * s * s)
+    });
+    let c = calls.borrow();
+    assert_eq!(c.len(), 2, "{c:?}");
+    assert!((c[0].0 - 0.4).abs() < 1e-9 && (c[1].0 - 0.6).abs() < 1e-9 && !c[0].1 && !c[1].1, "{c:?}");
+    assert!((t.pop - 360.0).abs() < 1e-6, "{}", t.pop);
+}
+
+/// Protects `fit_village`'s choice among over-cap layouts (literals): when no
+/// layout lands in the band, the one trimmed is the over-cap layout that
+/// housed the fewest (the first rescale's 520 here, against 900 after it),
+/// laid out again at its own scale (0.4).
+#[test]
+fn an_unfittable_village_trims_the_layout_nearest_the_cap() {
+    use std::cell::RefCell;
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let mk = |pop: f64| {
+        let mut t = base.clone();
+        t.pop = pop;
+        t.pop_target = 400.0;
+        t
+    };
+    let calls = RefCell::new(Vec::new());
+    super::fit_village(mk(1000.0), |s, trim| {
+        let n = calls.borrow().len();
+        calls.borrow_mut().push((s, trim));
+        mk(if trim { 500.0 } else if n == 0 { 520.0 } else { 900.0 })
+    });
+    let c = calls.borrow();
+    let last = c.last().copied().expect("laid out");
+    assert!(last.1 && (last.0 - 0.4).abs() < 1e-9, "{c:?}");
+}
+
+/// Protects `far_bridge_end` (literals from the fixture: the river along
+/// `RIVER_Y`, 24 m wide, so the span's half-length is 12 + 16 = 28 m): with
+/// the market on the north bank the far end stands 28 m south of the bridge
+/// point, and with the market on the south bank 28 m north.
+#[test]
+fn the_far_bridge_end_is_across_the_river_from_the_market() {
+    let (site, _) = bank_site_and_streets(&[]);
+    let bp = site.bridge_pt.expect("the fixture has a bridge point");
+    let south = super::far_bridge_end(&site, Vec2::new(850.0, RIVER_Y - 100.0)).expect("a far end");
+    assert!((south.y - (bp.y + 28.0)).abs() < 1.0 && (south.x - bp.x).abs() < 1.0, "{south:?} from {bp:?}");
+    let north = super::far_bridge_end(&site, Vec2::new(850.0, RIVER_Y + 100.0)).expect("a far end");
+    assert!((north.y - (bp.y - 28.0)).abs() < 1.0, "{north:?} from {bp:?}");
+}
+
+/// Protects the riverbank square at its call site in `build_plaza`
+/// (2026-11-15; literals from the fixture, river 24 m wide along `RIVER_Y`):
+/// the 6 000-person river town's market square stands wholly on the
+/// market's bank with every corner at least 12 + 15 m from the centreline
+/// (`SQUARE_RIVER_CLEAR_M`); a village of 1 499 keeps the reference's green.
+/// And `riverbank_square` never uses a primary on the other bank: with only
+/// a primary that crosses the river from the south, it finds no room.
+#[test]
+fn the_market_square_stands_back_from_the_water_on_its_bank() {
+    let t = generate(4242, &opts(true, true));
+    let z = t.plaza.as_ref().expect("a square");
+    let north_market = north(t.anchors.market);
+    for c in &z.poly {
+        assert_eq!(north(*c), north_market, "corner {c:?} on the other bank");
+        assert!((c.y - RIVER_Y).abs() >= 27.0 - 1e-6, "corner {c:?} within 27 m of the centreline");
+    }
+    let r = RIVER_Y;
+    let (site, mut g) = bank_site_and_streets(&[]);
+    g.add_street(900.0, r + 300.0, 900.0, r - 20.0, "primary", 6.0, 0, "test");
+    let anchors = crate::routes::Anchors { market: Vec2::new(900.0, r - 20.0), prov: "test" };
+    assert_eq!(crate::plaza::riverbank_square(&site, &anchors, &g, 60.0, 30.0), None);
+}

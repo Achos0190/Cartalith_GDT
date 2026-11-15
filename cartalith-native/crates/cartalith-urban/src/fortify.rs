@@ -189,6 +189,12 @@ pub struct Fort {
 pub struct BuiltMass {
     pub hull: Vec<Vec2>,
     pub spans_water: bool,
+    /// **Not the reference** (2026-11-15, `crate::wallhug::outline`): build a
+    /// circuit across the river on `hull` itself rather than its convex hull,
+    /// so it follows the town instead of walling every bay. Set only by the
+    /// wall hug on a riverbank site; `false` (every reference path) is the
+    /// reference, byte for byte.
+    pub exact: bool,
 }
 
 /// The three `opts` fields `buildWall` and `applyStarFort` read.
@@ -478,7 +484,7 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
             }
         }
     }
-    Some(BuiltMass { hull, spans_water })
+    Some(BuiltMass { hull, spans_water, exact: false })
 }
 
 // -------------------------------------------------------------- the circuit --
@@ -619,7 +625,9 @@ pub fn build_wall_from_mass(
     if spans_water {
         // Both banks: the enceinte encloses the river, which passes under it at
         // two water-gates.
-        let mut r = corner_cut(&chaikin(&chaikin(&convex_hull(&hull), true), true), 1.75, 4);
+        // `bmh.exact`: not the reference (see `BuiltMass::exact`).
+        let base = if bmh.exact { hull.clone() } else { convex_hull(&hull) };
+        let mut r = corner_cut(&chaikin(&chaikin(&base, true), true), 1.75, 4);
         r = simplify(&r, 2.0);
         land_arc = r.clone();
         for i in 0..r.len() {

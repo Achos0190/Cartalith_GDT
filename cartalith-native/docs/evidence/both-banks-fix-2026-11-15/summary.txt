@@ -1,0 +1,116 @@
+The both-banks town reworked after the City Viewer (2026-11-15), under urban_riverbank (DECISIONS.md section 7p).
+
+Coordinator, looking at 88fb0ef3's viewer_12345_4_before_after.png: "the after frame is worse than before": (a) the market
+square outside the wall, (b) a wall round a large unbuilt patch, (c) the near-bank town shrunk while the far bank grew. Owner's
+bar: per-town look ("If it misses it just looks silly"). "Before" everywhere here is 88fb0ef3 (the both-banks commit, rebased on
+10910f15), built in a detached worktree with this change's census file (so its rows carry the two new metrics).
+
+CAUSES, read at the symbols
+
+(c) The near bank shrank. 88fb0ef3 lifted grow's bridgehead rule inside the epoch loop (GrowOpts::far_bank) and laid the town
+    bridge before grow. Each epoch's street budget (target_len / epochs) was shared: every far-bank street was a street the
+    market's bank did not get, and the bridge's edges changed what grow drew everywhere. The cap (far <= near street length)
+    only stopped the far bank outgrowing the near one; it never protected the near one.
+(a) The square outside the wall. Three causes. (1) one_bank_by_lots refitted the circuit round the LARGER bank, handing the
+    circuit builder a stand-in market there, so a square on the smaller bank was walled out. (2) build_plaza widens the
+    nearest primary at its MIDDLE; on a real river the market is pinned at the bridge foot on the bank, so the square stood a
+    road's half-length away and sometimes across a confluence from the town (census plots: seed 483920 #0 and #7 at 384).
+    (3) The wall hug never counted the square as mass, so a refit fitted to the lots could leave it out. Specialised markets
+    (build_markets: junctions 85-300 m from the market) ignored the wall, which once stood well clear of the town; with a
+    fitted wall one could straddle the curtain (seed 12345 #0 in the viewer).
+(b) The unbuilt patch inside the wall. Two causes. (1) wallhug::envelope is a star about the mass's centre (one radius per
+    direction), so a U- or L-shaped town's bend is walled. (2) A circuit across the river is the convex hull of its hull
+    (build_wall_from_mass), which walls every bay; and the "take the last widening" fallback of 88fb0ef3 could accept a hull
+    whose land arc and bank walk crossed over the town (seed 12345 #0 in the viewer: a ring folded over empty ground).
+Villages: trim_overbuilt emptied the outermost lots of over-built villages (about half of them sat at the 125 % cap), which
+    draw as a ring of empty plots.
+
+FIXES (cartalith-urban; every one reached only on a riverbank site, so the urban goldens and the FH-R2/G1 harnesses are unmoved)
+
+1. grow is the reference again (GrowOpts::far_bank removed; the street legalization split out as growth::legalize_street
+   without moving a draw). generate lays a river town out once; riverbank::second_pass asks for a second layout when a
+   both-banks town houses under its pop_target: RiverbankPass::FarBank { share = pop_target/pop - 1, at most 1.0 }, which lays
+   the bridge AFTER grow and grows the far bank with growth::grow_far_bank from share x the market bank's street length (own
+   random stream, far-bank origins only, buildable ground only, capped at FAR_BANK_MAX_RATIO). The market's bank is grown from
+   the same graph and draws as the first layout's.
+2. hug_wall on a riverbank site: wallhug::outline (lots filled on a 4 m grid, closed with CLOSE_R_M 40 m, holes filled, eroded
+   back to the clearance, opened by 2 cells, traced, simplified) instead of the star; BuiltMass::exact keeps that shape across
+   the river; two quarters that face each other across the river are joined over the water they face; untangle cuts the bank
+   walk's self-crossing slivers (refuses a loop over 2 % of the area); points within BANK_EXEMPT_M (10 m) of the bank owe no
+   clearance; a stray lot or two left in a detached piece (OUTLINE_MINOR_SHARE 5 %) stays outside; the circuit is tried both
+   ways (across the river, round the market's bank) before the grown one is kept; the 88fb0ef3 "take the last widening"
+   fallback is gone; one_bank_by_lots never walls the other bank alone; a far bank grown after a one-bank circuit is walled
+   with the town when it holds enough lots (the same 32 % test).
+3. plaza::riverbank_square (chartered towns only): the square on a primary beside the market, on its bank, 15 m back from the
+   channel edge, nearest the market. The market square is wall mass, must be in the outline's piece, and a circuit leaving it
+   outside is refused. amenities::build_markets_within: specialised markets 30 m inside the wall.
+4. riverbank::fit_village: an over-built riverbank village is laid out again from a street budget scaled toward its target
+   (secant on the head count, at most 4 layouts, aim 110 %); trim_overbuilt runs only on the layout kept when none lands in
+   80-125 %, and that is the over-cap layout housing the fewest (never an under-built one: tried, it took 48 villages from
+   125 % to as low as 31 %).
+
+MEASURED (town_river_census.rs: both_banks_audit with two new metrics, town_housing_audit, riverbank_gap_audit; seeds 483920,
+912345, 246371; 800 km; CPU; villages on; params::defaults; release, one thread). Command, per size:
+  TOWN_RIVER_GW=<384|2048> TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 cargo test --release -p cartalith-godot --lib \
+    both_banks_audit -- --ignored --nocapture --test-threads 1      (and town_housing_audit, riverbank_gap_audit)
+New metrics (both_banks_audit): "market square outside the wall" = the layout's plaza centre (else the market point) outside the
+ring by more than 5.4 m; "largest unbuilt patch inside the wall" = the largest 4-connected area of 4 m cells inside the ring and
+over 40 m from every building, the river channel, water_poly and the square left out (unbuilt_inside_wall). Also "villages' lots
+with no building".
+
+                                                384 before    384 after     2048 before   2048 after
+walled towns: market square outside the wall    7 of 33       4 of 33       12 of 34      2 of 35
+  (after, 384: 2 village greens, 1 landlocked town, 1 river town Kept/MarginNotMet; 2048: 1 village green, 1 river town Kept)
+largest unbuilt patch in the wall, median (a)   98 a          6 a           185 a         1 a
+  p90 / max (a = 100 m2)                         468 / 1487    34 / 50       795 / 1772    22 / 447
+  walls with a patch over 0.5 / 1 / 2 ha         18 / 16 / 12  0 / 0 / 0     23 / 20 / 15  2 / 1 / 1
+towns >= 1 500 housed % p10/median/p90           73/104/152    62/97/131     55/100/148    68/96/142
+  under 80 %                                     7             8             6             6
+towns >= 5 000 housed % p10/median/p90           77/109/150    77/98/124     55/100/148    68/95/128
+villages housed % p10/median/p90                 40/125/125    40/106/125    61/125/125    61/105/125
+  under 80 % / over 200 %                        108 / 1       108 / 1       100 / 3       100 / 3
+villages' lots with no building                  29 113 of     8 803 of      32 707 of     9 817 of
+                                                 82 519 (35 %) 57 583 (15 %) 91 317 (36 %) 63 075 (16 %)
+  villages with 10 or more                       459           251           500           292
+on both banks, towns >= 1 500                    24 of 33      13 of 33      20 of 34      16 of 35
+with a crossing (all / >= 1 500)                 223 / 26      215 / 20      241 / 25      244 / 25
+walled river towns whose wall crosses the river  19 of 32      11 of 32      23 of 34      18 of 35
+  of those round an empty bank (audit's test)    3             4             5             8
+houses within 1 / 2 street widths of the bank   2.9 / 6.6 %   2.4 / 6.4 %   3.0 / 7.0 %   2.1 / 6.2 %
+river towns with every house over 2 widths off   87 of 617     99 of 617     156 of 666    168 of 667
+a house over the widest street (gap audit)      259 of 617    298 of 617    329 of 666    355 of 667
+built frontage over the widest street            42 of 617     51 of 617     112 of 666    116 of 667
+buildings in water (channel/sea-lake/poly)      0/0/0         0/0/0         0/0/0         0/0/0
+all towns (housing audit): buildings             157 565       140 711       150 723       141 605
+  housed % p10/median/p90; under 80 %            41/125/125;115 41/105/125;116 61/125/125;106 63/105/125;106
+
+Reading it. The two new bars are met: squares outside the wall 7 -> 4 and 12 -> 2, and the remainder is named above (village
+greens are not market squares and are not required inside; the landlocked town is not on this path). Walls round an unbuilt
+patch over 1 ha 16 -> 0 and 20 -> 1. Housing: the near bank keeps what the reference grew, so towns are near target at the
+median (97 %, 96 %) with a narrower top (p90 131-142 %, was 148-152 %); fewer towns cross (13 and 16 of the big ones): only
+those that house under target, as the ruling's "can" allows. Villages: the median falls from the 125 % cap to 105-106 %, none
+newly under 80 %, and the empty lots fall by 70 %. Regressions, routed: the setback measures (a house over the widest street
+259 -> 298 and 329 -> 355; every house over 2 widths 87 -> 99, 156 -> 168) and the audit's "round an empty bank" (3 -> 4,
+5 -> 8) moved the wrong way; not attributed per cause.
+
+SCREENSHOTS (viewer/, City Viewer, before 88fb0ef3 | after, _viewerframe_probe.tscn windowed, scratch APPDATA, the app's own
+world, so the town at a position is the app's index, not the census's). Each looked at.
+- 12345 #0 (384x246; the town at (375,134)): before, the wall a fold round empty ground and across the town; after, the
+  wall follows the town, the market square by the bridge market, inside; specialised market inside.
+- 12345 #4: a hamlet (target 400); unchanged in kind.
+- 12345 #17 (the town at (108,71), which 88fb0ef3's evidence names "#4"; this world's #4 is a hamlet at (373,156), and
+  88fb0ef3's frame of it does not match today's world at either index, so the coordinator's defects were re-found on the
+  towns below rather than on that frame): before, a convex wall across both banks
+  round an empty east half; after, a one-bank town (it houses 143 % of its target on one bank), wall tight.
+- 12345 #2 (the town at (43,34)): before, a convex wall round empty quarters; after, the south bank walled tight, the far
+  bank a suburb across the bridge.
+- 483920 #6, #15, #70 (384x288): #6 a big town, wall tight, no empty interior; #15 and #70 villages: #15 no emptied plots,
+  houses at the quay; #70 is the residue: its streets plat more lots than it needs at any street scale, so the trim still
+  empties a few plots at its east end (as before).
+- 483920 #11, #18 (two both-bank towns): #18 walled on both banks, the river through the circuit; #11 one-bank circuit with
+  the unbuilt bay left outside it, its far bank a quarter outside the wall.
+- 483920 #0 at 2048x1311: before, the reference circuit kept round empty ground beyond the river; after, the wall follows
+  the town.
+Plans: plans/12345_384_0_before_after.png (data plot, plot.py).
+
+LEFT: see STATUS.md ("The both-banks town reworked") and OUTSTANDING_WORK.md.

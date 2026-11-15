@@ -1,0 +1,8 @@
+running 1 test
+test town_river_census::town_housing_audit ... seed 483920 at 384x246: buildings off 43377 on 51485
+seed 912345 at 384x246: buildings off 44176 on 50013
+seed 246371 at 384x246: buildings off 46244 on 56067
+all seeds at 384, civ.river_front true, urban_riverbank off: 684 towns, buildings 133797, in water 0; housed % of pop_target n 684 min 0 p10 0 median 99 p90 180 max 664; under 80 %: 271; river-kind n 660 min 0 p10 0 median 98 p90 180 max 664
+all seeds at 384, civ.river_front true, urban_riverbank on: 684 towns, buildings 157565, in water 0; housed % of pop_target n 684 min 0 p10 41 median 125 p90 125 max 238; under 80 %: 115; river-kind n 660 min 0 p10 46 median 125 p90 125 max 161
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1389 filtered out; finished in 33.67s

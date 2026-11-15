@@ -340,7 +340,6 @@ fn town(c: &Case) -> (Site, Anchors, Graph, f64) {
         fortified: false,
         wet_moat: false,
         pop: 0.0,
-        far_bank: false,
     };
     let mut recorder = RecordingWallBuilder::default();
     let placed = grow(

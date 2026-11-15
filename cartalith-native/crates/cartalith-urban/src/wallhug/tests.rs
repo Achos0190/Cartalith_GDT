@@ -280,16 +280,162 @@ fn the_wall_gap_matches_a_hand_computed_square() {
 
 /// Protects Ruling FB's span test, `one_bank_by_lots` (literals): 100 lots
 /// on the market's bank and 32 on the other span the river (32 is 32 %); 31
-/// do not, and the circuit keeps the market's bank; 5 on the market's bank
-/// and 100 across keep the other bank; 10 and 7 do not span (under eight on
-/// the smaller bank), and an even split keeps the market's.
+/// do not, and the circuit keeps the market's bank; 5 (or none) on the
+/// market's bank and 100 across span the river, so the market stays inside
+/// (2026-11-15: never the other bank alone); 10 and 7 do not span (under
+/// eight on the far bank), and four and four keep the market's.
 #[test]
 fn a_wall_spans_its_river_only_when_both_banks_are_built() {
     let sides = |near: usize, far: usize| -> Vec<f64> { std::iter::repeat_n(1.0, near).chain(std::iter::repeat_n(-1.0, far)).collect() };
     assert_eq!(super::one_bank_by_lots(&sides(100, 32), 1.0), None);
     assert_eq!(super::one_bank_by_lots(&sides(100, 31), 1.0), Some(1.0));
-    assert_eq!(super::one_bank_by_lots(&sides(5, 100), 1.0), Some(-1.0));
+    assert_eq!(super::one_bank_by_lots(&sides(5, 100), 1.0), None);
+    assert_eq!(super::one_bank_by_lots(&sides(0, 100), 1.0), None);
     assert_eq!(super::one_bank_by_lots(&sides(10, 7), 1.0), Some(1.0));
     assert_eq!(super::one_bank_by_lots(&sides(10, 8), 1.0), None);
     assert_eq!(super::one_bank_by_lots(&sides(4, 4), -1.0), Some(-1.0));
+}
+
+/// Lots on a 20 m grid filling `rect` (x0, y0, x1, y1), each 16 m square.
+fn lot_grid(rect: (f64, f64, f64, f64)) -> Vec<Vec<Vec2>> {
+    let mut out = Vec::new();
+    let mut y = rect.1;
+    while y + 16.0 <= rect.3 {
+        let mut x = rect.0;
+        while x + 16.0 <= rect.2 {
+            out.push(vec![Vec2::new(x, y), Vec2::new(x + 16.0, y), Vec2::new(x + 16.0, y + 16.0), Vec2::new(x, y + 16.0)]);
+            x += 20.0;
+        }
+        y += 20.0;
+    }
+    out
+}
+
+/// Protects `outline` (2026-11-15, defect (b); literals): a U of lots, two
+/// 100 m arms 200 m apart joined by a base, is outlined round the arms and
+/// the base and not across the 200 m bay between them (wider than twice
+/// `CLOSE_R_M`); every lot corner stands inside it; the outline is the pad
+/// (8 m) out from the lots less the trace's half cell and the 2 m simplify
+/// at a corner (at least 2 m; `hug_wall` widens for its 5 m bar), and not
+/// more than 16 m; it is
+/// `None` for two quarters 300 m apart and for a pad of 40 m (`CLOSE_R_M`);
+/// a single stray lot 300 m off a town is left out (`OUTLINE_MINOR_SHARE`).
+#[test]
+fn the_outline_follows_a_bend_and_does_not_wall_the_bay() {
+    let mut lots = lot_grid((0.0, 0.0, 100.0, 300.0));
+    lots.extend(lot_grid((300.0, 0.0, 400.0, 300.0)));
+    lots.extend(lot_grid((100.0, 200.0, 300.0, 300.0)));
+    let polys: Vec<&[Vec2]> = lots.iter().map(Vec::as_slice).collect();
+    let (ring, dropped) = outline(&polys, &[], 8.0, None).expect("one piece");
+    assert!(dropped.is_empty());
+    assert!(!point_in_poly(Vec2::new(200.0, 60.0), &ring), "the bay is walled");
+    assert!(point_in_poly(Vec2::new(200.0, 250.0), &ring), "the base is not");
+    for l in &lots {
+        for c in l {
+            assert!(point_in_poly(*c, &ring), "lot corner {c:?} outside");
+        }
+    }
+    let m = least_margin(&lots.concat(), &ring, None);
+    assert!((2.0..=16.0).contains(&m), "margin {m}");
+    let mut apart = lot_grid((0.0, 0.0, 100.0, 100.0));
+    apart.extend(lot_grid((400.0, 0.0, 500.0, 100.0)));
+    let polys: Vec<&[Vec2]> = apart.iter().map(Vec::as_slice).collect();
+    assert!(outline(&polys, &[], 8.0, None).is_none());
+    let one = lot_grid((0.0, 0.0, 100.0, 100.0));
+    let polys: Vec<&[Vec2]> = one.iter().map(Vec::as_slice).collect();
+    assert!(outline(&polys, &[], 40.0, None).is_none());
+    assert!(outline(&polys, &[], 8.0, None).is_some());
+    // A stray lot 300 m off a 300 m town is left out, and named.
+    let mut stray = lot_grid((0.0, 0.0, 300.0, 300.0));
+    stray.push(vec![Vec2::new(600.0, 0.0), Vec2::new(616.0, 0.0), Vec2::new(616.0, 16.0), Vec2::new(600.0, 16.0)]);
+    let polys: Vec<&[Vec2]> = stray.iter().map(Vec::as_slice).collect();
+    let (ring, dropped) = outline(&polys, &[], 8.0, None).expect("a stray lot is a suburb");
+    assert!(!dropped.is_empty() && dropped.iter().all(|d| d.x > 590.0), "{dropped:?}");
+    assert!(!point_in_poly(Vec2::new(608.0, 8.0), &ring));
+    // ...but never the market square: a square in the stray piece refuses the loop.
+    assert!(outline(&polys, &[], 8.0, Some(Vec2::new(608.0, 8.0))).is_none());
+    assert!(outline(&polys, &[], 8.0, Some(Vec2::new(150.0, 150.0))).is_some());
+}
+
+/// Protects `untangle` (2026-11-15; literals): a 100 m square whose right
+/// side has a 2 m bow-tie sliver (a loop of 2 m2, under 2 % of 10 000 m2) is
+/// returned without the crossing and with its area within 10 m2; a figure
+/// of eight with two equal halves (a loop of half the area) is refused.
+#[test]
+fn a_sliver_loop_is_cut_and_a_fold_is_refused() {
+    let sliver = [
+        Vec2::new(0.0, 0.0),
+        Vec2::new(100.0, 0.0),
+        Vec2::new(100.0, 49.0),
+        Vec2::new(102.0, 51.0),
+        Vec2::new(102.0, 49.0),
+        Vec2::new(100.0, 51.0),
+        Vec2::new(100.0, 100.0),
+        Vec2::new(0.0, 100.0),
+    ];
+    assert!(ring_self_crosses(&sliver));
+    let u = untangle(&sliver).expect("a sliver is cut");
+    assert!(!ring_self_crosses(&u));
+    assert!((poly_area(&u).abs() - 10_000.0).abs() < 10.0, "area {}", poly_area(&u));
+    let eight = [Vec2::new(0.0, 0.0), Vec2::new(100.0, 100.0), Vec2::new(100.0, 0.0), Vec2::new(0.0, 100.0)];
+    assert!(ring_self_crosses(&eight));
+    assert!(untangle(&eight).is_none());
+    let square = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)];
+    assert!(!ring_self_crosses(&square));
+}
+
+/// Protects `outline`'s closing radius (`CLOSE_R_M` 40 m; literals): two
+/// 100 m blocks of lots with a 64 m gap between them (under twice 40 m) are
+/// one quarter, the gap closed over and inside the loop; at a 10 m radius
+/// they would be two quarters and no loop at all.
+#[test]
+fn a_gap_under_twice_the_closing_radius_is_walled_over() {
+    let mut lots = lot_grid((0.0, 0.0, 100.0, 100.0));
+    lots.extend(lot_grid((160.0, 0.0, 260.0, 100.0)));
+    let polys: Vec<&[Vec2]> = lots.iter().map(Vec::as_slice).collect();
+    let (ring, dropped) = outline(&polys, &[], 8.0, None).expect("one quarter");
+    assert!(dropped.is_empty());
+    assert!(point_in_poly(Vec2::new(128.0, 50.0), &ring), "the 64 m gap is not walled over");
+}
+
+/// Protects `untangle`'s refusal (`UNTANGLE_MAX_SHARE` 2 %; literals): a
+/// 100 m square whose right side is folded into a bow-tie 40 m deep crosses
+/// itself in a loop of 800 m2, 8 % of its 10 000 m2, which is a fold, not a
+/// sliver, so it is refused rather than cut.
+#[test]
+fn a_fold_over_two_percent_is_refused() {
+    let fold = [
+        Vec2::new(0.0, 0.0),
+        Vec2::new(100.0, 0.0),
+        Vec2::new(100.0, 10.0),
+        Vec2::new(140.0, 90.0),
+        Vec2::new(140.0, 10.0),
+        Vec2::new(100.0, 90.0),
+        Vec2::new(100.0, 100.0),
+        Vec2::new(0.0, 100.0),
+    ];
+    assert!(ring_self_crosses(&fold));
+    assert!(untangle(&fold).is_none());
+}
+
+/// Protects `BuiltMass::exact` in `build_wall_from_mass` (2026-11-15;
+/// literals): a circuit across the river (`spans_water`) built on a U-shaped
+/// hull open to the north keeps the bay at (850, 500) outside it when
+/// `exact`, and walls it, the reference's convex hull, when not.
+#[test]
+fn an_exact_circuit_keeps_the_town_shape() {
+    let site = crate::site::build_site(7, 1700.0, 1250.0, "landlocked", crate::site::SiteOpts::default());
+    let anchors = crate::routes::Anchors { market: Vec2::new(650.0, 750.0), prov: "test" };
+    let g = crate::graph::Graph::new();
+    let hull: Vec<Vec2> = [(600.0, 400.0), (700.0, 400.0), (700.0, 700.0), (1000.0, 700.0), (1000.0, 400.0), (1100.0, 400.0), (1100.0, 800.0), (600.0, 800.0)]
+        .iter()
+        .map(|&(x, y)| Vec2::new(x, y))
+        .collect();
+    for exact in [true, false] {
+        let mut ws = WallState::default();
+        let built = BuiltMass { hull: hull.clone(), spans_water: true, exact };
+        build_wall_from_mass(7, &site, &anchors, &g, &mut ws, 3, None, &FortOpts::default(), built, false);
+        let ring = ws.ring.expect("a circuit");
+        assert_eq!(point_in_poly(Vec2::new(850.0, 500.0), &ring), !exact, "exact {exact}");
+    }
 }

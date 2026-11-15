@@ -3,12 +3,14 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--villages 0|1]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
 ## `site_kind` is `river` or `riverthrough`. Run under `APPDATA=<empty dir>`. With `--shots` it is windowed (no
 ## `--headless`) and saves the viewer canvas of each id to `<dir>/viewer_<seed>_<id>.png`.
+## `--dump <dir>` (with `--ids`) also writes each id's layout as `<dir>/<seed>_<gw>_<id>.json` for the both-banks
+## evidence's `plot.py` (2026-11-15): the app's own layout, since the census's CPU world is not the shell's.
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
@@ -86,6 +88,40 @@ func _gap(lay: Dictionary, vis: Rect2) -> float:
 		best = minf(best, c.distance_to(p))
 	return best
 
+## A packed polygon as `[[x, y], ...]` for the dump.
+func _pts(v) -> Array:
+	var out := []
+	for p in PackedVector2Array(v):
+		out.append([p.x, p.y])
+	return out
+
+## Write one layout in `plot.py`'s format (market, plaza, river, ring, buildings, edges by class, parcels, pop). Street
+## widths are the drawn class's nominal ones (the dictionary carries none); a plot, not a measurement.
+func _dump_layout(lay: Dictionary, path: String) -> void:
+	var widths := {"lane": 3.4, "street": 4.4, "quay": 4.0, "ringroad": 5.4, "primary": 6.0}
+	var edges := []
+	var streets: Dictionary = lay.get("streets", {})
+	for cls in streets:
+		var segs := PackedVector2Array(streets[cls])
+		for k in range(0, segs.size() - 1, 2):
+			edges.append([cls, widths.get(cls, 4.0), segs[k].x, segs[k].y, segs[k + 1].x, segs[k + 1].y])
+	var parcels := []
+	var pcls: Array = lay.get("parcel_cls", [])
+	var ppoly: Array = lay.get("parcels", [])
+	for k in ppoly.size():
+		parcels.append([String(pcls[k]) if k < pcls.size() else "", _pts(ppoly[k])])
+	var blds := []
+	for b in lay.get("buildings", []):
+		blds.append(_pts(b))
+	var m: Vector2 = lay.get("market", Vector2.ZERO)
+	var d := {"market": [m.x, m.y], "river_w": lay.get("river_w", 0.0), "river": _pts(lay.get("river", PackedVector2Array())),
+		"water_poly": _pts(lay.get("water_poly", PackedVector2Array())), "ring": _pts(lay.get("wall_ring", PackedVector2Array())),
+		"plaza": _pts(lay.get("plaza", PackedVector2Array())), "buildings": blds, "edges": edges, "parcels": parcels,
+		"pop": lay.get("pop", 0.0), "target": lay.get("pop_target", 0.0), "stages": lay.get("stages", PackedStringArray())}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(d))
+	f.close()
+
 ## `CityViewerWindow.fit_with_water` against literal layouts: grows to a near river, leaves a far one, and an inside one.
 func _literal_checks() -> void:
 	var F := CityViewerWindow.fit_with_water
@@ -113,6 +149,7 @@ func _ready() -> void:
 	var gw := 384
 	var gh := 288
 	var shots := ""
+	var dump := ""
 	var riverbank := -1
 	## `--villages 0` makes the world without villages, as the FH-R2 harness
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
@@ -129,6 +166,7 @@ func _ready() -> void:
 				gw = int(wh[0])
 				gh = int(wh[1])
 			"--shots": shots = args[i + 1]
+			"--dump": dump = args[i + 1]
 			"--riverbank": riverbank = int(args[i + 1])
 			"--villages": villages = int(args[i + 1]) != 0
 			"--ids":
@@ -209,6 +247,14 @@ func _ready() -> void:
 	_ok(not 70 in misses, "settlement #70 shows water in its opening frame (seed 483920 at 384 x 288 only)" if (seed_n == 483920 and gw == 384) else "skipped, not seed 483920 at 384")
 	_ok(misses.size() <= 8 and (seed_n != 483920 or gw != 384 or n_river_water >= 213), "at most 8 river-kind towns open without water (%d)" % misses.size())
 	_literal_checks()
+	if dump != "":
+		DirAccess.make_dir_recursive_absolute(dump)
+		for k in places.size():
+			if int(places[k].get("population", 0)) >= 1500:
+				print("  TOWN #%d at (%d,%d) pop %d" % [k, places[k]["x"], places[k]["y"], places[k]["population"]])
+		for id in ids:
+			print("  DUMP #%d %s" % [id, str(places[id])])
+			_dump_layout(bridge.urban_layouts(PackedInt32Array([id]))[0], dump.path_join("%d_%d_%d.json" % [seed_n, gw, id]))
 	if shots != "":
 		DirAccess.make_dir_recursive_absolute(shots)
 		for id in ids:

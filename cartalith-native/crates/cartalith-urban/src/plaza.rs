@@ -117,6 +117,78 @@ pub struct Plaza {
     pub kind: PlazaKind,
 }
 
+/// How far a riverbank town's square keeps from the river's channel edge,
+/// metres ([`riverbank_square`]). **A labelled judgement**: an embankment
+/// quay and one row of riverside lots (`crate::riverbank::EMBANKMENT_W` 4 m,
+/// the platting's shallowest lot of 6 m and its frontage street, about 15 m),
+/// so the square fronts the town, not the water.
+pub const SQUARE_RIVER_CLEAR_M: f64 = 15.0;
+/// The step [`riverbank_square`] slides a square along its street, metres.
+/// A labelled judgement: a third of the narrowest square (`l` from 55 m).
+const SQUARE_SLIDE_M: f64 = 5.0;
+
+/// **Not the reference** (2026-11-15, the coordinator's defect (a), riverbank
+/// sites only): where a riverbank town's market square goes. The reference
+/// widens the nearest primary **at its middle**, which on a real river,
+/// where the market is pinned at the bridge foot on the bank, puts the square
+/// a primary's half-length from the market and often across a river from the
+/// town (measured: the census's walled towns at 384, 12 of 32 squares outside
+/// their wall, among them seed 483920 #7, whose square stood on the far side
+/// of a confluence). Here each live primary is tried from the point nearest
+/// the market outward in [`SQUARE_SLIDE_M`] steps, both ways, keeping the
+/// `l` by `wd` square (widened away from the river, as the reference widens)
+/// whose four corners are dry, on the market's bank and at least
+/// [`SQUARE_RIVER_CLEAR_M`] from the channel's edge; of those the one whose
+/// centre is nearest the market. `None` (the reference's placement stands)
+/// without a river or where no primary has room. Returns the street's
+/// direction and the square's mid-point on it. Draws nothing from the random
+/// stream, so the reference's draws are unchanged. Must never place a square
+/// on the other bank or over the water.
+pub fn riverbank_square(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd: f64) -> Option<(Vec2, Vec2)> {
+    if site.river.len() < 2 {
+        return None;
+    }
+    let mkt_side = site.bank_side(anchors.market);
+    let clear = site.river_w / 2.0 + SQUARE_RIVER_CLEAR_M;
+    let ok = |p: Vec2| !site.is_water(p) && site.bank_side(p) == mkt_side && site.river_dist(p) >= clear;
+    let mut best: Option<(f64, Vec2, Vec2)> = None;
+    for e in g.edges.iter().filter(|e| e.alive && e.cls == "primary") {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        let len = a.dist(b);
+        if len < l {
+            continue;
+        }
+        let dir = (b - a).norm();
+        let nl = dir.rot90();
+        let t0 = (anchors.market - a).dot(dir).clamp(l / 2.0, len - l / 2.0);
+        let steps = (len / SQUARE_SLIDE_M).ceil() as i64;
+        for k in 0..=steps {
+            let mut found = false;
+            for t in [t0 + k as f64 * SQUARE_SLIDE_M, t0 - k as f64 * SQUARE_SLIDE_M] {
+                if t < l / 2.0 || t > len - l / 2.0 {
+                    continue;
+                }
+                let mid = a + dir * t;
+                let side = if site.river_dist(mid + nl * 20.0) > site.river_dist(mid + nl * -20.0) { 1.0 } else { -1.0 };
+                let (p1, p2) = (mid + dir * (-l / 2.0), mid + dir * (l / 2.0));
+                let (q1, q2) = (p1 + nl * (side * wd), p2 + nl * (side * wd));
+                if [p1, p2, q1, q2, mid].into_iter().all(ok) {
+                    let c = poly_centroid(&[p1, p2, q2, q1]);
+                    let d = c.dist(anchors.market);
+                    if best.is_none_or(|(bd, _, _)| d < bd) {
+                        best = Some((d, dir, mid));
+                    }
+                    found = true;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+    }
+    best.map(|(_, d, m)| (d, m))
+}
+
 /// `buildPlaza` (line 28942) — the market place, by widening the principal
 /// street nearest the market on the side away from the river.
 ///
@@ -160,11 +232,24 @@ pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop
 
     let a = g.nodes[g.edges[be].a].pt();
     let b = g.nodes[g.edges[be].b].pt();
-    let dir = (b - a).norm();
-    let mid = a.lerp(b, 0.5);
+    let mut dir = (b - a).norm();
+    let mut mid = a.lerp(b, 0.5);
     // European market place band (M-DEN-6). Two draws, in declaration order.
     let l = r.range(55.0, 80.0);
     let wd = r.range(26.0, 40.0);
+    // **Not the reference** (2026-11-15, riverbank sites only): a chartered
+    // town's market square beside the market, on its bank, rather than at
+    // the middle of the nearest primary (`riverbank_square`). Not a village
+    // green: a village has no wall to keep it in, and moving its green moved
+    // where 24 more villages grew, under 80 % of their target (the census at
+    // 2 048, 3 seeds, measured with the green moved too).
+    if site.riverbank()
+        && pop >= PLAZA_MARKET_POP
+        && let Some((d, m)) = riverbank_square(site, anchors, g, l, wd)
+    {
+        dir = d;
+        mid = m;
+    }
 
     // Widen on the side away from the river: probe 20 m either way along the
     // edge normal and keep whichever is further from the channel. `river_dist`

@@ -890,6 +890,130 @@ fn in_poly(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
     c
 }
 
+/// Grid step of [`unbuilt_inside_wall`], metres. A labelled judgement: under
+/// the narrowest lot frontage the platting allows (`build_parcels`' 4.5 m
+/// floor), so a row of houses cannot slip between two cells.
+const UNBUILT_CELL_M: f64 = 4.0;
+/// How far from every building a point inside the wall must be to count as
+/// unbuilt, metres ([`unbuilt_inside_wall`]). A labelled judgement: a deep
+/// burgage plot (the platting's deepest, about 40 m) has its house at the
+/// street and its yard behind, so a yard's far end stands about this far from
+/// any house; ground farther than that from every house is open land, not a
+/// back garden.
+const UNBUILT_REACH_M: f64 = 40.0;
+
+/// **The unbuilt area inside a town wall** (2026-11-15, the coordinator's
+/// defect (b) on seed 12345's town at (108,71): a refitted wall round a large
+/// unbuilt patch between two lobes). Over a [`UNBUILT_CELL_M`] grid, the
+/// cells inside `ring` that are farther than [`UNBUILT_REACH_M`] from every
+/// building footprint, leaving out the river channel (`river_w / 2` of the
+/// centreline, plus a cell), `water_poly` and the market square (`plaza`,
+/// which is open by design). Returns `(largest 4-connected patch, all such
+/// cells)`, in square metres. Distances are a two-pass 3-4 chamfer (within
+/// about 8 % of Euclidean), which is ample for a hectare-scale threshold.
+/// A measurement for the audits only; must never be read by generation.
+fn unbuilt_inside_wall(
+    ring: &[(f64, f64)],
+    buildings: &[Vec<(f64, f64)>],
+    river: &[(f64, f64)],
+    river_w: f64,
+    water: &[(f64, f64)],
+    plaza: &[(f64, f64)],
+) -> (f64, f64) {
+    if ring.len() < 3 {
+        return (0.0, 0.0);
+    }
+    let x0 = ring.iter().map(|p| p.0).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
+    let y0 = ring.iter().map(|p| p.1).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
+    let x1 = ring.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let y1 = ring.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let (nx, ny) = (((x1 - x0) / UNBUILT_CELL_M).ceil() as usize + 1, ((y1 - y0) / UNBUILT_CELL_M).ceil() as usize + 1);
+    let ctr = |i: usize, j: usize| (x0 + (i as f64 + 0.5) * UNBUILT_CELL_M, y0 + (j as f64 + 0.5) * UNBUILT_CELL_M);
+    // Seed the distance field at every building: its cells and its corners.
+    const INF: u32 = u32::MAX / 2;
+    let mut d = vec![INF; nx * ny];
+    for b in buildings.iter().filter(|b| b.len() >= 3) {
+        let bx0 = b.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+        let by0 = b.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+        let bx1 = b.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+        let by1 = b.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+        let ci = |x: f64, n: usize, o: f64| (((x - o) / UNBUILT_CELL_M).floor().max(0.0) as usize).min(n - 1);
+        for j in ci(by0, ny, y0)..=ci(by1, ny, y0) {
+            for i in ci(bx0, nx, x0)..=ci(bx1, nx, x0) {
+                if in_poly(ctr(i, j), b) {
+                    d[j * nx + i] = 0;
+                }
+            }
+        }
+        for p in b {
+            d[ci(p.1, ny, y0) * nx + ci(p.0, nx, x0)] = 0;
+        }
+    }
+    // Two-pass 3-4 chamfer (units: a third of a cell).
+    for j in 0..ny {
+        for i in 0..nx {
+            let mut v = d[j * nx + i];
+            if i > 0 { v = v.min(d[j * nx + i - 1] + 3) }
+            if j > 0 {
+                v = v.min(d[(j - 1) * nx + i] + 3);
+                if i > 0 { v = v.min(d[(j - 1) * nx + i - 1] + 4) }
+                if i + 1 < nx { v = v.min(d[(j - 1) * nx + i + 1] + 4) }
+            }
+            d[j * nx + i] = v;
+        }
+    }
+    for j in (0..ny).rev() {
+        for i in (0..nx).rev() {
+            let mut v = d[j * nx + i];
+            if i + 1 < nx { v = v.min(d[j * nx + i + 1] + 3) }
+            if j + 1 < ny {
+                v = v.min(d[(j + 1) * nx + i] + 3);
+                if i + 1 < nx { v = v.min(d[(j + 1) * nx + i + 1] + 4) }
+                if i > 0 { v = v.min(d[(j + 1) * nx + i - 1] + 4) }
+            }
+            d[j * nx + i] = v;
+        }
+    }
+    let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 3.0) as u32;
+    let open: Vec<bool> = (0..nx * ny)
+        .map(|k| {
+            let q = ctr(k % nx, k / nx);
+            d[k] > reach
+                && in_poly(q, ring)
+                && !(river.len() >= 2 && line_dist(q, river).is_some_and(|rd| rd < river_w / 2.0 + UNBUILT_CELL_M))
+                && !(water.len() >= 3 && in_poly(q, water))
+                && !(plaza.len() >= 3 && in_poly(q, plaza))
+        })
+        .collect();
+    let cell = UNBUILT_CELL_M * UNBUILT_CELL_M;
+    let total = open.iter().filter(|&&o| o).count() as f64 * cell;
+    let mut seen = vec![false; nx * ny];
+    let mut best = 0usize;
+    for k0 in 0..nx * ny {
+        if !open[k0] || seen[k0] {
+            continue;
+        }
+        let (mut n, mut stack) = (0usize, vec![k0]);
+        seen[k0] = true;
+        while let Some(k) = stack.pop() {
+            n += 1;
+            let (i, j) = (k % nx, k / nx);
+            let mut push = |kk: usize| {
+                if open[kk] && !seen[kk] {
+                    seen[kk] = true;
+                    stack.push(kk);
+                }
+            };
+            if i > 0 { push(k - 1) }
+            if i + 1 < nx { push(k + 1) }
+            if j > 0 { push(k - nx) }
+            if j + 1 < ny { push(k + nx) }
+        }
+        best = best.max(n);
+    }
+    (best as f64 * cell, total)
+}
+
 /// p10 / median / p90 / max of a sample, for the riverbank audit's rows.
 fn spread(v: &mut [f64]) -> String {
     if v.is_empty() {
@@ -1275,13 +1399,20 @@ const BANK_STREET_W: f64 = 5.4;
 /// - buildings in water by each of [`wet_buildings`]' three tests separately,
 ///   with the channel test applied only where the layout's river is a real
 ///   river (on a coast or bay the polyline is `shore_from_mask`'s shoreline,
-///   not a channel).
+///   not a channel);
+/// - (2026-11-15, the both-banks rework) walled towns whose market square
+///   (the layout's `plaza` centre, else the market point) stands outside the
+///   wall by more than [`BANK_STREET_W`], and each walled town's largest
+///   unbuilt patch inside the wall ([`unbuilt_inside_wall`]); villages' lots
+///   with no building centroid in them (the trim's emptied plots among them).
 ///
-/// `TOWN_RIVER_LIST=1` prints a row per town (with what the wall hug did);
-/// `TOWN_RIVER_PLOT=<dir>` writes one JSON per town (buildings, edges by
-/// class, river, ring, parcels) for the evidence folder's `plans/plot.py`.
+/// `TOWN_RIVER_LIST=1` prints a row per town (with what the wall hug did and
+/// its cell position); `TOWN_RIVER_PLOT=<dir>` writes one JSON per town
+/// (buildings, edges by class, river, ring, parcels, market square) for the
+/// evidence folder's `plans/plot.py`.
 /// A measurement, not a gate. Numbers quoted in `STATUS.md` are in
-/// `docs/evidence/both-banks-2026-11-15/`.
+/// `docs/evidence/both-banks-2026-11-15/` and, for the rework and the two
+/// wall metrics, `docs/evidence/both-banks-fix-2026-11-15/`.
 #[test]
 #[ignore = "measurement; see the doc comment"]
 fn both_banks_audit() {
@@ -1299,6 +1430,17 @@ fn both_banks_audit() {
     let (mut wall_cross, mut wall_pointless, mut walled_river) = (0usize, 0usize, 0usize);
     let (mut wet_ch, mut wet_open, mut wet_poly, mut wet_shore) = (0usize, 0usize, 0usize, 0usize);
     let mut bank_on = None;
+    // The wall against the town it encloses (2026-11-15, the coordinator's
+    // defects (a) and (b)): walled towns with houses, of them those whose
+    // market point stands outside the circuit, and each one's largest unbuilt
+    // patch inside it ([`unbuilt_inside_wall`]), in square metres.
+    let (mut walled_all, mut market_out) = (0usize, 0usize);
+    let mut patches: Vec<f64> = Vec::new();
+    // Villages' vacant lots (2026-11-15, the coordinator's item 4: a ring of
+    // emptied plots round trimmed villages): parcels with no building whose
+    // centroid stands in them, pooled over villages, and the villages with
+    // ten or more.
+    let (mut v_lots, mut v_vacant, mut v_many) = (0usize, 0usize, 0usize);
     for seed in seeds {
         let (ws, civ, gh, p) = generate_world(seed, gw, true);
         let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
@@ -1330,13 +1472,14 @@ fn both_banks_audit() {
             if let Ok(dir) = std::env::var("TOWN_RIVER_PLOT") {
                 let pts = |v: &[Vec2]| v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",");
                 let json = format!(
-                    "{{\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0}}}",
+                    "{{\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0},\"plaza\":[{}]}}",
                     l.market.x, l.market.y, l.river_w, pts(&l.river), pts(&l.water_poly),
                     l.wall.ring.as_deref().map_or(String::new(), pts),
                     l.buildings.iter().map(|b| format!("[{}]", pts(&b.poly))).collect::<Vec<_>>().join(","),
                     l.edges.iter().map(|e| format!("[\"{}\",{:.1},{:.1},{:.1},{:.1},{:.1}]", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y)).collect::<Vec<_>>().join(","),
                     l.parcels.iter().map(|q| format!("[\"{}\",[{}]]", q.edge_cls, pts(&q.poly))).collect::<Vec<_>>().join(","),
-                    l.pop, l.pop_target
+                    l.pop, l.pop_target,
+                    l.plaza.as_ref().map_or(String::new(), |z| pts(&z.poly))
                 );
                 let _ = std::fs::write(format!("{dir}/{seed}_{gw}_{i}.json"), json);
             }
@@ -1385,6 +1528,42 @@ fn both_banks_audit() {
                 l.pop_target,
                 l.buildings.len()
             );
+            row += &format!(" @({},{})", s.placement.x, s.placement.y);
+            if l.pop_target < cartalith_civ::urban_adapter::PLAZA_MARKET_POP && !l.buildings.is_empty() {
+                let cents: Vec<(f64, f64)> = l.buildings.iter().map(|b| {
+                    let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+                    (c.x, c.y)
+                }).collect();
+                let mut vac = 0usize;
+                for q in &l.parcels {
+                    let pg: Vec<(f64, f64)> = q.poly.iter().map(|v| (v.x, v.y)).collect();
+                    if pg.len() >= 3 && !cents.iter().any(|&c| in_poly(c, &pg)) {
+                        vac += 1;
+                    }
+                }
+                v_lots += l.parcels.len();
+                v_vacant += vac;
+                v_many += usize::from(vac >= 10);
+                row += &format!(" vacant lots {vac} of {}", l.parcels.len());
+            }
+            if let Some(ring) = l.wall.ring.as_ref().filter(|r| r.len() >= 3 && !l.buildings.is_empty()) {
+                let rg: Vec<(f64, f64)> = ring.iter().map(|v| (v.x, v.y)).collect();
+                // The town's square when it has one (`plaza`, the chartered
+                // market square the viewer draws with the market marker),
+                // else the market point; outside by more than a street width
+                // ([`BANK_STREET_W`]), since a river town's market point is
+                // the bridge foot, on the bank the water wall follows.
+                let mk = l.plaza.as_ref().map_or(l.market, |z| z.center);
+                let ring_d = (0..rg.len()).map(|k| seg_dist((mk.x, mk.y), rg[k], rg[(k + 1) % rg.len()])).fold(f64::INFINITY, f64::min);
+                let out = !in_poly((mk.x, mk.y), &rg) && ring_d > BANK_STREET_W;
+                let bl: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|v| (v.x, v.y)).collect()).collect();
+                let pz: Vec<(f64, f64)> = l.plaza.as_ref().map_or(Vec::new(), |z| z.poly.iter().map(|v| (v.x, v.y)).collect());
+                let (patch, open) = unbuilt_inside_wall(&rg, &bl, &river, l.river_w, &wpoly, &pz);
+                walled_all += 1;
+                market_out += usize::from(out);
+                patches.push(patch);
+                row += &format!(" square {} unbuilt patch {:.2} ha (all {:.2} ha)", if out { "OUTSIDE" } else { "in" }, patch / 1e4, open / 1e4);
+            }
             if is_river && !l.buildings.is_empty() {
                 river_towns += 1;
                 let big = class == 1;
@@ -1479,5 +1658,17 @@ fn both_banks_audit() {
     );
     println!("  with a crossing {crossing} ({crossing_big} >= 1500); on both banks {both} ({both_big} >= 1500)");
     println!("  walled river towns {walled_river}: wall crosses the river {wall_cross}, of which around an empty far bank {wall_pointless}");
+    println!(
+        "  villages' lots with no building: {v_vacant} of {v_lots} ({:.1} %); villages with 10 or more: {v_many}",
+        100.0 * v_vacant as f64 / v_lots.max(1) as f64
+    );
+    let over = |ha: f64| patches.iter().filter(|&&a| a >= ha * 1e4).count();
+    println!(
+        "  walled towns with houses {walled_all}: market square outside the wall {market_out}; largest unbuilt patch inside the wall (ares, 100 m2) {}; over 0.5 ha {}, over 1 ha {}, over 2 ha {}",
+        spread(&mut patches.iter().map(|a| a / 100.0).collect::<Vec<_>>()),
+        over(0.5),
+        over(1.0),
+        over(2.0)
+    );
     println!("  buildings in water: river channel {wet_ch}, sea or lake cell {wet_open}, water_poly {wet_poly}; within half river_w of a coast's shoreline polyline (not water) {wet_shore}");
 }

@@ -139,6 +139,39 @@ pub fn build_markets(
     parcel_centroids: &[Vec2],
     building_centroids: &[Vec2],
 ) -> Markets {
+    build_markets_within(seed, site, anchors, g, plaza, pop, parcel_centroids, building_centroids, None)
+}
+
+/// How far inside a riverbank town's wall a specialised market's junction
+/// must stand, metres ([`build_markets_within`]). **A labelled judgement**:
+/// the largest square `build_markets` draws is 22 m from its junction to its
+/// side and 16 m to its end, and the wall street (`crate::wallhug::CLEARANCE_M`)
+/// is 8 m, so 30 m keeps the whole square off the curtain.
+pub const MARKET_WALL_CLEAR_M: f64 = 30.0;
+
+/// [`build_markets`], with a junction kept only where `within` holds of it.
+///
+/// **Not the reference** (2026-11-15, riverbank sites only; `generate` passes
+/// `Some` there when the town is walled): a specialised market inside the
+/// town wall, at least [`MARKET_WALL_CLEAR_M`] from it. The reference's
+/// junctions 85-300 m from the market ignore the wall, which stood well
+/// clear of the town; once the wall hug fits the circuit to the built area a
+/// square there could straddle the curtain (seen on seed 12345 at 384 x 246,
+/// the town at (375,134)). `None` is the reference, byte for byte. A skipped
+/// junction takes no draw, so the draws differ from the reference only on
+/// the riverbank path.
+#[allow(clippy::too_many_arguments)]
+pub fn build_markets_within(
+    seed: u32,
+    site: &Site,
+    anchors: &Anchors,
+    g: &Graph,
+    plaza: Option<&Plaza>,
+    pop: f64,
+    parcel_centroids: &[Vec2],
+    building_centroids: &[Vec2],
+    within: Option<&dyn Fn(Vec2) -> bool>,
+) -> Markets {
     let mut r = stream(seed, "markets");
     let names: Vec<&'static str> =
         MARKET_THRESHOLDS.iter().filter(|(t, _)| pop >= *t).map(|(_, n)| *n).collect();
@@ -165,6 +198,9 @@ pub fn build_markets(
                 continue;
             }
             if used.iter().any(|u| u.dist(p) < 95.0) {
+                continue;
+            }
+            if within.is_some_and(|f| !f(p)) {
                 continue;
             }
             // The jitter draw happens for every candidate that got this far,

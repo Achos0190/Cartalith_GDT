@@ -1037,3 +1037,22 @@ fn js_log10_is_v8s_own_log10() {
     // Subnormal: the `k -= 54` rescaling path.
     assert!((js_log10(5e-324) + 323.306_215_343_115_8).abs() < 1e-9);
 }
+
+/// Protects `build_markets_within` (2026-11-15, riverbank sites; literals):
+/// on the band fixture's one junction 170 m east of the market, `None` and a
+/// test that accepts everything place the market there as `build_markets`
+/// does, and a test that refuses that junction places none.
+#[test]
+fn a_specialised_market_stands_only_where_the_wall_test_allows() {
+    let (site, anchors, g, plaza) = band_fixture(170.0, 3);
+    let j = Vec2::new(anchors.market.x + 170.0, anchors.market.y);
+    let all = |_: Vec2| true;
+    let not_j = move |p: Vec2| p.dist(j) > 1.0;
+    let plain = build_markets(7, &site, &anchors, &g, Some(&plaza), 1500.0, &[], &[]);
+    assert_eq!(plain.markets.len(), 1);
+    let some = super::build_markets_within(7, &site, &anchors, &g, Some(&plaza), 1500.0, &[], &[], Some(&all));
+    assert_eq!(some.markets.len(), 1);
+    assert_eq!(some.markets[0].center, plain.markets[0].center);
+    let none = super::build_markets_within(7, &site, &anchors, &g, Some(&plaza), 1500.0, &[], &[], Some(&not_j));
+    assert!(none.markets.is_empty(), "{:?}", none.markets.iter().map(|m| m.center).collect::<Vec<_>>());
+}

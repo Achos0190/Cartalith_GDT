@@ -361,7 +361,6 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
             fortified: false,
             wet_moat: false,
             pop: 4000.0,
-            far_bank: false,
         };
         let mut rec = Recorder::default();
         let placed = grow(c.grow_seed, &site, &anchors, &mut g, c.epochs, &mut ws, &opts, &mut rec);

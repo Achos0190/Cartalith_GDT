@@ -103,7 +103,7 @@ pub const BOTH_BANKS_MIN_POP: f64 = PLAZA_MARKET_POP;
 pub const BRIDGE_JOIN_M: f64 = 240.0;
 
 /// The length of the street a town bridge's far end carries on, away from
-/// the river, metres: the stub `grow` first taps on the far bank. **The
+/// the river, metres: the stub `crate::growth::grow_far_bank` first taps on the far bank. **The
 /// reference's** shortest street segment kept clear of the short-segment
 /// tail is 38 m (`grow`'s mid-edge tap floor); 60 m is that plus room for
 /// one tap either side of the middle, and half `addRiverBridges`' 120 m
@@ -493,12 +493,149 @@ pub enum TownBridge {
     None,
 }
 
+/// Which layout of a river town [`crate::generate`] is making (2026-11-15).
+/// Every pass but `First` exists only with `urban_riverbank` on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RiverbankPass {
+    /// The reference's layout (with the riverbank geometry when it is on).
+    First,
+    /// Ruling FB's second layout of a both-banks town that housed under its
+    /// target: the market's bank as in `First`, then a bridge and
+    /// `crate::growth::grow_far_bank` with a street budget of `share` times
+    /// the market bank's street length.
+    FarBank { share: f64 },
+    /// A riverbank village that the first layout over-built: grown again
+    /// from `street_scale` times its street budget ([`fit_village`]), with
+    /// [`trim_overbuilt`] run only when `trim` (the chosen layout, still over
+    /// the cap).
+    Village { street_scale: f64, trim: bool },
+}
+
+/// Whether [`crate::generate`] lays this town out again, and how, from its
+/// first layout `t` (2026-11-15; `None` for a second layout, with the switch
+/// off, or when the first is right).
+///
+/// - **A both-banks town** (`Town::both_banks`) housing under its
+///   `pop_target`: [`RiverbankPass::FarBank`] with `share` the shortfall as a
+///   fraction of what it housed (`pop_target / pop - 1`), at most
+///   [`FAR_BANK_MAX_RATIO`]. Why the shortfall: the owner's bar is that the
+///   town's own target governs its size (coordinator, 2026-11-15: *"Growing
+///   the far bank must not shrink the near bank below what it housed
+///   before"*), and street length is what the platting turns into houses at
+///   the same rate on either bank. A town that houses its target on one bank
+///   stays on it, as the ruling's *"can"* allows.
+/// - **A village** (under [`BOTH_BANKS_MIN_POP`]) housing over
+///   [`RIVER_HOUSING_CAP`] of its target: [`RiverbankPass::Village`], which
+///   `generate` hands to [`fit_village`] to search the street scale, so the
+///   village is grown to about its target and the lots it does not need are
+///   never platted; [`trim_overbuilt`] then empties only what that leaves
+///   over the cap. Why: the trim alone
+///   left a ring of emptied plots round about half of riverbank villages
+///   (`docs/evidence/both-banks-2026-11-15/`).
+///
+/// Must never answer for a town laid out with the switch off, so the
+/// reference is laid out once, byte for byte.
+pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
+    if !t.riverbank || t.riverbank_pass != Some(RiverbankPass::First) {
+        return None;
+    }
+    if t.both_banks && t.pop < t.pop_target {
+        let share = if t.pop > 0.0 { t.pop_target / t.pop - 1.0 } else { FAR_BANK_MAX_RATIO };
+        return Some(RiverbankPass::FarBank { share: share.min(FAR_BANK_MAX_RATIO) });
+    }
+    if t.pop_target < BOTH_BANKS_MIN_POP && t.pop > t.pop_target * RIVER_HOUSING_CAP {
+        return Some(RiverbankPass::Village { street_scale: t.pop_target / t.pop, trim: false });
+    }
+    None
+}
+
+/// The share of its target a riverbank village's refitted layout may house
+/// at the least ([`fit_village`]). **A labelled judgement**: the village
+/// census's own "under 80 %" bar (`town_river_census.rs::both_banks_audit`),
+/// so a refit never makes a village the audit would flag as short.
+pub const VILLAGE_LOW_SHARE: f64 = 0.8;
+/// What [`fit_village`] aims at, as a share of the target. **A labelled
+/// judgement**: inside the band from [`VILLAGE_LOW_SHARE`] to
+/// [`RIVER_HOUSING_CAP`], nearer the cap since the households come in lots of
+/// 5.2 and the search stops at the first layout inside the band.
+pub const VILLAGE_AIM_SHARE: f64 = 1.1;
+/// How many refitted layouts [`fit_village`] tries at most. **A labelled
+/// judgement**: a village's layout is a few milliseconds, and the measured
+/// villages settle in two or three (the street budget does not turn into
+/// houses in proportion: the primaries' and the embankment's lots come
+/// whatever the budget).
+pub const VILLAGE_FITS: usize = 4;
+/// The least street scale [`fit_village`] tries. **A labelled judgement**: a
+/// tenth of the budget is a crossroads and a lane; below it the village is
+/// its primaries alone.
+pub const VILLAGE_MIN_SCALE: f64 = 0.1;
+
+/// Lay a riverbank village out again from a scaled street budget until it
+/// houses between [`VILLAGE_LOW_SHARE`] and [`RIVER_HOUSING_CAP`] of its
+/// target (2026-11-15, the coordinator's item 4: *"Prefer not creating those
+/// lots to emptying them"*). `first` is the first layout (scale 1, over the
+/// cap); `lay(scale, trim)` makes one layout. Each next scale is the secant
+/// through the last two layouts' head counts aimed at [`VILLAGE_AIM_SHARE`]
+/// (the first step `target / pop`), clamped to [`VILLAGE_MIN_SCALE`]..1; at
+/// most [`VILLAGE_FITS`] layouts. The first layout inside the band is taken
+/// as it stands. If none is, the over-cap layout housing the fewest (the
+/// first one among them) is laid out once more with [`trim_overbuilt`]
+/// (`trim`), which then empties only the few lots its streets could not
+/// avoid: never a layout under the band, since a village rescaled from 125 %
+/// to 31 % of its target (measured on 48 villages of the census at 384 when
+/// the nearest to the aim was taken) is the worse look. **Must never** return
+/// a layout over the cap untrimmed, one housing less than the first layout
+/// trimmed would, or run with the switch off.
+pub fn fit_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -> crate::Town {
+    let target = first.pop_target;
+    let (lo, hi, aim) = (target * VILLAGE_LOW_SHARE, target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
+    let mut pts: Vec<(f64, f64)> = vec![(1.0, first.pop)];
+    // The over-cap layout housing the fewest, by its scale (the first layout
+    // is one).
+    let mut least_over = (1.0, first.pop);
+    let mut scale = (target / first.pop.max(1.0)).clamp(VILLAGE_MIN_SCALE, 1.0);
+    for _ in 0..VILLAGE_FITS {
+        let t = lay(scale, false);
+        if t.pop >= lo && t.pop <= hi {
+            return t;
+        }
+        if t.pop > hi && t.pop < least_over.1 {
+            least_over = (scale, t.pop);
+        }
+        pts.push((scale, t.pop));
+        let (s1, p1) = pts[pts.len() - 2];
+        let (s2, p2) = pts[pts.len() - 1];
+        let next = if (p2 - p1).abs() > 1e-9 { s2 + (aim - p2) * (s2 - s1) / (p2 - p1) } else { s2 * 0.5 };
+        let next = next.clamp(VILLAGE_MIN_SCALE, 1.0);
+        if (next - scale).abs() < 1e-3 {
+            break;
+        }
+        scale = next;
+    }
+    lay(least_over.0, true)
+}
+
+/// The far end of the town bridge [`lay_town_bridge`] lays (or would lay) at
+/// the site's bridge point: the point `riverW/2 + 16` m from it across the
+/// river, on the bank the market is not on. The far bank's centre for
+/// `crate::growth::grow_far_bank`. `None` without a bridge point or a river.
+pub fn far_bridge_end(site: &Site, market: Vec2) -> Option<Vec2> {
+    let (bp, dir) = (site.bridge_pt?, site.bridge_dir?);
+    if site.river.len() < 2 {
+        return None;
+    }
+    let nl = dir.rot90();
+    let half = site.river_w / 2.0 + 16.0;
+    let (e1, e2) = (bp + nl * half, bp + nl * -half);
+    Some(if site.bank_side(e1) == site.bank_side(market) { e2 } else { e1 })
+}
+
 /// Ruling FB's *"when the terrain allows it"*: may a both-banks town build at
 /// `p` on its far bank? Its `terrain_suitability` must reach
 /// [`TERRAIN_BUILD_MIN`], the bar the building stage leaves a lot vacant
 /// under, so the far bank grows only where it would be built: not a gorge
 /// (the slope term) or a marsh bank (the flood term, near the water).
-/// Read by `grow` for every far-bank origin and by [`lay_town_bridge`] for
+/// Read by `crate::growth::grow_far_bank` for every far-bank origin and by [`lay_town_bridge`] for
 /// the bridge's far end.
 pub fn far_bank_buildable(site: &Site, p: Vec2) -> bool {
     terrain_suitability(site, p) >= TERRAIN_BUILD_MIN
@@ -518,8 +655,8 @@ pub const FAR_BANK_MAX_RATIO: f64 = 1.0;
 /// The live street length on each bank of a river site, metres: `(the
 /// market's bank, the other)`, by each edge's midpoint
 /// ([`Site::bank_side`]). Every live edge but the embankment and bank edges,
-/// which run along the water. Read by `grow` against
-/// [`FAR_BANK_MAX_RATIO`].
+/// which run along the water. Read by `crate::growth::grow_far_bank` for
+/// its budget and its [`FAR_BANK_MAX_RATIO`] cap.
 pub fn bank_street_lengths(site: &Site, g: &Graph, mkt_side: f64) -> (f64, f64) {
     let (mut near, mut far) = (0.0, 0.0);
     for e in g.edges.iter().filter(|e| e.alive && e.cls != "quay" && e.cls != BANK_CLASS) {
@@ -562,8 +699,10 @@ pub const RIVER_HOUSING_CAP: f64 = 1.25;
 /// [`BANK_CLASS`]) and churchyards. Outside the wall first because an emptied
 /// lot inside it is the empty walled interior Ruling FB forbids (seen on the
 /// harness town at (108,71) of seed 12345 before this order). `generate`
-/// calls it for villages only (under [`BOTH_BANKS_MIN_POP`]): the towns over
-/// it are under their target at the median. **Must never** empty a lot when
+/// calls it for villages only (under [`BOTH_BANKS_MIN_POP`]), and since
+/// 2026-11-15 only in a village's second layout
+/// ([`RiverbankPass::Village`]), whose street budget was already scaled to
+/// its target, so it empties only the remainder. **Must never** empty a lot when
 /// the town is within the cap, touch a riverside lot, empty a lot inside the
 /// wall while one outside it is still built, or leave a building on an
 /// emptied lot.
@@ -612,8 +751,11 @@ fn dry_line(site: &Site, a: Vec2, b: Vec2) -> bool {
 /// **Not the reference** -- Ruling FB (owner, 2026-11-15): *"Big river towns
 /// can grow around both banks when the terrain allows it."* Give a big river
 /// town ([`BOTH_BANKS_MIN_POP`] and up, on a riverbank site) a bridge joined
-/// to its streets before it grows, so `grow` can extend the town onto the far
-/// bank from the bridge's far end.
+/// to its streets, so `crate::growth::grow_far_bank` can extend the town onto
+/// the far bank from the bridge's far end. Laid after `grow` (2026-11-15:
+/// before it, the bridge's edges changed what `grow` drew on the market's
+/// bank), in a both-banks town's second layout only
+/// ([`RiverbankPass::FarBank`]).
 ///
 /// **Why.** On real water the reference lays no bridge at all
 /// (`addRiverBridges` returns when `usesRealWater`), and a crossing is only

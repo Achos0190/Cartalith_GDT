@@ -251,16 +251,6 @@ pub struct GrowOpts {
     /// fill in for itself.
     pub wet_moat: bool,
     pub pop: f64,
-    /// **Not the reference** -- Ruling FB (owner, 2026-11-15: *"Big river
-    /// towns can grow around both banks when the terrain allows it"*): lift
-    /// the bridgehead rule (rule 3 of [`grow`]) for this town, so its far
-    /// bank grows like its own, but only from origins the town could build
-    /// on (`crate::riverbank::far_bank_buildable`: not a gorge or a marsh
-    /// bank) and only while its streets are shorter than the market's bank's
-    /// times `crate::riverbank::FAR_BANK_MAX_RATIO`. `generate` sets it on a riverbank site of
-    /// `crate::riverbank::BOTH_BANKS_MIN_POP` and up; `false` (the default)
-    /// is the reference, byte for byte.
-    pub far_bank: bool,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -590,10 +580,6 @@ pub fn grow(
             g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| e.id).collect();
         let mut len = 0.0f64;
         let mut tries = 0i32;
-        // **Not the reference** (Ruling FB): each bank's street length, kept
-        // current through the epoch, for the far bank's cap.
-        let (mut near_len, mut far_len) =
-            if opts.far_bank { crate::riverbank::bank_street_lengths(site, g, mkt_side) } else { (0.0, 0.0) };
         while len < budget && tries < 2600 {
             tries += 1;
             let explore = r.chance(explore_share);
@@ -654,19 +640,7 @@ pub fn grow(
             // The bridgehead stays small: growth on the far bank is confined to
             // the bridge approach. Sea sites have no far bank.
             let o_side = site.bank_side(o);
-            // **Not the reference** (Ruling FB, `GrowOpts::far_bank`): a big
-            // river town's far bank grows like its own where it is buildable,
-            // up to the size of the market's bank; an unbuildable far bank (a
-            // gorge, a marsh) grows nothing. Both
-            // kinds of river site: a `riverthrough` town has no bridgehead
-            // rule to lift, but its far bank is held to the same ground.
-            if opts.far_bank && (site.kind == "river" || site.kind == "riverthrough") && o_side != mkt_side {
-                if !crate::riverbank::far_bank_buildable(site, o)
-                    || far_len >= near_len * crate::riverbank::FAR_BANK_MAX_RATIO
-                {
-                    continue;
-                }
-            } else if site.kind == "river" && o_side != mkt_side {
+            if site.kind == "river" && o_side != mkt_side {
                 // A `'river'` site always has a bridge point (`buildSite` sets
                 // one on every river branch); the reference would throw on
                 // `null.x` if it did not, and `NaN` fails the `>` test the same
@@ -703,150 +677,12 @@ pub fn grow(
             if !explore && r.u() > w * 1.35 {
                 continue;
             }
-            // segment lengths M-NET-4
-            let l = js_min(
-                125.0,
-                js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance)),
-            );
-            let mut b = Vec2::new(o.x + js_cos(ang) * l, o.y + js_sin(ang) * l);
-
-            // ---- local constraints (Parish-Mueller legalization) ----
-            // Stop at the first street met and attach as a T-junction; a small
-            // pierce chance yields real crossings.
-            let mut hit_t = f64::INFINITY;
-            let mut hit_pt: Option<Vec2> = None;
-            let mut hit_e: Option<usize> = None;
-            for eid2 in g.edges_near(o, b) {
-                let Some(e2) = g.edges.get(eid2) else { continue };
-                if !e2.alive {
-                    continue;
-                }
-                if let Some(h) = seg_int(o, b, g.nodes[e2.a].pt(), g.nodes[e2.b].pt())
-                    && h.u > 1e-3
-                    && h.u < 1.0 - 1e-3
-                    && h.t > 0.03
-                    && h.t < hit_t
-                {
-                    hit_t = h.t;
-                    hit_pt = Some(h.pt);
-                    hit_e = Some(eid2);
-                }
-            }
-            if let Some(hp) = hit_pt
-                && !r.chance(s.pierce_chance)
-            {
-                b = Vec2::new(hp.x, hp.y);
-                if o.dist(b) < 18.0 {
-                    continue;
-                }
-                // No acute sliver at the junction (M-NET-3).
-                let he = &g.edges[hit_e.expect("hit_e is set whenever hit_pt is")];
-                let (a2, b2) = (g.nodes[he.a].pt(), g.nodes[he.b].pt());
-                let e_ang = js_atan2(b2.y - a2.y, b2.x - a2.x);
-                let mut dd = (((ang - e_ang) % PI + PI) % PI).abs();
-                dd = js_min(dd, PI - dd);
-                if dd < s.junction_angle_limit {
-                    continue;
-                }
-            }
-            if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
+            let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "") else {
                 continue;
-            }
-            if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
-                continue; // M-REG-5
-            }
-            // Never cross water — the bridge already exists. The accumulation
-            // is the reference's and is load-bearing: it produces a sixth
-            // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
-            let mut wet = false;
-            let mut t = 0.15;
-            while t <= 1.0 {
-                if site.is_water(o.lerp(b, t)) {
-                    wet = true;
-                    break;
-                }
-                t += 0.17;
-            }
-            if wet {
-                continue;
-            }
-            // Wall permeability: after the wall exists, streets cross only at
-            // gates (M-NET-9).
-            if let Some(ring) = wall_state.ring.as_deref() {
-                let cross = ring_crossings(ring, o, b);
-                if !cross.is_empty() {
-                    let mut ok = true;
-                    for cp in cross {
-                        let mut near = false;
-                        for gt in &wall_state.gates {
-                            if cp.dist(gt.pt) < 20.0 {
-                                near = true;
-                                break;
-                            }
-                        }
-                        if !near {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if !ok {
-                        continue;
-                    }
-                }
-            }
-            // Parallel spacing: room for two plot depths between streets
-            // (M-BLK-4).
-            let midp = o.lerp(b, 0.5);
-            let mut too_close = false;
-            for eid2 in g.edges_near(midp, midp) {
-                let Some(e2) = g.edges.get(eid2) else { continue };
-                if !e2.alive {
-                    continue;
-                }
-                let (a2, b2) = (g.nodes[e2.a].pt(), g.nodes[e2.b].pt());
-                if dist_pt_seg(o, a2, b2) < 1.5 {
-                    continue; // the frontage being tapped
-                }
-                let d = dist_pt_seg(midp, a2, b2);
-                if d < s.parallel_street_spacing {
-                    let ang2 = js_atan2(b2.y - a2.y, b2.x - a2.x);
-                    let mut dd = (((ang - ang2) % PI + PI) % PI).abs();
-                    dd = js_min(dd, PI - dd);
-                    if dd < 0.5 {
-                        too_close = true;
-                        break;
-                    }
-                }
-            }
-            if too_close {
-                continue;
-            }
-            let cls = if explore {
-                "street"
-            } else if r.chance(0.25) {
-                "lane"
-            } else {
-                "street"
             };
-            let wdt = if cls == "lane" { 2.6 } else { r.range(3.4, 5.4) }; // widths M-NET-8
-            let prov = format!(
-                "{} growth, epoch {}: candidate scored by market access (M-DEN-3), legalized by \
-                 snap/cross/spacing rules (M-NET-3/4, M-BLK-4).",
-                if explore { "Exploration" } else { "Densification" },
-                ep
-            );
-            let made = g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov);
             for eid in made {
                 let e = &g.edges[eid];
-                let (pa, pb) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
-                len += pa.dist(pb);
-                if opts.far_bank {
-                    if site.bank_side(pa.lerp(pb, 0.5)) == mkt_side {
-                        near_len += pa.dist(pb);
-                    } else {
-                        far_len += pa.dist(pb);
-                    }
-                }
+                len += g.nodes[e.a].pt().dist(g.nodes[e.b].pt());
             }
         }
         placed_len += len;
@@ -885,6 +721,298 @@ pub fn grow(
     }
     placed_len
 }
+
+/// One candidate street of [`grow`], from origin `o` at heading `ang`, through
+/// the reference's local constraints (`grow`'s inner loop from "segment
+/// lengths M-NET-4" to `addStreet`, the body of `grow` at reference line
+/// 29748): the drawn length, the T-junction snap and its sliver test, the box
+/// margin, the slope, the water, the wall's gates and the parallel spacing.
+/// `Some` of the edges [`Graph::add_street`] made, or `None` where the
+/// reference would `continue`.
+///
+/// **Not a change of behaviour**: split out of `grow` on 2026-11-15 so the
+/// both-banks far-bank pass ([`grow_far_bank`]) legalizes its streets by
+/// exactly the same rules. The draws from `r` are the reference's, in its
+/// order, so `grow` is byte-identical (the urban goldens hold it).
+/// `prov_tail` is appended to the street's provenance (empty in `grow`).
+/// Must never draw from `r` in any other order, or add a street one of the
+/// constraints refused.
+#[allow(clippy::too_many_arguments)]
+fn legalize_street(
+    r: &mut crate::rng::Substream,
+    s: &crate::rules::StreetRules,
+    site: &Site,
+    g: &mut Graph,
+    wall_state: &WallState,
+    o: Vec2,
+    ang: f64,
+    explore: bool,
+    ep: i32,
+    prov_tail: &str,
+) -> Option<Vec<usize>> {
+    // segment lengths M-NET-4
+    let l = js_min(
+        125.0,
+        js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance)),
+    );
+    let mut b = Vec2::new(o.x + js_cos(ang) * l, o.y + js_sin(ang) * l);
+
+    // ---- local constraints (Parish-Mueller legalization) ----
+    // Stop at the first street met and attach as a T-junction; a small
+    // pierce chance yields real crossings.
+    let mut hit_t = f64::INFINITY;
+    let mut hit_pt: Option<Vec2> = None;
+    let mut hit_e: Option<usize> = None;
+    for eid2 in g.edges_near(o, b) {
+        let Some(e2) = g.edges.get(eid2) else { continue };
+        if !e2.alive {
+            continue;
+        }
+        if let Some(h) = seg_int(o, b, g.nodes[e2.a].pt(), g.nodes[e2.b].pt())
+            && h.u > 1e-3
+            && h.u < 1.0 - 1e-3
+            && h.t > 0.03
+            && h.t < hit_t
+        {
+            hit_t = h.t;
+            hit_pt = Some(h.pt);
+            hit_e = Some(eid2);
+        }
+    }
+    if let Some(hp) = hit_pt
+        && !r.chance(s.pierce_chance)
+    {
+        b = Vec2::new(hp.x, hp.y);
+        if o.dist(b) < 18.0 {
+            return None;
+        }
+        // No acute sliver at the junction (M-NET-3).
+        let he = &g.edges[hit_e.expect("hit_e is set whenever hit_pt is")];
+        let (a2, b2) = (g.nodes[he.a].pt(), g.nodes[he.b].pt());
+        let e_ang = js_atan2(b2.y - a2.y, b2.x - a2.x);
+        let mut dd = (((ang - e_ang) % PI + PI) % PI).abs();
+        dd = js_min(dd, PI - dd);
+        if dd < s.junction_angle_limit {
+            return None;
+        }
+    }
+    if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
+        return None;
+    }
+    if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
+        return None; // M-REG-5
+    }
+    // Never cross water — the bridge already exists. The accumulation
+    // is the reference's and is load-bearing: it produces a sixth
+    // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
+    let mut wet = false;
+    let mut t = 0.15;
+    while t <= 1.0 {
+        if site.is_water(o.lerp(b, t)) {
+            wet = true;
+            break;
+        }
+        t += 0.17;
+    }
+    if wet {
+        return None;
+    }
+    // Wall permeability: after the wall exists, streets cross only at
+    // gates (M-NET-9).
+    if let Some(ring) = wall_state.ring.as_deref() {
+        let cross = ring_crossings(ring, o, b);
+        if !cross.is_empty() {
+            let mut ok = true;
+            for cp in cross {
+                let mut near = false;
+                for gt in &wall_state.gates {
+                    if cp.dist(gt.pt) < 20.0 {
+                        near = true;
+                        break;
+                    }
+                }
+                if !near {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                return None;
+            }
+        }
+    }
+    // Parallel spacing: room for two plot depths between streets
+    // (M-BLK-4).
+    let midp = o.lerp(b, 0.5);
+    let mut too_close = false;
+    for eid2 in g.edges_near(midp, midp) {
+        let Some(e2) = g.edges.get(eid2) else { continue };
+        if !e2.alive {
+            continue;
+        }
+        let (a2, b2) = (g.nodes[e2.a].pt(), g.nodes[e2.b].pt());
+        if dist_pt_seg(o, a2, b2) < 1.5 {
+            continue; // the frontage being tapped
+        }
+        let d = dist_pt_seg(midp, a2, b2);
+        if d < s.parallel_street_spacing {
+            let ang2 = js_atan2(b2.y - a2.y, b2.x - a2.x);
+            let mut dd = (((ang - ang2) % PI + PI) % PI).abs();
+            dd = js_min(dd, PI - dd);
+            if dd < 0.5 {
+                too_close = true;
+                break;
+            }
+        }
+    }
+    if too_close {
+        return None;
+    }
+    let cls = if explore {
+        "street"
+    } else if r.chance(0.25) {
+        "lane"
+    } else {
+        "street"
+    };
+    let wdt = if cls == "lane" { 2.6 } else { r.range(3.4, 5.4) }; // widths M-NET-8
+    let prov = format!(
+        "{} growth, epoch {}: candidate scored by market access (M-DEN-3), legalized by \
+         snap/cross/spacing rules (M-NET-3/4, M-BLK-4).",
+        if explore { "Exploration" } else { "Densification" },
+        ep
+    ) + prov_tail;
+    Some(g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov))
+}
+
+/// How many candidates [`grow_far_bank`] draws at most. **The reference's**
+/// own per-epoch ceiling in [`grow`] (`tries < 2600`), for a pass that is one
+/// epoch long.
+pub const FAR_BANK_TRIES: i32 = 2600;
+/// The share of [`grow_far_bank`]'s candidates that continue a dead end
+/// outward rather than branching off a street's middle. **A labelled
+/// judgement**: [`grow`]'s exploration share at mid-run (`exploration_start`
+/// less half its decay, about a third), since the far bank starts as a stub
+/// and needs to reach out before it can fill in.
+pub const FAR_BANK_EXPLORE: f64 = 0.35;
+
+/// **Not the reference** -- Ruling FB (owner, 2026-11-15: *"Big river towns
+/// can grow around both banks when the terrain allows it"*), reworked the same
+/// day after the City Viewer showed the first version shrinking the market's
+/// bank: grow a both-banks town's far bank **after** [`grow`] has grown the
+/// market's bank exactly as the reference does, from a street budget of its
+/// own, `share` times the market bank's street length.
+///
+/// **Why a pass of its own.** The first version lifted [`grow`]'s bridgehead
+/// rule inside the epoch loop, so the far bank drew on the same per-epoch
+/// budget and the market's bank got the rest: on seed 12345 at 384 x 246 the
+/// near-bank town shrank to well under its old extent and its square was
+/// left outside its wall. Here the epochs are the reference's (the bridge is
+/// laid after them, `crate::riverbank::lay_town_bridge`), so the market's
+/// bank is what it was, and `generate` sizes `share` from what that town
+/// housed against its `pop_target` (`crate::riverbank::second_pass`): the
+/// far bank houses the shortfall, not more.
+///
+/// **What it does.** Up to [`FAR_BANK_TRIES`] candidates from its own random
+/// stream (`grow/far`), each an origin on a live far-bank edge (a dead end
+/// continued outward, [`FAR_BANK_EXPLORE`] of the time, else a branch off an
+/// edge's middle, as in [`grow`]), kept only where the far bank is buildable
+/// (`crate::riverbank::far_bank_buildable`), within `opts.max_rf` of
+/// `far_centre` (the bridge's far end) and, for a branch, past [`grow`]'s own
+/// market-gradient draw measured from `far_centre`; then legalized by
+/// [`legalize_street`], the reference's own rules. Stops at the budget or
+/// when the far bank's streets reach `crate::riverbank::FAR_BANK_MAX_RATIO`
+/// times the market bank's. Returns the street length laid, metres.
+///
+/// **Must never** add a street on the market's bank, change a street that
+/// was there before it ran, or run on a site with no river.
+#[allow(clippy::too_many_arguments)]
+pub fn grow_far_bank(
+    seed: u32,
+    site: &Site,
+    anchors: &Anchors,
+    g: &mut Graph,
+    wall_state: &WallState,
+    opts: &GrowOpts,
+    ep: i32,
+    share: f64,
+    far_centre: Vec2,
+) -> f64 {
+    if site.river.len() < 2 || !(share > 0.0) {
+        return 0.0;
+    }
+    let rules = opts.rules.unwrap_or(DEFAULT_RULES);
+    let s = &rules.street;
+    let mkt_side = site.bank_side(anchors.market);
+    let (near_len, mut far_len) = crate::riverbank::bank_street_lengths(site, g, mkt_side);
+    let cap = near_len * crate::riverbank::FAR_BANK_MAX_RATIO;
+    let budget = near_len * share;
+    let mut r = stream(seed, "grow/far");
+    // Live far-bank edges, classified once each as the graph grows (an edge
+    // never changes bank; a split edge's pieces are new edges).
+    let mut far_edges: Vec<usize> = Vec::new();
+    let mut scanned = 0usize;
+    let mut len = 0.0f64;
+    let mut tries = 0i32;
+    while len < budget && far_len < cap && tries < FAR_BANK_TRIES {
+        tries += 1;
+        while scanned < g.edges.len() {
+            let e = &g.edges[scanned];
+            let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+            if e.alive && e.cls != "quay" && e.cls != crate::riverbank::BANK_CLASS && site.bank_side(a.lerp(b, 0.5)) != mkt_side {
+                far_edges.push(scanned);
+            }
+            scanned += 1;
+        }
+        if far_edges.is_empty() {
+            break;
+        }
+        let explore = r.chance(FAR_BANK_EXPLORE);
+        let pick = far_edges[usize::try_from(r.int(0, far_edges.len() as i64 - 1)).unwrap_or(0).min(far_edges.len() - 1)];
+        let e0 = &g.edges[pick];
+        if !e0.alive {
+            continue;
+        }
+        let (a0, b0) = (g.nodes[e0.a].pt(), g.nodes[e0.b].pt());
+        let (o, ang) = if explore {
+            // A dead end, continued outward.
+            let end = [(e0.a, b0), (e0.b, a0)].into_iter().find(|&(n, _)| g.live_adj(n).count() == 1);
+            let Some((n, other)) = end else { continue };
+            let p = g.nodes[n].pt();
+            (p, js_atan2(p.y - other.y, p.x - other.x) + r.norm() * s.continuation_jitter)
+        } else {
+            if a0.dist(b0) < 38.0 {
+                continue; // grow's own short-segment rule (M-NET-4)
+            }
+            let side = if r.chance(0.5) { 1.0 } else { -1.0 };
+            let o = a0.lerp(b0, r.range(0.35, 0.65));
+            (o, js_atan2(b0.y - a0.y, b0.x - a0.x) + side * (PI / 2.0) + r.norm() * s.branch_angle_jitter)
+        };
+        if site.bank_side(o) == mkt_side || !crate::riverbank::far_bank_buildable(site, o) {
+            continue;
+        }
+        let d = o.dist(far_centre);
+        if d > opts.max_rf {
+            continue;
+        }
+        if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
+            continue;
+        }
+        let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV) else {
+            continue;
+        };
+        for eid in made {
+            let e = &g.edges[eid];
+            let l = g.nodes[e.a].pt().dist(g.nodes[e.b].pt());
+            len += l;
+            far_len += l;
+        }
+    }
+    len
+}
+
+/// Appended to a far-bank street's provenance ([`grow_far_bank`]).
+const FAR_BANK_PROV: &str = " Far bank (not the reference; Ruling FB, 2026-11-15): grown after the market's      bank, from a budget sized by what that bank housed.";
 
 /// `supersedeWall(seed, site, anchors, g, wallState, ep, opts)` — reference
 /// line 29610.
