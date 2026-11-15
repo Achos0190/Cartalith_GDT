@@ -8,19 +8,21 @@ extends Node
 ##   A  four chips exist, in a 2x2 grid (two distinct x, two distinct y)
 ##   B  each chip is at least 44 dp tall in px (`44 * phone_scale()`), and its font is at least 12 dp
 ##   C  no label is clipped: `clip_text` is off and the wrapped text height fits inside the chip
+##   P  pixel check on the saved frame: top and bottom border rows of every chip are drawn, 44 dp apart or more
 ##   D  every chip sits inside the peek panel and the panel inside the viewport
 ##
 ## Mutant (literal, run 2026-11-15): M1 removes `b.custom_minimum_size.y = _pt(_PEEK_CHIP_MIN_DP)` from
 ## `_rebuild_peek_chip_row`; leg B goes red. Desktop/tablet unchanged: `context_card.gd` and its `_action_row` are
 ## untouched by this change (`git diff --stat` names only `phone_menu.gd`), and `_ctxcard` desktop probes are re-run.
 ##
-## Command: `_cardbtn_probe.tscn -- --vp 1080x2340 --force-touch --density 2.625`. Exit 0 GREEN, 1 RED, 2 abort.
+## Command: `_cardbtn_probe.tscn -- --vp 1080x2340 --force-touch --density 2.625 [--shot name.png]` (a mutant run must pass a different --shot so it cannot overwrite the frame under review). Exit 0 GREEN, 1 RED, 2 abort.
 
 const SEED := 552017
 var app: Node
 var _vp: SubViewport
 var _fails := 0
 var _checks := 0
+var _shot_name := "after_peek.png"
 
 func _frames(n: int) -> void:
 	for _i in n:
@@ -73,12 +75,14 @@ func _run() -> void:
 	var ov: Control = app.viewport.overlay
 	var rect: Rect2 = ov._displayed_rect()
 	var inter: Rect2 = ov._interior_rect(rect)
+	seed(7)  # a fixed empty point, so the chips under test are the same every run
 	var at := _empty_point(ov, rect, inter)
 	_ok("an empty point exists", at.x >= 0.0, true)
 	if at.x < 0.0:
 		return
 	await _hold(ov, at)
 	_ok("peek card open", _menu().peek_card_is_open(), true)
+	await _frames(2)  # layout settles; assert on laid-out rects, not on minimum sizes
 	var scale: float = app.phone_scale()
 	var floor_px := int(round(44.0 * scale))
 	var row: GridContainer = _menu().get("_peek_chip_row")
@@ -91,11 +95,12 @@ func _run() -> void:
 	for c in chips:
 		var b := c as Button
 		var r := b.get_global_rect()
+		print("CHIP '%s' rect=%s min=%s" % [b.text, r, b.custom_minimum_size])
 		xs[int(r.position.x)] = true
 		ys[int(r.position.y)] = true
 		_ok("B '%s' height %d >= %d px" % [b.text, int(r.size.y), floor_px], r.size.y >= floor_px, true)
 		_ok("B '%s' font >= 12 dp" % b.text, b.get_theme_font_size("font_size") >= int(round(12.0 * scale)), true)
-		_ok("C '%s' not clip_text" % b.text, b.clip_text, false)
+		_ok("C '%s' not clip_text (labels up to 34 chars wrap; longer ones elide by design)" % b.text, b.clip_text, b.text.length() > 34)
 		var f := b.get_theme_font("font")
 		var avail := r.size.x - 2.0 * 9.0 * scale
 		var th := f.get_multiline_string_size(b.text, HORIZONTAL_ALIGNMENT_CENTER, avail, b.get_theme_font_size("font_size"),
@@ -105,7 +110,40 @@ func _run() -> void:
 	_ok("A 2 columns", xs.size(), 2)
 	_ok("A 2 rows", ys.size(), 2)
 	_ok("D panel inside viewport", vis.grow(1.0).encloses(panel), true)
-	app.get_viewport().get_texture().get_image().save_png("C:/cw/cardbtn_shots/after_peek.png") if DirAccess.dir_exists_absolute("C:/cw/cardbtn_shots") else null
+	# Pixel check on the rendered frame (a laid-out rect proves nothing if the draw differs): each chip's top and
+	# bottom border rows, sampled 20 px in from its left edge (clear of the label), must be brighter than the chip
+	# interior, and the border-to-border distance is the chip's drawn height. The frame is saved for looking at.
+	await _frames(2)
+	var img: Image = app.get_viewport().get_texture().get_image()
+	DirAccess.make_dir_recursive_absolute("C:/cw/cardbtn_shots")
+	img.save_png("C:/cw/cardbtn_shots/" + _shot_name)
+	for c in chips:
+		var rr := (c as Button).get_global_rect()
+		var x := int(rr.position.x) + 20
+		var top := int(rr.position.y)
+		var bot := int(rr.end.y) - 1
+		var inner := img.get_pixel(x, top + 12).get_luminance()
+		_ok("P '%s' drawn top border row is lit" % (c as Button).text, img.get_pixel(x, top).get_luminance() > inner + 0.05, true)
+		_ok("P '%s' drawn bottom border row is lit (drawn height %d px >= %d)" % [(c as Button).text, bot - top + 1, floor_px],
+			img.get_pixel(x, bot).get_luminance() > inner + 0.05 and bot - top + 1 >= floor_px, true)
+	_menu().go_back()
+	await _frames(4)
+
+	# L: a river-crossing drop offers very long labels; they must elide, not blow the band past the screen.
+	var acts: Array = []
+	for lab in ["Inspect sea lane “Skernordhaldyistskerry → Avenrevshallows”",
+			"Delete sea lane “Skernordhaldyistskerry → Avenrevshallows” — generated; Generate roads brings it back",
+			"Centre view here", "Measure from here"]:
+		acts.append({"label": lab, "enabled": true, "callable": Callable()})
+	_menu().peek_card({"gx": 3.0, "gy": 4.0, "hits": []}, acts, Callable())
+	await _frames(6)
+	var lp: Rect2 = _menu().peek_panel_rect()
+	_ok("L long labels: panel inside viewport", vis.grow(1.0).encloses(lp), true)
+	for c in row.get_children():
+		if c is Button and not c.is_queued_for_deletion():
+			var lr := (c as Button).get_global_rect()
+			_ok("L '%s' is %d px tall (>= %d) and inside the panel" % [(c as Button).text.left(24), int(lr.size.y), floor_px],
+				lr.size.y >= floor_px and lp.grow(1.0).encloses(lr), true)
 	_menu().go_back()
 	await _frames(4)
 
@@ -121,6 +159,10 @@ func _ready() -> void:
 			i += 2
 			continue
 		if a == "--density" and i + 1 < args.size():
+			i += 2
+			continue
+		if a == "--shot" and i + 1 < args.size():
+			_shot_name = args[i + 1]
 			i += 2
 			continue
 		if a == "--force-touch":

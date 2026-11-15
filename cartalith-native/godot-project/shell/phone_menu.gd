@@ -246,6 +246,8 @@ const _PEEK_CARD_PEEK_DP_TWO_ROWS := 160.0
 const _PEEK_CARD_PEEK_DP_ONE_ROW := 108.0
 ## Touch floor for a chip, dp (`MOBILE_SHELL_PROPOSAL.md`; `DccTheme.PHONE_TAP_MIN`).
 const _PEEK_CHIP_MIN_DP := 44.0
+## Longest label, in characters, a peek chip wraps (two lines of ~22 mono characters at 12 dp in a half-width cell; a labelled judgement); longer ones elide.
+const _PEEK_CHIP_WRAP_MAX := 34
 ## "Sheets stop at 60% height" -- this file's own established rule
 ## (`_build_sheet()` above draws it as a fixed `anchor_top = 0.4`); the half
 ## detent borrows it as a ceiling instead of a fixed height, so a short list
@@ -762,7 +764,15 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 		## ("Cross-section from here" is two lines in a half-width cell) rather than eliding, so nothing is clipped.
 		b.custom_minimum_size.y = _pt(_PEEK_CHIP_MIN_DP)
 		b.add_theme_font_size_override("font_size", _ps(12))
-		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		## A LONG label ("Delete sea lane ... generated; Generate roads brings it back", seen on a river-crossing drop by
+		## `_cardbtn_probe.gd`) would wrap to 5+ lines and push the grid past the peek band and the screen, so past
+		## `_PEEK_CHIP_WRAP_MAX` characters (two lines in a half-width cell) the chip is one elided line; the full
+		## text stays on the tooltip and in the half-detent list.
+		if b.text.length() <= _PEEK_CHIP_WRAP_MAX:
+			b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		else:
+			b.clip_text = true
+			b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.tooltip_text = b.text
 
 ## Rebuilds the `half` detent's list. In select mode: a Back row, up to
