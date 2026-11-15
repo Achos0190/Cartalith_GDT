@@ -1,0 +1,3 @@
+normal        closest pairs (CIELAB dE): buildings/other 28, water/other 29, military/land 41, settlements/land 50
+deuteranopia  closest pairs (CIELAB dE): settlements/land 22, terrain/land 23, buildings/terrain 24, buildings/military 25
+protanopia    closest pairs (CIELAB dE): water/other 22, settlements/terrain 25, buildings/other 26, terrain/land 28

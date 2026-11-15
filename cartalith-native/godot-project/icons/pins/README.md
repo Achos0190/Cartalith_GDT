@@ -69,3 +69,13 @@ flat seated ground, contact shadows and grass over each base. Also: `tavern.png`
 *"it really sells it well"*), the former tavern building is `inn.png` (the engine has no Inn kind yet; routed in
 OUTSTANDING_WORK.md), and `temple.png` is re-seated. The owner's replaced landscape pins are kept in
 `design/pin-icons-2026-11-15/painted-landscape-superseded/`; the generator and sheets are in `painted-drawn/`.
+
+## Glyph set recoloured by palette category (owner-approved, 2026-11-15)
+
+The owner asked for *"colours that are intuitive (based of games/real world)"*. Every glyph pin's rim and pictogram now
+follow its pin-palette category (`shell/pin_palette.gd` `CATEGORIES`): Settlements gold `#F5D039`, Buildings & trade
+tan `#D4B396`, Military crimson `#E7344E`, Sacred & historic violet `#844DD5`, Water sky blue `#64BEEA` (secondary
+water a deeper `#2C6CC4`), Terrain green `#8EE473`, Land & hazards orange `#EF7930`, Other grey `#C8CFDA`. Chosen by
+maximising the smallest CIELAB difference across normal vision, deuteranopia and protanopia (Machado 2009); no pair
+below 22. The owner's 20 were recoloured by a hue/value remap of their own-colour pixels, drawings kept. Scripts,
+measurements and sheets: `design/pin-icons-2026-11-15/glyph-recolour/`.
