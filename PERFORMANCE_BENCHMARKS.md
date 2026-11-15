@@ -1018,3 +1018,52 @@ GPU path, `RAYON_NUM_THREADS=1` for serial). Determinism: every CPU run here, be
 digest moved from 12.3's `f6708d1a30982bb1` with `32d032fd`, Ruling EX's town placement, before this work). The GPU path
 printed the same digest before and after on each device: `terrain=dcdd2bce8534e95e civ=f23e16afb93fbc19` (67 ways) on
 the PC, `terrain=14fa38faada65f7a civ=a06b729d7654569a` (64 ways) on the 6T.
+
+### 12.7 The OnePlus Pad 3 with the 2026-11-15 build (2026-11-15): cold start measured; the timing matrix NOT run
+
+**Status: half done, and the missing half is a blocker, not a result.** `OUTSTANDING_WORK.md`'s "Re-measure generation on
+the Pad 3" asked for before/after, 5 interleaved runs per column at the default thread count and at
+`RAYON_NUM_THREADS=1`, with thermal readings, the CPU digest and the app's cold-start worker count. Only the last was
+measured. **There are no Pad timings, no Pad digest and no throttling data in this section, and none are inferred from
+the 6T or the PC.**
+
+**What happened.** Both test binaries were built (release with LTO, `cargo ndk -t arm64-v8a test --release -p
+cartalith-godot --lib --no-run`, each in its own worktree and `CARGO_TARGET_DIR` under `C:/cw/`: "before" `2e9fd4db`,
+"after" `origin/main` `5721443c`; 33 131 664 and 33 322 632 bytes). The Pad was reachable over wifi adb at
+`192.168.1.22:41753` for the cold-start check, then dropped off adb while the two builds ran (about 25 minutes): from the
+PC the host answered ping, port 41753 refused connections, a scan of 30000-50000 found two open ports (36631, 46888)
+that both reported `offline` to `adb connect`, `adb mdns services` listed nothing, and eight retries over three minutes
+did not bring it back. Wireless debugging's port rotates when it is toggled or the tablet sleeps, and re-enabling it
+needs the tablet in hand, so nothing was pushed to the Pad and no benchmark process ran on it.
+
+**Cold start: the app runs 8 Rayon workers on the Pad 3** (the one result of this pass). The installed build
+(`107d5465`; `org.cartalith.walkingskeleton`) was force-stopped, launched with `monkey -p ... -c
+android.intent.category.LAUNCHER 1`, and its threads read from `/proc/<pid>/task/*` 25 s after launch (no `run-as`, no
+app data touched; temperatures 38-41 degC on the CPU sensors beforehand, `Thermal Status: 0`, plugged in). Two groups of
+eight threads exist, and only one is Rayon's:
+
+- `WorkerThread_0` ... `WorkerThread_7`, eight consecutive tids: **Godot's own `WorkerThreadPool`** (its threads carry a
+  numbered name; Godot sizes it from the core count, 8 here whatever Rayon does).
+- **Eight threads named `GLThread <n>` with one identical start tick (79409270 in `/proc/<pid>/task/<tid>/stat` field 22,
+  tids 29135-29137, 29158-29161, 29173)**: Rayon's global pool. Rayon starts unnamed workers, which on Linux inherit the
+  creating thread's name, and the creating thread is Godot's render thread (`GLThread`). Another `GLThread`-named thread
+  (tid 29103) started 145 ticks earlier and is not part of the group. Rayon's other pool in the app, `lod_worker`'s,
+  names its threads `cartalith-lod-<i>` and was not yet built.
+
+So the thread rule of 12.6 gave 8 on the Pad (`auto_thread_count` reads `Cpus_allowed_list` `0-7`, and the pool is the
+`CONFIGURED_THREADS = 0` auto case), the same as `available_parallelism()` would. The count is read from the thread layout,
+not from `cpu_thread_count_active()`, which the app does not log.
+
+**A correction to the 6T entry of the same day.** `STATUS.md`'s "App builds the thread pool from the big.LITTLE rule at
+boot" counted "8 consecutive tids spawned right after Godot's setup" on the 6T. On the Pad the 8 consecutive tids are
+Godot's `WorkerThread_N`, which are 8 on any 8-core device regardless of Rayon, so that evidence would not have told 6
+from 8. The 6T count should be re-read by start tick and name as above before it is relied on.
+
+**To finish it (the matrix is ready).** `C:/cw/pad_bins/` holds `pad_before`, `pad_after` and `pad_matrix.sh` (a
+device-side driver: 5 rounds of before and after at the default thread count and at `RAYON_NUM_THREADS=1`, a 60 s
+cooldown before each run, the highest CPU temperature and `Thermal Status` from `dumpsys thermalservice` before and after
+each run, one `SNAP_REPS=1 SNAP_WARM=0` process per run). With the Pad on adb and the app force-stopped:
+`adb push` the three files to `/data/local/tmp`, `chmod 755`, `nohup sh pad_matrix.sh &`, and read `out_*_<round>.txt` and
+`thermal.txt` when `ALLDONE` is the last line (about 30 minutes). The digest to expect is `terrain=632b22edf25908e1
+civ=65905050eba0a3e3` unless commits since 12.6 moved the civ half (`ed6e3b96`'s riverbank change is a 7p layout switch;
+compare against a PC run of the same commit).

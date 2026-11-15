@@ -116,7 +116,11 @@ document, and `STATUS.md` records what lands)
   the 6T after a cold start.
 - **Re-measure generation on the Pad 3 with the 2026-11-15 build** (`PERFORMANCE_BENCHMARKS.md` section 12.6,
   "For the Pad 3"): `device_stage_bench` before/after interleaved with the 60 s cooldown, the CPU path's digest, and
-  whether more busy cores bring the sustained throttling of section 12.4 point 3 sooner.
+  whether more busy cores bring the sustained throttling of section 12.4 point 3 sooner. **Part done 2026-11-15
+  (section 12.7): the app's cold start runs 8 Rayon workers on the Pad. Still open: the timing matrix, the Pad's digest
+  and the throttling data** -- the Pad dropped off wifi adb after the builds; the binaries and a ready device-side driver
+  are in `C:/cw/pad_bins/`, and 12.7 says how to finish. Also re-read the 6T's cold-start worker count by start tick
+  and name (12.7's correction).
 - **GPU used where it pays (Ruling EZ item 3, owner 2026-11-15):** the GPU path uses each kernel on the GPU only where it is measured faster on that device, preferring the kernels whose output is identical across devices (plate assignment, stress, blur), so one seed makes one GPU world on PC, 6T and Pad. Owner: `GPU_LAYER_INTEGRATION_SCOPE.md`, `PERFORMANCE_BENCHMARKS.md` §12.6. Defaults unchanged (Ruling EY; item 2).
 - **The GPU path makes a different world on each device** (measured 2026-11-14 and 2026-11-15, `PERFORMANCE_BENCHMARKS.md`
   sections 12.3 and 12.6): `gpu_divergence_bench` feeds each GPU kernel the same CPU inputs on the PC and the 6T and
