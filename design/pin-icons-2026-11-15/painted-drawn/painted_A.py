@@ -189,7 +189,7 @@ class Q(Paint):
         for _ in range(n):
             x = s.rng.uniform(-hw, hw); y = (s.gtop if top is None else top) + float(s.drop(np.float32(x))) + s.rng.uniform(2.0, 6)
             s.put(s.mp([(x - 0.8, y), (x + s.rng.uniform(-1.2, 1.2), y - s.rng.uniform(2, 3.6)), (x + 0.8, y)]), cols[int(s.rng.random() < 0.5)])
-    def water(s, top=15.0, clip=None):
+    def water(s, top=15.0, clip=None, rim=0.5):
         """A band of water to the disc edge, as under the owner's bridge:
         lighter at the near edge of the top, darker below, with wave strokes."""
         m = ((s.Y > OY + top + 0.5 * np.sin(s.X * 1.4)) & (s.r < 41.3)).astype(np.float32)
@@ -198,7 +198,7 @@ class Q(Paint):
         c = s.col('water', 0.25 + 0.6 * v)
         wav = (np.sin(s.Y * 2.3 + 1.8 * np.sin(s.X * 0.5)) > 0.72).astype(np.float32)
         c = lerp(c, (176, 208, 232), wav * 0.45 * (1 - 0.6 * v))
-        s.put(m, c * (1 - 0.5 * np.clip((s.r - 30) / 12, 0, 1))[..., None]); return m
+        s.put(m, c * (1 - rim * np.clip((s.r - 30) / 12, 0, 1))[..., None]); return m
     def land(s, cx, cy, rx, ry):
         """A patch of grassland seen from above (for the river subjects)."""
         d = ((s.X - OX - cx) / rx) ** 2 + ((s.Y - OY - cy) / ry) ** 2 + 0.12 * (s.n3 - 0.5)
@@ -371,17 +371,36 @@ def _(q):
 
 @pin('smithy')
 def _(q):
-    # A stone forge with a glowing hearth, a smoking chimney, an anvil outside.
-    q.mound('dirt', 23)
-    for x, y, rx, ry in ((13, -31, 5.5, 4), (9, -34.5, 3.5, 2.8)): q.E('smoke', x, y, rx, ry, ink=0.3)
-    q.R('stone', 8, -27, 16, -6); q.joints(8, -27, 16, -6, rh=4, bw=5)
-    q.R('stone', -24, 0, 18, 24, a=0.12, bu=0.45); q.joints(-24, 0, 18, 24)
-    q.P('shingle', [(-28, 1), (-20, -13), (14, -13), (22, 1)], a=0.1, bu=0.5, bv=0.15)
-    q.lines([((x, -13), (x - 3, 1)) for x in range(-16, 16, 5)], a=0.3, clip=q.mp([(-28, 1), (-20, -13), (14, -13), (22, 1)]))
-    m = q.march(-5, 9, 5, 24); q.line(m, INK, 0.5); q.put(m, lerp((120, 44, 12), (40, 18, 10), np.clip((np.hypot(q.X - OX + 5, q.Y - OY - 22) / 16), 0, 1)))
-    q.flame(-5, 24, 13, 5.5)
-    q.R('woodd', 12.5, 19, 20, 25)
-    q.P('metal', [(9.5, 12.5), (20.5, 12.5), (25.5, 13.6), (21, 15.6), (19, 19), (13.5, 19), (12.5, 15.6), (9.5, 15.6)], a=0.1, bu=0.5, bv=0.2)
+    # An anvil on its stump with a smith's hammer standing on it (owner,
+    # 2026-11-15: "Smithy could just be an anvil"; then "The handle from the
+    # hammer should point upright and a bit thicker. It looks fragile").
+    # The anvil's horn is a horizontal taper off one end of a flat face. The
+    # hammer stands head-down on the face: a chunky iron head lying along it
+    # (flat striking face at the heel end, wedge peen toward the horn) and a
+    # thick wooden handle rising near-vertically from its eye.
+    q.mound('grass', 23)
+    d = 3.0                                                   # the anvil sits this much lower than centre, to leave room for the handle
+    q.R('woodd', -15, 15 + d, 9, 25.5, mode='cyl'); q.E('wood', -3, 15 + d, 12, 2.6, t=0.2, ink=0.4, mode='flat')
+    q.lines([((x, 17.5 + d), (x, 25.5)) for x in (-10, -5.5, -0.5, 4.5)], a=0.35, clip=q.mr(-15, 15 + d, 9, 25.5))
+    q.P('metal', [(-17, 16 + d), (-13, 9.5 + d), (7, 9.5 + d), (11, 16 + d)], a=0.3, bu=0.4, bv=0.2)                 # foot
+    q.R('metal', -9, 4 + d, 3, 10 + d, a=0.35, bu=0.4)                                                                # waist
+    top = [(-24, -12 + d), (12, -12 + d), (33.5, -9.5 + d), (33, -7.5 + d), (13, -1 + d), (8, -1 + d), (5, 5 + d), (-11, 5 + d), (-14, -1 + d), (-24, -1 + d)]
+    q.P('metal', top, a=0.3, bu=0.3, bv=0.35)
+    q.fill(q.mp([(-24, -12 + d), (12, -12 + d), (33.5, -9.5 + d), (33.2, -8.6 + d), (12, -9.6 + d), (-24, -9.6 + d)]), 'metal', t=0.02, ink=0)   # the bright face
+    q.lines([((-24, -9.4 + d), (12, -9.4 + d)), ((12, -9.4 + d), (33, -8.4 + d))], w=0.35, a=0.35)
+    f = -12 + d                                               # the anvil face the hammer stands on
+    handle = [(-5.6, f - 8.0), (-0.4, f - 8.0), (3.4, -34.6), (-2.6, -35.6)]
+    q.P('wood', handle, mode='cyl', ink=0.55)
+    q.E('wood', 0.4, -35.3, 3.1, 2.0, ink=0.5, mode='cyl')                                                           # the rounded end of the grip
+    q.lines([((-3.6, f - 9), (-0.6, -33)), ((-1.8, f - 9), (1.4, -33)), ((-4.6, f - 12), (-2.6, -27))], w=0.3, a=0.35, clip=q.mp(handle))   # grain
+    head = [(-12.5, f), (-12.5, f - 9.4), (-9.8, f - 9.4), (-9.2, f - 8.4), (3.5, f - 8.4), (10, f - 5.0), (10, f - 3.2), (3.5, f)]
+    q.P('metal', head, a=0.2, bu=0.35, bv=0.35, ink=0.55)
+    q.fill(q.mr(-12.5, f - 9.4, -10.2, f), 'metal', t=0.03, ink=0)                                                   # the polished striking face
+    q.fill(q.mp([(-9.2, f - 8.4), (3.5, f - 8.4), (10, f - 5.0), (10, f - 4.4), (3.5, f - 7.0), (-9.2, f - 7.0)]), 'metal', t=0.08, ink=0)   # light along the top
+    q.lines([((-10.1, f - 9.2), (-10.1, f)), ((3.5, f - 8.2), (3.5, f))], w=0.35, a=0.45)
+    q.R('woodd', -5.9, f - 9.6, -0.1, f - 7.6, t=0.5, ink=0.35)                                                      # the handle's collar at the eye
+    q.glow(24, -17, 8, (120, 70, 14), 0.4)
+    for x, y, r in ((23, -16, 2.8), (29, -21, 2.0), (18, -23, 1.8)): q.star(x, y, r, (255, 226, 130))
 
 @pin('shrine')
 def _(q):
