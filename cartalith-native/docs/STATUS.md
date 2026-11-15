@@ -851,6 +851,23 @@ Owner, 2026-11-13: *"make sure that from the note from the previous job, we also
 
 Closes the open item of the section above (*"a folder tree instead of a dropdown for a very large vault"*) and the typed path of the folder move. **Built:** `VaultFolderPick` is now a collapsible `Tree` of the vault's folders (`chooser()`, `fill_tree()`): collapsed at start with the default (or remembered) folder selected and its ancestors open, a filter field drawn only above `FILTER_MIN_FOLDERS` (8) folders, a "New folder..." toggle whose name is made UNDER the selected node (`new_folder_path`), 44 dp rows and controls on touch, and a tap on a row expands it on touch. One implementation, three callers: the Note tab's Create and the vault window's template form (`build()`, same default and remember-per-kind behaviour) and "Move folder..." (`ask_move()`, replacing the typed path; the folder's own subtree is dim and unselectable, a new folder inside it disables Move, `is_within`). New `DccWidgets.custom_dialog` / `present_custom_dialog` carry the prompt skeleton for a caller-built body. **Verified (windowed, wiped `APPDATA`, one lock):** `_notefolder_probe.gd` leg H on a throw-away vault of 64 folders three levels deep: collapsed start, the filter narrows to matches and ancestors, a nested folder picked (a real tap on desktop) creates the note there (read back from disk, bound, remembered), New folder under a node, Move folder refuses its own subtree and a real move into a picked folder lands on disk; desktop 1600x1000 and phone 1080x2340 @2.8125 `--force-touch`. **Left:** the Android document provider itself (unchanged), and a folder tree built from folders that hold no notes (the list is derived from the note files, so an empty folder is not offered).
 
+### The card's Create note dialog is sized to its body (built 2026-11-15)
+
+Owner report: in a popped-out City Viewer (940 x 660) the card's Create note dialog was 380 x 100, the name field cut off,
+the folder tree squeezed and Create/Cancel drawn over it. **Cause, measured:** `DccWidgets.phone_window()` turns
+`wrap_controls` off, so a `custom_dialog()` window does not grow to its content and `popup_centered()` used `Window.size`
+(the engine's 100); it was the same on the docked desktop (380 x 100 windowed) and the tablet, and only the phone sheet
+(which fills the screen) was sound, with its tree 230 px (under six 44 px rows). **Fixed:** `present_custom_dialog` now sizes
+desktop/tablet dialogs to `get_contents_minimum_size()` (`_fit_custom_dialog`), shrinks any body child marked
+`DLG_SHRINK_FLOOR` (the tree, floor three rows) first when the host (the app, or the pop-out) is too short, keeps the title
+bar `DIALOG_MARGIN` clear of the top (`_keep_title_clear`), and hands the real size to `PopoutHost.present`. `ask_create` puts
+the path field above the tree and focuses it on desktop/tablet; on the phone it stays tap-to-focus by the shell's `PgField`
+convention (no soft keyboard over the sheet). The tree is six rows (160 desktop, 264 touch). `ask_move` (Move folder) shares
+the fix. `_notedlg_probe.gd` asserts laid-out rects on desktop 1600x900, tablet 1700x1000, phone 1080x2340, a 760x330 host
+and the pop-out: field visible and inside, tree >= six rows (>= two when short), buttons clear of the tree, dialog inside its
+host; 7 literal mutants each caught (two re-run in the pop-out). Regressions: `_popcard_probe` (45), `_notefolder_probe` desktop (54) and phone (39),
+`_vfolder_probe` desktop and phone (48 each) all 0 failing. Not run on a device.
+
 ### `_storymenus` "Notes for this place" rows: stale probe text, product correct (2026-11-13)
 
 The 7 failures were the probe asserting the pre-PC-5 form (label "Notes for this place", press opens the vault window);

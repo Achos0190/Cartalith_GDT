@@ -29,8 +29,13 @@ const TOUCH_MIN := 44
 ## Labelled judgement: at or below this many folders the filter field is not drawn.
 const FILTER_MIN_FOLDERS := 8
 ## Labelled judgement: the tree's height in dp. About five rows at 44 on touch, a compact well on desktop.
-const TREE_H_DESKTOP := 150
-const TREE_H_TOUCH := 230
+## Six rows: 6 x the tree's 25 px row plus its 4 px well margins on desktop, 6 x `TOUCH_MIN` on touch (2026-11-15: the
+## touch figure was 230, five and a bit rows, below the six the Create note dialog is held to). A host too short for
+## it squeezes the tree down to `TREE_SHRINK_ROWS` rows first (`DccWidgets.DLG_SHRINK_FLOOR`) and scrolls beyond that.
+const TREE_H_DESKTOP := 160
+const TREE_H_TOUCH := 6 * TOUCH_MIN
+const TREE_SHRINK_ROWS := 3
+const ROW_H_DESKTOP := 25
 ## The vault root's row text.
 const ROOT_LABEL := "(vault root)"
 
@@ -187,6 +192,7 @@ static func chooser(parent: Control, list: Array, initial: String, excluded: Str
 	tree.select_mode = Tree.SELECT_SINGLE
 	tree.custom_minimum_size = Vector2(0, TREE_H_TOUCH if touch else TREE_H_DESKTOP)
 	tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tree.set_meta(DccWidgetsRef.DLG_SHRINK_FLOOR, TREE_SHRINK_ROWS * (TOUCH_MIN if touch else ROW_H_DESKTOP))
 	## Same tokens as the file tree (`vault_window.gd`): the project theme has no Tree entries, so without this it
 	## draws Godot's stock grey slab.
 	var well := DccThemeRef.panel("sunken", {"left": 1, "right": 1, "top": 1, "bottom": 1})

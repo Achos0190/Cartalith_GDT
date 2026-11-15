@@ -4713,13 +4713,79 @@ static func custom_dialog(host: Node, title: String, ok_text: String, width: int
 
 
 ## Shows a `custom_dialog()` the way `prompt()` shows its own: the phone fit and sheet, otherwise `PopoutHost`.
+##
+## **Desktop and tablet size the window to its body here** (the Create note dialog's owner report, 2026-11-15: 380 x 100,
+## the folder tree squeezed to ~50 px, the buttons over its last row). `phone_window()` turns `wrap_controls` off, so the
+## window does NOT grow to its content; `popup_centered()` then uses `Window.size`, which is the engine default of 100
+## high. This reads the body's laid-out minimum (`get_contents_minimum_size()`), and where the host cannot hold it
+## shrinks the body's **shrinkable** children first -- any Control carrying the meta `DLG_SHRINK_FLOOR` (a height in px,
+## the least it may be squeezed to; `VaultFolderPick`'s tree) -- before the window is allowed to be shorter than its
+## content. The window is at most the host's visible rect less `PopoutHost.DIALOG_MARGIN` on every side and its title
+## bar, so it never runs off a small host or a pop-out. Never touches the phone sheet, which fills the screen and scrolls.
 static func present_custom_dialog(d: Dictionary) -> void:
 	var dlg: ConfirmationDialog = d["dialog"]
 	var host = d["host"]
 	if bool(d["phone"]) and host.has_method("phone_fit"):
 		host.phone_fit(dlg, 1.0)
+	var need := Vector2i(int(d["width"]), 0)
+	if not bool(d["phone"]):
+		need = _fit_custom_dialog(d)
 	if not phone_present(dlg, host):
-		PopoutHost.present(dlg, host, Vector2i(int(d["width"]), 0))
+		var native: bool = PopoutHost.present(dlg, host, need)
+		if not bool(d["phone"]) and not native and dlg.is_embedded():
+			_keep_title_clear(dlg, host)
+
+
+## `popup_centered()` centres the CLIENT rect and lets the title bar (drawn above it) run to the host's top edge on a
+## short host (measured 2026-11-15, 760 x 330: the title bar at y = 0). Moves an embedded dialog down just enough that
+## the bar sits `PopoutHost.DIALOG_MARGIN` below the top; `_fit_custom_dialog` already left room for that and for the
+## same margin at the bottom, so this never pushes the dialog off the bottom.
+static func _keep_title_clear(dlg: Window, host) -> void:
+	if not (host is Node) or (host as Node).get_viewport() == null:
+		return
+	var room_h := int((host as Node).get_viewport().get_visible_rect().size.y)
+	var bar: int = dlg.get_theme_constant("title_height", "Window")
+	var top: int = PopoutHost.DIALOG_MARGIN + bar
+	var low := maxi(room_h - PopoutHost.DIALOG_MARGIN - dlg.size.y, top)
+	dlg.position.y = clampi(dlg.position.y, top, low)
+
+
+## The metadata key marking a body child that may be squeezed (its `custom_minimum_size.y` lowered, never below the
+## meta's value) when the host window is too short for the whole dialog. See `present_custom_dialog`.
+const DLG_SHRINK_FLOOR := "dlg_shrink_floor"
+
+
+## Sizes a desktop/tablet `custom_dialog()` to its body inside its host's room and returns the size it asked for.
+## Sets `min_size` and `size`, so `popup_centered()` and the pop-out fit test both read the real height.
+static func _fit_custom_dialog(d: Dictionary) -> Vector2i:
+	var dlg: ConfirmationDialog = d["dialog"]
+	var body: Control = d["body"]
+	var room := Vector2i(1 << 20, 1 << 20)
+	var host = d["host"]
+	if host is Node and (host as Node).get_viewport() != null:
+		room = Vector2i((host as Node).get_viewport().get_visible_rect().size)
+	var margin: int = PopoutHost.DIALOG_MARGIN
+	## The title bar is drawn above the window's client rect and is not part of `size`.
+	var bar: int = dlg.get_theme_constant("title_height", "Window")
+	var avail_h := room.y - 2 * margin - bar
+	var cm := dlg.get_contents_minimum_size()
+	var deficit := ceili(cm.y) - avail_h
+	if deficit > 0:
+		for c in body.find_children("*", "Control", true, false):
+			if deficit <= 0:
+				break
+			if not (c as Control).has_meta(DLG_SHRINK_FLOOR):
+				continue
+			var cur := (c as Control).custom_minimum_size.y
+			var cut := minf(float(deficit), maxf(cur - float((c as Control).get_meta(DLG_SHRINK_FLOOR)), 0.0))
+			(c as Control).custom_minimum_size.y = cur - cut
+			deficit -= ceili(cut)
+		cm = dlg.get_contents_minimum_size()
+	var w := clampi(maxi(int(d["width"]), ceili(cm.x)), 1, maxi(room.x - 2 * margin, 1))
+	var h := clampi(ceili(cm.y), 1, maxi(avail_h, 1))
+	dlg.min_size = Vector2i(w, h)
+	dlg.size = Vector2i(maxi(dlg.size.x, w), maxi(dlg.size.y, h))
+	return Vector2i(w, h)
 
 
 # ---------------------------------------------------------------------------

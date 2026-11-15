@@ -384,8 +384,10 @@ func ask_create(r: Dictionary) -> void:
 	edit.tooltip_text = "Where the new note goes, relative to the vault folder."
 	if DccTheme.is_touch():
 		edit.custom_minimum_size.y = 44
-	var fp: Dictionary = VaultFolderPick.build(body, bridge, String(r["vk"]), suggested, edit)
+	## The path field sits ABOVE the folder tree (2026-11-15): the name is the thing typed, the tree only rewrites its
+	## folder part, and a field below a tall tree was the first thing a cramped dialog cut off.
 	body.add_child(edit)
+	var fp: Dictionary = VaultFolderPick.build(body, bridge, String(r["vk"]), suggested, edit)
 	var sync := func() -> void:
 		dlg.get_ok_button().disabled = fp["folder"].call() == null
 	(fp["tree"] as Tree).item_selected.connect(sync)
@@ -402,6 +404,7 @@ func ask_create(r: Dictionary) -> void:
 		if is_instance_valid(dlg):
 			dlg.queue_free())
 	DccWidgets.present_custom_dialog(d)
+	edit.grab_focus.call_deferred()   ## `prompt()`'s own habit: type the name straight away
 	d["field"] = edit
 	d["chooser"] = fp
 	_last_dialog = d
