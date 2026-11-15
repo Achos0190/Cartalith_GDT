@@ -1329,6 +1329,8 @@ func _on_any_tool_armed(id: String) -> void:
 			app.phone_refresh_sheet_body()
 			_pin_state["change_idx"] = -1
 			_pin_state["change_name"] = ""
+			_pin_state["change_lm"] = -1
+			_pin_state["change_lm_key"] = ""
 			_pin_drag = {}
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
@@ -2215,7 +2217,7 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 ## `free_label`: the free-text kind (a `?` or `!` pin with the user's words); `free_label` non-empty means the armed pin is
 ## free-text and `kind` is its mark. `query`, `closed`: the palette's search text and closed categories. `change_idx`: the pin
 ## whose kind the next palette pick replaces (change mode, from the card's Change kind), or -1.
-var _pin_state := {"kind": "", "mark": "other", "free_label": "", "query": "", "closed": {}, "change_idx": -1, "change_name": ""}
+var _pin_state := {"kind": "", "mark": "other", "free_label": "", "query": "", "closed": {}, "change_idx": -1, "change_name": "", "change_lm": -1, "change_lm_key": ""}
 
 ## The live palette node, or null while the dock shows something else. Never held across a rebuild by anyone else.
 var _pin_palette: VBoxContainer = null
@@ -2265,6 +2267,14 @@ func pin_armed_kind() -> String:
 ## the kind for the next drop. Either way the kind is pushed to the per-user recents (never the world).
 func _on_pin_kind_picked(kind: String) -> void:
 	DccSettings.pin_recent_push(kind)
+	var cl := int(_pin_state["change_lm"])
+	if cl >= 0:
+		## Ruling FD item 3: a generated landmark's pick shows it as that kind (display only; the generation data never moves).
+		if bridge.landmark_set_kind_override(String(_pin_state["change_lm_key"]), kind):
+			app.viewport.refresh_annotations()
+			app.set_status("hint", "Landmark now shown as %s · Edit > Undo puts it back" % PinPaletteScript.label_for(kind), "text_ghost")
+		_end_pin_change()
+		return
 	var ci := int(_pin_state["change_idx"])
 	if ci >= 0:
 		var nm := String(bridge.poi_get(ci).get("name", ""))
@@ -2310,6 +2320,22 @@ func begin_pin_change(idx: int) -> void:
 		## The sheet opens at half so the grid is under the thumb.
 		app.set_phone_detent("half")
 
+## Ruling FD item 3: Change kind for GENERATED landmark `li` (an index into `bridge.landmarks()`). The same palette in change
+## mode; the next pick is `landmark_set_kind_override` (display only, one undo step) and the free-text label is not offered.
+func begin_landmark_change(li: int) -> void:
+	var lms: Array = bridge.landmarks()
+	var names: Array = bridge.landmark_names()
+	if li < 0 or li >= lms.size() or li >= names.size():
+		return
+	_pin_state["change_idx"] = -1
+	_pin_state["change_lm"] = li
+	_pin_state["change_lm_key"] = String((names[li] as Dictionary).get("key", ""))
+	_pin_state["change_name"] = String((names[li] as Dictionary).get("name", "this landmark"))
+	app.arm_tool("poi")
+	_show_pin_surface.call_deferred()
+	if DccTheme.is_phone():
+		app.set_phone_detent("half")
+
 ## Redraws the surface the palette lives on: the right dock's Pins section (desktop, tablet) or the phone tool sheet's options
 ## row (phone, PP-6), which is rebuilt in place and shown instead of the dock's categories while the Pins tool is armed.
 func _show_pin_surface() -> void:
@@ -2325,6 +2351,8 @@ func _show_pin_surface() -> void:
 func _end_pin_change() -> void:
 	_pin_state["change_idx"] = -1
 	_pin_state["change_name"] = ""
+	_pin_state["change_lm"] = -1
+	_pin_state["change_lm_key"] = ""
 	if app.armed_tool == "poi":
 		_show_pin_surface.call_deferred()
 
@@ -2339,7 +2367,7 @@ func _on_poi_click(gx: float, gy: float) -> void:
 	if hit >= 0:
 		_begin_pin_drag(hit, gx, gy)
 		return
-	if int(_pin_state["change_idx"]) >= 0:
+	if int(_pin_state["change_idx"]) >= 0 or int(_pin_state["change_lm"]) >= 0:
 		app.set_status("hint", "Pick the new kind in the palette (or Cancel) before clicking the map.", "accent")
 		return
 	drop_pin(gx, gy)
@@ -2359,7 +2387,7 @@ func _begin_pin_drag(hit: int, gx: float, gy: float) -> void:
 ## `DccApp.tool_kind`), so without this the only way to move a pin on touch was the card's Move row. Holds elsewhere, and every
 ## hold with another tool armed, are the card's or the ring's as before. Registered with `MapOverlay.set_touch_hold_claim`.
 func _on_poi_hold_claim(pos: Vector2, gx: float, gy: float) -> bool:
-	if app.armed_tool != "poi" or int(_pin_state["change_idx"]) >= 0 or (bridge != null and bridge.generating):
+	if app.armed_tool != "poi" or int(_pin_state["change_idx"]) >= 0 or int(_pin_state["change_lm"]) >= 0 or (bridge != null and bridge.generating):
 		return false
 	var hit := int(app.viewport.overlay.poi_at(pos))
 	if hit < 0:

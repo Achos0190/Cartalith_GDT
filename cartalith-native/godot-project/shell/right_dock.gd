@@ -418,6 +418,7 @@ var app: DccApp
 var bridge: EngineBridge
 ## GF-8: the Rock paint target's shared vocabulary (`rock_paint_ui.gd`).
 const RockPaintUI := preload("res://shell/rock_paint_ui.gd")
+const PinPaletteScript := preload("res://shell/pin_palette.gd")
 
 ## Which `CTX_*` the dock is drawing; it follows the selection.
 var _context := CTX_SAMPLE
@@ -1536,7 +1537,7 @@ func _subject_text(subj: Dictionary) -> Array:
 			var lms: Array = bridge.landmarks()
 			if id >= 0 and id < lms.size():
 				var lm: Dictionary = lms[id]
-				return [_landmark_label(String(lm.get("kind", ""))), "Landmark · %s" %
+				return [_landmark_shown_label(lm), "Landmark · %s" %
 					String(lm.get("class", "")).capitalize()]
 		"culture":
 			var cs: Array = bridge.get_cultures()
@@ -2723,7 +2724,7 @@ func _dock_readout_text() -> String:
 		CTX_MEASURE:
 			return _measure_readout()
 		CTX_LANDMARK:
-			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
+			return _landmark_shown_label(_landmark) if not _landmark.is_empty() else "no landmark"
 		CTX_POI:
 			var pdr: Dictionary = bridge.poi_get(_poi_index) if _poi_index >= 0 else {}
 			return _poi_title(pdr) if not pdr.is_empty() else "no point of interest"
@@ -4664,6 +4665,13 @@ func _m_text(m: float) -> String:
 ## The engine's display label for a kind key (`landmark_kinds()`), else the
 ## key made readable. The registry is static for the session and cached by the
 ## bridge, so this is a dictionary scan, never a `Gd<T>` crossing.
+## Ruling FD item 3: the words for the kind a landmark is SHOWN as: the user's chosen pin kind when it has one
+## (`PinPalette.label_for`, the palette's own words), else the engine's label for the generated kind.
+func _landmark_shown_label(lm: Dictionary) -> String:
+	if lm.has("kind_override"):
+		return String(PinPaletteScript.label_for(String(lm["kind_override"])))
+	return _landmark_label(String(lm.get("kind", "")))
+
 func _landmark_label(key: String) -> String:
 	for k in bridge.landmark_kinds():
 		if String((k as Dictionary).get("key", "")) == key:
@@ -4676,9 +4684,12 @@ func _build_landmark(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Landmark")
 	var lm := _landmark
 	var key := String(lm.get("kind", ""))
-	## The engine's own label for landmark kind key '%s'.
-	_accent_readout(sec, "Kind", _landmark_label(key),
-		"The landmark type this placement is (internal key: '%s')." % key)
+	## The engine's own label for landmark kind key '%s'. Ruling FD item 3: a kind the user chose reads as that kind, and
+	## the tooltip keeps the generated one (the generation data never moved).
+	_accent_readout(sec, "Kind", _landmark_shown_label(lm),
+		("The landmark type this placement is (internal key: '%s')." % key) if not lm.has("kind_override")
+		else ("Shown as %s: your choice from Change kind. Generated as %s ('%s'); Restore generated kind brings it back."
+			% [_landmark_shown_label(lm), _landmark_label(key), key]))
 	_field(sec, "Class", String(lm.get("class", "")).capitalize(),
 		"LANDMARK_GENERATION_RESEARCH.md §23's hierarchy. On the map the ring's " +
 		"radius is the class: continental largest, local smallest.")

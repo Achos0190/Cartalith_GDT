@@ -663,6 +663,14 @@ func begin_pin_change(idx: int) -> void:
 			ws.begin_pin_change(idx)
 			return
 
+## Ruling FD item 3: Change kind for GENERATED landmark `li` (an index into `bridge.landmarks()`): the same palette in change mode
+## as a user pin's, whose pick is `landmark_set_kind_override`. Display only.
+func begin_landmark_kind_change(li: int) -> void:
+	for ws in _workspaces:
+		if ws.has_method("begin_landmark_change"):
+			ws.begin_landmark_change(li)
+			return
+
 ## The source the overlay's pins read their orange/white state from (`MapOverlay.set_pin_note_source`): `{"linked": {"kind:id":
 ## true, ...}, "landmark_ids": [the vault entity id of each landmark, in `bridge.landmarks()` order]}`, or `{}` while the
 ## engine is generating (the overlay then asks again; an empty answer is never cached as "no notes"). `linked` is every

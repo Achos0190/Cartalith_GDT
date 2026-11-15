@@ -1638,6 +1638,12 @@ struct LandmarksDoc {
     /// name stays the fallback; nothing generated moves.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     user_names: std::collections::BTreeMap<String, String>,
+    /// Ruling FD item 3: the kind a user chose for a generated landmark, `Landmark::key()` to a pin kind name
+    /// (`WorldGen::landmark_kind_overrides`). **Optional and absent when empty**, exactly as `user_names` is: a document
+    /// written before this member existed parses to an empty map and re-serialises byte-identically
+    /// (`SAVEFILE_COMPAT.md` 9.8). **Display only**: the landmark's generation data (`results`) is never touched by it.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    kind_overrides: std::collections::BTreeMap<String, String>,
 }
 
 /// The stored refined viewshed (Ruling AT) as `entities/landmarks.json`'s
@@ -3710,6 +3716,7 @@ impl WorldGen {
                 results: self.landmark_store.last.as_ref().map(LandmarkRunDto::from),
                 viewshed_refined: self.landmark_store.refined_view.as_ref().map(encode_viewshed_refined),
                 user_names: self.landmark_user_names.clone(),
+                kind_overrides: self.landmark_kind_overrides.clone(),
             },
         );
 
@@ -4070,6 +4077,13 @@ impl WorldGen {
                 .user_names
                 .into_iter()
                 .filter(|(_, v)| !v.trim().is_empty())
+                .collect();
+            // Ruling FD item 3: the user's chosen landmark kinds. A name that is not a kind the palette can offer is dropped
+            // (a hand-edited file cannot make a landmark draw nothing); a key with no placed landmark is inert.
+            self.landmark_kind_overrides = doc
+                .kind_overrides
+                .into_iter()
+                .filter(|(_, v)| cartalith_civ::poi::is_valid_kind_name(v.trim()))
                 .collect();
             // Owner ruling 10. `load_save` a few dozen lines above called
             // `LandmarkStore::invalidate()`, and its comment gives the reason:
@@ -8279,6 +8293,7 @@ mod tests {
             results: None,
             viewshed_refined: None,
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let text = serde_json::to_string(&doc).expect("serializes");
         // A store that has never run writes no `results` member at all --
@@ -8311,6 +8326,7 @@ mod tests {
             results: Some(LandmarkRunDto::from(&r)),
             viewshed_refined: None,
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
@@ -8384,6 +8400,7 @@ mod tests {
             results: Some(LandmarkRunDto::from(&r)),
             viewshed_refined: None,
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&doc).expect("serializes")).unwrap();
@@ -8489,6 +8506,7 @@ mod tests {
             results: None,
             viewshed_refined: Some(encode_viewshed_refined(&rv)),
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         assert!(text.contains("\"fedcba9876543210\"") && text.contains("\"0123456789abcdef\""), "{text}");
@@ -8516,6 +8534,7 @@ mod tests {
             results: None,
             viewshed_refined: None,
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         assert!(!text.contains("viewshed_refined"), "an absent member was written: {text}");
@@ -8536,6 +8555,7 @@ mod tests {
             results: None,
             viewshed_refined: None,
             user_names: Default::default(),
+            kind_overrides: Default::default(),
         };
         let old = serde_json::to_string_pretty(&doc).expect("serializes");
         assert!(!old.contains("user_names"), "an empty map was written: {old}");
@@ -8552,6 +8572,42 @@ mod tests {
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
         assert_eq!(back.user_names.len(), 2);
         assert_eq!(serde_json::to_string_pretty(&back).unwrap(), text, "names did not round-trip byte-exact");
+    }
+
+    /// Protects: Ruling FD item 3 -- a user-chosen landmark kind is saved beside the names as an optional member. (a) A
+    /// document with no override (every file written before this member) re-serialises to the same bytes and the member name
+    /// is not written; (b) overrides round-trip byte-exact in key order with the literal text asserted, and leave
+    /// `results` (the generated placement) and `user_names` exactly as they were.
+    #[test]
+    fn landmark_kind_overrides_round_trip_and_old_documents_are_unchanged() {
+        let mut doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: None,
+            viewshed_refined: None,
+            user_names: Default::default(),
+            kind_overrides: Default::default(),
+        };
+        doc.user_names.insert("peak@9,9".into(), "The Weeping Stair".into());
+        let old = serde_json::to_string_pretty(&doc).expect("serializes");
+        assert!(!old.contains("kind_overrides"), "an empty map was written: {old}");
+        let back: LandmarksDoc = serde_json::from_str(&old).expect("parses");
+        assert!(back.kind_overrides.is_empty());
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), old, "an old document changed");
+
+        doc.kind_overrides.insert("peak@9,9".into(), "tavern".into());
+        doc.kind_overrides.insert("lake@2,3".into(), "castle".into());
+        let text = serde_json::to_string_pretty(&doc).expect("serializes");
+        let lake = text.find("\"lake@2,3\": \"castle\"").expect("lake override written");
+        let peak = text.find("\"peak@9,9\": \"tavern\"").expect("peak override written");
+        assert!(text.contains("\"kind_overrides\": {") && lake < peak, "{text}");
+        assert!(text.contains("\"user_names\": {"), "the names were disturbed: {text}");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        assert_eq!(back.kind_overrides.len(), 2);
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), text, "overrides did not round-trip byte-exact");
+        // Clearing the override restores the old bytes: the generated kind is all that is left.
+        let mut cleared = back;
+        cleared.kind_overrides.clear();
+        assert_eq!(serde_json::to_string_pretty(&cleared).unwrap(), old, "clearing did not restore the old document");
     }
 
     /// Protects: §6.4a "untrusted input costs the member, not the document".

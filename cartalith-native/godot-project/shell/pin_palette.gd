@@ -172,8 +172,7 @@ func setup(app, state: Dictionary) -> void:
 
 
 func _build() -> void:
-	var change_idx := int(_state.get("change_idx", -1))
-	if change_idx >= 0:
+	if _changing():
 		var banner := DccTheme.label("Choose a new kind for “%s”" % String(_state.get("change_name", "this pin")), "accent", DccTheme.FS_SMALL)
 		banner.name = "ChangeBanner"
 		banner.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -229,7 +228,8 @@ func _build() -> void:
 		add_child(_grid_host)
 		_fill_recents()
 		_fill_grid()
-		_build_free()
+		if not _changing_landmark():
+			_build_free()
 		_finish_form(self)
 		return
 	add_child(search)
@@ -252,8 +252,21 @@ func _build() -> void:
 	_grid_host.add_theme_constant_override("separation", 4)
 	add_child(_grid_host)
 	_fill_grid()
-	_build_free()
+	if not _changing_landmark():
+		_build_free()
 	_finish_form(self)
+
+
+## Change mode for a user pin (`change_idx`) or a generated landmark (`change_lm`, Ruling FD item 3): the next pick CHANGES
+## something instead of arming the next drop, so the armed line is hidden and the Cancel row shows.
+func _changing() -> bool:
+	return int(_state.get("change_idx", -1)) >= 0 or _changing_landmark()
+
+
+## Change mode for a generated landmark. Its kind must be a picture kind: the free-text label (a `?` or `!` with the user's
+## words) is a user pin's own, so the free-label group is not built for a landmark.
+func _changing_landmark() -> bool:
+	return int(_state.get("change_lm", -1)) >= 0
 
 
 ## One authored dp in this node's own pixels: the phone's scale on the phone form (the sheet lays out in physical pixels), 1 on
@@ -333,7 +346,7 @@ func _refresh_armed() -> void:
 		return
 	var k := String(_state.get("kind", ""))
 	## In change mode the pick CHANGES a pin, it does not arm the next drop, so the "Armed" line would mislead: it is hidden.
-	_armed_label.visible = int(_state.get("change_idx", -1)) < 0
+	_armed_label.visible = not _changing()
 	var verb := "tap" if _touch else "click"
 	var stop := "" if _touch else " · Esc stops"
 	if k == "":

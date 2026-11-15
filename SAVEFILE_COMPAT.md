@@ -1778,6 +1778,15 @@ already lets an older reader carry.
   parses to an empty map and re-serialises byte-identically; no `format_version` change. Written in key order, so a
   round trip is byte-exact. A blank value is dropped on open; a key with no placed landmark is inert. The generated
   name stays the fallback and nothing generated moves.
+- **`kind_overrides` — optional, added 2026-11-15 (Ruling FD item 3).** `Landmark::key()` (the GENERATED kind and cell,
+  e.g. `peak@23,81`) to the pin kind name the user chose for that landmark through the card's Change kind
+  (`temple`, `castle`, any name `cartalith_civ::poi::is_valid_kind_name` accepts). **Absent when empty**, exactly as
+  `user_names`: a document with no such member (every file written before 2026-11-15, and every project that changed no
+  landmark's kind) parses to an empty map and re-serialises byte-identically; no `format_version` change. Written in key
+  order, so a round trip is byte-exact. A value that is not a valid kind name is dropped on open; a key with no placed
+  landmark is inert. **Display only**: it changes the icon the landmark draws and the kind its card reads, and nothing in
+  `results` (the generation data), the landmark names, the vault ids or the filters. Clearing every override writes the
+  document that existed before the feature (Restore generated kind).
 - **`results` is the last run, written only when there is one.** Absent means
   no run is retained (never run, or invalidated since) — not "it ran and placed
   nothing". Ruling 10's reason for persisting it: the run's state cannot be

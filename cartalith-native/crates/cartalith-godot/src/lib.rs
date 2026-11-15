@@ -7194,6 +7194,15 @@ struct WorldGen {
     /// landmark that is no longer placed is inert.
     landmark_user_names: std::collections::BTreeMap<String, String>,
 
+    /// Ruling FD item 3: the kind a user chose for a generated landmark, `Landmark::key()` to a pin kind name
+    /// (`cartalith_civ::poi::is_valid_kind_name`), beside `landmark_user_names` and saved the same way (the optional
+    /// `kind_overrides` member of `entities/landmarks.json`). **Display only, like the custom name**: it changes the icon the
+    /// landmark draws and the kind its card reads, and nothing the generator, the filters, the vault ids (which hash the
+    /// generated kind) or `landmarks()`'s own `kind` column ever read; the override is reported as a separate
+    /// `kind_override` key. The key is the GENERATED kind and cell, so a stale entry for a landmark no longer placed is
+    /// inert. Cleared wherever the names are.
+    landmark_kind_overrides: std::collections::BTreeMap<String, String>,
+
     /// Ruling EW item 4 (CL-11): the user-placed points of interest, in placement order. A fourth annotation store
     /// (`AnnoStore::Pois`), so every edit is an undo step. Saved as `annotations/pois.json` only when it has rows or the
     /// counter below has moved; cleared where the labels and the landmark names are (a new world, a load, a project open).
@@ -7577,6 +7586,7 @@ impl IRefCounted for WorldGen {
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
             landmark_user_names: std::collections::BTreeMap::new(),
+            landmark_kind_overrides: std::collections::BTreeMap::new(),
             pois: Vec::new(),
             poi_next_id: 1,
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
@@ -10794,6 +10804,7 @@ impl WorldGen {
         self.landmark_store.settings = cartalith_civ::landmark::LandmarkSettings::default();
         // Ruling EI: user-given landmark names belong to the world they were given in.
         self.landmark_user_names.clear();
+        self.landmark_kind_overrides.clear();
         // The previous project's unmodelled entries, for exactly the reason
         // the landmark settings above are reset: they belong to the file that
         // is being closed. `project_open` calls this function first and then
@@ -28235,7 +28246,54 @@ impl WorldGen {
         self.landmark_store
             .last
             .as_ref()
-            .map_or_else(Array::new, |r| r.landmarks.iter().map(landmark_dict).collect())
+            .map_or_else(Array::new, |r| {
+                r.landmarks
+                    .iter()
+                    .map(|lm| {
+                        let mut d = landmark_dict(lm);
+                        // Ruling FD item 3: the user's chosen kind rides beside the generated one, never replacing it,
+                        // and the key is omitted (not "") when there is none.
+                        if let Some(k) = self.landmark_kind_overrides.get(&lm.key()) {
+                            d.set("kind_override", k.as_str());
+                        }
+                        d
+                    })
+                    .collect()
+            })
+    }
+
+    /// Ruling FD item 3: shows the placed landmark `key` as pin kind `kind` (any name `poi_set_kind` takes: the card's
+    /// Change kind, through the pin palette). An empty `kind` clears the override (Restore generated kind). **Display only**:
+    /// nothing generated moves. `false` for a landmark that is not placed, an unknown kind name, or a request that
+    /// changes nothing. One undo step per change; saved with the project.
+    #[func]
+    fn landmark_set_kind_override(&mut self, key: GString, kind: GString) -> bool {
+        let k = kind.to_string();
+        let label = if k.trim().is_empty() {
+            "Restore generated landmark kind".to_string()
+        } else {
+            format!("Change landmark kind to {}", cartalith_civ::poi::kind_label_for(k.trim()))
+        };
+        self.anno_scope(annotation_undo::AnnoStore::Kinds, label, None, None, |s| s.landmark_set_kind_override_inner(key, k))
+    }
+
+    /// [`Self::landmark_set_kind_override`]'s mutation, wrapped by `anno_scope` so a change is one undo step and a no-op
+    /// (the same kind again, clearing nothing) records none.
+    fn landmark_set_kind_override_inner(&mut self, key: GString, kind: String) -> bool {
+        let key = key.to_string();
+        let placed = self.landmark_store.last.as_ref().is_some_and(|r| r.landmarks.iter().any(|l| l.key() == key));
+        if !placed {
+            return false;
+        }
+        let kind = kind.trim().to_string();
+        if kind.is_empty() {
+            return self.landmark_kind_overrides.remove(&key).is_some();
+        }
+        if !cartalith_civ::poi::is_valid_kind_name(&kind) {
+            return false;
+        }
+        self.landmark_kind_overrides.insert(key, kind);
+        true
     }
 
     /// Ruling EI: every placed landmark's name, `[{key, id, name, source}]` in the order

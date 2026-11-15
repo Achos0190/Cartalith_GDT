@@ -290,7 +290,7 @@ static func _settlement_rows(app, domain: String, si: int, s: Dictionary) -> Arr
 		"callable": func() -> void: app.open_vault("settlement", tid, nm)})
 	return rows
 
-## Landmark rows (Ruling EI, saved by Ruling EL): Rename (the user's own name, replacing the generated one;
+## Landmark rows (Ruling EI, saved by Ruling EL; Change kind and Restore generated kind by Ruling FD item 3): Rename (the user's own name, replacing the generated one;
 ## saved with the world), Clear custom name (only while a user name is set; the generated name returns), the
 ## note (the vault entity id from the landmark's key, as `context_note.gd` binds it) and Select. Move and
 ## Delete are absent by design: a landmark is generated, not placed by hand.
@@ -326,6 +326,17 @@ static func _landmark_rows(app, li: int) -> Array:
 			"enabled": true, "callable": func() -> void:
 				if app.bridge.landmark_set_user_name(key, ""):
 					app.set_status("hint", "Custom name cleared", "text_ghost")
+					after.call()})
+	## Ruling FD item 3: Change kind reopens the SAME pin palette (change mode) for a generated landmark, and Restore
+	## generated kind clears the user's choice. Both are display-only: the landmark's generation data never moves. One undo
+	## step each (`landmark_set_kind_override`).
+	rows.append({"id": "el.landmark_kind", "label": "Change kind…", "section": "object", "enabled": true,
+		"callable": func() -> void: app.begin_landmark_kind_change(li)})
+	if lm.has("kind_override"):
+		rows.append({"id": "el.landmark_kind_restore", "label": "Restore generated kind", "section": "object",
+			"enabled": true, "callable": func() -> void:
+				if app.bridge.landmark_set_kind_override(key, ""):
+					app.set_status("hint", "Restored the generated kind · Edit > Undo puts your choice back", "text_ghost")
 					after.call()})
 	var got: Dictionary = app.bridge.vault_landmark_entity_id(key)
 	if bool(got.get("ok", false)) and got.has("entity_id"):

@@ -86,6 +86,7 @@ impl WorldGen {
             AnnoStore::Icons => self.icons.as_ref().map(|i| AnnoSnap::Icons(i.icons.clone())),
             AnnoStore::Names => Some(AnnoSnap::Names(self.landmark_user_names.clone())),
             AnnoStore::Pois => Some(AnnoSnap::Pois(self.pois.clone())),
+            AnnoStore::Kinds => Some(AnnoSnap::Kinds(self.landmark_kind_overrides.clone())),
         }
     }
 
@@ -97,6 +98,7 @@ impl WorldGen {
             AnnoSnap::Icons(v) => self.icons.as_ref().is_some_and(|i| i.icons == *v),
             AnnoSnap::Names(m) => self.landmark_user_names == *m,
             AnnoSnap::Pois(v) => self.pois == *v,
+            AnnoSnap::Kinds(m) => self.landmark_kind_overrides == *m,
         }
     }
 
@@ -124,6 +126,7 @@ impl WorldGen {
             }
             AnnoSnap::Names(m) => self.landmark_user_names = m.clone(),
             AnnoSnap::Pois(v) => self.pois = v.clone(),
+            AnnoSnap::Kinds(m) => self.landmark_kind_overrides = m.clone(),
         }
         self.anno_undo.set_last_step(AnnoStep { store: s.store(), shifted: was != s.len() });
     }

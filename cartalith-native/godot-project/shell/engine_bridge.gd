@@ -10058,6 +10058,17 @@ func landmarks() -> Array:
 		return []
 	return world_gen.landmarks()
 
+## Ruling FD item 3: shows the placed landmark `key` as pin kind `kind` (display only, one undo step, saved with the world);
+## `""` restores the generated kind. False when refused, unchanged or without the API.
+func landmark_set_kind_override(key: String, kind: String) -> bool:
+	if generating or not _has("landmark_set_kind_override"):
+		return false
+	## Saved with the project, so a change is an unsaved change, exactly as a rename is.
+	mark_world_dirty()
+	var r: bool = world_gen.landmark_set_kind_override(key, kind)
+	_annotations_edited()
+	return r
+
 ## M9's temporal state (research §25) for the placed landmark `key` (`WorldGen.landmark_phase`): `{phase, because}`,
 ## or `{}` when the world has no settlement (no claim either way) or no landmark has that key. Derived on each call
 ## from the live settlements, so it follows the Timeline year. Empty while generating or without the API.

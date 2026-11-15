@@ -77,11 +77,13 @@ pub enum AnnoStore {
     Names,
     /// `WorldGen::pois`, the user-placed points of interest (Ruling EW item 4, CL-11).
     Pois,
+    /// `WorldGen::landmark_kind_overrides`: the kind a user chose for a generated landmark (Ruling FD item 3). Display only.
+    Kinds,
 }
 
 impl AnnoStore {
     /// Every store, in the order the liveness walk takes them.
-    pub const ALL: [AnnoStore; 4] = [AnnoStore::Labels, AnnoStore::Icons, AnnoStore::Names, AnnoStore::Pois];
+    pub const ALL: [AnnoStore; 5] = [AnnoStore::Labels, AnnoStore::Icons, AnnoStore::Names, AnnoStore::Pois, AnnoStore::Kinds];
 
     /// The key `annotation_last_step` reports and the shell matches on
     /// (`"label"` and `"icon"` are the `annotations_removed` kinds).
@@ -91,6 +93,7 @@ impl AnnoStore {
             AnnoStore::Icons => "icon",
             AnnoStore::Names => "name",
             AnnoStore::Pois => "poi",
+            AnnoStore::Kinds => "landmark_kind",
         }
     }
 }
@@ -107,6 +110,8 @@ pub enum AnnoSnap {
     /// The user-placed points of interest (`WorldGen::pois`; Ruling EW item 4). The id counter is NOT in the snapshot, so an
     /// undone placement never lets a later one reuse its id.
     Pois(Vec<Poi>),
+    /// Landmark key to the pin kind name the user chose for it (Ruling FD item 3).
+    Kinds(BTreeMap<String, String>),
 }
 
 impl AnnoSnap {
@@ -117,6 +122,7 @@ impl AnnoSnap {
             AnnoSnap::Icons(_) => AnnoStore::Icons,
             AnnoSnap::Names(_) => AnnoStore::Names,
             AnnoSnap::Pois(_) => AnnoStore::Pois,
+            AnnoSnap::Kinds(_) => AnnoStore::Kinds,
         }
     }
 
@@ -128,6 +134,7 @@ impl AnnoSnap {
             AnnoSnap::Icons(v) => v.len(),
             AnnoSnap::Names(m) => m.len(),
             AnnoSnap::Pois(v) => v.len(),
+            AnnoSnap::Kinds(m) => m.len(),
         }
     }
 }

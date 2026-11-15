@@ -5517,7 +5517,7 @@ func _draw_top_cards(rect: Rect2, interior: Rect2) -> void:
 			and _landmark_shown(_landmarks[_lm_hover_index])):
 		var lm: Dictionary = _landmarks[_lm_hover_index]
 		_draw_card(_cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect),
-			["%s (%s)" % [String(lm.get("kind", "")).capitalize(), String(lm.get("class", "")).capitalize()],
+			["%s (%s)" % [landmark_display_kind(lm).capitalize(), String(lm.get("class", "")).capitalize()],
 			"Importance %d%%" % roundi(100.0 * float(lm.get("importance", 0.0))),
 			"Click to inspect"], interior)
 
@@ -6399,7 +6399,7 @@ func _icon_radius(ic: Dictionary) -> float:
 ## `angle` is the pin's Ruling FA tilt about its tip (`_tilt_lm`; 0 for a lone pin).
 func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int, angle: float = 0.0) -> void:
 	var inks := landmark_inks(String(lm.get("class", "local")).to_lower())
-	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), String(lm.get("kind", "")), landmark_has_note(index),
+	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), landmark_display_kind(lm), landmark_has_note(index),
 		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], angle, DccSettings.marker_icon_set())
 
 
@@ -6419,7 +6419,12 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 	var r := _landmark_radius(lm)
 	var inks := landmark_inks(cls)   ## the preset's icon inks (Ruling BX item 2), else the constants
 	var col: Color = inks["col"]
-	var glyph := DccIcons.landmark_glyph(String(lm.get("kind", "")))
+	var glyph := DccIcons.landmark_glyph(landmark_display_kind(lm))
+	if glyph == "" and lm.has("kind_override"):
+		## Ruling FD item 3: a user-chosen kind with no landmark glyph of its own (most pin names) draws as the pin's
+		## own pictogram in a disc, the circle style's mark for every pin, never the bare ring of an unmapped kind.
+		PinMarker.draw_ring(_cv, pos, r, landmark_display_kind(lm), false, _sym_gain * _landmark_zoom_k(), 1.0, inks["outline"])
+		return
 	if glyph != "":
 		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
 	## Dark halo first so the ring survives on pale terrain, the same
@@ -6448,6 +6453,14 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 	## the mark stops reading as open.
 	if cls == "continental" or cls == "regional":
 		_cv.draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+
+
+## **Ruling FD item 3: the kind a landmark is SHOWN as.** The generated `kind` unless the user chose another through the
+## card's Change kind (`bridge.landmarks()` then carries `kind_override`, a pin kind name). Every drawn mark, footprint, tilt
+## and hover title reads this; the type filter, the vault ids and the generator read the generated `kind` and never this.
+## Display only, like the custom name.
+static func landmark_display_kind(lm: Dictionary) -> String:
+	return String(lm.get("kind_override", lm.get("kind", "")))
 
 
 ## The pin head's radius in this control's local px: the class-and-importance radius (`_landmark_radius`), floored so
@@ -6825,7 +6838,7 @@ func _fan(rect: Rect2) -> Dictionary:
 			if not _landmark_shown(lm) or (not town_shown and (_town_pin_membership()["lm"] as Dictionary).has(i)) \
 					or _lm_declutter_hidden(i, rect):   ## a decluttered pin neither draws nor tilts its neighbours
 				continue
-			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]), "kind": String(lm.get("kind", "")),
+			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]), "kind": landmark_display_kind(lm),
 				"pos": _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)})
 	for i in _pois.size():
 		var pd: Dictionary = _pois[i]
@@ -8390,7 +8403,7 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var fp := _landmark_footprint(lm, circles)
 		var r: float = fp[0]
 		var ang := _tilt_lm(i, rect)   ## the drawn pin's tilt about its tip (Ruling FA)
-		var lkind := String(lm.get("kind", ""))
+		var lkind := landmark_display_kind(lm)
 		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang, lkind, iset):
 			continue
 		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang, lkind, iset)
@@ -8592,7 +8605,7 @@ func hits_at(mouse: Vector2) -> Array:
 				continue
 			lpos = _nudged_lm(i, lpos, rect)   ## the drawn head, as `_hit_test_landmark` reads it
 			var lfp := _landmark_footprint(lm, circles)
-			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles, _tilt_lm(i, rect), String(lm.get("kind", "")), iset):
+			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles, _tilt_lm(i, rect), landmark_display_kind(lm), iset):
 				hits.append(_hit("landmark", i, lm.get("name"), mouse.distance_to(lpos)))   ## anchor distance, as `_hit_test_landmark` returns
 	## User-placed points of interest (Ruling EW item 4): the same footprint rule, their own layer, always shown.
 	for i in _pois.size():

@@ -197,6 +197,10 @@ impl WorldGen {
             d.set("icons", hex(fnv1a(format!("{:?}", i.icons).as_bytes())).as_str());
         }
         d.set("landmark_names", hex(fnv1a(format!("{:?}", self.landmark_user_names).as_bytes())).as_str());
+        // Ruling FD item 3: the landmark kind overrides. Omitted while empty, so a world with none digests as before.
+        if !self.landmark_kind_overrides.is_empty() {
+            d.set("landmark_kinds", hex(fnv1a(format!("{:?}", self.landmark_kind_overrides).as_bytes())).as_str());
+        }
         // Ruling EW item 4: the user-placed points of interest, a fourth annotation store.
         d.set("pois", hex(fnv1a(format!("{:?}", self.pois).as_bytes())).as_str());
         d
