@@ -2140,7 +2140,10 @@ generated reads it, and it carries no simulation meaning. Members:
   62 in `cartalith_civ::poi::KIND_NAMES`, a test compares them with `icons/pins/{glyph,painted}/`). It wins over `kind`; the writer
   then writes `kind: "other"` beside it so a build from before this member still opens the row (as the question mark). A
   `kind_name` outside the list costs its row like an unknown `kind`. **Omitted when the kind is one of the twelve**, so a world
-  whose pins are all legacy kinds re-serialises byte for byte (test `a_save_from_before_kind_names_opens_unchanged_and_re_saves_byte_for_byte`).
+  whose pins are all legacy kinds re-serialises byte for byte. **`inn` (since 2026-11-15, PP-7) is a thirteenth legacy kind in the
+  engine (`PoiKind::Inn`) but not a thirteenth `kind` key: the writer keeps `kind: "other"` + `kind_name: "inn"`** (`PoiKind::is_original_wire_key`),
+  so the format is unchanged, an older build still opens the row, and a save made by the kind-name path loads and re-saves identically (test
+  `an_inn_saved_by_the_kind_name_path_loads_as_inn_and_re_saves_byte_for_byte`); the reader also accepts a bare `kind: "inn"` (test `a_save_from_before_kind_names_opens_unchanged_and_re_saves_byte_for_byte`).
   `free_label` is the user's own words for the kind ("Beehives", at most 60 characters), legal only with the `other` (question
   mark) or `notice` (exclamation mark) kind; a row pairing one with any other kind is unreadable and dropped. **Omitted when none.**
 - `name` — the user's text. **Omitted when the user gave none** (an empty string is not a name; an unnamed point of interest

@@ -9,7 +9,7 @@ extends Node
 ## 1 px of the click, as one undo step, then the card and the Name prompt open. D: dragging an icon from the palette onto the
 ## map drops it (a real drag through the viewport). E: dragging a placed pin moves it, as ONE undo step. F: Change kind from the
 ## card reopens the palette in change mode; a pick and a free-text kind are one undo step each. G: rename and delete are one
-## step each and undo restores. H: a user pin inside a town hides below Ruling FC's threshold. The old-format save is the Rust tests' (`poi_bridge.rs`), not this probe's.
+## step each and undo restores. I (PP-7): an inn dropped from the palette is an `inn`, its card reads "Inn" (not the tavern's words), Find lists it by kind, and its save row keeps the pre-PP-7 wire form. H: a user pin inside a town hides below Ruling FC's threshold. The old-format save is the Rust tests' (`poi_bridge.rs`), not this probe's.
 ## Exit 0 = held, 1 = a check failed, 2 = could not run.
 
 const Pin := preload("res://shell/pin_marker.gd")
@@ -24,7 +24,7 @@ var _fails := 0
 var _out := ""
 var _ws
 ## `--legs ABC`: run only these legs (a mutation run needs only the leg that must go red). E and F share a pin, so E before F.
-var _legs := "ABCDEFGH"
+var _legs := "ABCDEFGHI"
 
 
 func _frames(n: int) -> void:
@@ -331,6 +331,8 @@ func _run() -> void:
 		await _leg_g()
 	if _legs.contains("H"):
 		await _leg_h()
+	if _legs.contains("I"):
+		await _leg_i()
 
 
 # ---- A. the palette lists every icon ------------------------------------------------------------------------------
@@ -633,3 +635,36 @@ func _leg_h() -> void:
 	_ov._camera_zoom = z0
 	_bridge.undo_last()
 	await _frames(3)
+
+
+# ---- I. the inn (PP-7) ------------------------------------------------------------------------------------------------------------------------
+
+## An inn dropped from the palette: engine kind `inn` (a legacy kind since PP-7, not only a name), the card's kind label "Inn"
+## (a tavern's is "Tavern"), and an unnamed inn is findable by its kind's words, as every unnamed POI is.
+func _leg_i() -> void:
+	print("== I. the inn (PP-7) ==")
+	var before: int = _bridge.poi_list().size()
+	var b := _tile("Pin_", "inn")
+	_ok("I0: the palette holds an `inn` tile", b != null)
+	if b == null:
+		return
+	b.pressed.emit()
+	await _frames(3)
+	var spot: Vector2 = _free_spots(3)[0]
+	await _click(spot)
+	var l: Array = _bridge.poi_list()
+	_ok("I1: one more pin, an inn", l.size() == before + 1 and String(l[l.size() - 1]["kind"]) == "inn", str(l.back() if l.size() > 0 else l))
+	_ok("I2: its kind label is `Inn`, not the tavern's", String(l[l.size() - 1].get("kind_label", "")) == "Inn", str(l.back()))
+	_ok("I2: and a tavern's label is `Tavern`", String(_bridge.poi_kinds()[0]["label"]) == "Tavern")
+	_ok("I3: the card opened for it", _card_open())
+	await _dismiss_name()
+	await _close_card()
+	var ps := PlaceSearch.new()
+	ps.build(_bridge)
+	var found := false
+	for h in ps.search("inn"):
+		if String((h as Dictionary).get("entity", "")) == "poi" and int((h as Dictionary).get("id", -1)) == l.size() - 1:
+			found = true
+	_ok("I4: Find lists the unnamed inn by its kind", found)
+	_bridge.undo_last()
+	await _frames(2)

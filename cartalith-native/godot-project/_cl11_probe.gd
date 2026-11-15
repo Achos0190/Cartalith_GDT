@@ -386,7 +386,7 @@ func _leg_a() -> void:
 	var keys: Array = []
 	for k in kinds:
 		keys.append(String((k as Dictionary)["key"]))
-	_ok("A0: twelve kinds, the owner's list in order", keys == ["tavern", "shop", "smithy", "temple", "shrine", "guild", "gate",
+	_ok("A0: thirteen kinds, the owner's twelve plus the inn (PP-7) beside the tavern, in order", keys == ["tavern", "inn", "shop", "smithy", "temple", "shrine", "guild", "gate",
 		"well", "ruin", "camp", "mine", "other"], str(keys))
 	_ok("A0: every kind has a pictogram of its own except `other`, the stated dot", Pin.is_mapped("tavern") and Pin.is_mapped("smithy")
 		and Pin.is_mapped("shop") and Pin.is_mapped("guild") and Pin.is_mapped("gate") and Pin.is_mapped("ruin") and Pin.is_mapped("camp")
@@ -412,7 +412,7 @@ func _leg_a() -> void:
 	_ok("A1: the tool is armed and is a tap tool (a placing tool, not a drawing one)", app.armed_tool == "poi" and DccApp.tool_kind("poi") == ViewportHost.TOOL_PLACING)
 	## Ruling FD: the twelve-item picker became the pin palette in the right dock (`_pinpalette_probe.gd` holds its checks).
 	var pal = app.find_child("PinPalette", true, false)
-	_ok("A1: the right dock holds the pin palette, which offers every legacy kind", pal != null and ["tavern", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"].all(func(k): return k == "shop" or pal.find_child("Pin_" + k, true, false) != null))
+	_ok("A1: the right dock holds the pin palette, which offers every legacy kind", pal != null and ["tavern", "inn", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"].all(func(k): return k == "shop" or pal.find_child("Pin_" + k, true, false) != null))
 	(pal.find_child("Pin_tavern", true, false) as Button).pressed.emit()
 	await _frames(3)
 	var n0 := _undo_n()

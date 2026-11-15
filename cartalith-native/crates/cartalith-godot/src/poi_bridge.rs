@@ -85,7 +85,7 @@ impl WorldGen {
 
 #[godot_api(secondary)]
 impl WorldGen {
-    /// The twelve **legacy** kinds, in their old picker order: `[{key, label}]`. The same list for every world. The pin
+    /// The **legacy** kinds (the original twelve plus `inn`, 2026-11-15), in their picker order: `[{key, label}]`. The same list for every world. The pin
     /// palette (Ruling FD) offers every icon name instead (`poi_kind_names`); this stays for the phone's Change kind sheet
     /// and for readers that want the owner's original list.
     #[func]
@@ -283,7 +283,7 @@ pub(crate) struct PoiDto {
     /// Grid y.
     #[serde(default)]
     pub y: f64,
-    /// A legacy `PoiKind::key()`. For a pin whose kind is one of the twelve this IS its kind (an old save has only this);
+    /// A legacy `PoiKind::key()`. For a pin whose kind is one of the original twelve (not `inn`, see `PoiKind::is_original_wire_key`) this IS its kind (an old save has only this);
     /// for any other kind name it is `other` (so a build from before Ruling FD still opens the row, as a question mark)
     /// and the real name is `kind_name`. Unknown keys are refused on read, never turned into `other`.
     #[serde(default)]
@@ -311,7 +311,7 @@ pub(crate) fn pois_to_doc(pois: &[Poi], next_id: u32) -> Option<PoisDoc> {
         pois: pois
             .iter()
             .map(|p| {
-                let legacy = PoiKind::from_key(&p.kind).is_some();
+                let legacy = PoiKind::is_original_wire_key(&p.kind);
                 PoiDto {
                     id: p.id,
                     x: p.x,
@@ -462,6 +462,42 @@ mod tests {
         assert_eq!(r.next_id, 4);
         let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
         assert_eq!(again, old, "re-saving an old document must not add a member");
+    }
+
+    /// Protects (PP-7): an inn saved by `cf430ea4`'s kind-name path (a literal: `kind: "other"`, `kind_name: "inn"`) loads as
+    /// the inn, the writer still emits exactly that form (so an older build opens the row and a re-save is byte-identical),
+    /// and a hand-written `kind: "inn"` row is read as an inn too. Also: `PoiKind::Inn` is a legacy kind with its own words.
+    #[test]
+    fn an_inn_saved_by_the_kind_name_path_loads_as_inn_and_re_saves_byte_for_byte() {
+        let old = r#"{
+  "next_id": 3,
+  "pois": [
+    {
+      "id": 1,
+      "x": 11.5,
+      "y": 20.25,
+      "kind": "other",
+      "kind_name": "inn",
+      "name": "The Lantern"
+    },
+    {
+      "id": 2,
+      "x": 12.5,
+      "y": 20.25,
+      "kind": "tavern"
+    }
+  ]
+}"#;
+        let doc: PoisDoc = serde_json::from_str(old).unwrap();
+        let r = pois_from_doc(&doc, 512, 512);
+        assert_eq!(r.dropped, 0);
+        assert_eq!(r.pois[0].kind, "inn");
+        assert_eq!(PoiKind::from_key(&r.pois[0].kind), Some(PoiKind::Inn));
+        assert_eq!(kind_label_for("inn"), "Inn");
+        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
+        assert_eq!(again, old, "an inn keeps the wire form an older build already reads");
+        let hand: PoisDoc = serde_json::from_str(r#"{"next_id":2,"pois":[{"id":1,"x":1.0,"y":1.0,"kind":"inn"}]}"#).unwrap();
+        assert_eq!(pois_from_doc(&hand, 512, 512).pois[0].kind, "inn", "a bare `kind: inn` is read, not refused");
     }
 
     /// Protects: a new kind name and a free-text kind survive a save and a load, an older build can still open the row (its

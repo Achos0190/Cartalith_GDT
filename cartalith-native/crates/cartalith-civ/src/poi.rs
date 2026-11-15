@@ -17,11 +17,11 @@
 //! ## Kind names (Ruling FD, `PIN_PALETTE_SCOPE.md` PP-2)
 //!
 //! A [`Poi`] stores its kind as a **name** (`Poi::kind`, a `String`): any icon name the pin palette offers
-//! (`icons/pins/{glyph,painted}/<name>.png`: `tavern`, `capital`, `waterfall`, ...), not one of a fixed enum. The twelve
-//! [`PoiKind`]s below are now only the *legacy* list: every one of their keys is a valid name, so an old save's `kind`
+//! (`icons/pins/{glyph,painted}/<name>.png`: `tavern`, `capital`, `waterfall`, ...), not one of a fixed enum. The thirteen
+//! [`PoiKind`]s below (twelve, plus `inn` since 2026-11-15) are now only the *legacy* list: every one of their keys is a valid name, so an old save's `kind`
 //! loads as the same string, unchanged. The engine cannot read the shell's icon files at run time, so [`KIND_NAMES`] is a
 //! copy of the union of both icon sets' file names (a test compares it with the folders, so a new icon without a row, or
-//! a row without a file, fails the build), plus the twelve legacy keys; a name outside both is **refused**, never turned into `other`, the same rule the
+//! a row without a file, fails the build), plus the legacy keys; a name outside both is **refused**, never turned into `other`, the same rule the
 //! legacy kind key always had.
 //!
 //! A **free-text kind** is a `free_label` the user typed ("Beehives") with a mark: the kind name is `other` (a question
@@ -30,7 +30,7 @@
 //!
 //! ## The legacy kind list
 //!
-//! [`PoiKind`] is the owner's list (tavern or inn, shop, smithy, temple, shrine, guild, gate, well, ruin, camp, mine, other).
+//! [`PoiKind`] is the owner's list (tavern, inn, shop, smithy, temple, shrine, guild, gate, well, ruin, camp, mine, other).
 //! Each has a stable wire `key()` (saved), a display `label()` and the pin pictogram the shell draws (`shell/pin_marker.gd`,
 //! `KIND_PICTOGRAM`). **`other` is the stated fallback, never a default for an unreadable saved key**: a saved key this build
 //! does not know is refused by [`PoiKind::from_key`] and the row is dropped with a warning, not turned into `other`.
@@ -38,8 +38,13 @@
 /// The kinds of point of interest the Place tool offers, in the order the picker lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PoiKind {
-    /// A tavern or inn (pictogram: a mug).
+    /// A tavern (pictogram: a mug).
     Tavern,
+    /// An inn (pictogram: the half-timbered house with a hanging sign). **Added 2026-11-15** (`PIN_PALETTE_SCOPE.md` PP-7,
+    /// owner: *"The one that is now there for tavern can de reused for an inn."*), after `cf430ea4` had made `inn` a valid
+    /// kind name; it is placed beside [`PoiKind::Tavern`] so the picker keeps the two together. Its **wire form is unchanged**
+    /// (see [`PoiKind::is_original_wire_key`]).
+    Inn,
     /// A shop or market stall.
     Shop,
     /// A smithy or forge.
@@ -66,8 +71,9 @@ pub enum PoiKind {
 
 impl PoiKind {
     /// Every kind in the picker's order.
-    pub const ALL: [PoiKind; 12] = [
+    pub const ALL: [PoiKind; 13] = [
         PoiKind::Tavern,
+        PoiKind::Inn,
         PoiKind::Shop,
         PoiKind::Smithy,
         PoiKind::Temple,
@@ -85,6 +91,7 @@ impl PoiKind {
     pub fn key(self) -> &'static str {
         match self {
             PoiKind::Tavern => "tavern",
+            PoiKind::Inn => "inn",
             PoiKind::Shop => "shop",
             PoiKind::Smithy => "smithy",
             PoiKind::Temple => "temple",
@@ -99,10 +106,11 @@ impl PoiKind {
         }
     }
 
-    /// The words the picker and a default name use ("Tavern or inn", not the key).
+    /// The words the picker and a default name use ("Tavern", not the key).
     pub fn label(self) -> &'static str {
         match self {
-            PoiKind::Tavern => "Tavern or inn",
+            PoiKind::Tavern => "Tavern",
+            PoiKind::Inn => "Inn",
             PoiKind::Shop => "Shop",
             PoiKind::Smithy => "Smithy",
             PoiKind::Temple => "Temple",
@@ -121,6 +129,15 @@ impl PoiKind {
     /// is a refusal, not a guess, so a newer file's kind is reported and not silently relabelled).
     pub fn from_key(key: &str) -> Option<PoiKind> {
         PoiKind::ALL.iter().copied().find(|k| k.key() == key)
+    }
+
+    /// Whether `key` is one of the **twelve keys saves have always written** in `kind` (every legacy kind except
+    /// [`PoiKind::Inn`]). The save writer puts only these in `kind`; an inn keeps the form `cf430ea4` gave it
+    /// (`kind: "other"`, `kind_name: "inn"`), so a build from before this change still opens the row (as a question mark)
+    /// instead of dropping it as an unknown key, and a save holding an inn is byte-identical to what the old path wrote.
+    /// The reader accepts either form (`kind_name` wins), so nothing already saved changes meaning.
+    pub fn is_original_wire_key(key: &str) -> bool {
+        key != "inn" && PoiKind::from_key(key).is_some()
     }
 }
 
@@ -158,7 +175,7 @@ pub fn is_valid_kind_name(name: &str) -> bool {
     KIND_NAMES.contains(&name) || PoiKind::from_key(name).is_some()
 }
 
-/// The words for a kind name: the legacy [`PoiKind::label`] for the twelve ("Tavern or inn"), else the name with `_`
+/// The words for a kind name: the legacy [`PoiKind::label`] for the thirteen ("Tavern", "Inn"), else the name with `_`
 /// turned to spaces and its first letter capitalised ("Mountain pass"). Never invents: an empty name gives an empty string.
 pub fn kind_label_for(name: &str) -> String {
     if let Some(k) = PoiKind::from_key(name) {
@@ -219,28 +236,29 @@ mod tests {
         Poi { id, x: 1.0, y: 2.0, kind: "well".into(), free_label: String::new(), name: String::new() }
     }
 
-    /// Protects: the kind list is the owner's twelve, every key round-trips and is unique, and an unknown key is a refusal
+    /// Protects: the kind list is the owner's twelve plus `inn`, every key round-trips and is unique, and an unknown key is a refusal
     /// (never `Other`).
     #[test]
     fn kinds_round_trip_and_an_unknown_key_is_refused() {
-        assert_eq!(PoiKind::ALL.len(), 12);
+        assert_eq!(PoiKind::ALL.len(), 13);
         let keys: Vec<&str> = PoiKind::ALL.iter().map(|k| k.key()).collect();
         let mut sorted = keys.clone();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), 12, "keys must be unique: {keys:?}");
+        assert_eq!(sorted.len(), 13, "keys must be unique: {keys:?}");
         for k in PoiKind::ALL {
             assert_eq!(PoiKind::from_key(k.key()), Some(k));
         }
         // The owner's list, literally and in order: a renamed key would orphan every saved POI of that kind.
-        assert_eq!(keys, ["tavern", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"]);
+        assert_eq!(keys, ["tavern", "inn", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"]);
+        assert_eq!(PoiKind::from_key("inn"), Some(PoiKind::Inn));
         assert_eq!(PoiKind::from_key("tavern"), Some(PoiKind::Tavern));
         assert_eq!(PoiKind::from_key("brothel"), None);
         assert_eq!(PoiKind::from_key(""), None);
     }
 
     /// Protects: the name list is exactly the union of the two icon folders (a new icon needs a row, a row needs a file),
-    /// is sorted and unique, and holds all twelve legacy keys so an old save's kind is always a valid name.
+    /// is sorted and unique, and holds all legacy keys so an old save's kind is always a valid name.
     #[test]
     fn kind_names_match_the_icon_folders() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot-project/icons/pins");
@@ -272,13 +290,22 @@ mod tests {
         for bad in ["", "Tavern", "mountain pass", " tavern", "brothel", "../x"] {
             assert!(!is_valid_kind_name(bad), "{bad:?}");
         }
-        assert_eq!(kind_label_for("tavern"), "Tavern or inn", "a legacy key keeps its words");
+        assert_eq!(kind_label_for("tavern"), "Tavern", "a legacy key keeps its words");
+        assert_eq!(kind_label_for("inn"), "Inn", "an inn has its own words, not the tavern's");
         assert_eq!(kind_label_for("mountain_pass"), "Mountain pass");
         assert_eq!(kind_label_for(""), "");
         assert_eq!(clean_free_label("  Beehives \n"), Some("Beehives".to_string()));
         assert_eq!(clean_free_label("   "), None);
         assert_eq!(clean_free_label(&"b".repeat(100)).unwrap().chars().count(), FREE_LABEL_MAX);
         assert_eq!(FREE_MARKS, ["other", "notice"]);
+    }
+
+    /// Protects: exactly the twelve keys saves always wrote are `is_original_wire_key`; `inn` is a legacy kind but not one.
+    #[test]
+    fn only_the_original_twelve_keys_are_wire_keys() {
+        let wire: Vec<&str> = PoiKind::ALL.iter().map(|k| k.key()).filter(|k| PoiKind::is_original_wire_key(k)).collect();
+        assert_eq!(wire, ["tavern", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"]);
+        assert!(!PoiKind::is_original_wire_key("inn") && !PoiKind::is_original_wire_key("waterfall") && !PoiKind::is_original_wire_key(""));
     }
 
     /// Protects: an id is never reissued and never `0`, even when the counter lags the list.
