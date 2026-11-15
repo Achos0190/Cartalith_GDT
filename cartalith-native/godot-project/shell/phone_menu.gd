@@ -291,6 +291,9 @@ func setup(shell: DccShell) -> void:
 	visible = false
 
 	_screen = _build_screen()
+	## Hidden until `_render()` shows it for a step: a freshly built pane is visible by default, which is what let
+	## the first peek card draw it (see `peek_card()`).
+	_screen.visible = false
 	add_child(_screen)
 
 	## Canvas "04 · L4 SHEET" draws the region above the sheet as
@@ -668,6 +671,15 @@ func peek_card(req: Dictionary, actions: Array, reselect: Callable,
 	_peek_primary = hits[0] if not hits.is_empty() else {}
 	_rebuild_peek_chip_row(actions)
 	_rebuild_peek_full_rows(actions)
+	## 2026-11-15, owner bug ("a long press on phone makes the whole map disappear and opens the settings menu",
+	## `_lpscreen_probe.gd`): the peek card lives inside this root, and showing the root also shows whichever
+	## sibling panes were left visible. `_screen` (the opaque full-screen MENU pane, back and close header and an
+	## empty body) is a `PanelContainer`, visible by default and left visible by every `_render()`, and `close()` /
+	## `_dismiss_peek_card()` only hide the root, so the first long press after boot, or after any MENU or STORY
+	## screen, drew it over the whole map. The map is a veiled scrim and a peek card, never a screen: hide both
+	## panes. A real `open()` / `open_sheet()` / `open_story()` runs `_render()`, which sets them again.
+	_screen.visible = false
+	_sheet.visible = false
 	visible = true
 	_peek_open = true
 	_sheet_scrim.visible = true
