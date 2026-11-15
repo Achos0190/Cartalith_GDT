@@ -124,6 +124,7 @@ fn water_ctx(s: &WaterSpec) -> WaterCtx {
         river_width_m: Some(s.river_width_m),
         river_order: s.river_order,
         sea_lake_cells: s.sea_lake_cells,
+        open_water: None,
     }
 }
 

@@ -761,6 +761,7 @@ fn lot_is_wet_reads_the_middle_and_every_edge_midpoint() {
             river_width_m: Some(10.0),
             river_order: 0.0,
             sea_lake_cells: 0.0,
+            open_water: None,
         };
         build_site(3, 1700.0, 1250.0, "coast", SiteOpts { water: Some(w), ..Default::default() })
     };

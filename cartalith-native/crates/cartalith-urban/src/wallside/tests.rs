@@ -247,6 +247,7 @@ fn accepts_measures_the_water_margin_on_every_corner_and_the_centroid() {
         river_width_m: None,
         river_order: 0.0,
         sea_lake_cells: 0.0,
+        open_water: None,
     };
     let site = |kind: &str, w: crate::site::WaterCtx| {
         let mut s = crate::site::build_site(1, 1700.0, 1250.0, kind, crate::site::SiteOpts { water: Some(w), ..Default::default() });

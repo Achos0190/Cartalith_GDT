@@ -795,6 +795,9 @@ impl WorldGen {
                 // Ruling EW item 1: the wall hugs the built-up area. Read from the
                 // live parameters, so it is the switch the app and a save carry.
                 wall_hug: self.params.urban_wall_hug,
+                // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
+                // its bank. Read from the live parameters, like the wall hug.
+                riverbank: self.params.urban_riverbank,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

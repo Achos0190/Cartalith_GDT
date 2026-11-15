@@ -121,14 +121,14 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     for d in c.dropped.iter().filter(|d| !d.id.starts_with("menu:")) {
         eprintln!("AC1 dropped (non-menu): {} ({})", d.id, d.why);
     }
-    assert_eq!(by("params"), 120, "every offered registry row is an entry");
+    assert_eq!(by("params"), 121, "every offered registry row is an entry (120 until `urban_riverbank`, 2026-11-15)");
     assert_eq!(by("view"), 10 + 3, "ten layers plus the style preset, zoom and the (withheld) landmark filter");
     assert_eq!(by("window"), 10);
     assert_eq!(by("context"), 26, "31 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear; world.sculpt_here, MS-5, passes unexempted)");
     assert_eq!(by("tool"), 13);
     assert_eq!(by("timeline"), 1);
     assert_eq!(by("menu"), 32, "66 rows less 10 merged into windows and 24 refused (AC-5 allow-listed undo_history)");
-    assert_eq!(c.entries().len(), 120 + 13 + 10 + 26 + 13 + 1 + 32);
+    assert_eq!(c.entries().len(), 121 + 13 + 10 + 26 + 13 + 1 + 32);
     assert_eq!(c.derived_desc_count(), 0, "AC-5: every real row carries a written description (the work list was 27 at AC-5's start)");
     // Accounting: each of the 66 rows is an entry, a merge or a refusal.
     for r in &facts.menu_rows {
@@ -616,7 +616,7 @@ fn real_catalogue_with_selection(settlements: Option<i64>, can_back: Option<bool
 /// would accept (available, reviewed) has a click path, and the families map to the paths the proposal
 /// names (settings -> write_param, views -> LlmView, windows and menu rows -> CommandIndex, the year ->
 /// tl_set_year, selection -> DccApp.select, tools -> arm_tool). The counts are literals (measured
-/// 2026-11-12 on the 120 registry rows (119 until `urban_river_kind_map`, Ruling EX follow-up (c), 2026-11-15; 118 until Ruling EX's `civ.river_front`, 2026-11-14; 117 until Ruling EW item 1's `urban_wall_hug`, the same day; 116 until `civ.base_ag_tech`, 2026-11-13; 115 until Ruling EU item 1's `civ.merge_ways`, 114 until Ruling ET's `lake_balance`), the 66 captured menu rows and the shell source's own layers,
+/// 2026-11-12 on the 121 registry rows (120 until `urban_riverbank`, 2026-11-15; 119 until `urban_river_kind_map`, Ruling EX follow-up (c), 2026-11-15; 118 until Ruling EX's `civ.river_front`, 2026-11-14; 117 until Ruling EW item 1's `urban_wall_hug`, the same day; 116 until `civ.base_ag_tech`, 2026-11-13; 115 until Ruling EU item 1's `civ.merge_ways`, 114 until Ruling ET's `lake_balance`), the 66 captured menu rows and the shell source's own layers,
 /// presets, windows, context actions and tools). MUTATION: delete the `window.` arm of
 /// `ActionEntry::route` and the window count goes to 0.
 #[test]
@@ -631,7 +631,7 @@ fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
         }
     }
     eprintln!("AC3 proposable by route: {by:?}");
-    assert_eq!(by.get("param"), Some(&120));
+    assert_eq!(by.get("param"), Some(&121));
     assert_eq!(by.get("window"), Some(&10));
     assert_eq!(by.get("tool"), Some(&13));
     assert_eq!(by.get("year"), Some(&1));

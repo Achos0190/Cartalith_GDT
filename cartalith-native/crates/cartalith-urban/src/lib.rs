@@ -83,6 +83,7 @@ pub mod plaza;
 pub mod radial;
 pub mod rng;
 pub mod routes;
+pub mod riverbank;
 pub mod rules;
 pub mod site;
 pub mod wallgap;

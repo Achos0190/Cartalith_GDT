@@ -1137,6 +1137,28 @@ pub struct WorldParams {
     /// field and needs no regeneration. A save without the key loads it off
     /// (`params::LOADS_WHEN_ABSENT`), so a reopened world answers as it did.
     pub urban_river_kind_map: bool,
+    /// **A river town builds to its riverbank** -- 2026-11-15, under Ruling EX's
+    /// follow-ups (owner, 2026-11-14: *"per town placement is critical. If it
+    /// misses it just looks silly"*). On, `cartalith_urban::generate` measures
+    /// a real-water river site's river from its own channel
+    /// (`cartalith_urban::Site::use_riverbank`) instead of from the 22 m band
+    /// stamped into the water mask, resamples its centreline
+    /// (`cartalith_urban::riverbank::fine_river_path`) and lays an embankment
+    /// along each bank the town reaches (`riverbank::build_embankment`), so the
+    /// riverside streets, lots and buildings stand at the bank rather than a
+    /// band back from it, and the town draws its river as the channel. **The reference's distance raster already measures from the
+    /// bank** (`_umWaterCtx` stamps the river band into the mask before the
+    /// distance transform), and its margins (`riverW/2+1`, `riverW/2+30`, ...)
+    /// were written for the synthetic site, whose distance is to the
+    /// centreline: on the real-water path the half-width is counted twice.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p): the
+    /// urban goldens pin the reference's layouts. Read fresh each time a layout
+    /// is asked for (never stored), so it moves no generated field and needs no
+    /// regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the towns it was
+    /// saved with.
+    pub urban_riverbank: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1362,6 +1384,9 @@ impl WorldParams {
             // Off: the reference's flow-cell river test. On at the app boundary
             // (Ruling EX follow-up (c)) -- see the field's own doc comment.
             urban_river_kind_map: false,
+            // Off: the reference's doubled half-width on a real river. On at the
+            // app boundary (2026-11-15) -- see the field's own doc comment.
+            urban_riverbank: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

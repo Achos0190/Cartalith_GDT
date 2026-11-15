@@ -173,6 +173,7 @@ fn water_ctx(order: f64) -> WaterCtx {
         river_width_m: Some(26.0),
         river_order: order,
         sea_lake_cells: 0.0,
+        open_water: None,
     }
 }
 
@@ -288,6 +289,7 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         primary_paths: if c.o_primary_paths { primary_paths() } else { Vec::new() },
         // The reference has no wall hug: every captured case runs with it off.
         wall_hug: false,
+        riverbank: false,
     }
 }
 

@@ -1111,6 +1111,12 @@ fn finish_water_ctx(
     }
     // v1.17 (S5): sea/lake cells BEFORE the river band is stamped in.
     let sea_lake_cells = water_cells as f64;
+    // Not the reference (2026-11-15): the same cells as a raster, for the
+    // riverbank geometry (`cartalith_urban::Site::use_riverbank`), which
+    // measures the river from its centreline and only open water from here.
+    // Carried always (one byte a cell); read only when `GenOpts::riverbank`
+    // is on, so the reference's layouts never see it.
+    let open_water = mask.clone();
 
     if let Some(rp) = &river_path {
         let rw = river_width_m / 2.0 + cell_m * 0.5;
@@ -1227,6 +1233,7 @@ fn finish_water_ctx(
             river_width_m: Some(river_width_m),
             river_order,
             sea_lake_cells,
+            open_water: Some(open_water),
         },
         mostly_water,
         sea_frac: sea_cells as f64 / (mw * mh) as f64,
@@ -1915,6 +1922,9 @@ pub struct UrbanContext {
     pub faith: Option<String>,
     /// [`PlaceOverrides::wall_hug`], carried to `GenOpts::wall_hug` (Ruling EW).
     pub wall_hug: bool,
+    /// [`PlaceOverrides::riverbank`], carried to `GenOpts::riverbank`
+    /// (2026-11-15, Ruling EX's follow-ups).
+    pub riverbank: bool,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -1975,6 +1985,14 @@ pub struct PlaceOverrides<'a> {
     /// JS-captured golden is unmoved by control flow. The app sets it from
     /// `WorldParams::civ.wall_hug` (`DECISIONS.md` section 7p).
     pub wall_hug: bool,
+    /// 2026-11-15, under Ruling EX's follow-ups (owner: *"per town placement
+    /// is critical"*): a river town builds to its bank
+    /// (`cartalith_urban::GenOpts::riverbank`). **Not a `_umPlaceContext`
+    /// field** and not in the reference, so `false` (the `Default`) is the
+    /// reference layout and every JS-captured golden is unmoved by control
+    /// flow. The app sets it from `WorldParams::urban_riverbank`
+    /// (`DECISIONS.md` section 7p).
+    pub riverbank: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2056,6 +2074,7 @@ pub fn um_place_context_with(
         primary_paths: um_primary_paths(ways, px, py, w.gw, w.map_width_km, orient),
         faith: o.faith.map(str::to_string),
         wall_hug: o.wall_hug,
+        riverbank: o.riverbank,
     }
 }
 
@@ -2296,6 +2315,11 @@ pub struct UrbanLayout {
     ///
     /// Empty on a synthetic site (`uses_real_water` false, no [`WaterCtx`]
     /// at all) or a real-water site whose mask has no wet cell.
+    ///
+    /// **With the riverbank geometry** (`Town::riverbank`, 2026-11-15) it is
+    /// the sea and lake cells only (`WaterCtx::open_water_runs`): the site's
+    /// water is then the channel itself, which `water_poly` already is, plus
+    /// those cells, so this is still exactly what generation queried.
     pub water_mask_runs: Vec<(Vec2, Vec2)>,
     /// `Town::churches` -- every place of worship `build_faith_sites` sited,
     /// with its rite (FH-R2 R2-4, 2026-10-24). Crossed into
@@ -2386,6 +2410,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         route_ends: ctx.route_ends.clone().unwrap_or_default(),
         primary_paths: ctx.primary_paths.clone().unwrap_or_default(),
         wall_hug: ctx.wall_hug,
+        riverbank: ctx.riverbank,
     };
     let t = generate(ctx.seed, &opts);
 
@@ -2490,7 +2515,15 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         // `let SiteOpts { water, .. } = opts;` destructure straight into
         // the `Site` literal) — so reading it off `ctx` is the same mask,
         // not a stale copy.
-        water_mask_runs: ctx.water.as_ref().map(|w| w.ctx.water_runs()).unwrap_or_default(),
+        // With the riverbank geometry (`Town::riverbank`) the river is drawn
+        // from `water_poly`, the channel, and only the sea and lake from the
+        // raster: the stamped band's 22 m squares would cover the houses that
+        // now stand on the bank. Otherwise the reference's whole mask.
+        water_mask_runs: ctx
+            .water
+            .as_ref()
+            .map(|w| if t.riverbank { w.ctx.open_water_runs() } else { w.ctx.water_runs() })
+            .unwrap_or_default(),
         faith_sites: t.churches,
     })
 }

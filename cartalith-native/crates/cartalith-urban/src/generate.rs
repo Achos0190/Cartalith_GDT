@@ -91,6 +91,7 @@ use crate::hinterland::{
 };
 use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
+use crate::riverbank::{build_embankment, fine_river_path};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
@@ -188,6 +189,13 @@ pub struct GenOpts {
     /// growth-reserve circuit, byte for byte, so every JS-captured golden and
     /// every other `GenOpts` literal is unmoved by control flow.
     pub wall_hug: bool,
+    /// **Not the reference** -- 2026-11-15, under Ruling EX's follow-ups
+    /// (owner: *"per town placement is critical. If it misses it just looks
+    /// silly"*): on a real-water river site the town builds to the channel's
+    /// bank ([`crate::riverbank`]). `false` is the reference, byte for byte, so
+    /// every JS-captured golden and every other `GenOpts` literal is unmoved by
+    /// control flow.
+    pub riverbank: bool,
 }
 
 // ------------------------------------------------------------------- output --
@@ -313,6 +321,15 @@ pub struct Town {
     /// [`None`] when [`GenOpts::wall_hug`] was off or the town has no wall, else the
     /// outcome (a refit with its clearance, or why the circuit was kept).
     pub wall_hug: Option<crate::wallhug::HugOutcome>,
+    /// **Not the reference** -- whether [`GenOpts::riverbank`] switched this
+    /// town's site to the riverbank geometry ([`crate::site::Site::use_riverbank`]):
+    /// `false` with the option off, and with it on for a site without a real
+    /// river path or an open-water raster. A renderer reads it to draw the river
+    /// from `water_poly` rather than the stamped mask.
+    pub riverbank: bool,
+    /// What [`crate::riverbank::build_embankment`] laid, [`None`] when
+    /// [`Self::riverbank`] is off.
+    pub embankment: Option<crate::riverbank::Embankment>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -364,17 +381,36 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     let (wm, hm) = (SITE_WM, SITE_HM);
     let site_kind = or_str(opts.site.as_deref(), "river").to_string();
 
+    // **Not the reference** (2026-11-15, `crate::riverbank`): with the
+    // riverbank geometry a real river's centreline is clipped near the box and
+    // resampled every 8 m before the site is built, so the stages that walk it
+    // vertex by vertex (the bridge search, the river port, the harbour's shore)
+    // walk metres, not map cells. Only where `use_riverbank` below will take
+    // the site (an open-water raster of the mask's size): a site it refuses
+    // keeps the reference's path.
+    let water = match &opts.water {
+        Some(w) if opts.riverbank && w.open_water.as_ref().is_some_and(|o| o.len() == w.mw * w.mh) => {
+            let fine = w.river_path.as_deref().filter(|p| p.len() >= 2).and_then(|p| fine_river_path(p, wm, hm));
+            Some(WaterCtx { river_path: fine.or_else(|| w.river_path.clone()), ..w.clone() })
+        }
+        other => other.clone(),
+    };
     let mut site = build_site(
         seed,
         wm,
         hm,
         &site_kind,
         SiteOpts {
-            water: opts.water.clone(),
+            water,
             terrain: opts.terrain.clone(),
             economy: opts.economy.clone(),
         },
     );
+    // **Not the reference** (2026-11-15, `crate::riverbank`): a real river is
+    // measured from its own channel. After `build_site`, whose bridge point,
+    // river port, `water_poly` and route ends are the reference's choices on
+    // the resampled centreline. Off: the reference's stamped-mask water.
+    let riverbank = opts.riverbank && site.use_riverbank();
     // v0.95: the host's real connected neighbours, not `buildSite`'s synthetic
     // map-edge endpoints. `buildPrimaries` reads only `site.routeEnds`, so this
     // is the whole of the route-locking hook.
@@ -519,6 +555,10 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     }
     // No street may run through the channel; only bridges and the quay do.
     remove_water_crossings(&site, &mut g);
+    // **Not the reference** (2026-11-15, `crate::riverbank`): the river town's
+    // embankment, after the last street pass and before the faces become
+    // blocks, so the riverside blocks it closes are platted like any other.
+    let embankment = if riverbank { Some(build_embankment(&site, &mut g, wall_state.ring.as_deref())) } else { None };
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
@@ -799,6 +839,38 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         }
     }
 
+    // **Not the reference** (2026-11-15, `crate::riverbank`): on a riverbank
+    // site, a house that reaches into the water anyway (the lot test samples
+    // nine points; a corner of a 22 m sea or lake cell can fall between them)
+    // is swept and its lot marked cleared, as the rampart and citadel sweeps
+    // do. Last, so every house any stage made is checked.
+    let mut wet_swept = 0usize;
+    if riverbank {
+        let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly)).collect();
+        for i in wet {
+            if let Some(k) = lots.iter().position(|l| l.par.id == buildings[i].parcel) {
+                parcel_cleared[k] = true;
+            }
+            buildings.remove(i);
+            building_ruined.remove(i);
+            wet_swept += 1;
+        }
+    }
+    // The farmland strips likewise: `build_farmland` tests three points along a
+    // 70-140 m strip for water, which the band stamped into the mask used to
+    // catch and a 12-46 m channel does not (seed 483920 at 384 x 288,
+    // settlement #36: strips drawn across the river). Fields and pasture only;
+    // a pier, crane or log boom belongs on the water.
+    let mut fields_swept = 0usize;
+    if riverbank {
+        let before = details.len();
+        details.retain(|d| {
+            !(matches!(d.kind, "field" | "pasture") && matches!(&d.geom, DetailGeom::Poly(p) if site.poly_in_water(p)))
+        });
+        fields_swept = before - details.len();
+    }
+    let embankment = embankment.map(|e| crate::riverbank::Embankment { wet_swept, fields_swept, ..e });
+
     // v1.17 (S5). On the FINAL graph — after `removeWaterCrossings`,
     // `privatizeAlleys` AND `clearFortZone`, the last three passes that can kill
     // an edge — so a recorded bridge always has a live road on it.
@@ -880,6 +952,8 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         details,
         citadel,
         wall_hug: hug_outcome,
+        riverbank,
+        embankment,
         pop,
         metrics,
         through: site.through,

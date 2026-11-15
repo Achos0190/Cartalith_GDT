@@ -3,12 +3,14 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
 ## `site_kind` is `river` or `riverthrough`. Run under `APPDATA=<empty dir>`. With `--shots` it is windowed (no
 ## `--headless`) and saves the viewer canvas of each id to `<dir>/viewer_<seed>_<id>.png`.
+## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
+## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
 
 var _fails := 0
@@ -111,6 +113,7 @@ func _ready() -> void:
 	var gw := 384
 	var gh := 288
 	var shots := ""
+	var riverbank := -1
 	var ids: Array[int] = []
 	var args := OS.get_cmdline_user_args()
 	var i := 0
@@ -122,6 +125,7 @@ func _ready() -> void:
 				gw = int(wh[0])
 				gh = int(wh[1])
 			"--shots": shots = args[i + 1]
+			"--riverbank": riverbank = int(args[i + 1])
 			"--ids":
 				for t in String(args[i + 1]).split(",", false):
 					ids.append(int(t))
@@ -145,6 +149,8 @@ func _ready() -> void:
 	await get_tree().create_timer(1.0).timeout
 	if app.open_project_dialog:
 		app.open_project_dialog.hide()
+	if riverbank >= 0:
+		_ok(bridge.param_set("urban_riverbank", riverbank == 1), "urban_riverbank set to %d" % riverbank)
 	var places: Array = bridge.settlements()
 	_ok(places.size() > 70 or gw != 384, "the world generated (%d settlements)" % places.size())
 	app.open_city_viewer(0)
@@ -210,7 +216,7 @@ func _ready() -> void:
 			await RenderingServer.frame_post_draw
 			var img: Image = vp.get_texture().get_image()
 			var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
-			img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join("viewer_%d_%d.png" % [seed_n, id]))
+			img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
 			cv.hide()
 	print("RESULT: %s (%d failed) checks=%d" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)

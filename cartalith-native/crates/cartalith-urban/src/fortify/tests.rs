@@ -274,6 +274,7 @@ fn water_ctx(name: &str) -> WaterCtx {
         river_width_m: Some(spec.river_width_m),
         river_order: spec.river_order,
         sea_lake_cells: spec.sea_lake_cells,
+        open_water: None,
     }
 }
 

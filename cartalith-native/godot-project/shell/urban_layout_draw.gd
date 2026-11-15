@@ -666,7 +666,9 @@ static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color:
 ## unchanged by this pass — and on a real one it is what actually generation
 ## queried, so it wins over `water_poly` wherever the two disagree (a town can
 ## carry both: a river band from the centreline alongside dozens of real mask
-## runs).
+## runs). With `urban_riverbank` on (2026-11-15) a real river town's site
+## queries the channel itself, so the runs are its sea and lake cells only and
+## the river is `water_poly` (`cartalith_civ`'s `UrbanLayout::water_mask_runs`).
 ##
 ## **Why last, not first.** The measured overdraw is a STREET's stroked
 ## WIDTH crossing the mask, not its centreline (`RC_ENGINE_CHANGES.md` §8.2:

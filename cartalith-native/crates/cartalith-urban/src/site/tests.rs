@@ -136,6 +136,7 @@ fn water_of(s: &golden::WaterSpec) -> WaterCtx {
         river_width_m: s.river_width_m,
         river_order: s.river_order,
         sea_lake_cells: s.sea_lake_cells,
+        open_water: None,
     }
 }
 
@@ -253,6 +254,7 @@ fn golden_shore_from_mask() {
             river_width_m: None,
             river_order: 0.0,
             sea_lake_cells: 0.0,
+            open_water: None,
         };
         let got = shore_from_mask(&w);
         match (&got, c.pts) {

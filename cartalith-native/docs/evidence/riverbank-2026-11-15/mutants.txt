@@ -1,0 +1,38 @@
+KILLED crates/cartalith-urban/src/riverbank.rs pub const EMBANKMENT_W: f64 = 4.0;
+KILLED crates/cartalith-urban/src/riverbank.rs pub const EMBANKMENT_CLEAR: f64 = 1.0;
+KILLED crates/cartalith-urban/src/riverbank.rs pub const EMBANKMENT_REACH: f64 = 46.0;
+KILLED crates/cartalith-urban/src/riverbank.rs pub const RIVER_STEP: f64 = 8.0;
+KILLED crates/cartalith-urban/src/riverbank.rs pub const RIVER_CLIP_MARGIN: f64 = 300.0;
+KILLED crates/cartalith-urban/src/site.rs if crosses || d < half {
+KILLED crates/cartalith-urban/src/site.rs if poly.iter().any(inside_cell)
+KILLED crates/cartalith-urban/src/generate.rs Some(w) if opts.riverbank && w.open_water
+KILLED crates/cartalith-urban/src/riverbank.rs if let Some(q) = best.filter(|_| bd > 1.0) {
+KILLED crates/cartalith-urban/src/riverbank.rs && side_of(site, p) == side
+KILLED crates/cartalith-urban/src/riverbank.rs .filter(|&n| g.live_degree(n) == 1)
+KILLED crates/cartalith-urban/src/site.rs return self.river_dist_synth(p) < self.river_w / 2.0
+KILLED crates/cartalith-urban/src/site.rs Some(v) => self.river_w / 2.0 + v * w.cell_m,
+KILLED crates/cartalith-urban/src/site.rs if !self.real_river {
+            return false;
+        }
+KILLED crates/cartalith-urban/src/site.rs .filter(|o| o.len() == w.mw * w.mh)
+KILLED crates/cartalith-urban/src/site.rs const D: f64 = 1.41421;
+KILLED crates/cartalith-urban/src/generate.rs let riverbank = opts.riverbank && site.use_riverbank();
+KILLED crates/cartalith-civ/src/urban_adapter.rs .map(|w| if t.riverbank { w.ctx.open_water_runs() }
+KILLED crates/cartalith-civ/src/urban_adapter.rs riverbank: o.riverbank,
+KILLED crates/cartalith-civ/src/urban_adapter.rs open_water: Some(open_water),
+killed 20 of 20 survived 0 build errors 0
+KILLED crates/cartalith-urban/src/site.rs if poly.iter().any(inside_cell)
+KILLED crates/cartalith-urban/src/riverbank.rs if let Some(q) = best.filter(|_| bd > 1.0) {
+KILLED crates/cartalith-urban/src/riverbank.rs && side_of(site, p) == side
+    })
+KILLED crates/cartalith-urban/src/riverbank.rs .filter(|&n| g.live_degree(n) == 1)
+SURVIVED crates/cartalith-urban/src/generate.rs .filter(|&i| site.poly_in_water(&buildings[i].poly))
+KILLED crates/cartalith-urban/src/generate.rs !(matches!(d.kind, "field" | "pasture") &&
+killed 5 of 6 survived 1 build errors 0
+KILLED crates/cartalith-urban/src/riverbank.rs if dry_on_side(site, w[0], w[1], side) && !crosses_wall(w[0], w[1], wa
+KILLED crates/cartalith-urban/src/riverbank.rs if dry_on_side(site, p, q, side) && !crosses_wall(p, q, wall) {
+KILLED crates/cartalith-urban/src/riverbank.rs EMBANKMENT_CLEAR + EMBANKMENT_W / 2.0 - 1e-6;
+KILLED crates/cartalith-urban/src/riverbank.rs wall.is_some_and(|r| (0..r.len()).any(
+KILLED crates/cartalith-urban/src/riverbank.rs push(&mut out, last);
+KILLED crates/cartalith-urban/src/riverbank.rs push(&mut out, w[0]);
+killed 6 of 6 survived 0 build errors 0

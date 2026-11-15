@@ -56,7 +56,7 @@
 //! rather than panicking — a `NaN` probe point, a `dt` shorter than its mask,
 //! and a one-column terrain raster all reach it, and all three are goldens.
 
-use crate::geom::{Vec2, chaikin, dist_pt_seg, js_exp, js_hypot, js_max, js_min, js_num_cmp, js_or};
+use crate::geom::{Vec2, chaikin, dist_pt_seg, js_exp, js_hypot, js_max, js_min, js_num_cmp, js_or, point_in_poly, seg_int};
 use crate::rng::stream;
 
 /// Milestone 5's golden and unit tests — see `site/tests.rs`'s own module
@@ -107,6 +107,15 @@ pub struct WaterCtx {
     pub river_order: f64,
     /// Open-water (sea/lake, pre-river-stamp) cell count; `|| 0`.
     pub sea_lake_cells: f64,
+    /// **Not the reference** (2026-11-15, the riverbank geometry,
+    /// [`Site::use_riverbank`]): the sea and lake cells of [`Self::mask`]
+    /// before the river band was stamped into it, on the same raster (`1` =
+    /// water). The host (`cartalith_civ`'s `finish_water_ctx`) supplies it; it
+    /// lets a river site tell the channel it can measure exactly (the
+    /// centreline and `river_width_m`) from open water it can only read off
+    /// the raster. `None` when the host did not supply it, and then the
+    /// riverbank geometry is not used: nothing is guessed from the mask.
+    pub open_water: Option<Vec<u8>>,
 }
 
 impl WaterCtx {
@@ -145,17 +154,36 @@ impl WaterCtx {
     /// landlocked or purely-synthetic site — [`Site::water_ctx`] is `None`
     /// there, so there is no [`WaterCtx`] to call this on at all.
     pub fn water_runs(&self) -> Vec<(Vec2, Vec2)> {
+        self.runs_of(&self.mask)
+    }
+
+    /// [`Self::water_runs`] over [`Self::open_water`] instead of the mask:
+    /// the sea and lake only, with no river band. **Not the reference**
+    /// (2026-11-15): a town laid out with the riverbank geometry
+    /// ([`Site::use_riverbank`]) draws its river from the channel polygon
+    /// (`water_poly`, the centreline out to half `river_width_m` each side),
+    /// so the 22 m squares the band was stamped as must not be drawn over the
+    /// houses that now stand on the bank. Empty when there is no open-water
+    /// raster.
+    pub fn open_water_runs(&self) -> Vec<(Vec2, Vec2)> {
+        self.open_water.as_deref().map_or_else(Vec::new, |m| self.runs_of(m))
+    }
+
+    /// The row runs of the `== 1` cells of `mask`, a raster of this context's
+    /// size: the body [`Self::water_runs`] always had, shared so the two
+    /// cannot drift apart.
+    fn runs_of(&self, mask: &[u8]) -> Vec<(Vec2, Vec2)> {
         let mut runs = Vec::new();
         for j in 0..self.mh {
             let row = j * self.mw;
             let mut i = 0usize;
             while i < self.mw {
-                if self.mask[row + i] != 1 {
+                if mask.get(row + i).copied() != Some(1) {
                     i += 1;
                     continue;
                 }
                 let i0 = i;
-                while i < self.mw && self.mask[row + i] == 1 {
+                while i < self.mw && mask.get(row + i).copied() == Some(1) {
                     i += 1;
                 }
                 let x0 = i0 as f64 * self.cell_m;
@@ -259,6 +287,52 @@ pub struct Site {
     rk: bool,
     water: Option<WaterCtx>,
     terrain: Option<TerrainCtx>,
+    /// **Not the reference** -- the riverbank geometry ([`Site::use_riverbank`]):
+    /// the open-water raster and its distance transform. `None` (every site
+    /// [`build_site`] makes) is the reference's water.
+    bank: Option<BankCtx>,
+}
+
+/// The open water a riverbank site still reads off the raster (2026-11-15,
+/// [`Site::use_riverbank`]): [`WaterCtx::open_water`] and its chamfer
+/// distance transform, in cells, with the reference's own 1 / 1.41421 costs
+/// (`_umWaterCtx`'s), `INFINITY` where the box holds no open water.
+#[derive(Debug, Clone)]
+struct BankCtx {
+    open: Vec<u8>,
+    open_dt: Vec<f64>,
+}
+
+/// The two-pass chamfer distance transform `_umWaterCtx` runs over its mask
+/// (1 orthogonal, 1.41421 diagonal, the reference's five-digit literal), over
+/// `mask`'s `== 1` cells, in cells. `INFINITY`, not the reference's `1e9`, for
+/// a raster with no water: "no water" must not read as a distance a threshold
+/// could compare under.
+#[allow(clippy::approx_constant, reason = "the reference's own five-digit literal; see the doc comment")]
+fn chamfer(mask: &[u8], mw: usize, mh: usize) -> Vec<f64> {
+    let mut dt: Vec<f64> = mask.iter().map(|&m| if m == 1 { 0.0 } else { f64::INFINITY }).collect();
+    const D: f64 = 1.41421;
+    for j in 0..mh {
+        for i in 0..mw {
+            let mut d = dt[j * mw + i];
+            if i > 0 { d = js_min(d, dt[j * mw + i - 1] + 1.0); }
+            if j > 0 { d = js_min(d, dt[(j - 1) * mw + i] + 1.0); }
+            if i > 0 && j > 0 { d = js_min(d, dt[(j - 1) * mw + i - 1] + D); }
+            if i + 1 < mw && j > 0 { d = js_min(d, dt[(j - 1) * mw + i + 1] + D); }
+            dt[j * mw + i] = d;
+        }
+    }
+    for j in (0..mh).rev() {
+        for i in (0..mw).rev() {
+            let mut d = dt[j * mw + i];
+            if i + 1 < mw { d = js_min(d, dt[j * mw + i + 1] + 1.0); }
+            if j + 1 < mh { d = js_min(d, dt[(j + 1) * mw + i] + 1.0); }
+            if i + 1 < mw && j + 1 < mh { d = js_min(d, dt[(j + 1) * mw + i + 1] + D); }
+            if i > 0 && j + 1 < mh { d = js_min(d, dt[(j + 1) * mw + i - 1] + D); }
+            dt[j * mw + i] = d;
+        }
+    }
+    dt
 }
 
 impl Site {
@@ -276,6 +350,125 @@ impl Site {
     /// band) site.
     pub fn water_ctx(&self) -> Option<&WaterCtx> {
         self.water.as_ref()
+    }
+    /// **Not the reference** -- the riverbank geometry (2026-11-15, under Ruling
+    /// EX's follow-ups; owner, 2026-11-14: *"per town placement is critical.
+    /// If it misses it just looks silly"*). Switches a real-water river site
+    /// (a real centreline, [`Site::real_river`]) to measure its river from the
+    /// channel itself, as the reference's synthetic site does, and returns
+    /// whether it did.
+    ///
+    /// **Why.** The reference's real-water `riverDist` is `dt * cellM`, the
+    /// distance to the nearest wet cell of a 22 m mask into which `_umWaterCtx`
+    /// stamped the river as a band `riverW/2 + cellM/2` wide each side. Every
+    /// margin that reads it (`riverW/2 + 1` for a lot, `riverW/2 + 1.5` for the
+    /// quay, `riverW/2 + 30` for the flood score, ...) was written for the
+    /// synthetic site, where `riverDist` is the distance to the centreline: on
+    /// the real-water path the half-width is counted twice, on top of a band
+    /// 11 m or more wider than the river and quantised to 22 m, and `isWater`
+    /// is that band. Measured: `cartalith-godot`'s `riverbank_gap_audit`.
+    ///
+    /// **What changes.** [`Site::river_dist`] becomes the distance to the
+    /// centreline, or half the river's width plus the distance to the nearest
+    /// open-water cell, whichever is less, so every reference margin means
+    /// what it says from the real bank; [`Site::is_water`] becomes the channel
+    /// (the centreline within half `river_w`, the `water_poly` band) or an
+    /// open-water cell. Bridge point, harbour index, `water_poly` and route
+    /// ends are already made by [`build_site`] and this does not move them
+    /// (`generate` resamples a riverbank site's centreline before it builds
+    /// the site: `crate::riverbank::fine_river_path`).
+    ///
+    /// **What it must never do.** Change a site without a real river path, or
+    /// one whose host supplied no [`WaterCtx::open_water`] of the mask's size
+    /// (it returns `false` and the reference's water stands), or guess open
+    /// water from the stamped mask.
+    pub fn use_riverbank(&mut self) -> bool {
+        let Some(w) = &self.water else { return false };
+        if !self.real_river {
+            return false;
+        }
+        let Some(open) = w.open_water.as_ref().filter(|o| o.len() == w.mw * w.mh) else {
+            return false;
+        };
+        let open_dt = chamfer(open, w.mw, w.mh);
+        self.bank = Some(BankCtx { open: open.clone(), open_dt });
+        true
+    }
+    /// Whether [`Site::use_riverbank`] switched this site to the riverbank
+    /// geometry.
+    pub fn riverbank(&self) -> bool {
+        self.bank.is_some()
+    }
+    /// **Not the reference** (2026-11-15, the riverbank geometry): does the
+    /// polygon `poly` reach into the water, exactly? The channel (any edge
+    /// within half `river_w` of the centreline, or crossing it) or any
+    /// open-water cell's square it overlaps. `false` on a site
+    /// [`Site::use_riverbank`] did not switch.
+    ///
+    /// **Why.** The lot test ([`crate::blocks`]' `lot_is_wet`) samples nine
+    /// points, and the reference's margins on a `riverthrough` site are 3 m;
+    /// with the channel no longer padded by the stamped band, a corner of a
+    /// 22 m sea or lake cell can reach a house between the samples (one house
+    /// of 153 340 on three worlds at 384, seed 483920 settlement #4, measured
+    /// by `riverbank_gap_audit`). `generate` sweeps any such house; this is
+    /// the exact test it sweeps on. Must never be used to *place*: it is a
+    /// guard, run once per finished house.
+    pub fn poly_in_water(&self, poly: &[Vec2]) -> bool {
+        let (Some(b), Some(w)) = (&self.bank, &self.water) else { return false };
+        let n = poly.len();
+        if n == 0 {
+            return false;
+        }
+        let half = self.river_w / 2.0;
+        // The channel: skip the per-edge work for a house plainly clear of it.
+        // Written as a negated `>=` so a NaN distance does the full check.
+        let c = poly.iter().fold(Vec2::new(0.0, 0.0), |acc, v| acc + *v) * (1.0 / n as f64);
+        let reach = poly.iter().map(|v| v.dist(c)).fold(0.0f64, f64::max);
+        #[allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN must fall through to the exact test")]
+        let maybe_near = !(self.river_dist_synth(c) - reach >= half);
+        if maybe_near {
+            for k in 0..n {
+                let (a, e) = (poly[k], poly[(k + 1) % n]);
+                for r in self.river.windows(2) {
+                    let crosses = seg_int(a, e, r[0], r[1]).is_some();
+                    let d = [dist_pt_seg(a, r[0], r[1]), dist_pt_seg(e, r[0], r[1]), dist_pt_seg(r[0], a, e), dist_pt_seg(r[1], a, e)]
+                        .into_iter()
+                        .fold(f64::INFINITY, f64::min);
+                    if crosses || d < half {
+                        return true;
+                    }
+                }
+            }
+        }
+        // Open water: every open cell under the house's bounding box.
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for v in poly {
+            (x0, y0, x1, y1) = (x0.min(v.x), y0.min(v.y), x1.max(v.x), y1.max(v.y));
+        }
+        let cm = w.cell_m;
+        let (i0, i1) = ((x0 / cm).floor().max(0.0) as usize, ((x1 / cm).floor().max(0.0) as usize).min(w.mw.saturating_sub(1)));
+        let (j0, j1) = ((y0 / cm).floor().max(0.0) as usize, ((y1 / cm).floor().max(0.0) as usize).min(w.mh.saturating_sub(1)));
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                if b.open.get(j * w.mw + i).copied() != Some(1) {
+                    continue;
+                }
+                let cell = [
+                    Vec2::new(i as f64 * cm, j as f64 * cm),
+                    Vec2::new((i + 1) as f64 * cm, j as f64 * cm),
+                    Vec2::new((i + 1) as f64 * cm, (j + 1) as f64 * cm),
+                    Vec2::new(i as f64 * cm, (j + 1) as f64 * cm),
+                ];
+                let inside_cell = |v: &Vec2| v.x >= cell[0].x && v.x <= cell[2].x && v.y >= cell[0].y && v.y <= cell[2].y;
+                if poly.iter().any(inside_cell)
+                    || cell.iter().any(|q| point_in_poly(*q, poly))
+                    || (0..n).any(|k| (0..4).any(|m| seg_int(poly[k], poly[(k + 1) % n], cell[m], cell[(m + 1) % 4]).is_some()))
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
     /// The real-terrain binding this site was built against, if
     /// [`SiteOpts::terrain`] supplied one. `None` on the analytic-hills
@@ -318,8 +511,21 @@ impl Site {
     }
 
     /// `site.riverDist(p)` — the real distance transform where there is one,
-    /// the synthetic polyline distance otherwise.
+    /// the synthetic polyline distance otherwise; on a riverbank site
+    /// ([`Site::use_riverbank`], not the reference) the centreline distance or
+    /// half the width beyond the nearest open water, checked first.
     pub fn river_dist(&self, p: Vec2) -> f64 {
+        // The riverbank geometry (`use_riverbank`): the centreline, or half the
+        // width beyond the nearest open water. `bank` is only ever set with
+        // `water` present. A NaN probe propagates through `js_min`, and an
+        // unreadable cell reads NaN, as the reference's `undefined * cellM`.
+        if let (Some(b), Some(w)) = (&self.bank, &self.water) {
+            let open = match mask_idx(w, p).and_then(|i| b.open_dt.get(i)) {
+                Some(v) => self.river_w / 2.0 + v * w.cell_m,
+                None => f64::NAN,
+            };
+            return js_min(self.river_dist_synth(p), open);
+        }
         match &self.water {
             Some(w) => match mask_idx(w, p).and_then(|i| w.dt.get(i)) {
                 Some(v) => v * w.cell_m,
@@ -355,8 +561,17 @@ impl Site {
     /// Four branches, in the reference's own ternary order: the real mask wins
     /// whenever there is one, then a landlocked site is dry everywhere, then a
     /// channel is a band of `riverW/2 + 2` around the centreline, and a sea is
-    /// the half-plane one metre below the shoreline.
+    /// the half-plane one metre below the shoreline. A riverbank site
+    /// ([`Site::use_riverbank`], not the reference) is tested first: the
+    /// channel (half `river_w`) or an open-water cell.
     pub fn is_water(&self, p: Vec2) -> bool {
+        // The riverbank geometry (`use_riverbank`): the channel itself (the
+        // `water_poly` band, half `river_w` each side of the centreline) or an
+        // open-water cell -- not the 22 m band stamped into the mask.
+        if let (Some(b), Some(w)) = (&self.bank, &self.water) {
+            return self.river_dist_synth(p) < self.river_w / 2.0
+                || mask_idx(w, p).and_then(|i| b.open.get(i)).copied() == Some(1);
+        }
         if let Some(w) = &self.water {
             return mask_idx(w, p).and_then(|i| w.mask.get(i)).copied() == Some(1);
         }
@@ -716,6 +931,7 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
         rk,
         water,
         terrain,
+        bank: None,
     };
 
     if rk {

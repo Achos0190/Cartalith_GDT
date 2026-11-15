@@ -50,6 +50,35 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### River towns build to their bank (2026-11-15, under Ruling EX's follow-ups): BUILT, measured on 3 seeds at 384 and 2 048, screenshotted, `DECISIONS.md` section 7p
+
+**What was wrong, at the symbols, against v2.71.** Every judged river-kind layout's nearest house stood further from its bank than its widest
+street (median 39 m at 384, 38 m at 2 048). Reference behaviour with a units defect on the real-water path: `_umWaterCtx` (v2.71 line
+28044) stamps the river into a 22 m mask `riverW/2 + cellM/2` each side, `buildSite`'s real-water `riverDist` (line 34951's
+`W.dt[maskIdx(p)]*W.cellM`) is the distance to that band, and the margins that read it (`buildParcels`' `riverW/2+1`, line 36853;
+`buildHarbour`'s `riverW/2+1.5` and its quay at `riverW/2+4`; `terrainSuitability`'s `riverW/2+30`) were written for the synthetic site's
+centreline distance, so the half-width is counted twice and the reference's own river quay is dropped as wet on rivers of order 2 and
+up. The measured gap does not grow with the width, so the 22 m quantisation and the second cause dominate: no street runs along a
+river, so the riverside faces never close into blocks. Not a port divergence: the port reproduces both. **Built**, under
+`WorldParams::urban_riverbank` (**on** in `params::defaults`, **off** in `WorldParams::defaults` and for a save without the key, read fresh,
+`regen` live; `PARAMS`/`JS_PATHS`/`LOADS_WHEN_ABSENT` rows, a catalogue line, the restore lists): `cartalith_urban::Site::use_riverbank`
+(river from the channel, sea and lake from `WaterCtx::open_water`), `riverbank::fine_river_path` (centreline resampled every 8 m within
+300 m of the box, traced vertices kept: on a map-cell path the reference's 95 m and 115-150 m walks spanned 4 km), `riverbank::build_embankment` (a
+4 m `quay`, paved edge 1 m off the channel, wherever the town's streets come within 46 m, with ties, never across the wall), and two sweeps on the exact polygon test
+`Site::poly_in_water` (houses; field and pasture strips). The adapter draws the river from `water_poly` (`water_mask_runs` = sea and lake
+only). The urban goldens do not move (the switch is off there). **Measured** (`town_river_census::riverbank_gap_audit`, villages on,
+`cartalith-native/docs/evidence/riverbank-2026-11-15/`), paired over layouts judged both ways (512 at 384, 643 at 2 048): nearest house
+median 39 to 7 m and 38 to 8 m; **the house itself still over the widest street on 450 of 512 and 588 of 643** (509 and 642 before: a
+house fronting the embankment stands ~7 m off the channel by construction); counting the embankment's water side, the town reaches its
+bank on 604 of 618 layouts at 384 and 581 of 666 at 2 048 (5 of 532 and 4 of 653 before); streets across the river 45 to 1 and 12 to 2;
+field strips across it 61 to 0 and 114 to 0; houses in the channel, a sea or lake cell or
+`water_poly` 0 before and after. Housed population rises with the closed faces (median 114 % to 142 % of `pop_target` at 384, 112 % to
+146 % at 2 048). City Viewer frames of seed 483920 #70, #36 and #6 before and after are in the evidence folder, re-shot after the last code change and
+looked at. Mutation: 28 mutants of the new constants and branches, 27 killed; the survivor is the house sweep's call site (no unit fixture
+reaches it in about 1 700 generated fixture towns; the audit measured one house in a lake cell at 384 before the sweep, 0 after). Open and
+routed in `OUTSTANDING_WORK.md` (the City Viewer square-block row): the layouts whose river runs away from the town, houses fronting
+rather than backing onto the water, the population rise, the river port's distance, the sea and lake squares.
+
 ### G1-0 and EA-0 re-recorded (2026-11-15): red since the lake runoff share and Ruling EX, both deliberate; bisected and attributed
 
 *Task: the `g1_baseline` harnesses were red at `6908e254` (found by the River-towns agent, cause unbisected). Re-opened at the symbols* (`g1_baseline.rs`: `G1_0`, `g1_0_baseline_columns`, `ea0_ecological_ordering_diagnostic`; `params.rs` `p.civ.river_front`). **Case: the harnesses read the app's `params::defaults()`, so a deliberate section 7p change legitimately moves their worlds** (as at Rulings DG/DJ, ER, ET, EU, EV). `git bisect run` over `fcda4d3d..6908e254` (release, `--ignored`): G1-0 first red at **`3ae0e658`** (lake balance counts a runoff share of rain, owner choice 2026-11-13); EA-0's standing triple 138 / 14 / 138 -> 139 / 14 / 137 there, and the large move first at **`40747897`** (Ruling EX, `civ.river_front`: 139 / 14 / 137 -> 122 / 11 / 157, 124 / 10 / 156 by `6908e254`; the parent `94a45e02` reads 139 / 14 / 137). Attribution by forcing `civ.river_front` off in `params::defaults()` on `ecb6b0b4` (restored, `git diff` empty): governments 0 of 20, manpower 2 of 20, triple 139 / 14 / 137, `E > 1` 120, `capped` 20, i.e. the lake change alone; with it on, manpower moves 20 of 20. `ecb6b0b4`'s own switch is not involved (the harnesses read the same on and off, as its entry says). **Plausibility of the new readings:** 300 EA rows, no NaN, the 10 empty factions unchanged, summed standing army 163 996 -> 192 738 (+17.5 %), ordering 290 of 290 non-empty, forced G1 and reference forms 160 of 160 ordered and within 0.5x-2x of their anchor (ratio 0.735..1.079); governments 0 of 20 moved and the roster agrees with `fh_r2_baseline` on 20 of 20; `manpower.rs` and `roster.rs` untouched. **Re-recorded, not weakened:** the 20 `G1_0` manpower hashes (each row's old value is its first `was`), the standing triple 124 / 10 / 156, `E > 1` 120 -> 111, `capped` 20 -> 27, the industrial ordered count 288 -> 286 (four leaves now, standing 10.4 to 12.4 % of citizens, just above the band: `OUTSTANDING_WORK.md` §2.3's industrial row), the two industrial mobilization triples ((27, 0, 263), (290, 0, 0)) and the six sweep hashes. Every ordering assertion (290 / 0 / 10, forced 160 and 160, the four pre-industrial sweep rows 290) is unchanged. All four `g1_baseline` ignored tests pass in release. **`fh_r2_baseline` is also red, and was NOT re-recorded here (out of this task's scope):** run on `ecb6b0b4`, 5 of 6 pass and `fh_r2_m1_moves_zero_bytes_against_m0` fails with "M1/M2: 20 of 20 worlds moved" (its `AT_CURRENT` table); it passes `civ.river_front` false, so the likely cause is the lake runoff share (`3ae0e658`) or an earlier unrecorded ruling, **not bisected**. Routed in `OUTSTANDING_WORK.md` (Town placement row). Lesson, not new: an ignored pin set goes stale on every world-moving ruling; re-run the `--ignored` harnesses whenever `params::defaults()` gains a generation switch.

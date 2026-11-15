@@ -1,0 +1,61 @@
+River towns build to their bank (2026-11-15, WorldParams::urban_riverbank, DECISIONS.md section 7p).
+
+Command (release build, run alone per size; seeds 483920, 912345, 246371; 800 km; CPU; villages on, as the app;
+wall hug and the map river-kind test on, as params::defaults):
+  TOWN_RIVER_GW=<384|2048> TOWN_RIVER_VILLAGES=1 TOWN_RIVER_BANK=<0|1> TOWN_RIVER_LIST=1 \
+    cargo test --release -p cartalith-godot --lib riverbank_gap_audit -- --ignored --nocapture --test-threads 1
+Grid heights are the reference's for the width (384x246, 2048x1311). TOWN_RIVER_BANK=0 is the reference path
+(the switch off), =1 the app.
+
+Files
+  audit_before_<gw>.txt     switch off (the reference's layouts)
+  audit_after_<gw>.txt      switch on
+  audit_site_fix_only_<gw>.txt  attribution run: the channel geometry and the resampled centreline, with the
+                            embankment call disabled by a temporary hook (since removed) and before the two
+                            water sweeps were added. Not reproducible from the committed tree; kept as the
+                            measurement behind the attribution sentence below.
+  before/, after/           City Viewer opening frames, seed 483920 at 384 x 288, settlements #70, #36, #6,
+                            from _viewerframe_probe.tscn -- --shots <dir> --ids 70,36,6 --riverbank 0|1 (windowed,
+                            the app's GPU world, so its settlement numbers are not the census's).
+
+"Bank" is the river centreline less half river_w. "Widest street" is the town's own widest street-class edge.
+
+                                           384 before   384 after   2048 before   2048 after
+judged river-kind layouts                     532          618          653          666
+nearest house to bank, median (m)              39            7           38            8
+  p10 / p90 (m)                             21 / 63       5 / 31     20 / 214      6 / 173
+house over the widest street                528 of 532   544 of 618   652 of 653   607 of 666
+house or quay water side over the street    527 of 532    14 of 618   649 of 653    85 of 666
+streets/lanes crossing the river               45            1           12            2
+field strips crossing the river                61            0          114            0
+houses in channel / sea-lake / water_poly    0/0/0        0/0/0        0/0/0        0/0/0
+housed as % of pop_target, median             114          142          112          146
+
+Paired over the layouts judged in both arms (paired.py here, over the per-town rows; 512 at 384, 643 at 2048):
+nearest house median 39 -> 7 m and 38 -> 8 m; the house over the widest street 509 -> 450 of 512 and 642 -> 588 of
+643; 460 and 509 towns nearer their bank after. The judged sets differ because more layouts have a house and water
+to measure with the switch on (128 -> 42 not judged at 384).
+
+The headline the owner's bar asks for is the house: it is still over the widest street on most layouts, because a
+house fronting the embankment stands 1 m clearance + 4 m street + the block inset (half the street plus 1.4 m) off
+the channel, about 7 m, against streets of 3.4-5.4 m. Counting the embankment's water side (1 m off the channel by
+construction) as the town's frontage, the town reaches its bank on 604 of 618 and 581 of 666 layouts.
+
+Before-gap by river width at 384 (median m, layouts): w17 29.5 (44), w24 42 (245), w31 38 (180), w38 34 (59). It does
+not grow with the width, so the doubled half-width is not the dominant term: the 22 m quantisation and the faces that
+never close are.
+
+Attribution (site fix only, no embankment): nearest house median 15 m at 384, 17 m at 2048; house or quay
+within the street on 185 of 617 at 384. The channel geometry halves the gap; the embankment closes the rest.
+
+Residual at 2048: 85 layouts are still over a street (house or quay); 66 layouts (3 at 384) have no street or lane within 46 m
+(EMBANKMENT_REACH) of the river at all, so the embankment has nothing to tie to: the layout's river runs away
+from the town (placement), not a setback.
+The building gap stays above the widest street by construction: a house fronts the 4 m embankment, so it
+stands 1 m + 4 m + the block inset (half the street plus 1.4 m) back from the channel; the quay is at the bank.
+
+Frames re-shot after the last code change (wall guard, field sweep, traced vertices kept). Seen in them: #70 and #6 now draw the river as a smooth channel with the embankment along it (before: 22 m
+mask squares with a notch); #70's houses reach the embankment by the bridge but most of the town still stands back
+(its streets end before the river); #36 fronts the embankment, its field strips now stop at the bank (they crossed the river in the first after-shot,
+taken before the field sweep), and its river port stands several hundred metres east of the town (read off the frame, not measured)
+(the reference's bridge-point search on the resampled centreline), which this change does not address.

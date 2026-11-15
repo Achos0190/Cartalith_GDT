@@ -841,3 +841,269 @@ fn town_placement_audit() {
         println!("  network towns on the same cell as with the term flipped: {all_same} of {n}; median move {med:.2} cells");
     }
 }
+
+/// Distance from `p` to the nearest wet cell of a layout's water mask
+/// (`WaterCtx::mask`, the 22 m raster the City Viewer draws as the town's
+/// water), measured to the cell's square, not its centre: 0 inside a wet
+/// cell. Scans a window of `reach` cells; `None` when no wet cell lies in it
+/// ("no water near" is not a distance).
+/// `m` is the mask as `(cells, mw, mh, cell_m)`; the godot crate cannot name
+/// `cartalith_urban::WaterCtx`, so the census passes its fields.
+fn mask_dist(m: (&[u8], usize, usize, f64), p: (f64, f64), reach: i64) -> Option<f64> {
+    let (mask, mw, mh, c) = m;
+    let (ci, cj) = ((p.0 / c).floor() as i64, (p.1 / c).floor() as i64);
+    let mut best = f64::INFINITY;
+    for j in (cj - reach).max(0)..=(cj + reach).min(mh as i64 - 1) {
+        for i in (ci - reach).max(0)..=(ci + reach).min(mw as i64 - 1) {
+            if mask[j as usize * mw + i as usize] != 1 {
+                continue;
+            }
+            let (x0, y0) = (i as f64 * c, j as f64 * c);
+            let dx = (x0 - p.0).max(0.0).max(p.0 - (x0 + c));
+            let dy = (y0 - p.1).max(0.0).max(p.1 - (y0 + c));
+            best = best.min((dx * dx + dy * dy).sqrt());
+        }
+    }
+    best.is_finite().then_some(best)
+}
+
+/// Does segment `a`-`b` cross segment `c`-`d` (proper or touching)?
+fn segs_cross(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)) -> bool {
+    let o = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0);
+    let (d1, d2, d3, d4) = (o(c, d, a), o(c, d, b), o(a, b, c), o(a, b, d));
+    (d1 > 0.0) != (d2 > 0.0) && (d3 > 0.0) != (d4 > 0.0)
+}
+
+/// Even-odd point-in-polygon.
+fn in_poly(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let mut c = false;
+    for i in 0..poly.len() {
+        let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+        if (a.1 > p.1) != (b.1 > p.1) && p.0 < a.0 + (p.1 - a.1) * (b.0 - a.0) / (b.1 - a.1) {
+            c = !c;
+        }
+    }
+    c
+}
+
+/// p10 / median / p90 / max of a sample, for the riverbank audit's rows.
+fn spread(v: &mut [f64]) -> String {
+    if v.is_empty() {
+        return "n 0".into();
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = |f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+    format!("n {} min {:.0} p10 {:.0} median {:.0} p90 {:.0} max {:.0}", v.len(), v[0], q(0.1), q(0.5), q(0.9), v[v.len() - 1])
+}
+
+/// **The riverbank audit** (2026-11-15, after `town_placement_audit` found
+/// every judged river-kind layout's nearest building further than a street
+/// from its river; owner, 2026-11-14: *"If it misses it just looks
+/// silly"*). For every settlement of each seed laid out `river` or
+/// `riverthrough` with a real river path, as the app lays it out (the wall
+/// hug on, `params::defaults`), it prints the gap from the river's bank
+/// (centreline less half `river_w`, the audit's measure) to the nearest
+/// vertex of: a building, a parcel, a block, and a `street`/`lane` edge (ten
+/// samples an edge); the building gap again against the drawn water mask; the
+/// count over the town's own widest `street` edge; and three
+/// buildings-in-water counts, which must be zero: a building polygon the
+/// channel (centreline within half `river_w`) reaches or crosses, one with a
+/// sample (vertex, edge midpoint, centroid) in a sea or lake cell (the mask
+/// before the river band is stamped, `WaterCtx::open_water`), and one with a
+/// sample inside `water_poly`; and, for information, the buildings on the
+/// stamped mask, which the switch stops drawing as water.
+///
+/// `TOWN_RIVER_BANK=0|1` overrides `WorldParams::urban_riverbank` (default:
+/// `params::defaults`, the app); `TOWN_RIVER_GW`, `TOWN_RIVER_GH`,
+/// `TOWN_RIVER_VILLAGES` and `TOWN_RIVER_SEEDS` as for the placement audit;
+/// `TOWN_RIVER_LIST=1` prints a row per town. A measurement, not a gate: the
+/// gate is `cartalith-urban`'s `riverbank` tests. Numbers quoted in `STATUS.md`
+/// are in `docs/evidence/riverbank-2026-11-15/`.
+#[test]
+#[ignore = "measurement; see the doc comment"]
+fn riverbank_gap_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    let (mut g_bld, mut g_mask, mut g_par, mut g_blk, mut g_st) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut judged, mut over, mut not_judged, mut front_over) = (0usize, 0usize, 0usize, 0usize);
+    let mut g_front = Vec::new();
+    // Streets and lanes that cross the river's centreline: only a `primary`
+    // (the bridges, `add_river_bridges`) may.
+    let (mut crossing_streets, mut crossing_towns) = (0usize, 0usize);
+    // Housed against asked-for population (`pop` / `pop_target`), per layout.
+    let mut pop_ratio = Vec::new();
+    // Field and pasture strips crossing the river's centreline.
+    let mut fields_across = 0usize;
+    let (mut wet_channel, mut wet_mask, mut wet_poly, mut wet_open, mut bld_total) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let mut riverbank_on = None;
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, true);
+        let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
+        riverbank_on = Some(bank);
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: seed,
+            river_kind_from_map: p.urban_river_kind_map,
+        };
+        let mut seed_gap = Vec::new();
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, ..Default::default() };
+            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+            if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
+                continue;
+            }
+            let Some(l) = run_layout(&ctx, None) else { continue };
+            let river: Vec<(f64, f64)> = l.river.iter().map(|v| (v.x, v.y)).collect();
+            let wpoly: Vec<(f64, f64)> = l.water_poly.iter().map(|v| (v.x, v.y)).collect();
+            let street = l.edges.iter().filter(|e| e.cls == "street").map(|e| e.w).fold(f64::NAN, f64::max);
+            let Some(gap) = built_water_gap_m(&l) else {
+                not_judged += 1;
+                continue;
+            };
+            if street.is_nan() {
+                not_judged += 1;
+                continue;
+            }
+            judged += 1;
+            if gap > street {
+                over += 1;
+            }
+            g_bld.push(gap);
+            seed_gap.push(gap);
+            let bank_d = |q: (f64, f64)| line_dist(q, &river).map(|d| (d - l.river_w / 2.0).max(0.0));
+            let min_over = |pts: &mut dyn Iterator<Item = (f64, f64)>| pts.filter_map(bank_d).fold(f64::INFINITY, f64::min);
+            g_par.push(min_over(&mut l.parcels.iter().flat_map(|q| q.poly.iter().map(|v| (v.x, v.y)))));
+            g_blk.push(min_over(&mut l.blocks.iter().flat_map(|b| b.iter().map(|v| (v.x, v.y)))));
+            g_st.push(min_over(&mut l.edges.iter().filter(|e| e.cls == "street" || e.cls == "lane").flat_map(|e| {
+                (0..=10).map(move |k| {
+                    let t = k as f64 / 10.0;
+                    (e.a.x + (e.b.x - e.a.x) * t, e.a.y + (e.b.y - e.a.y) * t)
+                })
+            })));
+            // The built frontage: the nearer of the nearest building and the
+            // water side of a `quay` edge (its centreline less half its width).
+            let mut quay = f64::INFINITY;
+            for e in l.edges.iter().filter(|e| e.cls == "quay") {
+                for k in 0..=10 {
+                    let t = k as f64 / 10.0;
+                    if let Some(d) = bank_d((e.a.x + (e.b.x - e.a.x) * t, e.a.y + (e.b.y - e.a.y) * t)) {
+                        quay = quay.min((d - e.w / 2.0).max(0.0));
+                    }
+                }
+            }
+            let front = gap.min(quay);
+            let crossings = l
+                .edges
+                .iter()
+                .filter(|e| e.cls != "primary")
+                .filter(|e| river.windows(2).any(|rw| segs_cross((e.a.x, e.a.y), (e.b.x, e.b.y), rw[0], rw[1])))
+                .count();
+            crossing_streets += crossings;
+            crossing_towns += usize::from(crossings > 0);
+            pop_ratio.push(100.0 * l.pop / l.pop_target);
+            for d in &l.farmland {
+                if let cartalith_civ::urban_adapter::DetailGeom::Poly(p) = &d.geom {
+                    let n = p.len();
+                    if (0..n).any(|k| river.windows(2).any(|rw| segs_cross((p[k].x, p[k].y), (p[(k + 1) % n].x, p[(k + 1) % n].y), rw[0], rw[1]))) {
+                        fields_across += 1;
+                    }
+                }
+            }
+            g_front.push(front);
+            if front > street {
+                front_over += 1;
+            }
+            let wctx = ctx.water.as_ref().map(|w| (w.ctx.mask.as_slice(), w.ctx.mw, w.ctx.mh, w.ctx.cell_m));
+            // The sea and lake alone (the mask before the river band is
+            // stamped): a building there is in water whatever the switch says.
+            let octx = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            if let Some(w) = wctx {
+                let m = l.buildings.iter().flat_map(|b| b.poly.iter()).filter_map(|v| mask_dist(w, (v.x, v.y), 12)).fold(f64::INFINITY, f64::min);
+                if m.is_finite() {
+                    g_mask.push(m);
+                }
+            }
+            let (mut in_ch, mut in_mk, mut in_wp, mut in_open) = (0usize, 0usize, 0usize, 0usize);
+            for b in &l.buildings {
+                bld_total += 1;
+                let poly: Vec<(f64, f64)> = b.poly.iter().map(|v| (v.x, v.y)).collect();
+                let n = poly.len();
+                let mut samples = poly.clone();
+                let (mut cx, mut cy) = (0.0, 0.0);
+                for k in 0..n {
+                    samples.push(((poly[k].0 + poly[(k + 1) % n].0) / 2.0, (poly[k].1 + poly[(k + 1) % n].1) / 2.0));
+                    cx += poly[k].0 / n as f64;
+                    cy += poly[k].1 / n as f64;
+                }
+                samples.push((cx, cy));
+                let crosses = river.windows(2).any(|rw| (0..n).any(|k| segs_cross(rw[0], rw[1], poly[k], poly[(k + 1) % n])))
+                    || river.first().is_some_and(|&r0| in_poly(r0, &poly));
+                if crosses || samples.iter().any(|&q| line_dist(q, &river).is_some_and(|d| d < l.river_w / 2.0)) {
+                    in_ch += 1;
+                }
+                if let Some(w) = wctx {
+                    if samples.iter().any(|&q| mask_dist(w, q, 0) == Some(0.0)) {
+                        in_mk += 1;
+                    }
+                }
+                if let Some(o) = octx {
+                    if samples.iter().any(|&q| mask_dist(o, q, 0) == Some(0.0)) {
+                        in_open += 1;
+                    }
+                }
+                if wpoly.len() >= 3 && samples.iter().any(|&q| in_poly(q, &wpoly)) {
+                    in_wp += 1;
+                }
+            }
+            wet_channel += in_ch;
+            wet_mask += in_mk;
+            wet_poly += in_wp;
+            wet_open += in_open;
+            if list {
+                println!(
+                    "  #{i:3} {} river_w {:.0} street {street:.1} built-to-bank {gap:.0} m (parcel {:.0}, block {:.0}, street {:.0}) mask {} in channel {in_ch} in mask {in_mk} in open water {in_open} in poly {in_wp} of {}",
+                    l.site_kind,
+                    l.river_w,
+                    g_par.last().unwrap(),
+                    g_blk.last().unwrap(),
+                    g_st.last().unwrap(),
+                    g_mask.last().map_or("-".into(), |m| format!("{m:.0}")),
+                    l.buildings.len()
+                );
+            }
+        }
+        println!("seed {seed} at {gw}x{gh}, urban_riverbank {bank}: built-to-bank {}", spread(&mut seed_gap));
+    }
+    println!("all seeds at {gw}, urban_riverbank {:?}: {judged} judged river-kind layouts ({not_judged} not judged: no street, water or building)", riverbank_on);
+    println!("  built-to-bank over the widest street: {over} of {judged}");
+    println!("  built frontage (a building or a quay's water side) over the widest street: {front_over} of {judged}");
+    println!("  frontage to bank  {}", spread(&mut g_front));
+    println!("  non-primary edges crossing the river centreline: {crossing_streets} in {crossing_towns} towns");
+    println!("  field and pasture strips crossing the river centreline: {fields_across}");
+    println!("  housed as % of pop_target {}; over 150 %: {}", spread(&mut pop_ratio.clone()), pop_ratio.iter().filter(|&&r| r > 150.0).count());
+    println!("  building to bank  {}", spread(&mut g_bld));
+    println!("  building to mask  {}", spread(&mut g_mask));
+    println!("  parcel to bank    {}", spread(&mut g_par));
+    println!("  block to bank     {}", spread(&mut g_blk));
+    println!("  street to bank    {}", spread(&mut g_st));
+    println!(
+        "  buildings in water: channel {wet_channel}, sea or lake {wet_open}, water_poly {wet_poly} (of {bld_total} buildings); on the stamped 22 m mask {wet_mask} (drawn only with the switch off)"
+    );
+}

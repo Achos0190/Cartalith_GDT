@@ -312,6 +312,7 @@ fn uniform_water(d: f64, wet: bool, width: f64) -> crate::site::WaterCtx {
         river_width_m: Some(width),
         river_order: 0.0,
         sea_lake_cells: 0.0,
+        open_water: None,
     }
 }
 

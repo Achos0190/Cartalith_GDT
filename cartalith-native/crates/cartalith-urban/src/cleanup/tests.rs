@@ -476,6 +476,7 @@ fn w_spec() -> WaterCtx {
         river_width_m: Some(150.0),
         river_order: 4.0,
         sea_lake_cells: 0.0,
+        open_water: None,
     }
 }
 

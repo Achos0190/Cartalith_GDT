@@ -34,23 +34,23 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 
 /// Protects the LLM-6a bar: `DESCS` has a non-empty entry for 100% of the
 /// OFFERED keys, naming any key missing one; nothing in `DESCS` or `INERT_WHEN`
-/// names a key the registry lacks (a stale row); the registry has the 128 rows
-/// of 2026-11-15 (`urban_river_kind_map`, Ruling EX follow-up (c), offered, is the 128th; Ruling EX's `civ.river_front`, offered, is the 127th; Ruling EW item 1's `urban_wall_hug`, offered, the 126th; the 125th is `civ.base_ag_tech`, whatever its own note below says; Ruling EV's `basin_routing`, excluded, is the 124th; Ruling EU item 1's `civ.merge_ways`, offered, the 123rd; Ruling ET's `lake_balance`, offered, the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
+/// names a key the registry lacks (a stale row); the registry has the 129 rows
+/// of 2026-11-15 (`urban_riverbank`, offered, is the 129th; `urban_river_kind_map`, Ruling EX follow-up (c), offered, is the 128th; Ruling EX's `civ.river_front`, offered, is the 127th; Ruling EW item 1's `urban_wall_hug`, offered, the 126th; the 125th is `civ.base_ag_tech`, whatever its own note below says; Ruling EV's `basin_routing`, excluded, is the 124th; Ruling EU item 1's `civ.merge_ways`, offered, the 123rd; Ruling ET's `lake_balance`, offered, the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
 /// exactly eight are excluded. MUTATION: delete one `DESCS`
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 128, "registry rows counted 2026-11-15; re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 129, "registry rows counted 2026-11-15; re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
-    assert_eq!(offered.len(), 120);
+    assert_eq!(offered.len(), 121); // 120 until `urban_riverbank` (2026-11-15)
     let missing: Vec<&&str> = offered.iter().filter(|k| param_catalogue::desc(k).is_none_or(|d| d.trim().is_empty())).collect();
     assert!(missing.is_empty(), "offered keys with no description: {missing:?}");
     for (k, _) in param_catalogue::DESCS {
         assert!(params::spec(k).is_some(), "DESCS row for a key the registry does not have: {k}");
         assert!(!param_catalogue::EXCLUDED.contains(k), "DESCS describes an excluded key: {k}");
     }
-    assert_eq!(param_catalogue::DESCS.len(), 120, "one row per offered key, no duplicates");
+    assert_eq!(param_catalogue::DESCS.len(), 121, "one row per offered key, no duplicates");
     for (k, gate, _, _) in param_catalogue::INERT_WHEN {
         assert!(params::spec(k).is_some(), "INERT_WHEN row for an unknown key {k}");
         assert_eq!(params::spec(gate).map(|s| s.kind), Some(params::Kind::Bool), "INERT_WHEN gate {gate} must be a switch");
@@ -143,7 +143,7 @@ fn the_generated_schema_is_valid_and_small() {
     let c = fresh();
     assert!(c.problems().is_empty(), "{:?}", c.problems());
     assert_eq!(c.groups.len(), 9);
-    assert_eq!(c.rows.len(), 120);
+    assert_eq!(c.rows.len(), 121);
     let mut total = 0;
     for g in all_groups(&c) {
         let (_, v, keys) = c.schema_for(Some(&json!([g]))).unwrap();
@@ -291,7 +291,7 @@ fn two_step_flow_over_real_rows() {
     assert_eq!(s, Step::Continue);
     let tools = conv.tools(&c);
     let en: &Value = &tools[1].parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"];
-    assert_eq!(en.as_array().unwrap().len(), 37); // 36 until `urban_river_kind_map` (Ruling EX follow-up (c)) joined the world group; 35 until Ruling EW item 1's `urban_wall_hug` joined the world group; 34 until Ruling ET's `lake_balance`
+    assert_eq!(en.as_array().unwrap().len(), 38); // 37 until `urban_riverbank` (2026-11-15) joined the world group; 36 until `urban_river_kind_map` (Ruling EX follow-up (c)) joined the world group; 35 until Ruling EW item 1's `urban_wall_hug` joined the world group; 34 until Ruling ET's `lake_balance`
     let mut bad = ParamsConversation::new(&c, "x").unwrap();
     bad.on_reply(&c, "", vec![IncomingCall { id: None, name: "get_param_schema".into(), arguments: json!({"groups": ["rainfall"]}) }]);
     assert!(bad.shown_groups().is_empty() && bad.tools(&c).len() == 1);
@@ -401,7 +401,7 @@ fn get_parameters_equals_the_registry_for_every_offered_key() {
             seen += 1;
         }
     }
-    assert_eq!(seen, 120, "every offered key is answered exactly once across the nine groups");
+    assert_eq!(seen, 121, "every offered key is answered exactly once across the nine groups");
 }
 
 /// Protects `get_changed_parameters` against an independent diff of the two registry snapshots, and
@@ -455,13 +455,13 @@ fn describe_parameter_equals_the_registry_for_every_offered_key() {
             Some(PipelineStage::Climate) => "settlements_refresh",
             Some(_) => "full_generate",
             // Read fresh each time it is asked for: the garrison scale, and (Ruling EW item 1) a town layout's wall hug.
-            None if s.key == "civ.garrison_exposure_scale" || s.key == "urban_wall_hug" || s.key == "urban_river_kind_map" => "live",
+            None if s.key == "civ.garrison_exposure_scale" || s.key == "urban_wall_hug" || s.key == "urban_river_kind_map" || s.key == "urban_riverbank" => "live",
             None => "full_generate",
         };
         assert_eq!(v["needs"], needs, "{}", s.key);
         n += 1;
     }
-    assert_eq!(n, 120);
+    assert_eq!(n, 121);
     for e in param_catalogue::EXCLUDED {
         let v = answer(&QueryCall::Describe { key: (*e).to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
         assert!(v["error"].as_str().unwrap().contains("not offered"), "{e}: {v}");
@@ -492,7 +492,7 @@ fn query_answers_fit_the_result_cap() {
     assert!(total > MAX_RESULT_BYTES, "all 116 at once would not fit, which is why no-argument is an overview: {total}");
     let groups = all["groups"].as_array().unwrap();
     assert_eq!(groups.len(), 9);
-    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 120);
+    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 121);
     assert!(all.get("settings").is_none(), "the overview carries no values");
     let ch = answer(&QueryCall::Changed, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
     assert_eq!(ch["changed_count"], 0, "a fresh world has nothing changed");

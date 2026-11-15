@@ -2263,6 +2263,7 @@ fn box_water(river: bool, sea_frac: f64) -> UmWater {
             river_width_m: Some(24.0),
             river_order: 3.0,
             sea_lake_cells: 0.0,
+            open_water: None,
         },
         mostly_water: false,
         sea_frac,
@@ -2331,6 +2332,37 @@ fn a_river_that_misses_the_box_is_not_the_towns_river() {
     let water = um_water_ctx(&w, 21.0, 24.0).expect("the stem crosses this box");
     assert!(water.ctx.has_real_river_path());
     assert_eq!(um_place_context(&w, &settlement(21, 24, 4_000), &[]).site_kind, "river");
+}
+
+/// Protects the riverbank switch's two adapter halves (2026-11-15): the water
+/// context carries its sea and lake as a raster of its own (`open_water`, the
+/// mask before the river band is stamped: all dry here, a river and no sea),
+/// and a town laid out with `PlaceOverrides::riverbank` on uses the riverbank
+/// geometry (`riverbank` reported, an embankment `quay` in its streets) and
+/// draws no stamped mask runs, since its river is the `water_poly` channel;
+/// off, the reference's whole mask is drawn and no embankment is laid.
+/// MUTATION: drawing `water_runs()` when `t.riverbank` fails the run count;
+/// dropping `riverbank: o.riverbank` fails the embankment assertion.
+#[test]
+fn a_riverbank_town_carries_open_water_and_draws_its_river_as_the_channel() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(21, y)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+    let water = um_water_ctx(&w, 21.0, 24.0).expect("the stem crosses this box");
+    let open = water.ctx.open_water.as_ref().expect("the open-water raster");
+    assert_eq!(open.len(), water.ctx.mask.len());
+    assert!(open.iter().all(|&c| c == 0), "a river and no sea: no open water");
+    assert!(water.ctx.mask.iter().any(|&c| c == 1), "premise: the band is stamped into the mask");
+    let s = settlement(21, 24, 4_000);
+    let off = run_layout(&um_place_context(&w, &s, &[]), None).expect("a layout");
+    assert!(!off.water_mask_runs.is_empty(), "off: the stamped band is drawn");
+    assert!(!off.edges.iter().any(|e| e.cls == "quay"));
+    let on_ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, ..Default::default() });
+    let on = run_layout(&on_ctx, None).expect("a layout");
+    assert!(on.water_mask_runs.is_empty(), "on: the river is the channel, no band squares");
+    assert!(on.edges.iter().any(|e| e.cls == "quay"), "on: the embankment is laid");
 }
 
 /// Protects `path_touches_box`: a segment crossing the box with both ends

@@ -129,6 +129,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("integrate_drainage", "On: water reaching a hollow carries on to the sea, so rivers connect (current). Off: rivers end in local pits (older)."),
     ("urban_wall_hug", "On: town walls hug the built-up area, a wall street of a few metres. Off: the wall keeps the wide growth-reserve gap. Read when a town is drawn."),
     ("urban_river_kind_map", "On: a town is a river town only where the map's own river runs near it (current). Off: nearby high flow is enough, as older worlds did."),
+    ("urban_riverbank", "On: a river town's streets and houses come down to the bank (current). Off: they stand back from the water, as older worlds did. Read when a town is drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
@@ -284,7 +285,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }
