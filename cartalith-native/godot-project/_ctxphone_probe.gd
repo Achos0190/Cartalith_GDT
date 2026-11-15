@@ -370,7 +370,7 @@ func _run() -> void:
 	_ok("SEL not yet in the select list before it is opened", _menu().peek_in_select(), false)
 	_shot("sel_peek_chip")
 
-	var chip_row: HBoxContainer = _menu().get("_peek_chip_row")
+	var chip_row: GridContainer = _menu().get("_peek_chip_row")
 	var sel_btn: Button = null
 	for c in chip_row.get_children():
 		if c is Button and String((c as Button).text).begins_with("Select ▸"):
@@ -658,7 +658,7 @@ func _leg_faction(ov: Control) -> void:
 	_touch_release(ov, cpos)
 	await _frames(6)
 	var open_btn: Button = null
-	for c in (_menu().get("_peek_chip_row") as HBoxContainer).get_children():
+	for c in (_menu().get("_peek_chip_row") as GridContainer).get_children():
 		if c is Button and String((c as Button).text) == open_label:
 			open_btn = c
 			break

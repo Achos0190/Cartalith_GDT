@@ -199,7 +199,7 @@ var _peek_trail: Label
 ## Margin wrapper for the chip row; visible only at the `peek` detent.
 var _peek_chip_wrap: MarginContainer
 ## The chip row of primary actions shown at the `peek` detent.
-var _peek_chip_row: HBoxContainer
+var _peek_chip_row: GridContainer
 ## The scroller around `_peek_full_col`; visible only at the `half` detent.
 var _peek_full_scroll: ScrollContainer
 ## The full sectioned action list (or, in select mode, the hit list).
@@ -239,6 +239,13 @@ const _ContextCard := preload("res://shell/context_card.gd")
 ## not three, and sizes "half" to the card's own content instead of a screen
 ## fraction).
 const _PEEK_CARD_PEEK_DP := 66.0
+## Peek band height in dp once the chips are 44 dp touch targets in a 2-column grid: grab strip + two-line header +
+## chip rows + margin, measured at 1080x2340 / density 2.625 (`_cardbtn_probe.gd` asserts the chips sit inside the
+## panel, so a stale figure goes red). One row of chips (1-2 actions) needs `_PEEK_CARD_PEEK_DP_ONE_ROW`.
+const _PEEK_CARD_PEEK_DP_TWO_ROWS := 160.0
+const _PEEK_CARD_PEEK_DP_ONE_ROW := 108.0
+## Touch floor for a chip, dp (`MOBILE_SHELL_PROPOSAL.md`; `DccTheme.PHONE_TAP_MIN`).
+const _PEEK_CHIP_MIN_DP := 44.0
 ## "Sheets stop at 60% height" -- this file's own established rule
 ## (`_build_sheet()` above draws it as a fixed `anchor_top = 0.4`); the half
 ## detent borrows it as a ceiling instead of a fixed height, so a short list
@@ -539,8 +546,13 @@ func _build_peek_panel() -> PanelContainer:
 	## `peek`, hidden at `half`, where the full sectioned list below replaces it
 	## ("one provider list and one definition in two presentations", PH-02's own
 	## rule, carried forward from the desktop card to this sheet).
-	_peek_chip_row = HBoxContainer.new()
-	_peek_chip_row.add_theme_constant_override("separation", _ps(8))
+	## 2026-11-15 (`OUTSTANDING_WORK.md` "Phone: the long-press card's action buttons"): a 2-column GRID, not one
+	## `HBoxContainer`. Four thin chips sharing one row were ~20 dp tall with 9 pt text, far under the 44 dp touch
+	## floor (`MOBILE_SHELL_PROPOSAL.md`); 2 x 2 gives each a ~176 dp x 44 dp target. Desktop and tablet never build this.
+	_peek_chip_row = GridContainer.new()
+	_peek_chip_row.columns = 2
+	_peek_chip_row.add_theme_constant_override("h_separation", _ps(8))
+	_peek_chip_row.add_theme_constant_override("v_separation", _ps(8))
 	_peek_chip_wrap = MarginContainer.new()
 	_peek_chip_wrap.add_theme_constant_override("margin_left", _ps(16))
 	_peek_chip_wrap.add_theme_constant_override("margin_right", _ps(16))
@@ -746,8 +758,11 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 		if b == null or b.is_queued_for_deletion():
 			continue
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.clip_text = true
-		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		## 44 dp touch floor and a readable 12 dp label (the same size this sheet's 46 dp rows use). The label WRAPS
+		## ("Cross-section from here" is two lines in a half-width cell) rather than eliding, so nothing is clipped.
+		b.custom_minimum_size.y = _pt(_PEEK_CHIP_MIN_DP)
+		b.add_theme_font_size_override("font_size", _ps(12))
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		b.tooltip_text = b.text
 
 ## Rebuilds the `half` detent's list. In select mode: a Back row, up to
@@ -902,8 +917,16 @@ func _build_peek_row(a: Dictionary) -> Control:
 ## height" rule (`_build_sheet()` above draws the SAME rule as a fixed
 ## `anchor_top = 0.4`), applied as a height rather than an anchor because this
 ## panel's own height is a drag target and an anchor cannot be tweened.
+func _peek_band_px() -> float:
+	var n := 0
+	if _peek_chip_row != null:
+		for c in _peek_chip_row.get_children():
+			if not c.is_queued_for_deletion():
+				n += 1
+	return float(_ps(_PEEK_CARD_PEEK_DP_ONE_ROW if n <= 2 else _PEEK_CARD_PEEK_DP_TWO_ROWS))
+
 func _peek_detent_height(det: String) -> float:
-	var peek := float(_ps(_PEEK_CARD_PEEK_DP))
+	var peek := _peek_band_px()
 	if det == "peek":
 		return peek
 	return maxf(peek, get_viewport_rect().size.y * _PEEK_CARD_HALF_CAP_FRAC)
@@ -961,7 +984,7 @@ func _on_peek_grab_input(event: InputEvent) -> void:
 		return
 	if _peek_drag.is_empty():
 		return
-	var lo := float(_ps(_PEEK_CARD_PEEK_DP))
+	var lo := _peek_band_px()
 	var hi := _peek_detent_height("half")
 	if moved:
 		var h: float = clampf(float(_peek_drag["h0"]) - (gy - float(_peek_drag["y0"])), lo, maxf(lo, hi))
