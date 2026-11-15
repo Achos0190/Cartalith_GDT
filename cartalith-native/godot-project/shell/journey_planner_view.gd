@@ -1689,7 +1689,19 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 	## only trims a `SIZE_EXPAND` label; this one is sized by the constant
 	## above instead). GUI_GAP_REGISTER.md's phone residue.
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	row.add_child(l)
+	## Tablet: the label takes its own line above the two spin boxes. One line is
+	## `ROW_LABEL_W` (132) + two 81 px spin boxes + separations = 312 px, wider than the
+	## 320 px landscape dock (`DccTheme.W_DOCK_TABLET`) can hold once its margins are
+	## taken, and the dock would otherwise grow past its declared width
+	## (`_ds03fit_probe`). Desktop and phone keep the one-line row unchanged.
+	var stacked: VBoxContainer = null
+	if DccTheme.is_tablet():
+		stacked = VBoxContainer.new()
+		stacked.add_theme_constant_override("separation", 2)
+		l.custom_minimum_size.x = 0
+		stacked.add_child(l)
+	else:
+		row.add_child(l)
 	for key in [key_a, key_b]:
 		var sb := SpinBox.new()
 		## `DccWidgets.style_spin()` -- the paint `number()` applies, without
@@ -1708,7 +1720,11 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		sb.value_changed.connect(func(v: float): _plan_values[key] = int(v); _plan_value_changed(false))
 		row.add_child(sb)
-	parent.add_child(row)
+	if stacked != null:
+		stacked.add_child(row)
+		parent.add_child(stacked)
+	else:
+		parent.add_child(row)
 
 # =============================================== Travel Library wiring (TL-01) ====
 #
@@ -1797,6 +1813,10 @@ func _entry_label(row: Dictionary) -> String:
 func _build_animal_definitions(parent: Control) -> void:
 	parent.add_child(DccTheme.rule())
 	var head := DccTheme.mono_label("ANIMAL DEFINITIONS · TRAVEL LIBRARY", "text_faint", DccTheme.FS_MICRO, 2)
+	## Tablet only: 341 px on one line, wider than the 320 px landscape dock
+	## (`DccTheme.W_DOCK_TABLET`). Wrapping collapses its minimum to the longest word.
+	if DccTheme.is_tablet():
+		head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(head)
 	for species in _SPECIES:
 		_animal_entry_field(parent, species)

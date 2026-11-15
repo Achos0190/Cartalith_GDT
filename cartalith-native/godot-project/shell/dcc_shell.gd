@@ -4285,11 +4285,9 @@ func _run_phone_dock_fit() -> void:
 ## width rather than adding to it. The other nine rail nodes measure 216..323
 ## against that 365, so the token is not tight and the planner is the outlier.
 ## Same probe `--force-touch` at 2560 x 1600: 455 against `W_DOCK_TABLET` 400.
-## A 2026-09-12 change moved `W_DOCK_TABLET` to 320 without touching
-## `civilization/planner` (out of that batch's scope) and was reverted
-## 2026-09-13 for unrelated reasons (other dock content had not reflowed to
-## 320) -- `W_DOCK_TABLET` is 400 throughout, so this 455 figure is unaffected
-## either way. It still needs a fresh `_ldwidth_probe.gd --force-touch` before
+## (Written when `W_DOCK_TABLET` was 400; it has been 320 since 2026-11-15, which
+## stacked the planner's animal rows and wrapped its long section label, so this
+## 455 is a historical figure for that older shape, not a current measurement.) It still needs a fresh `_ldwidth_probe.gd --force-touch` before
 ## being cited again as current, regardless.
 ##
 ## **Why a dock walk and not the factory.** `fit_to_longest_item` is right

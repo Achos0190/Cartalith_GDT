@@ -34,8 +34,8 @@ extends Node
 ##   Menu bar          34         52
 ##   Tool options      34         52
 ##   Domain rail       40         48
-##   Left dock        372        400
-##   Right dock    284-340       400
+##   Left dock        372        320   (400 here until 2026-11-15; the canvas's own 320, see `DccTheme.W_DOCK_TABLET`)
+##   Right dock    284-340       320
 ##   Timeline bar      70         88
 ##   Status bar        26         36
 ## Result: an assertion with a census. Header command: `Godot_v4.7.1 --path . --resolution 1600x900
@@ -405,8 +405,8 @@ func _ready() -> void:
 
 	print("")
 	print("-- SS1 tablet column, measured off the live tree --")
-	_near("left dock width", float(tshell.get("_left_width")), 400.0, 1.0)
-	_near("right dock width", float(tshell.get("_right_width")), 400.0, 1.0)
+	_near("left dock width", float(tshell.get("_left_width")), 320.0, 1.0)
+	_near("right dock width", float(tshell.get("_right_width")), 320.0, 1.0)
 	var rail = tshell.rail_region() if tshell.has_method("rail_region") else null
 	if rail != null and rail is Control:
 		_near("domain rail width", (rail as Control).size.x, 48.0, 3.0)
@@ -451,7 +451,7 @@ func _ready() -> void:
 	## handed 330/280 px docks meant for a 1366 px mouse-driven window.
 	_ok("LAPTOP band stays off on tablet", DccTheme.is_laptop(), false)
 	_ok("tablet dock width survives the LAPTOP override",
-		DccTheme.role_px("w_left_dock"), 400)
+		DccTheme.role_px("w_left_dock"), 320)
 
 	print("")
 	print("-- SS13 targets: tier A 44px (action/category/group/tool), tier B 34px (mode/style chips) --")

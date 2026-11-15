@@ -707,11 +707,11 @@ func _build_feature_style(parent: Control) -> void:
 	## sliders are. Both are now the third term of the reference's own `rsc`
 	## and its `globalAlpha`.
 	var style := DccWidgets.section(parent, "Ways")
-	DccWidgets.slider(style, "Line width", 0.2, 2.5, 0.05,
+	DccWidgets.dock_slider(style, "Line width", 0.2, 2.5, 0.05,
 		app.viewport.overlay.way_scale(), "×",
 		func(v: float): app.viewport.overlay.set_way_scale(v),
 		"state.viz.civWayScale -- the user multiplier on every way, sea lane, route and journey line width, and on every dash length with it. The per-type colour, casing and dash pattern underneath are the reference's own five styles and are not editable: they are what makes a track read as a track.")
-	DccWidgets.slider(style, "Opacity", 0.0, 1.0, 0.01,
+	DccWidgets.dock_slider(style, "Opacity", 0.0, 1.0, 0.01,
 		app.viewport.overlay.way_opacity(), "",
 		func(v: float): app.viewport.overlay.set_way_opacity(v),
 		"state.viz.wayOpacity -- one alpha multiplier over the whole way layer, on top of each stroke's own authored alpha. 0 is a hidden layer, which the Ways & routes switch under Layers already is.")
@@ -752,7 +752,7 @@ func _build_feature_style(parent: Control) -> void:
 	## The reference's own `#territoryOpacityR` (line 1490), which this port had
 	## as a hardcoded 82/255 in `build_territory_texture`.
 	var tint := DccWidgets.section(parent, "Territories")
-	var op := DccWidgets.slider(tint, "Fill opacity", 0.0, 1.0, 0.01,
+	var op := DccWidgets.dock_slider(tint, "Fill opacity", 0.0, 1.0, 0.01,
 		bridge.territory_opacity(), "",
 		func(v: float):
 			bridge.set_territory_opacity(v)
@@ -2941,7 +2941,7 @@ func _label_advance_ratio() -> float:
 ## a drag would put an O(gw*gh) pass on a per-frame path.
 func _label_class_dial(parent: Control, label_text: String, field: String,
 		range_: Vector2, step: float, value: float, unit: String, tip: String) -> Dictionary:
-	return DccWidgets.slider(parent, label_text, range_.x, range_.y, step, value, unit,
+	return DccWidgets.dock_slider(parent, label_text, range_.x, range_.y, step, value, unit,
 		func(v: float):
 			var spec := _label_class_spec(_label_class)
 			if not spec.is_empty():
@@ -3417,8 +3417,19 @@ func _build_icon_placement(parent: Control) -> void:
 			+ "world places nothing the second time.")
 
 	var fam := DccWidgets.group(sec, "Family", true)
-	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 4)
+	## Tablet: a wrapping flow instead of one line. Four chips (PLACES, TREES, SEA MARKS,
+	## POI) are 321 px on one line, wider than the 320 px landscape dock
+	## (`DccTheme.W_DOCK_TABLET`) can hold once its margins are taken. The chips are the
+	## same buttons either way, so `_icon_family_chips` and the highlight are unchanged;
+	## desktop and phone keep the `HBoxContainer`.
+	var chips: Container
+	if DccTheme.is_tablet():
+		chips = HFlowContainer.new()
+		chips.add_theme_constant_override("h_separation", 4)
+		chips.add_theme_constant_override("v_separation", 4)
+	else:
+		chips = HBoxContainer.new()
+		chips.add_theme_constant_override("separation", 4)
 	fam.add_child(chips)
 	for entry in _icon_placement_rows:
 		var f: Dictionary = entry
@@ -3442,14 +3453,14 @@ func _build_icon_placement(parent: Control) -> void:
 		_dead_slider(fam, "icon scale", ICON_SCALE_RANGE, 0.01, _icon_gen_scale, "×")
 		_dead_slider(fam, "min spacing", ICON_SPACING_RANGE, 1.0, _icon_gen_spacing, " cells")
 	else:
-		DccWidgets.slider(fam, "icon scale", ICON_SCALE_RANGE.x, ICON_SCALE_RANGE.y, 0.01,
+		DccWidgets.dock_slider(fam, "icon scale", ICON_SCALE_RANGE.x, ICON_SCALE_RANGE.y, 0.01,
 			_icon_gen_scale, "×", func(v: float): _icon_gen_scale = v,
 			"Per-instance size of every icon this pass places, clamped to the same bounds a hand-placed icon uses.")
 		## **Cells, not pixels.** `parts.js:392`'s inverse map is `p*40` with no
 		## unit stated; the engine measures spacing in grid cells, because that
 		## is the frame an icon's own x/y and its box are in and it is the only
 		## one that does not change under zoom.
-		DccWidgets.slider(fam, "min spacing", ICON_SPACING_RANGE.x, ICON_SPACING_RANGE.y, 1.0,
+		DccWidgets.dock_slider(fam, "min spacing", ICON_SPACING_RANGE.x, ICON_SPACING_RANGE.y, 1.0,
 			_icon_gen_spacing, " cells", func(v: float): _icon_gen_spacing = v,
 			"Minimum centre-to-centre separation, in grid cells. Only applied while `enforce min spacing` is on; icons never overlap each other's glyph regardless.")
 
@@ -3586,7 +3597,7 @@ static func _mark_inert(node: Control) -> void:
 func _dead_slider(parent: Control, label_text: String, range_: Vector2, step: float,
 		value: float, unit: String) -> Dictionary:
 	var why := "Not bound -- see the note at the top of this section. Drawn at the design's own default and range."
-	var d := DccWidgets.slider(parent, label_text, range_.x, range_.y, step, value, unit,
+	var d := DccWidgets.dock_slider(parent, label_text, range_.x, range_.y, step, value, unit,
 		func(_v: float): pass, why)
 	var s: HSlider = d["slider"]
 	s.editable = false
@@ -3805,7 +3816,7 @@ func _rebuild_label_edit_form() -> void:
 	## has to end up right, and recomputing it on every tick of a drag would put
 	## a walk over every label on a per-frame path. Deferred for the same
 	## mid-emit reason as the class row.
-	DccWidgets.slider(_label_edit_body, "Size", LABEL_SIZE_MIN, LABEL_SIZE_MAX, 1.0, float(lb.get("size", 16.0)), "px",
+	DccWidgets.dock_slider(_label_edit_body, "Size", LABEL_SIZE_MIN, LABEL_SIZE_MAX, 1.0, float(lb.get("size", 16.0)), "px",
 		func(v: float): _apply_label_field(idx, "size", v),
 		"This label's own size. It starts at its role's base and stays where you leave it -- a role default never comes back to overwrite it.",
 		func(): _rebuild_label_panel.call_deferred())
@@ -3814,9 +3825,9 @@ func _rebuild_label_edit_form() -> void:
 		func(i: int):
 			_apply_label_field(idx, "size_mode", "fixed" if i == 0 else "zoom")
 			_rebuild_label_panel.call_deferred())
-	DccWidgets.slider(_label_edit_body, "Arc", -1.0, 1.0, 0.01, float(lb.get("arc", 0.0)), "",
+	DccWidgets.dock_slider(_label_edit_body, "Arc", -1.0, 1.0, 0.01, float(lb.get("arc", 0.0)), "",
 		func(v: float): _apply_label_field(idx, "arc", v))
-	DccWidgets.slider(_label_edit_body, "Angle", -180.0, 180.0, 1.0, float(lb.get("angle", 0.0)), "°",
+	DccWidgets.dock_slider(_label_edit_body, "Angle", -180.0, 180.0, 1.0, float(lb.get("angle", 0.0)), "°",
 		func(v: float): _apply_label_field(idx, "angle", v))
 
 	## A real picker over what this project actually has, not free text. The

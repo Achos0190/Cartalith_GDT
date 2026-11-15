@@ -673,21 +673,23 @@ const TABLET := {
 ## Tablet dock width, **landscape only** -- portrait is `TABLET_PORTRAIT`'s own
 ## 232, consulted first by `role_px()` and never this constant.
 ##
-## **Still 400, not the canvas's 320 -- deferred, not undecided.**
-## `--ldW:400px;--rdW:400px` is `ENV:1819`'s old-canvas figure;
-## `Cartalith Tablet.dc.html`'s own `valsShell()` landscape branch states
-## `--ldW:320px;--rdW:320px`, and the owner ruled canvas adoption 2026-09-07
-## ("tablet still is the pc layout instead of the design I gave"). A same-day
-## change moved this constant to 320 and was **reverted**: at that width 8 of
-## 10 rail nodes' dock content still drew 331-382 px (measured 2026-09-12,
-## `_ds03fit_probe.gd --force-touch` at 2560x1600) because the content
-## itself has not reflowed to the narrower budget, so the dock silently forced
-## itself back open past the declared 320 -- a declared width is not the drawn
-## rect. This constant moves to 320 in the same change that reflows that
-## content, not before -- see `ROLE`'s `w_left_dock`/`w_right_dock` rows below,
-## which are the live path `role_px()` actually resolves, and whose own header
-## says "if one moves the other must move with it".
-const W_DOCK_TABLET := 400
+## **320, the canvas's own figure** (since 2026-11-15; it was the old canvas's 400).
+## `Cartalith Tablet.dc.html`'s `valsShell()` landscape branch states
+## `--ldW:320px;--rdW:320px` (`--ldW:400px` was `ENV:1819`'s old-canvas figure),
+## and the owner ruled canvas adoption 2026-09-07 ("tablet still is the pc
+## layout instead of the design I gave"). A 2026-09-12 move to 320 was
+## **reverted** because the dock content had not reflowed: 8 of 10 rail nodes
+## drew 331-382 px (`_ds03fit_probe.gd --force-touch` at 2560x1600), so the dock
+## forced itself open past its declared width -- a declared width is not the drawn
+## rect. The move landed together with that reflow: `DccWidgets.stack_slider_row`
+## / `dock_slider` (the two-line slider cell, CIVIL and CARTO), `_wrap_slider_cell`
+## now on both tablet orientations (WORLD), the planner's stacked animal rows and
+## wrapped section label, the Icons placement chips and the sculpt presets as
+## wrapping flows, and the landmark cap rows' narrower track. `_ds03fit_probe`
+## at 320 reports the same 4 failures it reports at 400. See `ROLE`'s
+## `w_left_dock`/`w_right_dock` rows below, the live path `role_px()` resolves,
+## whose own header says "if one moves the other must move with it".
+const W_DOCK_TABLET := 320
 
 # ── The fourth density: LAPTOP 1366 ──────────────────────────────────────────
 #
@@ -768,9 +770,9 @@ const LAPTOP := {
 # `_ds03fit_probe.gd --force-touch` at 2560x1600, 2026-09-12), because the
 # content had not reflowed to the narrower budget -- a declared 320 is not a
 # drawn 320.
-# Landscape tablet is therefore still 400/400, by the same `ROLE`-column route
-# pointer/laptop already use, and moves to 320 (not a new override layer, just
-# this same route) once that content reflows.
+# Landscape tablet was therefore 400/400, by the same `ROLE`-column route
+# pointer/laptop already use, and moved to 320 on 2026-11-15 (not a new override
+# layer, just this same route) in the change that reflowed that content.
 #
 # **Shape: an override layer, not a third `ROLE` column.** `ROLE`'s own header
 # (below) says a 232/320 pair "could not be expressed as a `ROLE` row even if it
@@ -911,9 +913,10 @@ const TABLET_PORTRAIT := {
 #      unfixed; there was no such pass -- `c842615` is dated 2026-09-07, and
 #      nothing has undone the portrait split it shipped. That rewrite was
 #      conflating it with the separate LANDSCAPE half, `W_DOCK_TABLET`, which
-#      is the one still open: ruled the same day, attempted 2026-09-12 and
-#      reverted 2026-09-13 for unreflowed dock content, still 400 today --
-#      tracked at `W_DOCK_TABLET`'s own header and `ROLE`'s
+#      was ruled the same day, attempted 2026-09-12 and
+#      reverted 2026-09-13 for unreflowed dock content, and landed at 320 on
+#      2026-11-15 with that reflow --
+#      see `W_DOCK_TABLET`'s own header and `ROLE`'s
 #      `w_left_dock`/`w_right_dock` rows above.) The paragraph that used to
 #      stand here is corrected rather than deleted for a different, narrower
 #      reason -- its conclusion about the orientation *predicate* was right
@@ -1105,17 +1108,14 @@ const ROLE := {
 	#   other must move with it -- `W_DOCK_TABLET` moves with the tablet
 	#   column here, whichever way it goes.
 	#
-	#   **Tablet column stays 400, landscape only** -- portrait never reaches
-	#   this row at all, `TABLET_PORTRAIT` answers first. The owner ruled
-	#   canvas adoption 2026-09-07 (320 landscape, `TABLET_PORTRAIT`'s own
-	#   header above), but a same-day move to 320 was reverted 2026-09-13:
-	#   8 of 10 rail nodes' dock content still drew 331-382 px at that width
-	#   (measured with `_ds03fit_probe.gd --force-touch` at 2560x1600,
-	#   2026-09-12) because the content itself has not reflowed to the
-	#   narrower budget. Moves to 320
-	#   in the same change that reflows that content.
-	"w_left_dock": [372, 400],
-	"w_right_dock": [304, 400],
+	#   **Tablet column is 320, landscape only** (400 until 2026-11-15) -- portrait
+	#   never reaches this row at all, `TABLET_PORTRAIT` answers first. The owner
+	#   ruled canvas adoption 2026-09-07 (320 landscape). A 2026-09-12 move to 320
+	#   was reverted because 8 of 10 rail nodes' dock content still drew 331-382 px
+	#   (`_ds03fit_probe.gd --force-touch` at 2560x1600); it landed 2026-11-15 in the
+	#   same change that reflowed that content -- see `W_DOCK_TABLET`'s header.
+	"w_left_dock": [372, 320],
+	"w_right_dock": [304, 320],
 	## `--railExpW`, 200 -> **264**. BUILD_ANSWERS §2.4 records this as one of
 	## three values that did not scale to touch and should have -- "they were
 	## oversights". No consumer: `dcc_shell.gd::_build_rail()` builds the

@@ -107,13 +107,13 @@ func _ready() -> void:
 	var rail := app.rail_column as Control
 
 	## Canvas literals, written out. Portrait tablet 232 (`--ldW:232px`);
-	## landscape tablet 400 (unchanged this batch, and deliberately NOT the
+	## landscape tablet 320 (unchanged this batch, and deliberately NOT the
 	## canvas's 320 -- see `DccTheme.TABLET_PORTRAIT`); pointer 372 / 304.
 	var want_l := 372.0
 	var want_r := 304.0
 	if tablet:
-		want_l = 232.0 if portrait else 400.0
-		want_r = 232.0 if portrait else 400.0
+		want_l = 232.0 if portrait else 320.0
+		want_r = 232.0 if portrait else 320.0
 	elif DccTheme.is_laptop():
 		## `LAPTOP`'s own pair, written out: `--ldW:330px;--rdW:280px` at
 		## `ENV:1819`'s `w1366` override. Present so a pointer run at 1366 is a

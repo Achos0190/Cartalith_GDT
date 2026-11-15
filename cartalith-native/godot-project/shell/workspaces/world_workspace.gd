@@ -2106,7 +2106,10 @@ func _wrap_slider_cell(made: Dictionary) -> Dictionary:
 		"readout_wide_min_x": readout.custom_minimum_size.x,
 	}
 	_slider_reflow_entries.append(entry)
-	if DccTheme.is_tablet_portrait():
+	## **Both tablet orientations since the 320 px landscape dock** (`DccTheme.W_DOCK_TABLET`):
+	## the wide row is 290 px before the dock's margins, which the 320 landscape dock cannot
+	## hold, so landscape mounts the two-line cell too. This was `is_tablet_portrait()`.
+	if DccTheme.is_tablet():
 		_mount_compact(entry)
 	return entry
 
@@ -2233,9 +2236,12 @@ func _current_row_ctl(row_ref) -> Control:
 ## already held for `_paint_stage_rows()`'s own per-state recolouring, so no
 ## new registry is needed -- just one more thing this existing hook reflows.
 func _on_portrait_changed() -> void:
+	## Slider cells are two-line on every tablet orientation (see `_wrap_slider_cell`), so a
+	## rotation no longer swaps them; `_mount_wide` stays for a non-tablet entry, which
+	## `_wrap_slider_cell` is never called for today.
 	var want_compact := DccTheme.is_tablet_portrait()
 	for entry in _slider_reflow_entries:
-		if want_compact:
+		if DccTheme.is_tablet():
 			_mount_compact(entry)
 		else:
 			_mount_wide(entry)
@@ -3294,10 +3300,22 @@ func _arm_ring_paint(i: int, layers: PackedStringArray) -> void:
 ## this arms the tool the same way a feature button does but draws no stroke.
 func _build_presets(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Presets")
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 4)
-	grid.add_theme_constant_override("v_separation", 2)
+	## Tablet: a wrapping flow, not two fixed columns. Two touch-height buttons
+	## ("Volcanic Isle", "Glacial Valley") are 313 px side by side, wider than the 320 px
+	## landscape dock (`DccTheme.W_DOCK_TABLET`) can hold once its margins are taken
+	## (`_ds03fit_probe`). The flow keeps every button and lets a long pair wrap onto two
+	## lines; desktop and phone keep the grid.
+	var grid: Container
+	if DccTheme.is_tablet():
+		grid = HFlowContainer.new()
+		grid.add_theme_constant_override("h_separation", 4)
+		grid.add_theme_constant_override("v_separation", 2)
+	else:
+		var g2 := GridContainer.new()
+		g2.columns = 2
+		g2.add_theme_constant_override("h_separation", 4)
+		g2.add_theme_constant_override("v_separation", 2)
+		grid = g2
 	sec.add_child(grid)
 	var presets := bridge.get_sculpt_presets()
 	for i in presets.size():
@@ -3343,7 +3361,7 @@ func _build_feature_params(parent: Control) -> void:
 		var cmax := float(cd.get("max", 1.0))
 		var cstep := float(cd.get("step", 0.01))
 		var cval := float(live.get(key, cd.get("default", 0.0)))
-		DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, "", _on_feature_param_changed.bind(key))
+		DccWidgets.dock_slider(sec, clabel, cmin, cmax, cstep, cval, "", _on_feature_param_changed.bind(key))
 
 ## Slider handler for one per-feature sculpt control:
 ## `bridge.sculpt_set_feature_params({key: v})`. Affects points captured after
@@ -3414,7 +3432,7 @@ func _build_brush_globals(parent: Control) -> void:
 			DccWidgets.choice(sec, clabel, opts, sel, _on_global_enum_changed.bind(key),
 				_falloff_tooltip() if key == "falloff" else "")
 		else:
-			DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, unit, _on_global_changed.bind(key, is_int))
+			DccWidgets.dock_slider(sec, clabel, cmin, cmax, cstep, cval, unit, _on_global_changed.bind(key, is_int))
 	_build_grid_snap(sec)
 
 	var seed_row := HBoxContainer.new()
@@ -4527,7 +4545,7 @@ func _build_paint(parent: Control) -> void:
 				value_index = i
 		DccWidgets.choice(sec, "Value", value_options, value_index, _on_paint_value_changed.bind(palette))
 
-	DccWidgets.slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
+	DccWidgets.dock_slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
 	## `DECISIONS.md` §7k -- bound 2026-08-31 (`LARGE_ITEM_RULINGS.md`). Both
 	## feather the dab's own edge (which cells get touched, never which
 	## palette index a touched one receives -- painting is still a hard
@@ -4538,9 +4556,9 @@ func _build_paint(parent: Control) -> void:
 	## by deleting that copy rather than this one, since this dock owns the
 	## actual `_paint_brush` state and is where Softness already lived too.
 	## Cites `paint_bridge.rs`'s own module doc and `DECISIONS.md` §7k.
-	DccWidgets.slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
+	DccWidgets.dock_slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
 		"At 1.0, with Softness at 0.0, every cell inside Radius paints solid -- the historical hard disc, unchanged. Lower it to open a mottled, probabilistic edge band instead of a sharp circle; no palette index is ever blended.")
-	DccWidgets.slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed,
+	DccWidgets.dock_slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed,
 		"The same edge band as Hardness, from the other side: raising this alone still feathers the rim even with Hardness held at 1.0 -- the two add together, clamped to how wide the band can get.")
 	DccWidgets.toggle(sec, "Erase", bool(_paint_brush["erase"]), _on_paint_erase_changed,
 		"Every dab writes 0 (unpainted) regardless of Value. Holding Shift while painting does the same without changing this switch.")
@@ -4727,7 +4745,7 @@ func _build_rock_paint(sec: Control, st: Dictionary) -> void:
 	var palette := bridge.get_paint_palette(_paint_layer)
 	if _paint_layer == "rock_cap":
 		var m := RockPaintUI.cap_metres(st, int(_paint_brush["value"]))
-		DccWidgets.slider(sec, "Thickness", RockPaintUI.cap_class_m(st), float(st.get("cap_max_m", 2550.0)),
+		DccWidgets.dock_slider(sec, "Thickness", RockPaintUI.cap_class_m(st), float(st.get("cap_max_m", 2550.0)),
 			RockPaintUI.cap_class_m(st), m, " m", func(v: float):
 				_paint_brush["value"] = RockPaintUI.cap_value(st, v)
 				_sync_paint_brush(),
@@ -4747,10 +4765,10 @@ func _build_rock_paint(sec: Control, st: Dictionary) -> void:
 			if pd2.has("theta_c"):
 				ob.set_item_tooltip(i, "%s -- strength s %.2f, erodibility κ %.2f, critical slope %.0f°, Selby class %s" % [
 					String(pd2.get("name", "")), float(pd2["s"]), float(pd2["kappa"]), float(pd2["theta_c"]), String(pd2.get("selby", ""))])
-	DccWidgets.slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
-	DccWidgets.slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
+	DccWidgets.dock_slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
+	DccWidgets.dock_slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
 		"The same edge band as the other layers: at 1.0 with Softness 0.0 the disc is solid. No rock is ever blended with another.")
-	DccWidgets.slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed)
+	DccWidgets.dock_slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed)
 	var erase := DccWidgets.toggle(sec, "Erase", false, func(_v: bool): pass, RockPaintUI.ERASE_DISABLED)
 	erase.disabled = true
 	erase.tooltip_text = RockPaintUI.ERASE_DISABLED

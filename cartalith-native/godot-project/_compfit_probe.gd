@@ -1,11 +1,10 @@
 extends Node
 ## COMPOSITION lane, 2026-09-12; corrected 2026-09-13. Guards the tablet frame
 ## floor (`tool_options_row` no longer propagating its minimum). The landscape
-## dock split this probe used to guard (400 -> 320) was itself **reverted**
-## 2026-09-13 -- see `DccTheme.W_DOCK_TABLET`'s own header -- so the landscape
-## expectation below is corrected back to 400, matching the reverted `ROLE`
-## row, rather than left asserting a figure the shipped code no longer
-## produces.
+## dock split this probe used to guard (400 -> 320) was **reverted**
+## 2026-09-13 and landed again 2026-11-15 -- see `DccTheme.W_DOCK_TABLET`'s own
+## header -- so the landscape expectation below is 320, the literal figure the
+## canvas states, again (it read 400 between those dates).
 ##
 ##   Godot_v4.7.1 --path . _compfit_probe.tscn -- --force-touch --vp 800x1280
 ##   Godot_v4.7.1 --path . _compfit_probe.tscn -- --force-touch --vp 1280x800
@@ -19,10 +18,9 @@ extends Node
 ## must move the comparison on one side only. Portrait 232 is
 ## `Cartalith Tablet.dc.html`'s `--ldW:232px` (`valsShell()` portrait branch),
 ## unaffected by the landscape revert -- `TABLET_PORTRAIT` is a separate table
-## from `ROLE`. Landscape is still 400, `ROLE`'s shipped figure: the canvas's
-## own 320 landscape branch is deferred, not carried in, pending a content
-## reflow (`DccTheme.W_DOCK_TABLET`'s header has the measurement that deferred
-## it).
+## from `ROLE`. Landscape is 320, the canvas's own landscape figure,
+## carried in 2026-11-15 together with the dock content's reflow
+## (`DccTheme.W_DOCK_TABLET`'s header has the measurement that had deferred it).
 ##
 ## Result: `=== compfit vp=WxH portrait= tablet= tablet_portrait= ===`, one `  [ok|FAIL] <label>
 ##         got= want=` (or `cap=`) line per check, measurement lines under the `[row minimums]`,
@@ -86,7 +84,7 @@ func _ready() -> void:
 	var tor := app.get("tool_options_row") as Control
 
 	print("[dock reservation -- literal, not read off the constant under test]")
-	var want_dock := 232.0 if portrait else 400.0
+	var want_dock := 232.0 if portrait else 320.0
 	_eq("role_px(w_left_dock)", float(DccTheme.role_px("w_left_dock")), want_dock)
 	_eq("role_px(w_right_dock)", float(DccTheme.role_px("w_right_dock")), want_dock)
 	_eq("left_dock custom_minimum_size.x", ld.custom_minimum_size.x, want_dock)

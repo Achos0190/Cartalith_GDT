@@ -101,8 +101,8 @@ func _ready() -> void:
 	var want_l := 372.0
 	var want_r := 304.0
 	if DccTheme.is_tablet():
-		want_l = 232.0 if vh > vw else 400.0
-		want_r = 232.0 if vh > vw else 400.0
+		want_l = 232.0 if vh > vw else 320.0
+		want_r = 232.0 if vh > vw else 320.0
 	elif DccTheme.is_laptop():
 		want_l = 330.0
 		want_r = 280.0
@@ -132,7 +132,7 @@ func _ready() -> void:
 		var flipped_portrait := vw > vh
 		var fl := 400.0
 		if DccTheme.is_tablet():
-			fl = 232.0 if flipped_portrait else 400.0
+			fl = 232.0 if flipped_portrait else 320.0
 		_dump("after flip to %dx%d" % [vh, vw], vh)
 		_eq("left_dock after flip", ld.custom_minimum_size.x, fl)
 		_eq("right_dock after flip", rd.custom_minimum_size.x, fl)

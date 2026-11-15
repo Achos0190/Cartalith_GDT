@@ -5395,6 +5395,12 @@ func _build_timeline() -> void:
 ## `_lm_refresh_row()` rewrites the readout from this table -- the `fmt` closure
 ## `DccWidgets.slider()` installs (`dcc_widgets.gd:387`) would otherwise print
 ## the index. Index 0 is the detented zero stop, which reads `off`.
+## Track width in px of a landmark cap row on tablet (both orientations). A labelled
+## judgement, not a measurement of the canvas: with the glyph (13), badge (22),
+## `[viewshed]` tag and the 44 px readout, 90 made the row 301 px, which forces the
+## 320 px dock (`DccTheme.W_DOCK_TABLET`) open past its width (`_ds03fit_probe`);
+## 48 brings it under the dock's ~279 px usable width. Never read it for desktop.
+const LM_TABLET_TRACK_W := 48
 const LM_LADDER: Array[int] = [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 200]
 
 ## §23's four classes, in §23's own order.
@@ -5697,7 +5703,7 @@ func _lm_placement(parent: Control, st: Dictionary) -> void:
 	## the distance sentence below it (cheap, local -- and that sentence follows
 	## `Preferences ▸ Units`, see `_lm_refresh_crowding`), and the write to the
 	## engine happens once, on release.
-	var crowd := DccWidgets.slider(sec, "Crowding",
+	var crowd := DccWidgets.dock_slider(sec, "Crowding",
 		LM_CROWDING_MIN, LM_CROWDING_MAX, LM_CROWDING_STEP, _lm_crowding,
 		"", func(v: float): _lm_on_crowding(v),
 		"Divides every class's exclusion radius at once, 0.25x (sparse) to 2.00x "
@@ -5749,7 +5755,7 @@ func _lm_placement(parent: Control, st: Dictionary) -> void:
 		var ck: String = LM_CLASSES[i]
 		var km := _lm_class_radius(i)
 		var cname := String(LM_CLASS_LABEL.get(ck, ck))
-		DccWidgets.slider(adv, cname, 1.0, 400.0, 1.0, km, " km",
+		DccWidgets.dock_slider(adv, cname, 1.0, 400.0, 1.0, km, " km",
 			func(v: float): _lm_on_radius(i, v),
 			"The clear ground a %s-class landmark keeps around itself before " % cname.to_lower()
 			+ "Crowding scales it. Every type of this class inherits it.",
@@ -5946,6 +5952,14 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 		func(): _lm_commit_cap(key))
 	var row: HBoxContainer = parts["row"]
 	var slider: HSlider = parts["slider"]
+	## Tablet: the track is the row's one fixed-width part, and the row also holds
+	## the glyph, the class badge and the `[viewshed]` tag, which the two-line
+	## cell (`DccWidgets.stack_slider_row`) cannot take because the under-bars
+	## below share this track's column. Narrowed to `LM_TABLET_TRACK_W` so the
+	## row fits the 320 px landscape dock; `_lm_track_w()` reads the same figure
+	## so the bars stay flush with the track. Desktop and phone keep `slider()`'s own.
+	if DccTheme.is_tablet():
+		slider.custom_minimum_size.x = LM_TABLET_TRACK_W
 	var name_label := row.get_child(0) as Label
 	## `slider()` puts a `DccTheme.spacer()` between the label and the track,
 	## which expands. Captured BEFORE the badge is inserted, and identified by
@@ -7000,7 +7014,7 @@ static func _lm_pretty(key: String) -> String:
 ## bar has to share the slider's column exactly, so it reads the same expression
 ## `DccWidgets.slider()` does rather than the desktop constant.
 static func _lm_track_w() -> int:
-	return DccTheme.role_px("slider_track_w") if DccTheme.is_tablet() else DccWidgets.TRACK_W
+	return LM_TABLET_TRACK_W if DccTheme.is_tablet() else DccWidgets.TRACK_W
 
 ## The header `Button` `DccWidgets.group()` just appended -- it returns the body
 ## and not the header, and §3.2's counts have to live on the header. Searched
@@ -7289,7 +7303,7 @@ func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 	## scale is a user setting now, not the fixed `1.0` the rule shipped with
 	## (`MILITARY_MANPOWER_SCOPE.md` §5.6). `0` turns the border term off; the
 	## slider's own tooltip carries the reason for its upper end.
-	DccWidgets.slider(sec, "Border-exposure weight", 0.0, 5.0, 0.1,
+	DccWidgets.dock_slider(sec, "Border-exposure weight", 0.0, 5.0, 0.1,
 		bridge.get_garrison_exposure_scale(), "×",
 		func(v: float): bridge.set_garrison_exposure_scale(v),
 		"How much more a faction's most-exposed place garrisons than the same "
@@ -7933,7 +7947,7 @@ func _build_timeline_scrub(body: Control) -> void:
 	caps.add_child(DccTheme.spacer())
 	caps.add_child(DccTheme.mono_label(_tl_format_year(hi), "text_ghost", DccTheme.FS_TINY))
 	sec.add_child(caps)
-	DccWidgets.slider(sec, "Year", float(lo), float(hi), 1.0, float(cur), "",
+	DccWidgets.dock_slider(sec, "Year", float(lo), float(hi), 1.0, float(cur), "",
 		func(v: float): _tl_goto_year(_tl_nearest_year(years, int(round(v)))),
 		"Real time-scale -- min/max/value are the actual recorded years, not a snapshot-count " +
 			"index (reference v0.91). Dragging snaps to the nearest recorded year.",
@@ -8131,10 +8145,10 @@ func _build_timeline_sim(body: Control) -> void:
 				"Conflict -- undefended fall first"],
 			maxi(0, chars.find(_tl_sim_character)),
 			func(i: int): _tl_sim_character = chars[i])
-		DccWidgets.slider(grp, "Severity", 0.0, 100.0, 1.0, _tl_sim_severity * 100.0, "%",
+		DccWidgets.dock_slider(grp, "Severity", 0.0, 100.0, 1.0, _tl_sim_severity * 100.0, "%",
 			func(v: float): _tl_sim_severity = v / 100.0)
 	else:
-		DccWidgets.slider(grp, "Regrowth rate", 0.1, 3.0, 0.1, _tl_sim_rate * 100.0, "%/yr",
+		DccWidgets.dock_slider(grp, "Regrowth rate", 0.1, 3.0, 0.1, _tl_sim_rate * 100.0, "%/yr",
 			func(v: float): _tl_sim_rate = v / 100.0)
 	DccWidgets.number(grp, "Start year", -9999.0, 9999.0, 1.0, float(_tl_sim_start_year),
 		func(v: float): _tl_sim_start_year = int(v))

@@ -333,7 +333,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 		tag1, str(DccTheme.is_tablet_portrait()), ld.size.x, ld.get_combined_minimum_size().x])
 	_ok("%s classified" % tag1, DccTheme.is_tablet_portrait(), not boot_landscape)
 	if boot_landscape:
-		_ok("%s dock_w == 400 (W_DOCK_TABLET, unmoved by this lane)" % tag1, ld.size.x, 400.0)
+		_ok("%s dock_w == 320 (W_DOCK_TABLET)" % tag1, ld.size.x, 320.0)
 	else:
 		_ok("%s dock_w within 232 +-1" % tag1, absf(ld.size.x - 232.0) <= 1.0, true)
 	_ok("%s Continentality mounted shape" % tag1, continentality.get("mounted", "?"),
@@ -349,7 +349,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 	if boot_landscape:
 		_ok("%s dock_w within 232 +-1" % tag2, absf(ld.size.x - 232.0) <= 1.0, true)
 	else:
-		_ok("%s dock_w == 400 (W_DOCK_TABLET, unmoved by this lane)" % tag2, ld.size.x, 400.0)
+		_ok("%s dock_w == 320 (W_DOCK_TABLET)" % tag2, ld.size.x, 320.0)
 	_ok("%s Continentality mounted shape" % tag2, continentality.get("mounted", "?"),
 		"compact" if boot_landscape else "wide")
 	_assert_stage_clip(tag2, panel)
@@ -361,7 +361,7 @@ func _run_rotate(boot_landscape: bool) -> void:
 		tag3, str(DccTheme.is_tablet_portrait()), ld.size.x, ld.get_combined_minimum_size().x])
 	_ok("%s classified" % tag3, DccTheme.is_tablet_portrait(), not boot_landscape)
 	if boot_landscape:
-		_ok("%s dock_w == 400 (W_DOCK_TABLET, unmoved by this lane)" % tag3, ld.size.x, 400.0)
+		_ok("%s dock_w == 320 (W_DOCK_TABLET)" % tag3, ld.size.x, 320.0)
 	else:
 		_ok("%s dock_w within 232 +-1" % tag3, absf(ld.size.x - 232.0) <= 1.0, true)
 	_ok("%s Continentality mounted shape" % tag3, continentality.get("mounted", "?"),
@@ -451,7 +451,7 @@ func _ready() -> void:
 		for r in tland:
 			_ok("1280x800(landscape) %s body non-empty" % String(r["title"]),
 				float((r["worst_row"] as Dictionary)["w"]) > 0.0, true)
-			_ok("1280x800(landscape) %s dock_w == 400" % String(r["title"]), r["dock_w"], 400.0)
+			_ok("1280x800(landscape) %s dock_w == 320" % String(r["title"]), r["dock_w"], 320.0)
 		# Phone never consumes ROLE/TABLET_PORTRAIT (`DccTheme.role_px()`'s own
 		# header) -- recorded, not asserted to a literal, since the phone
 		# composition is a separate PHONE_* system this lane does not touch.

@@ -2430,7 +2430,7 @@ func _build_quick_look() -> void:
 	]
 	for sp in specs:
 		var key := String(sp[0])
-		var h := DccWidgets.slider(body, String(sp[1]), float(sp[2]), float(sp[3]), 1.0, 0.0, String(sp[4]),
+		var h := DccWidgets.dock_slider(body, String(sp[1]), float(sp[2]), float(sp[3]), 1.0, 0.0, String(sp[4]),
 			func(v: float): _on_quick_slider(key, v), String(sp[5]),
 			func():
 				_quick_dragging = false
@@ -2714,7 +2714,7 @@ func _appearance_slider(parent: Control, key: String) -> void:
 	var unit := String(ui.get("unit", ""))
 	var value := float(bridge.appearance().get(key, spec["min"]))
 	var pending := [value]
-	var handle := DccWidgets.slider(parent, String(spec["label"]),
+	var handle := DccWidgets.dock_slider(parent, String(spec["label"]),
 		float(spec["min"]) * scale, float(spec["max"]) * scale, step,
 		value * scale, unit,
 		func(v: float):
@@ -3378,7 +3378,7 @@ func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
 	## re-render is not a per-drag-pixel operation. The readout follows the
 	## handle live because `DccWidgets.slider` updates it itself.
 	var pending := [float(d["opacity"])]
-	DccWidgets.slider(col, "Opacity", 0.0, 1.0, 0.01, pending[0], "",
+	DccWidgets.dock_slider(col, "Opacity", 0.0, 1.0, 0.01, pending[0], "",
 		func(v: float): pending[0] = v,
 		"How much of this layer takes part. It multiplies whatever alpha the category already carries, so Colour relief at 0.5 here is half of ramp strength times the stop's own alpha.",
 		func(): _push_layer(id, "opacity", pending[0]))
@@ -3732,7 +3732,7 @@ func _npr_slider(parent: Control, label_text: String, key: String, maximum: floa
 		step: float, unit: String, tooltip: String, npr: Dictionary,
 		minimum := 0.0) -> void:
 	var pending := [float(npr.get(key, 0.0))]
-	var handle := DccWidgets.slider(parent, label_text, minimum, maximum, step,
+	var handle := DccWidgets.dock_slider(parent, label_text, minimum, maximum, step,
 		pending[0], unit,
 		func(v: float): pending[0] = v,
 		tooltip,

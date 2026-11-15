@@ -569,6 +569,76 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 		s.drag_ended.connect(func(_value_changed: bool): on_release.call())
 	return {"row": row, "slider": s, "readout": readout, "format": fmt}
 
+## The tablet's two-line slider cell for a DOCK row: the label and the readout
+## on one line, the track alone on a 44 px line beneath (`Cartalith Tablet.dc.html`'s
+## `st.sliders`, lines 169-174, the shape `world_workspace.gd::_wrap_slider_cell`
+## already gives WORLD's rows). Why it exists: a one-line row is `ROW_LABEL_W` (132)
+## + `slider_track_w` (90) + `ROW_VALUE_W` (44) + separations = 290 px before the
+## dock's own margins, which is more than the 320 px landscape tablet dock
+## (`DccTheme.W_DOCK_TABLET`) has, and a disabled-h-scroll dock grows to fit its
+## widest row instead of clipping it (`MISTAKES.md`, the `ScrollContainer` row).
+##
+## **Tablet only, both orientations**: it returns `made` untouched on desktop
+## and on the phone, so those shells stay byte-identical. **One-way, not a
+## two-shape swap**: the stacked cell is narrower than any dock this shell has
+## (232 portrait, 320 landscape), so there is no orientation that wants the wide
+## shape back and nothing to reflow on rotation -- unlike WORLD's own cells,
+## which keep `_mount_wide` for the 400 px dock this change retires.
+##
+## Reflow only (DS-03): the label, `HSlider` and readout are the exact nodes
+## `slider()` built and wired -- they are *reparented*, so no signal, range,
+## tooltip or `fmt` closure changes -- and `made["row"]` becomes the new
+## `VBoxContainer`, which every later `modulate`/inert-dimming call accepts (each
+## takes a `Control`). **Must never** be given a `made` whose row a caller has
+## already added children to or typed as `HBoxContainer` (the landmark cap rows
+## do both, and narrow their own track instead).
+static func stack_slider_row(made: Dictionary) -> Dictionary:
+	if not DccTheme.is_tablet():
+		return made
+	var wide: HBoxContainer = made["row"]
+	var host := wide.get_parent()
+	var label: Control = wide.get_child(0)
+	var spacer: Control = wide.get_child(1)
+	var slider: HSlider = made["slider"]
+	var readout: Control = made["readout"]
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 2)
+	stack.tooltip_text = wide.tooltip_text
+	var line1 := HBoxContainer.new()
+	line1.add_theme_constant_override("separation", 8)
+	stack.add_child(line1)
+	var line2 := MarginContainer.new()
+	line2.custom_minimum_size.y = DccTheme.role_px("row_min_h")
+	stack.add_child(line2)
+	for n in [label, spacer, slider, readout]:
+		wide.remove_child(n)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line1.add_child(label)
+	## Cleared to 0 like `_mount_compact`'s readout: a long unit must not be
+	## elided (a clipped number reads as a different number).
+	readout.custom_minimum_size.x = 0
+	line1.add_child(readout)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size.x = 0
+	line2.add_child(slider)
+	spacer.queue_free()
+	var idx := wide.get_index()
+	host.add_child(stack)
+	host.move_child(stack, idx)
+	host.remove_child(wide)
+	wide.queue_free()
+	made["row"] = stack
+	return made
+
+## `slider()` followed by `stack_slider_row()`: the call for a parameter row in a
+## docked panel (CIVIL and CARTO). Not for the tool-options bar, a dialog or a
+## popover, which size their own rows. Returns the same Dictionary as `slider()`.
+static func dock_slider(parent: Control, label_text: String, minimum: float, maximum: float,
+		step: float, value: float, unit: String, on_change: Callable,
+		tooltip: String = "", on_release: Callable = Callable()) -> Dictionary:
+	return stack_slider_row(slider(parent, label_text, minimum, maximum, step, value, unit,
+		on_change, tooltip, on_release))
+
 # ---------------------------------------------------------------------------
 # **The inputs had no styling of their own until 2026-09-07**, which is the
 # input half of the owner's "all buttons and inputs are visually not the same".
