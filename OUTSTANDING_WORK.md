@@ -71,7 +71,9 @@ document, and `STATUS.md` records what lands)
   (how many villages, how village population behaves) have gone missing; add a world-wide base tech level next to the
   world phase; a rudimentary heightmap preview instead of grey on blue** (owner, 2026-11-13: *"Those should be
   there"*). Owner: `MOBILE_SHELL_PROPOSAL.md` (MS-8), `NEW_WORLD_PREVIEW_PROPOSAL.md` (NWP-1…4), `GENERATION_PARAMETERS.md`.
-  Suspect regressions from `d41b3fc1` and `1a949abd`. In progress 2026-11-13.
+  **Built 2026-11-13** (`56347c7f`, `0362e946`, `0b485c6d`; `STATUS.md`, "New World: the Auto-populate switches act ..."; the
+  status here said "In progress" until 2026-11-15). Left: Imperial seats, Biome K and Lake water balance are still under More
+  options, which a phone does not show; Base technology does not rewrite an existing roster; no device pass.
 - **A new note can be placed in a chosen vault folder** (owner, 2026-11-13: *"make sure that from the note from the previous job, we also get the option to select where in the vault the note gets placed."*). Owner: `VAULT_EDITOR_PROPOSAL.md` (notes, folders, templates), `shell/vault_folder_pick.gd`. **Built 2026-11-13** (`STATUS.md`, "Where a new note goes"); the folder chooser is now a tree and "Move folder..." picks its destination in it (`STATUS.md`, "Folder tree chooser"); left: the Android document provider itself (the logic is proven over a fake tree, the Java driver is not run), and the landmark, label and icon chip/card paths were not driven one by one (they share the Note tab's Create).
 - **Lake balance counts a runoff share of rain, not all rain** -- closed 2026-11-13; see `STATUS.md` ("Lake balance counts a runoff share of rain"). Left: the owner's 51203 window was not re-measured, and a climate-dependent share needs a catchment-mean climate the engine does not carry.
 - **Regenerating an opened world uses the seed field** -- closed 2026-11-13; see `STATUS.md` ("Opened world regenerates with its own seed and size").
