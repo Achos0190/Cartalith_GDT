@@ -960,14 +960,13 @@ const CITY_LOOKS: Array[String] = ["ink", "map"]
 ## save (a world drawn by one user must open the same in another's style).
 const _SEC_CITY_LOOK := "city_look"
 
-## The stored town look, one of `CITY_LOOKS`. Unset or corrupt reads as `"ink"`, the shipped look, so that
-## landing CL-1 moves no existing pixel (every probe that calls `UrbanLayoutDraw.draw_layout` directly
-## reads this too). Ruling EW says the new look applies on every surface; making it the DEFAULT is a
-## one-word change here and an owner call, recorded in `CITY_MAP_LOOK_SCOPE.md` CL-1.
+## The stored town look, one of `CITY_LOOKS`. Unset or corrupt reads as `"map"`: Ruling FF item 2 (owner,
+## 2026-11-15) made the map look the default. A stored `"ink"` is a user's own choice and is kept (only an
+## absent or unknown value falls to the default). Before FF this default was `"ink"` so CL-1 moved no pixel.
 static func city_look() -> String:
 	_ensure_loaded()
-	var v := String(_cfg.get_value(_SEC_CITY_LOOK, "style", "ink"))
-	return v if CITY_LOOKS.has(v) else "ink"
+	var v := String(_cfg.get_value(_SEC_CITY_LOOK, "style", "map"))
+	return v if CITY_LOOKS.has(v) else "map"
 
 ## Stores the town look and saves. An unknown value is ignored, not stored. Does not redraw anything: the
 ## caller that changed it asks its own canvas to redraw (`UrbanLayoutDraw.look_is_map()` re-reads this on

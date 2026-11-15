@@ -120,6 +120,29 @@ func _rank_ge(a: Array, b: Array) -> bool:
 	return true
 
 
+## True when a shown settlement pin (not declutter-hidden) touches landmark `i`'s keep-out and ranks at least its class.
+func _settlement_displaces(ov, i: int, rect: Rect2) -> bool:
+	if not ov.has_method("_settle_pins_on"):
+		return false
+	var canon := Rect2(Vector2.ZERO, rect.size)
+	var la: Dictionary = ov._landmarks[i]
+	var ra: float = ov._landmark_pin_r(la)
+	var ta: Vector2 = ov._cell_to_screen(Vector2(float(la["x"]), float(la["y"])), canon)
+	var ha := ta + Vector2(0.0, -ov.PinMarker.STEM_RATIO * ra)
+	var cr: float = float({"continental": 3, "regional": 2, "cultural": 1, "local": 0}.get(String(la.get("class", "local")), 0))
+	var hidden: Dictionary = ov._declutter_hidden_settlements(rect)
+	for k in ov._settlements.size():
+		var st: Dictionary = ov._settlements[k]
+		if hidden.has(k) or ov._hidden_settlement_kinds.has(st["kind"]) or ov._settlement_hidden(st):
+			continue
+		var rb: float = ov._settlement_head_r(String(st["kind"]), canon)
+		var tb: Vector2 = ov._cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon)
+		var hb := tb + Vector2(0.0, -ov.PinMarker.STEM_RATIO * rb)
+		if (ha.distance_to(hb) < 1.5 * (ra + rb) or ta.distance_to(hb) < 1.2 * rb or tb.distance_to(ha) < 1.2 * ra) 				and float(ov.DECLUTTER_SETTLE_RANK.get(ov._settle_display_kind(st), 3.0)) >= cr:
+			return true
+	return false
+
+
 ## Shown pins that touch pin `i`'s keep-out (heads closer than 1.5x the radii sum, or one tip on the other's head).
 func _clashers(ov, i: int, pool: Array, rect: Rect2) -> Array:
 	var canon := Rect2(Vector2.ZERO, rect.size)
@@ -263,6 +286,10 @@ func _ready() -> void:
 			if _rank_ge(_rank(ov, int(c)), _rank(ov, int(h))) or ov.landmark_has_note(int(c)):
 				ok = true
 				break
+		## Ruling FF item 1: a shown SETTLEMENT pin joins the walk and outranks minor landmarks, so it may be what displaced
+		## this landmark: accept a shown settlement pin that clashes and whose tier rank is at least the landmark's class rank.
+		if not ok and _settlement_displaces(ov, int(h), rect):
+			ok = true
 		if not ok:
 			unexplained += 1
 	_ok("B7 every hidden pin (%d) has a conflicting shown pin of equal or higher rank (%d without)" % [checked, unexplained], checked > 0 and unexplained == 0)

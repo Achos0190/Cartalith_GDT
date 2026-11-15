@@ -203,6 +203,10 @@ func _settle() -> void:
 
 
 func _ready() -> void:
+	## Ruling FF item 1: in the Pins styles the settlement is a teardrop pin and its name sits beside the pin's box, so this
+	## probe's claim (a name forced BELOW the disc must clear the badge row under it) is the DISC's geometry, the Circles
+	## style's. It pins that style; the pin's own label and badge placement is `_townpins_probe.gd` (P6).
+	DccSettings.set_marker_style("circles")
 	var wd := Timer.new()
 	wd.wait_time = 300.0
 	wd.one_shot = true

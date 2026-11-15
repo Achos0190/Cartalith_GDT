@@ -53,6 +53,9 @@ const TOUCH_TARGET_DP := 44.0
 const KIND_PICTOGRAM := {
 	# Built places and the City Viewer's derived kinds.
 	"citadel": "castle", "castle": "castle", "fort": "castle", "capital": "castle", "metropolis": "castle",
+	# Settlement tiers (Ruling FF item 1: the map's towns and villages are pins). `capital`/`metropolis` above; the rest read
+	# smallest to largest: a dot (hamlet), a hut (village), a house (town), a skyline (city).
+	"city": "skyline", "town": "house", "village": "hut", "hamlet": "dot",
 	"worship": "spire", "temple": "spire", "shrine": "spire", "sacred_grove": "spire",
 	"sacred_mountain": "spire", "pilgrimage_site": "spire",
 	"watchtower": "tower", "border_marker": "tower",
@@ -200,6 +203,21 @@ static var PICTOGRAMS: Dictionary = {
 		"fills": [PackedVector2Array([Vector2(0, -0.85), Vector2(0.95, 0.85), Vector2(-0.95, 0.85)])],
 		"cuts": [PackedVector2Array([Vector2(0, 0.05), Vector2(0.3, 0.85), Vector2(-0.3, 0.85)])],
 	},
+	# Settlement tiers (Ruling FF item 1), labelled judgements of three silhouettes that read at 18 px.
+	"skyline": {
+		"fills": [PackedVector2Array([Vector2(-0.95, 0.9), Vector2(-0.95, -0.1), Vector2(-0.45, -0.1), Vector2(-0.45, -0.85),
+			Vector2(0.1, -0.85), Vector2(0.1, 0.1), Vector2(0.45, 0.1), Vector2(0.45, -0.35), Vector2(0.95, -0.35),
+			Vector2(0.95, 0.9)])],
+	},
+	"house": {
+		"fills": [PackedVector2Array([Vector2(-0.8, 0.9), Vector2(-0.8, -0.05), Vector2(0, -0.8), Vector2(0.8, -0.05),
+			Vector2(0.8, 0.9)])],
+		"cuts": [PackedVector2Array([Vector2(-0.2, 0.9), Vector2(-0.2, 0.3), Vector2(0.2, 0.3), Vector2(0.2, 0.9)])],
+	},
+	"hut": {
+		"fills": [PackedVector2Array([Vector2(-0.6, 0.8), Vector2(-0.6, 0.1), Vector2(0, -0.5), Vector2(0.6, 0.1),
+			Vector2(0.6, 0.8)])],
+	},
 	"dot": {"dots": [[Vector2(0, 0), 0.5]]},
 }
 
@@ -295,9 +313,14 @@ static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0
 ## the head. `r` is the head radius in `ci`'s units, `has_note` picks orange or white, `w` scales the line widths
 ## (1.0 = a 1.3 px stroke at head radius 9), `alpha` fades the whole pin (a hover or a ghost), `outline` overrides the
 ## outline ink (the map's icon-treatment key; defaults to `INK`). Draws nothing for `r <= 0`. `angle` tilts the pin about
-## its tip (Ruling FA); **the pictogram stays upright** inside the rotated head so it reads at any tilt.
+## its tip (Ruling FA); **the pictogram stays upright** inside the rotated head so it reads at any tilt. `fill_col` and
+## `ink_col` (Ruling FF item 1, the map's settlement pins) override the fill and pictogram ink of a DRAWN pin; an icon set's
+## texture carries its own colours and ignores both. `min_line` is the stroke floor in `ci`'s units (1.0 = one unit, right
+## where a unit is a pixel); the map's settlement pins pass one SCREEN pixel (`1 / camera zoom`), since their head is small in
+## local units at deep zoom and a one-unit floor would eat the head at x4.
 static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
-		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "") -> void:
+		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "",
+		fill_col: Color = Color(0, 0, 0, 0), ink_col: Color = Color(0, 0, 0, 0), min_line: float = 1.0) -> void:
 	if r <= 0.0:
 		return
 	## An icon set draws the owner's texture when `kind` has one and the file loads; otherwise it falls through to the
@@ -308,18 +331,23 @@ static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note:
 	var head: Vector2 = g["head"]
 	var poly: PackedVector2Array = g["poly"]
 	var fill := COL_NOTE if has_note else COL_NONE
+	## Ruling FF item 1: a settlement pin is filled with its faction's colour (`fill_col`, with the pictogram ink
+	## `ink_col` chosen for contrast against it). A zero alpha means "not given" (every landmark, POI and City
+	## Viewer caller), which keeps the note-state fill and the INK pictogram they always had.
+	if fill_col.a > 0.0:
+		fill = fill_col
 	fill.a *= alpha
-	var ink := INK
+	var ink := INK if ink_col.a <= 0.0 else ink_col
 	ink.a *= alpha
 	var edge := outline
 	edge.a *= alpha
 	ci.draw_colored_polygon(poly, fill)
 	var closed := poly.duplicate()
 	closed.append(poly[0])
-	ci.draw_polyline(closed, edge, maxf(1.0, 1.3 * w * r / 9.0), true)
+	ci.draw_polyline(closed, edge, maxf(min_line, 1.3 * w * r / 9.0), true)
 	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
 	var s := r * 0.62
-	var lw := maxf(1.0, 1.4 * w * r / 9.0)
+	var lw := maxf(min_line, 1.4 * w * r / 9.0)
 	for f in pic.get("fills", []):
 		ci.draw_colored_polygon(_xf(f, head, s), ink)
 	for c in pic.get("cuts", []):
@@ -351,8 +379,8 @@ const BADGE_OFFSET := 0.72
 ## file named exactly like the kind always wins (`icon_name_for`: the painted extra sheet is named after the engine kinds, so
 ## shrine, fort, tomb... resolve there with no row here). These rows are for kinds whose picture is a CLOSE match to a
 ## differently named file: the 12 `cartalith_civ::poi::PoiKind` keys, the 52 landmark keys
-## (`cartalith_civ::landmark::kinds()`), the City Viewer's derived kinds and the settlement tiers (settlements do not draw as
-## pins today, so tier rows wait for CL-10). Owner, 2026-11-15, "Fort can't borrow": **nothing fortified borrows the castle
+## (`cartalith_civ::landmark::kinds()`), the City Viewer's derived kinds and the settlement tiers (the map's towns and villages
+## draw as pins since Ruling FF item 1, CL-10). Owner, 2026-11-15, "Fort can't borrow": **nothing fortified borrows the castle
 ## (a fort draws its own `fort` icon where the set has one, else the drawn pin)** and no row stretches to a near miss.
 ## **A kind with neither its own file nor a row here draws the drawn pin.** Every row is a labelled judgement.
 const KIND_ICON := {

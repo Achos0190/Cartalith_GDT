@@ -2448,6 +2448,7 @@ func _ready() -> void:
 ## the frame simply gets the old, uninset behaviour.
 func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
 	_settlements = settlements
+	_fan_rev += 1   ## Ruling FF: settlement pins join the tilt and declutter rules, which are built from this roster
 	_roads = roads
 	_sea_routes = sea_routes
 	_gw = gw
@@ -4253,6 +4254,130 @@ func _settlement_pin_radius(kind: String, rect: Rect2) -> float:
 	return (4.0 + float(klass["rank"])) * sc
 
 
+## ── Settlement pins (Ruling FF item 1, owner 2026-11-15) ────────────────────────────────────────────────────────────────
+##
+## In the Pins styles (drawn Pins, Pins: icons, Pins: painted) a town or village is a teardrop pin at EVERY zoom, in place of
+## the disc and glyph (and the low-zoom dot) the reference draws. The Circles style keeps its discs byte for byte. The pin is
+## filled with the faction's colour (an icon set's picture carries its own colours, so the faction is a small badge on its
+## head instead), carries the tier's pictogram (`PinMarker.KIND_ICON` rows capital, city, town, village, hamlet), tilts with
+## its neighbours (Ruling FA, `_fan`'s `s_a`) and is thinned by the declutter rule with the landmark pins (CL-12, ranked
+## by `DECLUTTER_SETTLE_RANK`). The capital ring, faith ring, coastal badge, trait badges and the new-settlement halo
+## are drawn around the HEAD. Never writes generation data and never decides what a click does.
+
+## True when settlements draw and pick as pins: every marker style but Circles.
+func _settle_pins_on() -> bool:
+	return not DccSettings.markers_are_circles()
+
+## The kind a settlement's pin shows: a capital (the flag, whatever the size tier) shows the capital icon.
+func _settle_display_kind(s: Dictionary) -> String:
+	var kd := String(s.get("kind", "town"))
+	if bool(s.get("capital", false)) and kd != "metropolis":
+		return "capital"
+	return kd
+
+## The pin head radius (local px) of a settlement of tier `kind`: the reference's own tier size (`(4 + rank) * sc`) or the
+## readable floor (`PIN_HEAD_MIN_PX` screen px per UI unit, grown by `SETTLE_PIN_RANK_GROW` per tier), whichever is larger. An
+## export has no camera and takes the tier size. The ONE definition the plan, the declutter walk and every hit test share.
+func _settlement_head_r(kind: String, rect: Rect2) -> float:
+	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	var rank := float((SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"]) as Dictionary)["rank"])
+	var r := (4.0 + rank) * sc
+	if _export_mode:
+		return r
+	return maxf(r, PIN_HEAD_MIN_PX * _pin_unit() * (1.0 + SETTLE_PIN_RANK_GROW * rank) / maxf(_camera_zoom, 0.001))
+
+## The tilt (radians about the tip) of settlement pin `i`; 0 for a lone pin and in the Circles style.
+func _tilt_s(i: int, rect: Rect2) -> float:
+	return float((_fan(rect)["s_a"] as Dictionary).get(i, 0.0))
+
+## `Rect2`-free geometry of settlement `i`'s pin at screen position `pos`: `{hr, r, stem, angle, head, kind, icon, bbox}`. `hr` is
+## the head radius asked of `PinMarker` (hover grows it), `r`/`stem` the shape it resolves to (an icon's head is bigger), `bbox`
+## the box the pin occupies (tilt included), which its name steps around and later names step around.
+func _settlement_pin_geom(i: int, s: Dictionary, pos: Vector2, rect: Rect2, sc: float) -> Dictionary:
+	var dk := _settle_display_kind(s)
+	var hr := _settlement_head_r(String(s["kind"]), rect)
+	if i == _hover_index:
+		hr += 1.5 * sc
+	var angle := _tilt_s(i, rect)
+	var sh := PinMarker.shape(hr, dk, DccSettings.marker_icon_set())
+	var rh := float(sh["r"])
+	var g := PinMarker.geometry(pos, rh, angle, float(sh["stem"]))
+	var head: Vector2 = g["head"]
+	var bb := Rect2(pos, Vector2.ZERO)
+	for pt: Vector2 in (g["poly"] as PackedVector2Array):
+		bb = bb.expand(pt)
+	bb = bb.expand(head - Vector2(rh, rh)).expand(head + Vector2(rh, rh))
+	return {"hr": hr, "r": rh, "stem": float(sh["stem"]), "angle": angle, "head": head, "kind": dk,
+		"icon": String(sh["icon"]), "bbox": bb}
+
+## The four places a pin's name is tried, beside the pin first (right, left) and then above and below its box, as boxes in
+## local px; `drop` clears the trait-badge row under the pin like `_settlement_label_candidates`' `below`. A name placed in one of
+## these cannot overlap the pin, whatever its tilt, since each box starts a gap outside `bbox`.
+func _pin_label_candidates(bbox: Rect2, sc: float, w: float, h: float, drop: float = 0.0) -> Array[Rect2]:
+	var gap := 2.0 * sc
+	var c := bbox.get_center()
+	return [
+		Rect2(Vector2(bbox.end.x + gap, c.y - h / 2.0), Vector2(w, h)),                 # right
+		Rect2(Vector2(bbox.position.x - gap - w, c.y - h / 2.0), Vector2(w, h)),         # left
+		Rect2(Vector2(c.x - w / 2.0, bbox.position.y - gap - h), Vector2(w, h)),         # above
+		Rect2(Vector2(c.x - w / 2.0, bbox.end.y + gap + drop), Vector2(w, h)),           # below
+	]
+
+## The drawn pin's hit test for settlement `i` (anchor screen position `pos`): the sort distance (`PinMarker.rank_distance`, so a
+## click on a head picks that head) when `mouse` is inside the pin's head or stem, else `INF`. A thinned pin is not drawn as
+## a pin, so it is not picked. The footprint is exactly `_settlement_pin_geom`'s shape, tilted as drawn.
+func _settlement_pin_hit(i: int, s: Dictionary, pos: Vector2, mouse: Vector2, rect: Rect2) -> float:
+	if _settlement_declutter_hidden(i, rect):
+		return INF
+	var dk := _settle_display_kind(s)
+	var iset := DccSettings.marker_icon_set()
+	var r := _settlement_head_r(String(s["kind"]), rect)
+	var ang := _tilt_s(i, rect)
+	if not PinMarker.hit_styled(pos, r, mouse, _landmark_pin_pad(r), false, ang, dk, iset):
+		return INF
+	return PinMarker.rank_distance(pos, r, mouse, false, ang, dk, iset)
+
+## One settlement drawn as a pin (`_draw_settlement_pin`'s pin branch): the teardrop in the faction colour, its rings and
+## badges around the head, the trait badges below the pin and the name in the box the plan placed. Draws what the plan decided.
+func _draw_settlement_pin_marker(e: Dictionary, s: Dictionary, color: Color, sc: float, k: float, font: Font) -> void:
+	var pe: Dictionary = e["pin"]
+	var pos: Vector2 = e["pos"]
+	var head: Vector2 = pe["head"]
+	var rh: float = pe["r"]
+	var angle: float = pe["angle"]
+	## The pictogram's ink against the faction fill, by the same two-candidate contrast rule `pin_glyph_ink` uses.
+	var ink := Color.WHITE if contrast_ratio(Color.WHITE, color) >= contrast_ratio(PIN_GLYPH_DARK, color) else PIN_GLYPH_DARK
+	PinMarker.draw(_cv, pos, float(pe["hr"]), String(pe["kind"]), false, _sym_gain * _landmark_zoom_k(), 1.0, PinMarker.INK,
+		angle, DccSettings.marker_icon_set(), color, ink, 1.0 / maxf(_camera_zoom, 0.001))
+	if String(pe["icon"]) != "":
+		## An icon picture carries its own colours: the faction rides on a small badge at the head's upper-left rim.
+		var at := head + (Vector2(-PinMarker.BADGE_OFFSET, -PinMarker.BADGE_OFFSET) * rh).rotated(angle)
+		## The floors are SCREEN pixels (`/ zoom`): a local-unit floor made this badge a 23 px blob beside a 10 px head at x11.
+		var px := 1.0 / maxf(_camera_zoom, 0.001)
+		var br := maxf(2.0 * px, 0.26 * rh)
+		_cv.draw_circle(at, br + maxf(px, 0.07 * rh), PinMarker.INK, true, -1.0, true)
+		_cv.draw_circle(at, br, color, true, -1.0, true)
+	if s["capital"]:
+		_cv.draw_arc(head, rh + CAPITAL_RING_WIDTH * sc, 0, TAU, 28, color, CAPITAL_RING_WIDTH * sc, true)
+	if _faith_diverged(s):
+		var ring_r: float = rh + CAPITAL_RING_WIDTH * sc + FAITH_RING_PAD_SC * sc
+		for a in FAITH_RING_ARCS:
+			var from: float = TAU * float(a) / float(FAITH_RING_ARCS)
+			_cv.draw_arc(head, ring_r, from, from + FAITH_RING_SPAN, 10, FAITH_RING_SHADOW, (FAITH_RING_WIDTH + 1.2) * sc, true)
+			_cv.draw_arc(head, ring_r, from, from + FAITH_RING_SPAN, 10, FAITH_RING_COLOR, FAITH_RING_WIDTH * sc, true)
+	if s.get("coastal", false):
+		var badge_r: float = COASTAL_BADGE_R_SC * sc
+		var badge_pos := head + Vector2(rh, rh) * 0.62
+		_cv.draw_circle(badge_pos, badge_r + 0.5 * sc, COASTAL_BADGE_OUTLINE, true, -1.0, true)
+		_cv.draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
+	if _tl_added_tids.has(int(s.get("tid", 0))):
+		_draw_tl_halo(head, rh, sc, bool(s["capital"]))
+	## Trait badges hang under the pin's whole box, the circle of its half height centred on the box.
+	var bb: Rect2 = pe["bbox"]
+	_draw_trait_badges(s, bb.get_center(), bb.size.y * 0.5, sc, k, font)
+	_draw_settlement_name(e, s, float(e["radius"]), sc, k, font)
+
+
 ## Reference lines 15716-15721 (`lblCandidates`; v2.11 line 16199): the four
 ## label positions a settlement name is tried at, above -> below -> right ->
 ## left, as screen-space boxes centred on the pin. `gap` matches the
@@ -5671,6 +5796,13 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 		if not interior.has_point(pos):
 			continue
 		var kind: String = s["kind"]
+		## Ruling FF item 1: in the Pins styles a settlement is a teardrop pin at EVERY zoom, so the LOD dot below is
+		## replaced by the pin; the only dot left is the stand-in for a pin the declutter rule thinned (a faction dot
+		## that keeps the road endpoint anchored, never picked). The Circles style keeps the reference's own LOD dot.
+		var pins := _settle_pins_on()
+		if pins and _settlement_declutter_hidden(i, rect):
+			entries.append({"i": i, "pos": pos, "dot": true})
+			continue
 		# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
 		# doc comment above for the full derivation and real-world-mapping
 		# citations): below this tier's own zoom threshold, draw a small
@@ -5681,13 +5813,17 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 		# radius bump, no capital ring -- all reference behaviour for the
 		# dot branch (reference lines 15747-15756 draw nothing else for
 		# it either).
-		if _settlement_below_lod(kind):
+		if not pins and _settlement_below_lod(kind):
 			entries.append({"i": i, "pos": pos, "dot": true})
 			continue
 		var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
 		var radius: float = (4.0 + float(klass["rank"])) * sc
 		if i == _hover_index:
 			radius += 1.5
+		## The pin's own geometry (`_settlement_pin_geom`): the label is placed around its bounding box, never over it.
+		var pe: Dictionary = {}
+		if pins:
+			pe = _settlement_pin_geom(i, s, pos, rect, sc)
 		# Auto-placed name label -- see this function's own top comment for
 		# the simplified-occupancy-set reasoning. `label_px` and the measured
 		# `lw`/`lh` are screen pixels (see the glyph's note in
@@ -5702,7 +5838,12 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 			## The `drop` argument is `isPoi?0:_civTraitDrop(p,sz,lsc)` in
 			## the reference (line 15770) -- see `_trait_drop()` for why
 			## the POI half of that ternary has no analogue here.
-			for box in _settlement_label_candidates(pos, radius, sc, lw, lh, _trait_drop(s, radius, sc)):
+			var cands: Array[Rect2] = []
+			if pins:
+				cands = _pin_label_candidates(pe["bbox"], sc, lw, lh, _trait_drop(s, radius, sc))
+			else:
+				cands = _settlement_label_candidates(pos, radius, sc, lw, lh, _trait_drop(s, radius, sc))
+			for box in cands:
 				var fits := true
 				for occ in occupied:
 					if occ.intersects(box):
@@ -5713,7 +5854,12 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 				occupied.append(box)
 				placed = box
 				break
-		entries.append({"i": i, "pos": pos, "dot": false, "radius": radius, "box": placed})
+		if pins:
+			## The pin reserves its own box, so a name placed after it (a lower tier's) steps around it.
+			occupied.append(pe["bbox"])
+			entries.append({"i": i, "pos": pos, "dot": false, "radius": radius, "box": placed, "pin": pe})
+		else:
+			entries.append({"i": i, "pos": pos, "dot": false, "radius": radius, "box": placed})
 
 
 ## Drawing chunk `idx` of `count` of the settlement layer: that slice of the
@@ -5760,6 +5906,9 @@ func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> voi
 		return
 	var klass: Dictionary = SETTLEMENT_CLASS.get(s["kind"], SETTLEMENT_CLASS["town"])
 	var radius: float = e["radius"]
+	if e.has("pin"):
+		_draw_settlement_pin_marker(e, s, color, sc, k, font)
+		return
 
 	## `antialiased` (the 6th positional arg) defaults to `false` in
 	## Godot 4 -- left implicit here would draw a visibly jagged
@@ -5863,9 +6012,12 @@ func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> voi
 	# `radius` feeds `_trait_drop()` in the plan, so the badges and the
 	# clearance reserved for them can never disagree.
 	_draw_trait_badges(s, pos, radius, sc, k, font)
+	_draw_settlement_name(e, s, radius, sc, k, font)
 
-	# The name, in the box the plan placed it in (`box == null`: it fit
-	# nowhere and is dropped, as the reference drops it).
+
+## The name, in the box the plan placed it in (`box == null`: it fit nowhere and is dropped, as the reference drops it).
+## Shared by the disc and the pin marker so the two draw one label rule.
+func _draw_settlement_name(e: Dictionary, s: Dictionary, radius: float, sc: float, k: float, font: Font) -> void:
 	if e["box"] == null:
 		return
 	var name: String = s.get("name", "")
@@ -6623,6 +6775,18 @@ func _near_a_town(p: Vector2, grid: Dictionary, bsz: float, rad: float) -> bool:
 ## City Viewer (its pins are the town's own). Never writes generation data.
 const DECLUTTER_CLASS_RANK := {"continental": 3, "regional": 2, "cultural": 1, "local": 0}
 const DECLUTTER_SPACING := 1.5
+## Ruling FF item 1: a settlement tier's place on the declutter rank scale it shares with `DECLUTTER_CLASS_RANK` (0 local to 3
+## continental). Labelled judgement of the owner's rule ("settlements rank above minor landmarks, capitals and cities highest"):
+## capital and metropolis 6 and city 5 above every landmark class; town 3 level with continental (population breaks the tie);
+## village 1.5 and hamlet 1.1 above local (0) and cultural (1) and below regional (2).
+const DECLUTTER_SETTLE_RANK := {"metropolis": 6.0, "capital": 6.0, "city": 5.0, "town": 3.0, "village": 1.5, "hamlet": 1.1}
+## Ids in `_declutter_order` at or above this are settlements (`index + base`); below are landmarks. A landmark index never gets there.
+const _DC_SETTLE_BASE := 3000000
+## Ids in `_fan`'s item list at or above this are settlements (above `_FAN_POI_BASE`, which no list reaches).
+const _FAN_SETTLE_BASE := 2000000
+## A settlement pin's head grows with its tier, so the hierarchy reads even where every head sits on the readable floor
+## (`PIN_HEAD_MIN_PX`): head = floor * (1 + this * rank), rank 0 hamlet to 5 metropolis. Labelled judgement (Ruling FF).
+const SETTLE_PIN_RANK_GROW := 0.12
 ## A tip within this many head radii of another pin's head centre sits on that head (a stack): `STEM_RATIO` 2.1 puts the
 ## upright pin below a neighbour's tip at 2.1 radii from its own head; 1.2 radii of clearance is the head itself plus a margin.
 const DECLUTTER_TIP_CLEAR := 1.2
@@ -6635,6 +6799,8 @@ var _dc_order_key: Array = []
 var _dc_order := PackedInt32Array()   ## landmark indices best-first, the walk order (zoom-independent)
 var _dc_key: Array = []
 var _dc_hidden: Dictionary = {}   ## {landmark index: true} for every decluttered pin at `_dc_key`'s view
+var _dc_hidden_s: Dictionary = {}   ## {settlement index: true} for every decluttered settlement pin, same view (Ruling FF)
+var _settle_pinned := -1            ## the selected settlement index (a click's pick), kept visible; -1 when none
 
 ## Marks landmark `i` as the selected pin (`-1` clears it): the declutter rule always keeps it, so a pin the user picked
 ## (or that Find-on-map jumped to) cannot vanish under them.
@@ -6644,43 +6810,69 @@ func set_selected_landmark(i: int) -> void:
 	_lm_pinned = i
 	queue_redraw()
 
-## True when the declutter rule applies at all: the pins style, a live view (not an export), the layer on.
+## Marks settlement `i` as the selected pin (`-1` clears it): the declutter rule always keeps it (Ruling FF), as it does a
+## selected landmark.
+func set_selected_settlement(i: int) -> void:
+	if i == _settle_pinned:
+		return
+	_settle_pinned = i
+	queue_redraw()
+
+## True when the declutter rule applies at all: the pins style and a live view (not an export). Ruling FF item 1 made it
+## cover the settlement pins too, so it no longer needs the landmark layer on: each walk below skips what is not drawn.
 func _declutter_active() -> bool:
-	return declutter_enabled and _landmarks_visible and not _export_mode and not DccSettings.markers_are_circles()
+	return declutter_enabled and not _export_mode and not DccSettings.markers_are_circles()
 
 ## The view signature the decluttered set depends on (used in `_fan`'s cache key and this rule's own).
 func _declutter_sig(rect: Rect2) -> Array:
 	if not _declutter_active():
 		return [false]
 	return [true, rect.size, _camera_zoom, _fan_rev, _landmarks.size(), _hidden_landmark_kinds.hash(), _pin_notes_rev,
-		_lm_pinned, _pin_unit(), _landmark_zoom_k(), _town_layer_zoom_reached(rect)]
+		_lm_pinned, _pin_unit(), _landmark_zoom_k(), _landmarks_visible, _show_settlements, _hidden_settlement_kinds.hash(),
+		_settlements.size(), _settle_pinned, _town_layer_zoom_reached(rect)]
 
-## The walk order: always-keep first, then class, importance, score, index. Rebuilt only when the list, the notes or the
+## The walk order: always-keep first, then rank, importance, score, index. Rebuilt only when the lists, the notes or the
 ## selection change (never per zoom), so a pinch zoom costs the greedy walk and not a sort.
+##
+## **Ruling FF item 1: one walk over landmarks AND settlements.** A settlement id is `_DC_SETTLE_BASE + index`. The rank column
+## is one scale: a landmark's class (`DECLUTTER_CLASS_RANK`, 0 to 3) or a settlement's tier (`DECLUTTER_SETTLE_RANK`), so a
+## capital or city (6, 5) outranks every landmark class and a village or hamlet (1.5, 1.1) outranks only the minor classes
+## (local, cultural), as the owner asked ("settlements above minor landmarks, capitals and cities highest"). A capital is
+## ALWAYS kept, like a noted or selected landmark. On a full tie a settlement comes before a landmark.
 func _declutter_order() -> PackedInt32Array:
 	_ensure_pin_notes()
-	var okey := [_fan_rev, _landmarks.size(), _pin_notes_rev, _lm_pinned]
+	var okey := [_fan_rev, _landmarks.size(), _pin_notes_rev, _lm_pinned, _landmarks_visible, _show_settlements,
+		_settlements.size(), _settle_pinned]
 	if okey == _dc_order_key:
 		return _dc_order
 	_dc_order_key = okey
 	var rows: Array = []
-	for i in _landmarks.size():
-		var lm: Dictionary = _landmarks[i]
-		var keep := 1 if (i == _lm_pinned or landmark_has_note(i)) else 0
-		rows.append([keep, int(DECLUTTER_CLASS_RANK.get(String(lm.get("class", "local")).to_lower(), 0)),
-			float(lm.get("importance", 0.0)), float(lm.get("score", 0.0)), i])
+	if _landmarks_visible:
+		for i in _landmarks.size():
+			var lm: Dictionary = _landmarks[i]
+			var keep := 1 if (i == _lm_pinned or landmark_has_note(i)) else 0
+			rows.append([keep, float(DECLUTTER_CLASS_RANK.get(String(lm.get("class", "local")).to_lower(), 0)),
+				float(lm.get("importance", 0.0)), float(lm.get("score", 0.0)), 0, i])
+	if _show_settlements:
+		for i in _settlements.size():
+			var st: Dictionary = _settlements[i]
+			var dk := _settle_display_kind(st)
+			var keep2 := 1 if (i == _settle_pinned or dk == "capital" or dk == "metropolis") else 0
+			rows.append([keep2, float(DECLUTTER_SETTLE_RANK.get(dk, 3.0)), 0.0, float(st.get("population", 0)), 1,
+				_DC_SETTLE_BASE + i])
 	rows.sort_custom(func(a, b) -> bool:
-		for k in 4:
+		for k in 5:
 			if a[k] != b[k]:
 				return a[k] > b[k]
-		return a[4] < b[4])
+		return a[5] < b[5])
 	var out := PackedInt32Array()
 	for r in rows:
-		out.append(int(r[4]))
+		out.append(int(r[5]))
 	_dc_order = out
 	return out
 
-## The set of decluttered landmark indices for the view `rect` (see the block above), cached per view signature.
+## The set of decluttered landmark indices for the view `rect` (see the block above), cached per view signature. The
+## settlements the same walk thins are `_declutter_hidden_settlements`.
 func _declutter_set(rect: Rect2) -> Dictionary:
 	if not _declutter_active():
 		return {}
@@ -6689,23 +6881,44 @@ func _declutter_set(rect: Rect2) -> Dictionary:
 		return _dc_hidden
 	_dc_key = sig
 	var hidden := {}
+	var hidden_s := {}
 	_dc_hidden = hidden
+	_dc_hidden_s = hidden_s
 	var order := _declutter_order()
 	var canon := Rect2(Vector2.ZERO, rect.size)
 	var town_shown := bool(sig[sig.size() - 1])
 	var members: Dictionary = _town_pin_membership()["lm"]
 	var rmax := 0.0
-	for i in _landmarks.size():
-		rmax = maxf(rmax, _landmark_pin_r(_landmarks[i]))
+	if _landmarks_visible:
+		for i in _landmarks.size():
+			rmax = maxf(rmax, _landmark_pin_r(_landmarks[i]))
+	if _show_settlements:
+		for kd: String in SETTLEMENT_CLASS:
+			rmax = maxf(rmax, _settlement_head_r(kd, canon))
 	var bsz := maxf(0.001, rmax * (DECLUTTER_SPACING * 2.0 + 0.5))
 	var grid := {}   ## Vector2i bucket -> Array of [tip, head, r] kept pins
-	for i in order:
-		var lm: Dictionary = _landmarks[i]
-		if not _landmark_shown(lm) or (not town_shown and members.has(i)):
-			continue   ## not drawn anyway; it takes no room and is not ours to hide
-		var forced := i == _lm_pinned or landmark_has_note(i)
-		var r := _landmark_pin_r(lm)
-		var tip := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)
+	for id in order:
+		var is_s: bool = id >= _DC_SETTLE_BASE
+		var i: int = id - _DC_SETTLE_BASE if is_s else id
+		var forced := false
+		var r := 0.0
+		var tip := Vector2.ZERO
+		if is_s:
+			var st: Dictionary = _settlements[i]
+			if _hidden_settlement_kinds.has(st["kind"]) or _settlement_hidden(st) \
+					or _tl_ghost_tids.has(int(st.get("tid", 0))):
+				continue   ## not drawn as a pin anyway; it takes no room
+			var dk := _settle_display_kind(st)
+			forced = i == _settle_pinned or dk == "capital" or dk == "metropolis"
+			r = _settlement_head_r(String(st["kind"]), canon)
+			tip = _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon)
+		else:
+			var lm: Dictionary = _landmarks[i]
+			if not _landmark_shown(lm) or (not town_shown and members.has(i)):
+				continue   ## not drawn anyway; it takes no room and is not ours to hide
+			forced = i == _lm_pinned or landmark_has_note(i)
+			r = _landmark_pin_r(lm)
+			tip = _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)
 		var head := tip + Vector2(0.0, -PinMarker.STEM_RATIO * r)
 		var k := Vector2i(floori(tip.x / bsz), floori(tip.y / bsz))
 		var clash := false
@@ -6723,12 +6936,26 @@ func _declutter_set(rect: Rect2) -> Dictionary:
 			if clash:
 				break
 		if clash and not forced:
-			hidden[i] = true
+			if is_s:
+				hidden_s[i] = true
+			else:
+				hidden[i] = true
 			continue
 		if not grid.has(k):
 			grid[k] = []
 		(grid[k] as Array).append([tip, head, r])
 	return hidden
+
+## The settlement indices the same walk thins at this view (drawn as a dot, not picked, not tilted).
+func _declutter_hidden_settlements(rect: Rect2) -> Dictionary:
+	if not _declutter_active():
+		return {}
+	_declutter_set(rect)
+	return _dc_hidden_s
+
+## True when the declutter rule thins settlement `i` at this view (always false in the Circles style and in an export).
+func _settlement_declutter_hidden(i: int, rect: Rect2) -> bool:
+	return _declutter_active() and _declutter_hidden_settlements(rect).has(i)
 
 ## True when the declutter rule hides landmark `i` at this view.
 func _lm_declutter_hidden(i: int, rect: Rect2) -> bool:
@@ -6812,8 +7039,8 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 ## data and never on the pan: a pan cannot move a nudged head relative to its true point (no jitter). **Drawn and picked
 ## positions are the nudged ones**: `_nudged` is the one place every draw and every hit test asks.
 ##
-## Never writes generation data, never decides what a click does. Settlement pins and placed icons are not nudged (CL-10's
-## shapes decision is still open); a knot bigger than `PinMarker.FAN_MAX` is left in place (zoom resolves it).
+## Never writes generation data, never decides what a click does. Settlement pins tilt with the rest since Ruling FF item 1 (`_fan`'s
+## `s_a`), and placed icons are not nudged; a knot bigger than `PinMarker.FAN_MAX` is left in place (zoom resolves it).
 var _fan_rev := 0
 var _fan_cache: Dictionary = {}   ## {key: {"lm": {index: offset}, "poi": {index: offset}}}, a few entries at most
 ## POI items take ids from this base so one id space serves both lists (a landmark index never reaches it).
@@ -6827,7 +7054,7 @@ func _fan(rect: Rect2) -> Dictionary:
 	var town_shown := _town_layer_zoom_reached(rect)   ## Ruling FC: a hidden town pin must not tilt its neighbours
 	var key := [rect.size, _camera_zoom, circles, _fan_rev, _landmarks.size(), _pois.size(), _landmarks_visible,
 		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k(), iset, town_shown,
-		_declutter_sig(rect)]
+		_declutter_sig(rect), _settlements.size(), _show_settlements, _hidden_settlement_kinds.hash()]
 	if _fan_cache.has(key):
 		return _fan_cache[key]
 	var canon := Rect2(Vector2.ZERO, rect.size)
@@ -6848,16 +7075,30 @@ func _fan(rect: Rect2) -> Dictionary:
 			"pos": _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), canon)})
 	## Circles slide (`fan_offsets`, with leaders); pins TILT about their tips (`tilt_angles`, Ruling FA). Each returns `{}`
 	## in the other style, so exactly one of the two pairs of keys is ever filled.
+	## Ruling FF item 1: a settlement pin tilts with its neighbours like any other pin (Pins styles only: the Circles style
+	## keeps its discs, which never entered the slide). A thinned or hidden one neither draws nor tilts a neighbour.
+	if not circles and _show_settlements:
+		var canon_r := Rect2(Vector2.ZERO, rect.size)
+		for i in _settlements.size():
+			var st: Dictionary = _settlements[i]
+			if _hidden_settlement_kinds.has(st["kind"]) or _settlement_hidden(st) \
+					or _tl_ghost_tids.has(int(st.get("tid", 0))) or _settlement_declutter_hidden(i, rect):
+				continue
+			items.append({"id": _FAN_SETTLE_BASE + i, "r": _settlement_head_r(String(st["kind"]), canon_r),
+				"kind": _settle_display_kind(st),
+				"pos": _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon_r)})
 	var raw := PinMarker.fan_offsets(items, circles)
 	var tilt := {} if circles else PinMarker.tilt_angles(items, iset)
-	var res := {"lm": {}, "poi": {}, "lm_a": {}, "poi_a": {}}
+	var res := {"lm": {}, "poi": {}, "lm_a": {}, "poi_a": {}, "s_a": {}}
 	for id in raw:
 		if int(id) >= _FAN_POI_BASE:
 			res["poi"][int(id) - _FAN_POI_BASE] = raw[id]
 		else:
 			res["lm"][int(id)] = raw[id]
 	for id in tilt:
-		if int(id) >= _FAN_POI_BASE:
+		if int(id) >= _FAN_SETTLE_BASE:
+			res["s_a"][int(id) - _FAN_SETTLE_BASE] = tilt[id]
+		elif int(id) >= _FAN_POI_BASE:
 			res["poi_a"][int(id) - _FAN_POI_BASE] = tilt[id]
 		else:
 			res["lm_a"][int(id)] = tilt[id]
@@ -8363,6 +8604,13 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 		## `_draw()` skips it, and ghosts are not pickable, so neither is it.
 		if _tl_ghost_tids.has(int(s.get("tid", 0))):
 			continue
+		## Ruling FF item 1: in the Pins styles the picked shape is the DRAWN pin (head and stem, tilted, as the marker draws).
+		if _settle_pins_on():
+			var pd := _settlement_pin_hit(i, s, pos, mouse, rect)
+			if pd < closest_dist:
+				closest = i
+				closest_dist = pd
+			continue
 		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)
 		if d <= radius and d < closest_dist:
@@ -8592,7 +8840,10 @@ func hits_at(mouse: Vector2) -> Array:
 		if not interior.has_point(pos) or _settlement_hidden(s):
 			continue
 		var d := mouse.distance_to(pos)
-		if d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
+		if _settle_pins_on():
+			if _settlement_pin_hit(i, s, pos, mouse, rect) < INF:   ## Ruling FF: the drawn pin's footprint
+				hits.append(_hit("settlement", i, s.get("name"), d))
+		elif d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
 			hits.append(_hit("settlement", i, s.get("name"), d))
 	if _landmarks_visible:
 		## Same refusals and the same pin footprint as `_hit_test_landmark` (CL-2).
@@ -8884,6 +9135,7 @@ func _gui_input(event: InputEvent) -> void:
 				_touch_press = {"hit": hit, "lm": lhit, "ic": ihit, "point": p, "pos": mb.position}
 				set_process(true)
 				return
+			set_selected_settlement(hit)
 			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			set_selected_landmark(lhit)   ## the declutter rule keeps the selected pin
 			landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
@@ -8977,6 +9229,8 @@ func _release_touch_press() -> void:
 	var hit: int = int(_touch_press.get("hit", -1))
 	var lhit: int = int(_touch_press.get("lm", -1))
 	var p: Dictionary = _touch_press.get("point", {})
+	hit = hit if hit < _settlements.size() else -1
+	set_selected_settlement(hit)
 	settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 	## Guarded: the landmark array can be replaced during a held press.
 	lhit = lhit if lhit < _landmarks.size() else -1
