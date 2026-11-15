@@ -320,7 +320,7 @@ static func _furrows(fp: PackedVector2Array, m_scale: float, dark: PackedVector2
 ## map the base map already paints the water underneath.
 static func _draw_water(ci: CanvasItem, layout: Dictionary, project: Callable, m_scale: float,
 		px_floor: float, tint: Callable) -> void:
-	var water: PackedVector2Array = layout.get("water_poly", PackedVector2Array())
+	var water: PackedVector2Array = BASE.SHORE.smooth_water_poly(layout)  # drawing only; see `urban_shore.gd`
 	if water.size() >= 3:
 		var wp: PackedVector2Array = project.call(water)
 		var wl := wp.duplicate()
@@ -328,7 +328,7 @@ static func _draw_water(ci: CanvasItem, layout: Dictionary, project: Callable, m
 		ci.draw_polyline(wl, tint.call(SEA_SHORE), maxf(px_floor * 8.0, 7.0 * m_scale), true)
 		ci.draw_polyline(wl, tint.call(SAND), maxf(px_floor * 3.0, 2.5 * m_scale), true)
 		BASE._fill_ground_polygon(ci, wp, tint.call(SEA))
-	var river: PackedVector2Array = layout.get("river", PackedVector2Array())
+	var river: PackedVector2Array = BASE.SHORE.smooth_river(layout)  # drawing only; see `urban_shore.gd`
 	if water.size() < 3 and river.size() >= 2:
 		ci.draw_polyline(project.call(river), tint.call(SEA),
 			maxf(px_floor * 3.0, float(layout.get("river_w", 20.0)) * m_scale), true)
@@ -343,7 +343,7 @@ static func _draw_water(ci: CanvasItem, layout: Dictionary, project: Callable, m
 ## the layout.
 static func _draw_shore_band(ci: CanvasItem, layout: Dictionary, project: Callable, m_scale: float,
 		px_floor: float, tint: Callable) -> void:
-	var water: PackedVector2Array = layout.get("water_poly", PackedVector2Array())
+	var water: PackedVector2Array = BASE.SHORE.smooth_water_poly(layout)  # drawing only; see `urban_shore.gd`
 	if water.size() < 3:
 		return
 	var band := clampf(SHORE_BAND_M * m_scale, SHORE_BAND_MIN_PX * px_floor, SHORE_BAND_MAX_PX * px_floor)

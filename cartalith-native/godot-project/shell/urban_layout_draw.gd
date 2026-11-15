@@ -76,6 +76,9 @@ class_name UrbanLayoutDraw
 ## market anchor, approach-road ends), never as map ink, which is how the two
 ## visual languages sit together without competing.
 
+## The smooth sea/lake shore (`urban_shore.gd`), preloaded rather than a `class_name` so no import pass is needed.
+const SHORE := preload("res://shell/urban_shore.gd")
+
 ## `_umDrawLayout`'s own palette, RGB for RGB — the reference's 8-bit values
 ## in the comment beside each, written as float components because `Color8()`
 ## is a runtime call and these are `const`.
@@ -442,7 +445,8 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# Water next, opaque, so the crossfade alpha is the only transparency --
 	# the reference's own note: the town read see-through at full zoom because
 	# the fills themselves were < 1 alpha.
-	var water_poly: PackedVector2Array = layout.get("water_poly", PackedVector2Array())
+	## Smoothed for drawing only when it is the traced mask staircase (`urban_shore.gd`); the stored polygon is untouched.
+	var water_poly: PackedVector2Array = SHORE.smooth_water_poly(layout)
 	if draw_water and water_poly.size() >= 3:
 		ci.draw_colored_polygon(project.call(water_poly), tint.call(WATER))
 
@@ -450,7 +454,8 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# it relies on `waterPoly` covering it. A coastal site has no closed water
 	# polygon at all (`buildSite` traces a shoreline, not a body), so without
 	# this the water would simply not be visible on those sites.
-	var river: PackedVector2Array = layout.get("river", PackedVector2Array())
+	## A coastal site's `river` is its traced shoreline, a staircase: smoothed for drawing only (`urban_shore.gd`).
+	var river: PackedVector2Array = SHORE.smooth_river(layout)
 	if draw_water and river.size() >= 2 and water_poly.size() < 3:
 		var rw: float = maxf(px_floor, float(layout.get("river_w", 20.0)) * m_scale)
 		ci.draw_polyline(project.call(river), tint.call(RIVER_LINE), rw, true)
@@ -709,6 +714,16 @@ static func _draw_water_mask(ci: CanvasItem, layout: Dictionary, project: Callab
 	var river_w: float = float(layout.get("river_w", 20.0))
 	var release_r: float = river_w * 0.5 + 20.0
 	var water: Color = tint.call(WATER)
+
+	## Smooth shore (owner, 2026-11-15, "Sea and lake should not draw as squares"): the same mask, drawn as smoothed
+	## polygons cached on the layout (`urban_shore.gd`) instead of one rectangle a row. DRAWING ONLY: what counts as
+	## water for placement is still the runs, untouched. The release discs below are subtracted inside the polygons.
+	## Falls back to the rectangles when the mask could not be traced (an over-large grid).
+	var release: Array = []
+	for p in release_pts:
+		release.append([p, release_r])
+	if SHORE.draw(ci, layout, release, project, water):
+		return
 
 	## Each run is one mask row, `quad[0]` its low corner and `quad[2]` its high
 	## one. Only the stretch of the row within `release_r` of a crossing is
