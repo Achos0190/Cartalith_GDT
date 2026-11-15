@@ -1702,6 +1702,7 @@ var _pin_note_source: Callable = Callable()
 ## The last answer, read lazily: `_pin_notes_dirty` is set by `set_landmarks()` and `invalidate_pin_notes()`.
 var _pin_notes: Dictionary = {}
 var _pin_notes_dirty := true
+var _pin_notes_rev := 0   ## bumped whenever `_pin_notes` is replaced; a cache key for the declutter rule
 
 ## Installs the note-state source (see `_pin_note_source`) and marks it unread.
 func set_pin_note_source(cb: Callable) -> void:
@@ -1729,6 +1730,7 @@ func _ensure_pin_notes() -> void:
 		var got: Variant = _pin_note_source.call()
 		if got is Dictionary and not (got as Dictionary).is_empty():
 			_pin_notes = got
+			_pin_notes_rev += 1   ## the declutter rule's always-keep set reads the linked notes
 			_pin_notes_dirty = false
 
 ## Whether user-placed point of interest `poi` (a `poi_list()` row) has a linked vault note: its stored id's
@@ -6087,8 +6089,8 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 			var lm: Dictionary = _landmarks[li]
 			if not _landmark_shown(lm):
 				continue   ## its kind is filtered out (owner, 2026-10-19)
-			if _lm_town_hidden(li, rect):
-				continue   ## Ruling FC: a town's pin waits for the town
+			if _lm_hidden(li, rect):
+				continue   ## Ruling FC: a town's pin waits for the town; the declutter rule (below) thins the rest
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
@@ -6580,6 +6582,152 @@ func _near_a_town(p: Vector2, grid: Dictionary, bsz: float, rad: float) -> bool:
 					return true
 	return false
 
+## ── Pin declutter (OUTSTANDING_WORK.md "Map pins swamp the zoomed-out map"; CITY_MAP_LOOK_SCOPE.md CL-12) ──────────────────
+##
+## At the phone's fit zoom the generated landmark pins stood in stacks of dozens (`bc32d352`'s frame). A pin is the same size
+## in dp on every form (measured), so the cause is DENSITY, and the cure is a screen-space rule that thins the pins to what
+## fits and brings the rest back as the view zooms in. **The rule** (generated landmark PINS only):
+##
+##   1. Rank every candidate: (a) the always-keep set first (the selected pin, `_lm_pinned`, and a pin with a linked vault
+##      note), then (b) class `continental > regional > cultural > local` (`DECLUTTER_CLASS_RANK`; a cultural pin outranks a
+##      local one because it is a civilisation's mark, a labelled judgement), then (c) `importance` desc, (d) `score` desc,
+##      (e) list index asc, so the order is total and the same on every run.
+##   2. Walk that order and KEEP a pin unless an already-kept pin conflicts with it. Two pins conflict when their head
+##      centres are closer than `DECLUTTER_SPACING` x the sum of their head radii (1.5: a clear gap of half a radius sum
+##      between heads, "about two pin-heads wide" for a cell), or when one's TIP sits on the other's head (a vertical stack
+##      at less than ~3.2 radii). The always-keep set is never dropped, only the others yield to it.
+##
+## **Stable while panning, by construction:** a conflict is a distance between two pins, and a pan translates every pin by the
+## same vector, so no decision can change. The walk covers every landmark, on screen or not, so a pin sliding in at the edge
+## cannot change a decision elsewhere, and it is measured on a CANONICAL rect (the displayed size at the origin, as `_fan`
+## does) so even the floating-point sums are the same at every pan. (Measured equivalent: the probe's mutant that uses the live
+## rect instead moves nothing, because only translation differs; the canonical rect is hygiene, not the guarantee.) **Hidden pins are not
+## pickable and do not tilt a neighbour** (`_lm_hidden` is the one test draw, hit test, `hits_at` and `_fan` ask). Zooming in
+## shrinks the head in plane units, so the conflicts thin out and the lower-ranked pins come back; zooming out drops them.
+##
+## Not applied: the Circles marker style (small rings were never the swamp), an export (`_export_mode`, which draws the whole
+## map once at its own magnification), user-placed POIs (always shown, Ruling EW item 4, subject to Ruling FC only), and the
+## City Viewer (its pins are the town's own). Never writes generation data.
+const DECLUTTER_CLASS_RANK := {"continental": 3, "regional": 2, "cultural": 1, "local": 0}
+const DECLUTTER_SPACING := 1.5
+## A tip within this many head radii of another pin's head centre sits on that head (a stack): `STEM_RATIO` 2.1 puts the
+## upright pin below a neighbour's tip at 2.1 radii from its own head; 1.2 radii of clearance is the head itself plus a margin.
+const DECLUTTER_TIP_CLEAR := 1.2
+
+## The rule's master switch. `true` in the product (no setting exposes it); a probe turns it off to take the "before"
+## frame and the baseline count, and the rule reads it through `_declutter_active` so every consumer follows.
+var declutter_enabled := true
+var _lm_pinned := -1               ## the selected landmark index (a click's pick), kept visible; -1 when none
+var _dc_order_key: Array = []
+var _dc_order := PackedInt32Array()   ## landmark indices best-first, the walk order (zoom-independent)
+var _dc_key: Array = []
+var _dc_hidden: Dictionary = {}   ## {landmark index: true} for every decluttered pin at `_dc_key`'s view
+
+## Marks landmark `i` as the selected pin (`-1` clears it): the declutter rule always keeps it, so a pin the user picked
+## (or that Find-on-map jumped to) cannot vanish under them.
+func set_selected_landmark(i: int) -> void:
+	if i == _lm_pinned:
+		return
+	_lm_pinned = i
+	queue_redraw()
+
+## True when the declutter rule applies at all: the pins style, a live view (not an export), the layer on.
+func _declutter_active() -> bool:
+	return declutter_enabled and _landmarks_visible and not _export_mode and not DccSettings.markers_are_circles()
+
+## The view signature the decluttered set depends on (used in `_fan`'s cache key and this rule's own).
+func _declutter_sig(rect: Rect2) -> Array:
+	if not _declutter_active():
+		return [false]
+	return [true, rect.size, _camera_zoom, _fan_rev, _landmarks.size(), _hidden_landmark_kinds.hash(), _pin_notes_rev,
+		_lm_pinned, _pin_unit(), _landmark_zoom_k(), _town_layer_zoom_reached(rect)]
+
+## The walk order: always-keep first, then class, importance, score, index. Rebuilt only when the list, the notes or the
+## selection change (never per zoom), so a pinch zoom costs the greedy walk and not a sort.
+func _declutter_order() -> PackedInt32Array:
+	_ensure_pin_notes()
+	var okey := [_fan_rev, _landmarks.size(), _pin_notes_rev, _lm_pinned]
+	if okey == _dc_order_key:
+		return _dc_order
+	_dc_order_key = okey
+	var rows: Array = []
+	for i in _landmarks.size():
+		var lm: Dictionary = _landmarks[i]
+		var keep := 1 if (i == _lm_pinned or landmark_has_note(i)) else 0
+		rows.append([keep, int(DECLUTTER_CLASS_RANK.get(String(lm.get("class", "local")).to_lower(), 0)),
+			float(lm.get("importance", 0.0)), float(lm.get("score", 0.0)), i])
+	rows.sort_custom(func(a, b) -> bool:
+		for k in 4:
+			if a[k] != b[k]:
+				return a[k] > b[k]
+		return a[4] < b[4])
+	var out := PackedInt32Array()
+	for r in rows:
+		out.append(int(r[4]))
+	_dc_order = out
+	return out
+
+## The set of decluttered landmark indices for the view `rect` (see the block above), cached per view signature.
+func _declutter_set(rect: Rect2) -> Dictionary:
+	if not _declutter_active():
+		return {}
+	var sig := _declutter_sig(rect)
+	if sig == _dc_key:
+		return _dc_hidden
+	_dc_key = sig
+	var hidden := {}
+	_dc_hidden = hidden
+	var order := _declutter_order()
+	var canon := Rect2(Vector2.ZERO, rect.size)
+	var town_shown := bool(sig[sig.size() - 1])
+	var members: Dictionary = _town_pin_membership()["lm"]
+	var rmax := 0.0
+	for i in _landmarks.size():
+		rmax = maxf(rmax, _landmark_pin_r(_landmarks[i]))
+	var bsz := maxf(0.001, rmax * (DECLUTTER_SPACING * 2.0 + 0.5))
+	var grid := {}   ## Vector2i bucket -> Array of [tip, head, r] kept pins
+	for i in order:
+		var lm: Dictionary = _landmarks[i]
+		if not _landmark_shown(lm) or (not town_shown and members.has(i)):
+			continue   ## not drawn anyway; it takes no room and is not ours to hide
+		var forced := i == _lm_pinned or landmark_has_note(i)
+		var r := _landmark_pin_r(lm)
+		var tip := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)
+		var head := tip + Vector2(0.0, -PinMarker.STEM_RATIO * r)
+		var k := Vector2i(floori(tip.x / bsz), floori(tip.y / bsz))
+		var clash := false
+		for dx in range(-1, 2):
+			for dy in range(-1, 2):
+				for o in grid.get(Vector2i(k.x + dx, k.y + dy), []):
+					var orr: float = o[2]
+					if head.distance_to(o[1]) < DECLUTTER_SPACING * (r + orr) \
+							or tip.distance_to(o[1]) < DECLUTTER_TIP_CLEAR * orr \
+							or (o[0] as Vector2).distance_to(head) < DECLUTTER_TIP_CLEAR * r:
+						clash = true
+						break
+				if clash:
+					break
+			if clash:
+				break
+		if clash and not forced:
+			hidden[i] = true
+			continue
+		if not grid.has(k):
+			grid[k] = []
+		(grid[k] as Array).append([tip, head, r])
+	return hidden
+
+## True when the declutter rule hides landmark `i` at this view.
+func _lm_declutter_hidden(i: int, rect: Rect2) -> bool:
+	if not _declutter_active():
+		return false
+	return _declutter_set(rect).has(i)
+
+## The ONE "this pin is not drawn" test (Ruling FC's town gate and the declutter rule): draw, picks and tilts ask it.
+func _lm_hidden(i: int, rect: Rect2) -> bool:
+	return _lm_town_hidden(i, rect) or _lm_declutter_hidden(i, rect)
+
+
 ## True when landmark `i` is a town's pin and the town is not yet visible (Ruling FC): it draws, picks and tilts as nothing.
 func _lm_town_hidden(i: int, rect: Rect2) -> bool:
 	return not _town_layer_zoom_reached(rect) and (_town_pin_membership()["lm"] as Dictionary).has(i)
@@ -6665,7 +6813,8 @@ func _fan(rect: Rect2) -> Dictionary:
 	var iset := DccSettings.marker_icon_set()
 	var town_shown := _town_layer_zoom_reached(rect)   ## Ruling FC: a hidden town pin must not tilt its neighbours
 	var key := [rect.size, _camera_zoom, circles, _fan_rev, _landmarks.size(), _pois.size(), _landmarks_visible,
-		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k(), iset, town_shown]
+		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k(), iset, town_shown,
+		_declutter_sig(rect)]
 	if _fan_cache.has(key):
 		return _fan_cache[key]
 	var canon := Rect2(Vector2.ZERO, rect.size)
@@ -6673,7 +6822,8 @@ func _fan(rect: Rect2) -> Dictionary:
 	if _landmarks_visible:
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
-			if not _landmark_shown(lm) or (not town_shown and (_town_pin_membership()["lm"] as Dictionary).has(i)):
+			if not _landmark_shown(lm) or (not town_shown and (_town_pin_membership()["lm"] as Dictionary).has(i)) \
+					or _lm_declutter_hidden(i, rect):   ## a decluttered pin neither draws nor tilts its neighbours
 				continue
 			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]), "kind": String(lm.get("kind", "")),
 				"pos": _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)})
@@ -8231,7 +8381,7 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var lm: Dictionary = _landmarks[i]
 		## A filtered-out kind draws nothing, so it must not be hoverable or
 		## clickable either (owner, 2026-10-19).
-		if not _landmark_shown(lm) or _lm_town_hidden(i, rect):   ## a town's pin before the town shows (Ruling FC)
+		if not _landmark_shown(lm) or _lm_hidden(i, rect):   ## a town's pin before the town shows (Ruling FC), or a decluttered one
 			continue
 		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 		if not interior.has_point(pos):
@@ -8435,7 +8585,7 @@ func hits_at(mouse: Vector2) -> Array:
 		## Same refusals and the same pin footprint as `_hit_test_landmark` (CL-2).
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
-			if not _landmark_shown(lm) or _lm_town_hidden(i, rect):   ## Ruling FC, as `_hit_test_landmark`
+			if not _landmark_shown(lm) or _lm_hidden(i, rect):   ## Ruling FC and the declutter rule, as `_hit_test_landmark`
 				continue
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
@@ -8722,6 +8872,7 @@ func _gui_input(event: InputEvent) -> void:
 				set_process(true)
 				return
 			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+			set_selected_landmark(lhit)   ## the declutter rule keeps the selected pin
 			landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
 			icon_selected.emit(_manual_icons[ihit] if ihit != -1 else null, ihit)
 			if p["valid"]:
@@ -8816,6 +8967,7 @@ func _release_touch_press() -> void:
 	settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 	## Guarded: the landmark array can be replaced during a held press.
 	lhit = lhit if lhit < _landmarks.size() else -1
+	set_selected_landmark(lhit)   ## the declutter rule keeps the selected pin
 	landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
 	## Guarded the same way: `refresh_annotations()` can replace the icon list.
 	var ihit: int = int(_touch_press.get("ic", -1))
