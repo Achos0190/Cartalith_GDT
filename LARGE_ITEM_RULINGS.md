@@ -3795,3 +3795,14 @@ Answers to `TOWN_GENERATOR_JUDGEMENT.md` §5 (Fable's judgement against `MEDIEVA
 2. **Villages: rows along the road.** Villages become street villages (houses lining the through road, green at the landing), not the towns' courtyard blocks of Rulings H and AD (judgement change 2).
 3. **Deep plots: prototype first.** Deep burgage plots with backland are built behind their own switch, measured and shown in frames before the owner decides (judgement change 4).
 4. **River through the town: under river realism.** Smoothing the river inside town layouts is routed to `RIVER_REALISM_SCOPE.md`, not the town work (judgement change 3).
+
+## Ruling FF: town markers, city look default, tablet rail, pin colours, river network, harbour badge (owner, 2026-11-15)
+
+Owner answers to the coordinator's decision prompts:
+1. **Town markers: always pins.** Towns and villages on the world map draw as teardrop pins at every zoom (capital, city, town, village, hamlet icons per marker style), tilting under Ruling FA and decluttered under CL-12, instead of discs/glyphs. Settles CL-10's shape question.
+2. **City look: the map look is the default** (Ruling EW's `map` look); the ink look stays selectable.
+3. **Tablet domain rail: text only, like desktop.** Closes the tablet canvas row's last item.
+4. **Pin colours: keep as is** (volcano stays Terrain green, road junction stays Other grey).
+5. **River network: town siting and roads read the map's own river network** (`WorldState::stream_order`/`channels`), not the civ pass's rebuilt network, for new worlds (§7p: a switch ON in the app, OFF in the reference baseline). Settles Ruling EX follow-up item (a) and Ruling N's older river term.
+6. **Harbour badge only with sea in the town box.** `civ_is_coastal`'s 12.5 km reach no longer badges a river town whose box has no sea; port and sea-lane eligibility follow (§7p switch). Settles Ruling EX follow-up item (b).
+Also: build a fresh APK and install it on connected devices.
