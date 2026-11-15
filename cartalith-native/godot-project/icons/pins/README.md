@@ -26,3 +26,16 @@ are taken from the sheet's regular grid with a +-3 px refinement. All 40 were ch
 
 Names are the coordinator's reading of each picture; mapping them onto the engine's kinds (POI kinds, landmark
 kinds, settlement tiers) is the integration's job.
+
+## Painted set, extra sheet (owner, 2026-11-15)
+
+The owner supplied a third sheet (`design/pin-icons-2026-11-15/sheet_painted_extra.png`, labelled by the owner,
+cut by `slice_pins_extra.py`) answering the gap list: 38 pins added to `painted/` under the owner's own labels:
+city, hamlet, tavern, smithy, shrine, guild, gate, well, camp, other, spring, river_confluence, delta, ford, portage,
+historic_crossing, mountain_pass, ridge, cliff, gorge, rock_formation, glacier, quarry, salt_works, road_junction,
+caravan_station, trade_depot, ancient_road, fort, watchtower, fortified_pass, fortified_crossing, battlefield,
+border_marker, sacred_grove, sacred_mountain, ceremonial_site, tomb. Same contract (128 px tall, tip at the
+bottom-centre pixel); these have a gold rim on a charcoal ground, so the fit maximises rim-inside minus
+ground-outside brightness, with the tip factor K fitted per pin (1.575 to 1.875). All 38 checked by eye.
+The glyph set has none of these; a kind with no glyph icon falls back to the drawn pin. The owner ruled that fort
+must not borrow the castle icon.
