@@ -1249,3 +1249,209 @@ would disturb its state, and `run-as` is out of bounds), tiles over a real mount
 gentle ramp, several tiles in flight at once under the app's `max_in_flight` (the bench runs one tile at a time on the
 pool), and sustained thermal behaviour over minutes. If a real session at depth stutters on the 6T the place to look
 is the number of tiles in flight, not the level.
+
+## 13. 16k and 32k worlds on the PC (2026-11-16): 16k measured three ways, 32k stopped by the commit limit
+
+**The request** (owner, 2026-11-16, `WORLD_SCALE_TERRAIN_PLAN.md` §11 items 1 and 2): a 16 384 x 8 192 world (40 075 km,
+seed 1200, `params::defaults()`) on CPU alone, on CPU plus the RX 7800 XT, and on CPU plus the iGPU plus the GPU; then a
+32 768 x 16 384 run, CPU at least, using the SSD page file. Per stage: wall time, peak working set, page-file use,
+page faults; the world digest per mode; whether each GPU stage matches the CPU's. **16k is complete in all three
+modes. 32k was not completed: it was stopped at 431 s by the commit limit (13.5), and nothing at 32k was changed to
+force it.** Evidence: `cartalith-native/docs/evidence/bench-16k-32k-2026-11-16/` (raw `*.log`, sampler `*.csv`, `fits.py`,
+`stagemem2.py`, `tables.py`, `run.sh`, `run32.sh`, `sampler.ps1`).
+
+### 13.1 Method, and what was and was not controlled
+
+- **Machine:** Ryzen 7 9800X3D (8 cores, 16 threads, rayon 16), 31.9 GB RAM, RX 7800 XT and the integrated Radeon,
+  Windows 11. Builds: `cargo test --release` with the workspace's `lto = "fat"`, `codegen-units = 1`, target dir
+  `C:/cw/bench16k_target`, worktree off `origin/main` `8144123a`, every run alone (no other build or test of mine
+  running).
+- **Harness:** `device_stage_bench` (12.1), extended by this pass with environment knobs and **no change to generation
+  code**: `SNAP_WORLD=1` (world frame 2:1, `world` on, `SNAP_WIDTH_KM` default 40 075), `SNAP_CIV=0|1`, `SNAP_GPU_KEYS`
+  and `SNAP_GPU_MODE` (the same preferences `gpu_set_selected_devices` and `gpu_set_multi_mode` set), and a unix
+  timestamp on every stage so the sampler's rows can be cut per stage. `gpu_divergence_bench` got `SNAP_WORLD` and
+  `SNAP_GPU_KEYS`. Run: `SNAP_GW=16384 SNAP_REPS=1 SNAP_WARM=0 SNAP_SEED=1200 SNAP_WORLD=1 [SNAP_GPU=1 SNAP_GPU_KEYS=... SNAP_GPU_MODE=...]`.
+  Civilisation runs on the CPU in every mode (Ruling EZ item 3), so its time is the CPU's in all three.
+- **Sampler:** `sampler.ps1`, a sidecar PowerShell process, one row about every 1.6-1.9 s (the three CIM queries take
+  most of the interval; "about 1 s" was not reached): process working set and its peak, private bytes, the process's
+  peak commit (`PageFileBytesPeak`), page faults per second, system pages-input per second, available RAM, system
+  commit, the system page file in use (MB) and allocated (MB), process and system CPU %.
+- **Repetitions:** 2k: 3 timed + 1 warm-up. 4k: 2 + 1. **8k and every 16k mode: 1 run, no warm-up** (a 16k run is 11 to
+  12.5 minutes). Only the 16k CPU mode was repeated (twice, 725.4 s and 746.6 s). So a number below with no range is a
+  single run, and the CPU repeat's spread (3 % on the total, 8 % on Tectonics) is the only guide to the noise: **a GPU
+  gain smaller than about 10 % of a stage is not established by one run.**
+- **Other load.** The owner's PC was in use throughout: at the start of each run 15.3-22.2 GB of RAM was available
+  (so 10-17 GB was held by other processes, among them several Claude sessions), the system page file already held 98 MB
+  to 1.6 GB, and system CPU was 8-22 % with the benchmark idle. Page-file "in use" below is therefore **system-wide, not
+  this process's**, and a stage's "paging" label (13.4) reflects the machine, not the stage alone.
+
+### 13.2 Page file and disk, checked first and not changed
+
+`Win32_PageFileSetting` returns nothing and `AutomaticManagedPagefile` is **True**: the page file is system-managed.
+`C:\pagefile.sys`: 19 456 MB allocated, 98 MB in use, peak 128 MB at the check. RAM 31 907 MB, **commit limit
+(`TotalVirtualMemorySize`) 51 363 MB**. Free space: C: 877.3 GB, D: 883.2 GB. Nothing was changed. This is the figure
+13.5 turns on.
+
+### 13.3 The ramp (CPU, world frame, seed 1200): time per stage and the fit against cells
+
+Cells = width x width/2. Time in seconds; `exponent` is the least-squares slope of log time against log cells over 4k, 8k,
+16k (2k is shown but not fitted: at 2k fixed costs dominate). Linear in cells would be 1.00.
+
+| stage | 2k | 4k | 8k | 16k (2 runs: 1st; 2nd) | exponent | 16k / 8k | 32k predicted by the fit, no paging |
+|---|---|---|---|---|---|---|---|
+| Tectonics | 2.78 | 10.40 | 45.88 | 222.1; 239.0 | 1.10 | 4.84 | 1 011 s |
+| Volcanism & impacts | 0.30 | 1.02 | 4.60 | 23.2; 24.2 | 1.13 | 5.05 | 108 s |
+| Erosion | 0.47 | 2.08 | 7.95 | 37.9; 37.0 | 1.05 | 4.77 | 156 s |
+| Hydrology | 0.20 | 0.72 | 3.13 | 19.4; 18.7 | 1.19 | 6.21 | 95 s |
+| Climate | 1.06 | 3.89 | 19.73 | 107.9; 111.5 | 1.20 | 5.47 | 561 s |
+| terrain total | 4.81 | 18.11 | 81.29 | 410.6; 430.4 | 1.13 | 5.05 | 1 917 s |
+| civilisation | 1.88 | 8.23 | 43.86 | 314.8; 316.1 | 1.31 | 7.18 | 1 852 s |
+| **total** | 5.96 | 25.55 | 125.15 | **725.4; 746.6** | | 5.8 | about 3 770 s (63 min) |
+
+(The 16k column's fit uses the first run; the fit script is `fits.py`. The 2k and 4k cells are medians of 3 and 2
+runs.) Every stage is slower than linear, civilisation most (1.31: its 16k/8k ratio is 7.2 against the 5.3 of 8k/4k),
+which is where the machine began to run out of RAM (13.4). The fit's 32k column is **an extrapolation of runs that
+fitted in memory; it is not what 32k would take on this PC** (13.5).
+
+**Memory against cells.** Peak process commit (`PageFileBytesPeak`): 647 MB (2k), 1 786 MB (4k), 6 751 MB (8k),
+26 956 MB (16k, both CPU runs): about 4.1x per doubling of width (4x in cells), i.e. close to linear, **about 200 bytes
+per cell at the peak (civilisation)**. By stage at 16k, commit peak to date: Tectonics 14.1 GB (105 B/cell), Climate
+17.1 GB, civilisation 27.0 GB.
+
+### 13.4 16k, three modes: per stage
+
+Stage wall time in seconds. `CPU` is two runs (1st; 2nd). `dGPU` = single device, the RX 7800 XT. `multi` =
+`split_tiles` with the 7800 XT first and the integrated Radeon second. `iGPU` = single device, the integrated Radeon.
+Each GPU mode is one run.
+
+| stage | (a) CPU alone | (b) CPU + RX 7800 XT | (c) CPU + iGPU + GPU (`split_tiles`) | (extra) iGPU alone |
+|---|---|---|---|---|
+| Tectonics | 222.1; 239.0 | **177.5** | **171.9** | 54.3 (see 13.6) |
+| Volcanism & impacts | 23.2; 24.2 | 24.7 | 24.1 | 26.0 |
+| Erosion | 37.9; 37.0 | 36.6 | 37.0 | 53.6 |
+| Hydrology | 19.4; 18.7 | 19.7 | 18.1 | 21.7 |
+| Climate | 107.9; 111.5 | 107.1 | 107.1 | 113.0 |
+| terrain total | 410.6; 430.4 | 365.6 | 358.3 | 268.7 |
+| civilisation (CPU in all) | 314.8; 316.1 | 317.7 | 290.5 | 389.2 |
+| **generation total** | **725.4; 746.6** | **683.3** | **648.7** | 657.9 |
+| GPU stages that ran | none | plate_assignment, base_field_blur | plate_assignment, base_field_blur | plate_assignment only |
+| world digest (terrain / civ) | `168a2c8f40ae52e6` / `3cd3e3988da8df13`, both runs | `7cc0f7720ab0483c` / `05e8bfcd904cc413` | **the same as (b)** | `834471ca88c62f3b` / `b72a5501c63ed64d` |
+| settlements / ways | 40 / 59 | 40 / 63 | 40 / 63 | 40 / 65 |
+
+**Reading it.** (b) and (c) shorten **only Tectonics**, by 45 to 67 s against the two CPU runs (19-28 %); no other stage
+moved beyond the CPU repeat's own spread (Volcanism 23.2-24.2, Climate 107.9-111.5). (c) is not faster than (b) by
+anything this run can show: 171.9 against 177.5 s is inside the CPU's own 222.1-239.0 spread, and (c)'s lower total
+comes from civilisation (290.5 against 317.7 s), a CPU stage the GPU does not touch, so it is machine noise. **Both GPU
+worlds have the same digest and a different one from the CPU's, as Ruling EZ says they must** (the two GPU kernels
+differ from their CPU stages in a few cells, 13.6).
+
+**Memory and paging, per stage** (CPU run 1; `stage_memory_tables.md` has all four runs). `commit peak` is the
+process's cumulative peak. "Paging" means mean system pages-input over the stage above 1 000/s or available RAM below
+1 GB at any sample; it is a machine-wide label and the GPU run's Volcanism and Climate carry it from other load.
+
+| stage | wall s | peak WS MB | commit peak to date MB | min available RAM MB | page file in use, max MB (98 at start) | max pages-in/s | state |
+|---|---|---|---|---|---|---|---|
+| Tectonics | 222.1 | 12 056 | 14 121 | 7 086 | 98 | 11 245 | in RAM |
+| Volcanism & impacts | 23.2 | 7 629 | 14 121 | 11 524 | 98 | 146 | in RAM |
+| Erosion | 37.9 | 13 261 | 14 882 | 4 630 | 98 | 65 | in RAM |
+| Hydrology | 19.4 | 9 677 | 14 882 | 8 633 | 98 | 0 | in RAM |
+| Climate | 107.9 | 12 943 | 17 064 | 5 221 | 98 | 91 | in RAM |
+| civilisation | 314.8 | 17 759 | 26 956 | 580 | 3 350 | 28 189 | **paging** |
+
+**Whole-run peaks, 16k:** CPU 17.8 and 22.2 GB working set (the second run began with 1.1 GB of the page file already
+in use by other processes, and its Tectonics went to 359 MB available), commit 26.96 GB in both; (b) 21.4 GB / 30.85 GB;
+(c) 23.1 GB / 31.08 GB; iGPU 20.0 GB / 27.25 GB. **The GPU modes add about 4 GB of commit** (mapped readback and
+staging buffers; one run each). **Civilisation is the one stage that pages at 16k in every run**: available RAM fell to
+580, 48, 224, 144 and 21 MB, pages-in reached 28 000 to 127 000 per second, and the page file rose to 2.0-3.4 GB. The
+terrain stages did not page in the first CPU run (the second paged briefly inside Tectonics, with other processes
+holding RAM). The ramp for comparison (CPU): 2k 508 MB, 4k 1 589 MB, 8k 6 196 MB peak working set, no page-file use
+at 8k.
+
+### 13.5 32k: stopped at 431 s by the commit limit; not completed
+
+Command: `run32.sh` (`SNAP_GW=32768`, CPU, one run) with a **commit-headroom guard** I added so the owner's other
+programs were not starved: it polls `FreeVirtualMemory` every 5 s and kills only the benchmark process it started if
+headroom drops under 3 000 MB (or after 300 minutes). It fired at **431 s**, at 1 141 MB of headroom, inside Tectonics
+(the first stage; the log prints stage lines only at the end of a run, so the stage is inferred from the timeline: 16k's
+Tectonics took 222 s and 32k's is predicted at about 1 000 s).
+
+| at the kill | value |
+|---|---|
+| process working set (peak) | 22 129 MB |
+| process commit peak (`PageFileBytesPeak`) | **35 915 MB** |
+| system commit | 51 180 MB, **the commit limit is 51 363 MB** |
+| page file allocated | 19 456 MB at start, **20 491 MB** at the kill: it grew by 1 035 MB in 7 minutes |
+| page file in use (system) | 1 550 MB at start, 5 234 MB peak |
+| available RAM, minimum | 435 MB |
+| elapsed | 431 s of the run's sampled life |
+
+Free virtual memory went from 8.6 GB to 1.1 GB between two 5 s polls (a single multi-GB allocation).
+
+**Why this is "stop and report", not a retry.** The page file is system-managed (13.2), so no setting caps it at 19 GB,
+but in the 7 minutes observed Windows grew it by about 1 GB while the process was asking for tens, and the commit limit
+stayed at 51.4 GB. The need, scaled from the 16k commit peaks by cells (4x, 13.3): Tectonics about 56 GB, terrain
+through Climate about 68 GB, civilisation about 108 GB, plus the 15-18 GB other programs held. **Even the terrain
+stages alone exceed RAM plus the current page file**, so a 32k generation on this PC needs the page file to grow by
+tens of GB, and 32k would then spend its time paging. What this run does not show: whether Windows would have grown
+the file fast enough had the guard let the allocation stand. I did not test that because a refused allocation takes
+down whichever process asks next, which could be the owner's. The owner's rule (never change the page file; stop if
+capped too low) was applied, and nothing was changed.
+
+**What the 32k run did establish:** the working set rose to about 22 GB inside 7 minutes (so 32k does not fit
+RAM-resident), and the unconstrained time is about 1 920 s of terrain and 1 850 s of civilisation by the 13.3 fit,
+**if it fitted in memory**, which it does not here.
+
+**GPU at 32k: not run.** 32 768 x 16 384 x 4 bytes is 2 147 483 648, exactly the `max_buffer` both Radeons report (`2147483648`), so
+a single-field GPU buffer sits on the device limit; whether `supports_grid` accepts it was not measured.
+
+### 13.6 The GPU, stage by stage
+
+**What generation sends to the GPU is two kernels, `plate_assignment` and `base_field_blur`** (`GPU_PATH_KERNELS`, Ruling
+EZ item 3). Every other stage runs its CPU function on the GPU path too. **Multi-GPU: no stage has an iGPU+GPU
+mode.** `init_gpu_device_set` opens both devices in `split_tiles` mode, but `tectonic_substrate` takes
+`gpu_set.primary()` only, and `split_tiles`' row-band partition exists only for `warp_grid_gpu_split`, which generation
+no longer calls (warp is CPU on both paths, an in-code comment says so). So (c) is (b) with the second device opened and
+idle: identical stages used, identical digest (`7cc0f7720ab0483c`), and its time difference is noise. Nothing was built.
+
+`gpu_divergence_bench` at 16 384 x 8 192, world frame, seed 1200, each kernel fed the same CPU-made inputs, RX 7800 XT
+(one repetition; log `div16k_dgpu.log`). It runs `WorldParams::defaults()`, the golden-path parameters, not the app's.
+"Identical across devices" is from 12.8 (PC, 6T, Pad 3), not re-measured here.
+
+| kernel | in the GPU world | same bits on every device (12.8) | GPU ms | CPU ms | cells differing from the CPU stage |
+|---|---|---|---|---|---|
+| warp | no (CPU) | **no** | 390 | 5 402 | all 134 217 728 (max 1.5e3 in cell units) |
+| plate assignment | **yes** | yes | 885 | 48 607 | 30 (max 12, tie-breaks) |
+| stress | no (CPU) | yes | 1 655 | 4 703 | mask 0; field 6.27 M (max 4.8e-7); shear 5.90 M (max 3.6e-7) |
+| flexure blur | no (CPU) | yes (after the normaliser fix) | 811 | 4 972 | 17.8 M (max 6.0e-7); **0 against its f32 CPU mirror** |
+| plate-base blur | **yes** | yes | 196 | 4 439 | 39.8 M (max 3.0e-7); **0 against its f32 CPU mirror** |
+| heterogeneity | no (CPU) | **no** | 450 | 2 295 | all (max 1.3) |
+| weather | no (CPU) | **no** | 287 | 243 | 68.6 M (max 1.7e-4) |
+| flow (plain D8, fixed point) | no | yes | 975 (+50 init) | 4 363 | **0** |
+
+So at 16k the GPU is 55x faster than the CPU for plate assignment and 23x for the base blur, and the two are the
+kernels that give the same bits on every device. Nothing else on the list is both identical across devices and in the
+GPU world. **Where the Tectonics time actually goes:** the kernels above account for about 75 s of the CPU's 222-239 s
+(warp 5.4, plate assignment 48.6, stress 4.7, flexure 5.0, base blur 4.4, heterogeneity 2.3, summed); the other 150 s or
+so is tectonic work this harness does not break out (age field, World-Structure orogeny, height, normalisation), not
+measured here and not on the GPU. **Weather on the GPU is no faster than the CPU at 16k** (287 against 243 ms).
+
+**The integrated Radeon at 16k is not safe.** In the standalone bench it lost the device on the plate-assignment
+readback (`buffer map failed (BufferAsyncError) ... at 134217728 cells`, `Device is lost`) and every following kernel
+fell back; its warp output (3.9 s) has its own hash (`dc52116fb53cc07f`), differing from the 7800 XT's
+(`5db8ad7ba3ed98d7`). In the full run (iGPU alone) the same message appeared, `plate_assignment` was recorded as run on
+the GPU, `base_field_blur` fell back to the CPU, and the **world differs from every other run** (terrain
+`834471ca88c62f3b`), with Tectonics at **54.3 s against 172-239 s everywhere else**, which a CPU blur and a GPU plate
+assignment do not explain: that stage's other CPU work should be unchanged. **I do not know why; I did not
+investigate.** One hypothesis, unverified, is that the plate ids that came back after the device loss are valid in range
+(the engine's only check, `0 <= id < plates`) but wrong, giving fewer plate boundaries and so less work in the later
+tectonic stages. If that holds, the iGPU path at this size can return a plausible wrong world with no error. A
+follow-up should compare its `plate_id` field with the CPU's. Not a recommended mode regardless; the app's default is
+the discrete GPU.
+
+### 13.7 Reproducing
+
+Build: `CARGO_TARGET_DIR=C:/cw/bench16k_target cargo test --release -p cartalith-godot --lib --no-run`; copy the printed
+executable to `benchgen.exe`. Run from the evidence folder: `./run.sh r16k_cpu 16384 1 0 0` (tag, width, reps, warm,
+GPU on/off, then optional key substrings and mode, e.g. `./run.sh r16k_multi 16384 1 0 1 "7800,Radeon(TM)" split_tiles`),
+and `./run32.sh` for 32k. `python fits.py`, `python stagemem2.py <tag>` and `python tables.py <tags>` produce the tables above.
+Close down: every process this pass started was its own; the worktree and target were removed afterwards.

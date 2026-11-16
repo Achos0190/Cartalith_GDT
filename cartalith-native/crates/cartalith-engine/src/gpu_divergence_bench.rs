@@ -107,7 +107,21 @@ fn gpu_divergence_bench() {
     let gh = (gw as f64 * 1311.0 / 2048.0).round() as usize;
     let seed = env_usize("SNAP_SEED", 12345) as i32;
     let reps = env_usize("SNAP_REPS", 3);
+    let whole_world = env_usize("SNAP_WORLD", 0) == 1;
+    let gh = if whole_world { gw / 2 } else { gh };
     let mut p = WorldParams::defaults(gw, gh, seed);
+    if whole_world {
+        // `SNAP_WORLD=1` (2026-11-16, PERFORMANCE_BENCHMARKS.md section 13): the
+        // 2:1 whole-planet frame with longitude wrap, 40 075 km wide.
+        p.world = true;
+        p.map_width_km = 40_075.0;
+    }
+    if let Ok(k) = std::env::var("SNAP_GPU_KEYS") {
+        let devs = cartalith_gpu::enumerate_devices();
+        let mut pr = cartalith_gpu::preferences();
+        pr.selected_keys = k.split(',').filter_map(|k| devs.iter().find(|d| d.key.contains(k.trim())).map(|d| d.key.clone())).collect();
+        cartalith_gpu::set_preferences(pr);
+    }
     p.use_gpu = true;
     ensure_thread_pool();
     let set = open_gpu_set(&p);

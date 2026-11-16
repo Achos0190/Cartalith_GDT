@@ -1,0 +1,5 @@
+
+running 1 test
+test device_stage_bench::device_stage_bench ... CONFIG gw=32768 gh=16384 seed=1200 use_gpu=false reps=1 warm=0 rayon_threads=16 available_parallelism=Some(16)
+CORE_MAX_FREQ_KHZ 
+RUN_START rep=0 unix_ms=1794830421138

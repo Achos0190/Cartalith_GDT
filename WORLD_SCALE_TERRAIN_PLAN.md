@@ -210,6 +210,49 @@ shading, tile drawing) may use floats freely since they change no saved data. Me
 4. Then a scope for the tiled two-level pipeline (stage-by-stage locality census, a two-level drainage prototype at
    16k in 4k blocks, storage measurements) and the two save types.
 
+
+### What the PC runs of 2026-11-16 mean (`PERFORMANCE_BENCHMARKS.md` §13; items 1 and 2 above are measured, 32k only as far as the commit limit allows)
+
+Measured on the 9800X3D, 31.9 GB, seed 1200, CPU unless stated. Inference is marked as such.
+
+- **16k works on this PC and costs 12 minutes**: 725 and 747 s on the CPU, 683 s with the RX 7800 XT, one world digest
+  per mode. **32k does not complete as the machine is set up**: the process's commit reached 35.9 GB at 7 minutes, inside
+  the first stage, and the system hit its 51.4 GB commit limit (31.9 GB RAM plus a 19.5 GB system-managed page file that
+  grew by 1 GB in that time). Scaling the 16k commit peaks by cells (about 105 B per cell in Tectonics, 127 in the
+  terrain stages, 200 in civilisation) gives about 56, 68 and 108 GB at 32k (inference). **Every stage needs tiling or a
+  coarse pass at 32k, not just the heavy ones**: even Tectonics alone is bigger than RAM plus the page file.
+- **Which stages dominate at 16k** (CPU): civilisation 315 s (43 %), Tectonics 222-239 s (31 %), Climate 108 s (15 %),
+  Erosion 38 s, Volcanism 23 s, Hydrology 19 s. **Every stage is slower than linear in cells** (exponents 1.05 to 1.31),
+  civilisation worst (7.2x from 8k to 16k): it is also the only stage that pages at 16k, and the largest memory user.
+- **Civilisation should not run on the full grid.** It is CPU on every path (Ruling EZ item 3), takes 8 s at 4k and 315 s
+  at 16k, and holds 200 B per cell. §6 already says civ stays coarse; these numbers say how coarse is needed: a 4k
+  civilisation of a 32k terrain costs about 8 s and, at the 4k run's whole-process commit peak, about 1.8 GB on this PC (inference).
+- **Climate (108 s at 16k, exponent 1.20) is the next candidate for the coarse pass.** §10's "coarse climate,
+  interpolated" row is aimed at it; it is the second-largest terrain stage and reads fields at every cell.
+- **Tectonics needs a coarse global pass first and a fine pass per tile.** At 16k about 75 s of its 222-239 s is five
+  kernels (warp 5, plate assignment 49, stress 5, flexure 5, blur 4); the remaining 150 s is tectonic work this run did
+  not break out (age, orogeny, height, normalisation) and is the first thing to measure before tiling it.
+- **Where the GPU helps today, and how much.** Only two generation kernels run on it, plate assignment (885 ms against 48.6 s on
+  the CPU at 16k, 55x) and the plate-base blur (196 ms against 4.4 s, 23x). Together they cut Tectonics by 45-67 s and
+  the whole generation by 6-13 % (one GPU run each, beside two CPU runs that differ by 21 s). Both are among the kernels
+  that give the same bits on the PC, 6T and Pad 3 (§10a's constraint), so they are the right ones to keep. The plain-D8 flow
+  kernel is also identical and 4.5x faster at 16k (975 ms against 4.4 s) but is not on the generation path (rough routing
+  does not reach it, and the Pad measured it slower). Warp (14x), heterogeneity (5x) and weather (no gain) differ per device
+  and stay on the CPU. **Nothing in Erosion, Hydrology, Climate or civilisation is on the GPU**, and those plus the 150 s
+  of unbroken-out Tectonics are 90 % of the time; §10a's candidates (implicit erosion sweeps, flow accumulation,
+  coarse climate) are where a GPU win would have to come from, written to the identical-kernel rule.
+- **Two GPUs add nothing to generation.** `split_tiles` only partitions the warp kernel, which generation does not call;
+  the second device is opened and idle (identical digest, time inside noise). A real second-GPU gain would need a stage
+  that is both identical-kernel and partitionable (the blur and plate assignment are, row by row), built new.
+- **The integrated Radeon cannot be trusted at 16k**: the device is lost on a 134 M-cell readback, and in the full run the
+  result is a different world with a Tectonics stage 3-4x shorter than any other run, unexplained (hypothesis: wrong but
+  in-range plate ids, unverified; `PERFORMANCE_BENCHMARKS.md` §13.6). The GPU buffer limit (2 GiB) is also exactly one
+  32k f32 field, so the GPU path at 32k is unmeasured and at the edge of the device limit.
+- **Paging.** At 16k only civilisation paged (page file 2-3.4 GB, up to 127 000 pages in per second) and only because
+  other programs held 10-17 GB. With the machine otherwise idle, 16k terrain would be fully RAM-resident (peak 13-17 GB
+  commit, inference).
+
+
 ## 11a. Mobile sizes (owner, 2026-11-16)
 
 16k is off the table on phones and tablets (about 10-15 GB peak). Owner's own test: **a 4k world generated on the

@@ -1,0 +1,23 @@
+
+running 1 test
+test gpu_divergence_bench::gpu_divergence_bench ... CONFIG gw=16384 gh=8192 seed=1200 reps=1 rayon_threads=16 adapter="AMD Radeon(TM) Graphics" backend=Vulkan
+KERNEL warp_x           gpu=dc52116fb53cc07f cpu=cb97897fc5243e38 differing=134217728 of 134217728 max_abs=1.462e3 gpu_ms=3906.2 cpu_ms=5052.3
+KERNEL warp_y           gpu=a5a310205be47267 cpu=87cfac769616fb02 differing=134217727 of 134217728 max_abs=1.034e3 gpu_ms=3906.2 cpu_ms=5052.3
+cartalith-gpu: device "cartalith-gpu shared device" (AMD Radeon(TM) Graphics) lost (Unknown): Device is lost -- the current generation's remaining GPU stages fall back to CPU (HARDWARE_ACCELERATION.md §27); the next generate_terrain call re-acquires a fresh device (Ruling Y)
+cartalith-gpu: buffer map failed (BufferAsyncError) on AMD Radeon(TM) Graphics at 134217728 cells -- this device is done for this run; falling back to CPU (HARDWARE_ACCELERATION.md §27)
+KERNEL plate_assignment gpu=unavailable cpu=000e02c16bab8995 cpu_ms=48316.6
+KERNEL stress_mask      gpu=unavailable cpu=aacda9b1fa378fa5 cpu_ms=5312.8
+KERNEL stress_field     gpu=unavailable cpu=d69fd6420c8e8d3a cpu_ms=5312.8
+KERNEL stress_shear     gpu=unavailable cpu=c5365324cb3b6969 cpu_ms=5312.8
+KERNEL flexure_blur     gpu=unavailable cpu=1a029723cc43a3c6 cpu_ms=4743.8
+KERNEL flexure_vs_f32_cpu gpu=unavailable cpu=4825986e5c4a735a cpu_ms=0.0
+KERNEL base_field_blur  gpu=unavailable cpu=2e0944dabf8fb0ce cpu_ms=3683.0
+KERNEL blur_vs_f32_cpu  gpu=unavailable cpu=58f90395c3a8e799 cpu_ms=0.0
+KERNEL heterogeneity    gpu=unavailable cpu=cdad3d4c141affcc cpu_ms=1751.4
+KERNEL weather          gpu=unavailable cpu=b337436d17a4d906 cpu_ms=304.2
+KERNEL flow_init       gpu_ms=3.0
+KERNEL flow             gpu=unavailable cpu=b5f8b8b1b49e7d6b cpu_ms=5428.3
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 301.28s
+

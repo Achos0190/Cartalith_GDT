@@ -1,0 +1,3 @@
+WATCHDOG: free virtual 1141 MB < 3000, killing benchgen
+SUCCESS: The process "benchgen.exe" with PID 16652 has been terminated.
+finished r32k_cpu

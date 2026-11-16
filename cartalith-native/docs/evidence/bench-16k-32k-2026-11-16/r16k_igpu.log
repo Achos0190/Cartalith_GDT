@@ -1,0 +1,24 @@
+
+running 1 test
+test device_stage_bench::device_stage_bench ... GPU_DEVICE key="1002:747e:AMD Radeon RX 7800 XT" type=DiscreteGpu backend=Vulkan max_buffer=2147483648
+GPU_DEVICE key="1002:13c0:AMD Radeon(TM) Graphics" type=IntegratedGpu backend=Vulkan max_buffer=2147483648
+GPU_DEVICE key="1414:008c:Microsoft Basic Render Driver" type=Cpu backend=Dx12 max_buffer=2147483647
+GPU_PREFS keys=["1002:13c0:AMD Radeon(TM) Graphics"] mode=SingleDevice
+CONFIG gw=16384 gh=8192 seed=1200 use_gpu=true reps=1 warm=0 rayon_threads=16 available_parallelism=Some(16)
+CORE_MAX_FREQ_KHZ 
+RUN_START rep=0 unix_ms=1794828483960
+cartalith-gpu: device "cartalith-gpu shared device" (AMD Radeon(TM) Graphics) lost (Unknown): Device is lost -- the current generation's remaining GPU stages fall back to CPU (HARDWARE_ACCELERATION.md §27); the next generate_terrain call re-acquires a fresh device (Ruling Y)
+cartalith-gpu: buffer map failed (BufferAsyncError) on AMD Radeon(TM) Graphics at 134217728 cells -- this device is done for this run; falling back to CPU (HARDWARE_ACCELERATION.md §27)
+STAGE rep=0  3 Tectonics                54313.0 ms unix_ms=1794828483961..1794828538274
+STAGE rep=0  4 Volcanism & impacts      25975.0 ms unix_ms=1794828538274..1794828564249
+STAGE rep=0  5 Erosion                  53635.8 ms unix_ms=1794828564249..1794828617885
+STAGE rep=0  6 Hydrology                21734.0 ms unix_ms=1794828617885..1794828639619
+STAGE rep=0  7 Climate                 113031.8 ms unix_ms=1794828639619..1794828752651
+STAGE rep=0 -- terrain total           268711.8 ms
+STAGE rep=0 -- civilisation            389236.8 ms
+TOTAL rep=0 657948.6 ms
+DIGEST terrain=834471ca88c62f3b civ=b72a5501c63ed64d settlements=40 ways=65 gpu_stages_used=["plate_assignment"]
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1397 filtered out; finished in 660.60s
+

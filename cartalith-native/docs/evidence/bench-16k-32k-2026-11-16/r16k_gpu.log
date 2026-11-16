@@ -1,0 +1,22 @@
+
+running 1 test
+test device_stage_bench::device_stage_bench ... GPU_DEVICE key="1002:747e:AMD Radeon RX 7800 XT" type=DiscreteGpu backend=Vulkan max_buffer=2147483648
+GPU_DEVICE key="1002:13c0:AMD Radeon(TM) Graphics" type=IntegratedGpu backend=Vulkan max_buffer=2147483648
+GPU_DEVICE key="1414:008c:Microsoft Basic Render Driver" type=Cpu backend=Dx12 max_buffer=2147483647
+GPU_PREFS keys=["1002:747e:AMD Radeon RX 7800 XT"] mode=SingleDevice
+CONFIG gw=16384 gh=8192 seed=1200 use_gpu=true reps=1 warm=0 rayon_threads=16 available_parallelism=Some(16)
+CORE_MAX_FREQ_KHZ 
+RUN_START rep=0 unix_ms=1794827110101
+STAGE rep=0  3 Tectonics               177539.3 ms unix_ms=1794827110102..1794827287641
+STAGE rep=0  4 Volcanism & impacts      24660.7 ms unix_ms=1794827287641..1794827312302
+STAGE rep=0  5 Erosion                  36609.9 ms unix_ms=1794827312302..1794827348911
+STAGE rep=0  6 Hydrology                19681.3 ms unix_ms=1794827348911..1794827368593
+STAGE rep=0  7 Climate                 107069.2 ms unix_ms=1794827368593..1794827475662
+STAGE rep=0 -- terrain total           365582.0 ms
+STAGE rep=0 -- civilisation            317709.1 ms
+TOTAL rep=0 683291.1 ms
+DIGEST terrain=7cc0f7720ab0483c civ=05e8bfcd904cc413 settlements=40 ways=63 gpu_stages_used=["plate_assignment", "base_field_blur"]
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1397 filtered out; finished in 686.66s
+

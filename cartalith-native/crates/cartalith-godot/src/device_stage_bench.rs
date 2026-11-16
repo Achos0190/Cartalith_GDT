@@ -169,10 +169,41 @@ fn device_stage_bench() {
     let use_gpu = env_usize("SNAP_GPU", 0) == 1;
     // 800 km and the region frame are the New World dialog's defaults
     // (`width_input`'s 800.0, `ASPECT_DEFAULT_INDEX` = region).
-    let width_km = 800.0;
-    let gh = crate::reference_grid_h(gw, false);
+    //
+    // `SNAP_WORLD=1` (added 2026-11-16 for PERFORMANCE_BENCHMARKS.md §13, the
+    // 16k/32k PC runs) makes it a whole-planet world instead: the world frame
+    // (`reference_grid_h(gw, true)`, 2:1), `world` on (wrap in longitude) and
+    // `SNAP_WIDTH_KM` (default 40 075, the equatorial circumference). Unset,
+    // nothing here differs from the §12 harness.
+    let whole_world = env_usize("SNAP_WORLD", 0) == 1;
+    let width_km = if whole_world { env_usize("SNAP_WIDTH_KM", 40_075) as f64 } else { 800.0 };
+    let gh = crate::reference_grid_h(gw, whole_world);
     let mut p = crate::with_call_args(crate::params::defaults(), seed, width_km, gw, gh);
     p.use_gpu = use_gpu;
+    if whole_world {
+        p.world = true;
+    }
+    let do_civ = env_usize("SNAP_CIV", 1) == 1;
+    // `SNAP_GPU_KEYS` (comma-separated substrings of a device key, in dispatch
+    // order) and `SNAP_GPU_MODE` (`single_device` | `split_tiles`) set
+    // `cartalith_gpu`'s preferences the way `gpu_set_selected_devices` and
+    // `gpu_set_multi_mode` do; unset leaves the automatic choice.
+    if let Ok(keys) = std::env::var("SNAP_GPU_KEYS") {
+        let devs = cartalith_gpu::enumerate_devices();
+        for d in &devs {
+            println!("GPU_DEVICE key={:?} type={:?} backend={:?} max_buffer={}", d.key, d.device_type, d.backend, d.max_buffer_size);
+        }
+        let mut pr = cartalith_gpu::preferences();
+        pr.selected_keys = keys
+            .split(',')
+            .filter_map(|k| devs.iter().find(|d| d.key.contains(k.trim())).map(|d| d.key.clone()))
+            .collect();
+        if let Some(m) = std::env::var("SNAP_GPU_MODE").ok().and_then(|m| cartalith_gpu::MultiGpuMode::parse(&m)) {
+            pr.mode = m;
+        }
+        println!("GPU_PREFS keys={:?} mode={:?}", pr.selected_keys, pr.mode);
+        cartalith_gpu::set_preferences(pr);
+    }
     // Build the pool the way generation does before anything below touches
     // rayon: `rayon::current_num_threads()` in the CONFIG line would otherwise
     // build the global pool implicitly at rayon's default and bypass
@@ -211,13 +242,20 @@ fn device_stage_bench() {
                 }
             })
         };
+        let unix_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let (t0, k0) = (Instant::now(), proc_ticks());
+        let (u0, anchor) = (unix_ms(), Instant::now());
+        println!("RUN_START rep={} unix_ms={u0}", rep as i64 - warm as i64);
         let ws = cartalith_engine::generate_terrain(&p);
         let (t_terrain, k_terrain) = (Instant::now(), proc_ticks());
-        let (o, w) = coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
-        let civ = compute_civilisation(
-            &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
-        );
+        let civ = if do_civ {
+            let (o, w) = coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
+            Some(compute_civilisation(
+                &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
+            ))
+        } else {
+            None
+        };
         let (t_end, k_end) = (Instant::now(), proc_ticks());
         stop.store(true, Ordering::Relaxed);
         poller.join().unwrap();
@@ -235,7 +273,8 @@ fn device_stage_bench() {
                 let name = progress::STAGE_NAMES.get(st).copied().unwrap_or("finished");
                 if st < progress::STAGE_COUNT {
                     let wall = (end - at).as_secs_f64();
-                    println!("STAGE rep={} {:>2} {:<22} {:>9.1} ms{}", rep - warm, st, name, wall * 1e3, cpu_note(k, k_next, wall));
+                    let t_rel = |x: Instant| u0 + x.saturating_duration_since(anchor).as_millis();
+                    println!("STAGE rep={} {:>2} {:<22} {:>9.1} ms{} unix_ms={}..{}", rep - warm, st, name, wall * 1e3, cpu_note(k, k_next, wall), t_rel(at), t_rel(end));
                 }
             }
             let wall = (t_terrain - t0).as_secs_f64();
@@ -253,16 +292,16 @@ fn device_stage_bench() {
                 h = fnv(h, rm);
             }
             let mut hc = 0xcbf2_9ce4_8422_2325u64;
-            for s in civ.settlements.iter() {
+            for s in civ.iter().flat_map(|c| c.settlements.iter()) {
                 hc = fnv(hc, format!("{s:?}").as_bytes());
             }
-            for wy in civ.ways.iter() {
+            for wy in civ.iter().flat_map(|c| c.ways.iter()) {
                 hc = fnv(hc, format!("{wy:?}").as_bytes());
             }
             println!(
                 "DIGEST terrain={h:016x} civ={hc:016x} settlements={} ways={} gpu_stages_used={:?}",
-                civ.settlements.len(),
-                civ.ways.len(),
+                civ.as_ref().map_or(0, |c| c.settlements.len()),
+                civ.as_ref().map_or(0, |c| c.ways.len()),
                 ws.gpu_stages_used
             );
         }

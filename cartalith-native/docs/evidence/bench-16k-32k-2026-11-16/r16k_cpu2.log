@@ -1,0 +1,18 @@
+
+running 1 test
+test device_stage_bench::device_stage_bench ... CONFIG gw=16384 gh=8192 seed=1200 use_gpu=false reps=1 warm=0 rayon_threads=16 available_parallelism=Some(16)
+CORE_MAX_FREQ_KHZ 
+RUN_START rep=0 unix_ms=1794829643905
+STAGE rep=0  3 Tectonics               239047.6 ms unix_ms=1794829643905..1794829882952
+STAGE rep=0  4 Volcanism & impacts      24240.5 ms unix_ms=1794829882952..1794829907193
+STAGE rep=0  5 Erosion                  36979.4 ms unix_ms=1794829907193..1794829944172
+STAGE rep=0  6 Hydrology                18658.8 ms unix_ms=1794829944172..1794829962831
+STAGE rep=0  7 Climate                 111476.7 ms unix_ms=1794829962831..1794830074308
+STAGE rep=0 -- terrain total           430431.3 ms
+STAGE rep=0 -- civilisation            316119.0 ms
+TOTAL rep=0 746550.4 ms
+DIGEST terrain=168a2c8f40ae52e6 civ=3cd3e3988da8df13 settlements=40 ways=59 gpu_stages_used=[]
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1397 filtered out; finished in 749.06s
+

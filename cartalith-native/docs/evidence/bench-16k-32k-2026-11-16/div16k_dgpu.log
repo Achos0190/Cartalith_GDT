@@ -1,0 +1,21 @@
+
+running 1 test
+test gpu_divergence_bench::gpu_divergence_bench ... CONFIG gw=16384 gh=8192 seed=1200 reps=1 rayon_threads=16 adapter="AMD Radeon RX 7800 XT" backend=Vulkan
+KERNEL warp_x           gpu=5db8ad7ba3ed98d7 cpu=cb97897fc5243e38 differing=134217727 of 134217728 max_abs=1.462e3 gpu_ms=390.3 cpu_ms=5401.5
+KERNEL warp_y           gpu=93b14e47ab0d7e53 cpu=87cfac769616fb02 differing=134217728 of 134217728 max_abs=1.136e3 gpu_ms=390.3 cpu_ms=5401.5
+KERNEL plate_assignment gpu=70254c8fbcb52ae2 cpu=000e02c16bab8995 differing=30 of 134217728 max_abs=1.200e1 gpu_ms=884.7 cpu_ms=48607.4
+KERNEL stress_mask      gpu=aacda9b1fa378fa5 cpu=aacda9b1fa378fa5 differing=0 of 134217728 max_abs=0.000e0 gpu_ms=1655.0 cpu_ms=4703.2
+KERNEL stress_field     gpu=38cca7c2df51a9cf cpu=d69fd6420c8e8d3a differing=6273227 of 134217728 max_abs=4.768e-7 gpu_ms=1655.0 cpu_ms=4703.2
+KERNEL stress_shear     gpu=3ed79e370514427a cpu=c5365324cb3b6969 differing=5901299 of 134217728 max_abs=3.576e-7 gpu_ms=1655.0 cpu_ms=4703.2
+KERNEL flexure_blur     gpu=4825986e5c4a735a cpu=1a029723cc43a3c6 differing=17768480 of 134217728 max_abs=5.960e-7 gpu_ms=810.5 cpu_ms=4972.1
+KERNEL flexure_vs_f32_cpu gpu=4825986e5c4a735a cpu=4825986e5c4a735a differing=0 of 134217728 max_abs=0.000e0 gpu_ms=810.5 cpu_ms=0.0
+KERNEL base_field_blur  gpu=58f90395c3a8e799 cpu=2e0944dabf8fb0ce differing=39751125 of 134217728 max_abs=2.980e-7 gpu_ms=195.5 cpu_ms=4439.2
+KERNEL blur_vs_f32_cpu  gpu=58f90395c3a8e799 cpu=58f90395c3a8e799 differing=0 of 134217728 max_abs=0.000e0 gpu_ms=195.5 cpu_ms=0.0
+KERNEL heterogeneity    gpu=514cb06df825d351 cpu=cdad3d4c141affcc differing=134217728 of 134217728 max_abs=1.287e0 gpu_ms=449.9 cpu_ms=2294.8
+KERNEL weather          gpu=ef4ba2f48dff54ee cpu=b337436d17a4d906 differing=68637523 of 134217728 max_abs=1.703e-4 gpu_ms=287.0 cpu_ms=243.4
+KERNEL flow_init       gpu_ms=49.7
+KERNEL flow             gpu=b5f8b8b1b49e7d6b cpu=b5f8b8b1b49e7d6b differing=0 of 134217728 max_abs=0.000e0 gpu_ms=975.3 cpu_ms=4362.6
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 289.30s
+
