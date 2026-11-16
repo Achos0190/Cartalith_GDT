@@ -189,3 +189,15 @@ VE-0/4/8, AP-8, MS-1 B7. Everything else is S.
    in place. Its *quick bar and the cartwheel* entry ("nothing built") is likewise dated and was left as history.
 5. No milestone listed as built in `STATUS.md` was found missing from the code. The reverse (built but listed open)
    happened twice, items 1 and 2.
+
+## Post-audit changes the same day (added 2026-11-16 by `DOCS_AUDIT_2026-11-16.md`)
+
+This audit is a dated cut; these landed or were ruled after it and contradict rows above, which are left as written:
+
+- **CQ-6** (section 4 table, "long-press-to-reorder was never built"; the Custom quick bar row of "Summary of the remaining work"): the long-press
+  reorder was built in `3f7ea940` (`_cq6reorder_probe.gd`, `DccSettings.quick_bar_move_visible_to`).
+- **VE-6** "a fuller template chooser (S)": built in `3f7ea940` (`_ve6tpl_probe.gd`). **VE-5** tablet form: built in
+  `8dd94baf`; the end-of-Preview copy and the 17-function probes remain.
+- **MS-3** "NOT built ... needs an owner design call": the call was made by Ruling FL item 1 (a tool palette only, no node
+  chips); still not built.
+- **CQ-8**'s three deferrals "each needing an owner answer": answered by Ruling FL item 2 (all three wanted); not built.

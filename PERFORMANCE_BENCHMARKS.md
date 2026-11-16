@@ -1021,7 +1021,7 @@ the PC, `terrain=14fa38faada65f7a civ=a06b729d7654569a` (64 ways) on the 6T.
 
 ### 12.7 The OnePlus Pad 3 with the 2026-11-15 build (2026-11-15): cold start measured; timed by the coordinator (a reduced matrix, below)
 
-**Status: half done, and the missing half is a blocker, not a result.** `OUTSTANDING_WORK.md`'s "Re-measure generation on
+*Correction, 2026-11-16 (docs audit): the paragraph below was written before the coordinator's timed run later in this section; the reduced matrix (3 rounds, default threads) and the Pad's digest are in the table below, the throttling run was dropped by the owner (`c066f822`), and only the `RAYON_NUM_THREADS=1` column is unrun.* **Status (as first written): half done, and the missing half is a blocker, not a result.** `OUTSTANDING_WORK.md`'s "Re-measure generation on
 the Pad 3" asked for before/after, 5 interleaved runs per column at the default thread count and at
 `RAYON_NUM_THREADS=1`, with thermal readings, the CPU digest and the app's cold-start worker count. Only the last was
 measured. **There are no Pad timings, no Pad digest and no throttling data in this section, and none are inferred from
@@ -1445,7 +1445,7 @@ assignment do not explain: that stage's other CPU work should be unchanged. **I 
 investigate.** One hypothesis, unverified, is that the plate ids that came back after the device loss are valid in range
 (the engine's only check, `0 <= id < plates`) but wrong, giving fewer plate boundaries and so less work in the later
 tectonic stages. If that holds, the iGPU path at this size can return a plausible wrong world with no error. A
-follow-up should compare its `plate_id` field with the CPU's. Not a recommended mode regardless; the app's default is
+follow-up should compare its `plate_id` field with the CPU's. *(Done 2026-11-16, `1a6800d2`: the hypothesis holds; the iGPU's readback was every cell plate 0, 126 799 934 of 134 217 728 cells unlike the CPU's, and the result is now vetted by `cartalith_gpu`'s `plate_ids_plausible` with a CPU fallback (`STATUS.md`, "The integrated Radeon's silent 16k world fixed"). Added by the docs audit.)* Not a recommended mode regardless; the app's default is
 the discrete GPU.
 
 ### 13.7 Reproducing

@@ -246,7 +246,7 @@ Measured on the 9800X3D, 31.9 GB, seed 1200, CPU unless stated. Inference is mar
   that is both identical-kernel and partitionable (the blur and plate assignment are, row by row), built new.
 - **The integrated Radeon cannot be trusted at 16k**: the device is lost on a 134 M-cell readback, and in the full run the
   result is a different world with a Tectonics stage 3-4x shorter than any other run, unexplained (hypothesis: wrong but
-  in-range plate ids, unverified; `PERFORMANCE_BENCHMARKS.md` §13.6). The GPU buffer limit (2 GiB) is also exactly one
+  in-range plate ids, unverified; `PERFORMANCE_BENCHMARKS.md` §13.6). *(Corrected 2026-11-16 by the docs audit: verified and fixed the same day, `1a6800d2`; every cell came back plate 0, and plate and blur readbacks are now vetted with a CPU fallback, `STATUS.md` "The integrated Radeon's silent 16k world fixed". A full 16k run on the iGPU was not repeated.)* The GPU buffer limit (2 GiB) is also exactly one
   32k f32 field, so the GPU path at 32k is unmeasured and at the edge of the device limit.
 - **Paging.** At 16k only civilisation paged (page file 2-3.4 GB, up to 127 000 pages in per second) and only because
   other programs held 10-17 GB. With the machine otherwise idle, 16k terrain would be fully RAM-resident (peak 13-17 GB

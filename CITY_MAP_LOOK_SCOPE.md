@@ -13,6 +13,11 @@ reachable from the **real** generated layout. **Nothing shipped changed.** The l
 4.3 says why). The only code added is the evidence harness `cartalith-native/godot-project/_citylook_probe.gd` (with its
 `.tscn`), which draws and asserts nothing that the app uses.
 
+*Dated note, 2026-11-16 (docs audit): the paragraph above describes the scoping pass only. Later passes built the
+left click (CL-3, `d2a8b6a3`) and user-placed points of interest (CL-11, `449bb22a`, `cartalith_civ::poi::PoiKind`), so
+"the engine has no tavern" (section 1, section 4.1) is no longer true of the code; the build notes at the end of
+section 5 record each step, and `STATUS.md` holds the state.*
+
 **A note on Ruling EO.** Ruling EO exists (`LARGE_ITEM_RULINGS.md`): on touch a tap shows the action chips and a
 long-press opens the full card. This scope was first drafted against a checkout 163 commits behind origin, which
 lacked rulings EJ–EV; the coordinator corrected this note on 2026-11-13. Re-open every symbol cited below against

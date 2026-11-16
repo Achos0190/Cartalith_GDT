@@ -625,6 +625,14 @@ LAKE_DEPTH` read per pixel on the screen (`cell_color`), the export (`pixel_at`)
   stands.
 - **River labels**: out of scope (Ruling EN).
 
+### Routed by Ruling FE item 4: the river through a town layout (added 2026-11-16 by the docs audit)
+
+Ruling FE item 4 (owner, 2026-11-15) answered `TOWN_GENERATOR_JUDGEMENT.md` change 3 (smooth the river inside the town
+box) with *"under river realism"*: the work belongs to this scope, not the town work. No RR milestone carried it until
+this note. It is a candidate only: no design, bars or ruling on generated output beyond FE's routing exist yet, and
+nothing is built. Read the judgement's change 3 and `urban_riverbank`'s resampled centreline (`DECISIONS.md` section 7p,
+2026-11-15) before scoping it; status is `STATUS.md`'s.
+
 ---
 
 ## 4. Milestones

@@ -159,6 +159,12 @@ paint); pathfinding (Dijkstra/A* for roads, routes, planner, sea lanes); polygon
 civ; the GDScript widget builders (sliders, chips, dialogs) and the probe harness boilerplate (`_frames`, `_shot`,
 `_ok`, window lock). Each needs R0's evidence before it is treated as one family.
 
+**Routed here by Ruling FL item 3 (owner, 2026-11-16; added by the docs audit the same day):** parallelising the serial
+generation floor (the priority floods, the in-place jump floods `assign_plates` and `jfa_dist`, the D8 accumulation;
+`PERFORMANCE_BENCHMARKS.md` section 12.6) waits for this refactor, where the fills are unified anyway; an exact
+parallel fill is a candidate (`TERRAIN_COMPUTE_METHODS_RESEARCH.md`). A change that moves generated output still needs
+its own `DECISIONS.md` section 7p ruling and re-baseline; R3 does not grant one.
+
 ## 9. Cost and pacing
 
 R0 about a day of agent time (parallel Sonnet census + one Fable pass); R1 a Fable pass plus owner review; R2 one family
