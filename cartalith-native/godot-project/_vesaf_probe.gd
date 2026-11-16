@@ -101,6 +101,13 @@ class FakeDriver:
 			return {"ok": false, "error": "gone"}
 		return {"ok": true, "text": docs[id]["text"]}
 
+	## VE-7: a picture's bytes. A fake picture is its `text` as UTF-8, so a test can compare byte for byte.
+	func read_bytes(id: String) -> Dictionary:
+		if not docs.has(id):
+			return {"ok": false, "error": "gone"}
+		calls.append("read_bytes")
+		return {"ok": true, "bytes": String(docs[id]["text"]).to_utf8_buffer()}
+
 	func write_text(id: String, text: String) -> Dictionary:
 		if not docs.has(id):
 			return {"ok": false, "error": "gone"}
@@ -141,7 +148,7 @@ class OldHandler:
 	var inner
 
 	func _saf_dispatch(op: String, args: Array) -> Dictionary:
-		if op == "can_move" or op == "move":
+		if op == "can_move" or op == "move" or op == "list_attachments" or op == "read_bytes":
 			return {"ok": false, "error": "unknown op: " + op}
 		return inner._saf_dispatch(op, args)
 
@@ -170,6 +177,7 @@ func _init() -> void:
 	_overwrite_and_missing(bridge)
 	_write_readback(bridge)
 	_desktop_guards(bridge)
+	_pictures(bridge)
 
 	print("vesaf probe: %d checks, %d failures" % [_checks, _fails])
 	quit(0 if _fails == 0 else 1)
@@ -302,3 +310,48 @@ func _desktop_guards(bridge) -> void:
 	_ok(not Connect.restore(bridge, "C:/not/a/uri", ""), "restore refuses a non-content address")
 	var h := Handler.new(null)
 	_ok(not bool(h._saf_dispatch("available", []).get("ok", true)), "no driver: every op fails, never a silent empty list")
+
+
+## VE-7's Android half: a picture embedded by bare name in a SAF vault is found through `"list_attachments"` and its bytes
+## come through `"read_bytes"`, both asked of the handler by the real Rust provider. Nothing here is a device.
+func _pictures(bridge) -> void:
+	var d := FakeDriver.new("plain")
+	d.add("Notes/N.md", "![[map.png]]
+")
+	d.add("Art/deep/map.png", "PNGBYTES")
+	d.add("Art/twin.png", "1")
+	d.add("Other/twin.png", "2")
+	d.add("Art/anim.gif", "GIF")
+	d.add(".hidden/secret.png", "s")
+	_connect(bridge, d)
+	var h := Handler.new(d)
+	var la: Dictionary = h._saf_dispatch("list_attachments", [100])
+	var got: PackedStringArray = la.get("value", PackedStringArray())
+	_ok(bool(la.get("ok", false)) and Array(got) == ["Art/anim.gif", "Art/deep/map.png", "Art/twin.png", "Other/twin.png"], "list_attachments: the non-note files, sorted, dot-folders skipped, notes left out: %s" % [got])
+	_ok(bridge.world_gen.has_method("vault_read_image"), "the bridge has vault_read_image")
+	var r: Dictionary = bridge.vault_embed_open("Notes/N.md", "map.png|120", PackedStringArray(["Notes/N.md"]))
+	_ok(String(r.get("kind", "")) == "image" and String(r.get("path", "")) == "Art/deep/map.png", "a bare name resolves on a SAF vault: %s" % [r])
+	_ok(int(r.get("width", 0)) == 120, "the size after | is kept")
+	_ok(String(r.get("stamp", "")).ends_with(":8"), "the stamp carries the handler's length (8 bytes): %s" % [r.get("stamp", "")])
+	var bytes: PackedByteArray = bridge.vault_read_image("Art/deep/map.png")
+	_ok(bytes == "PNGBYTES".to_utf8_buffer(), "vault_read_image returns the provider's bytes unchanged")
+	_ok("read_bytes" in d.calls, "the bytes really came through the driver's read_bytes")
+	_ok(bridge.vault_read_image("../x.png").is_empty() and bridge.vault_read_image("Notes/N.md").is_empty(), "an escape and a note are empty")
+	_ok(String(bridge.vault_embed_open("Notes/N.md", "twin.png", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "ambiguous", "two pictures of one name are ambiguous, not picked")
+	_ok(String(bridge.vault_embed_open("Notes/N.md", "anim.gif", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "unsupported", "a gif is unsupported")
+	_ok(String(bridge.vault_embed_open("Notes/N.md", "secret.png", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "missing", "a picture in a dot-folder is missing")
+	## The size cap is asked of the handler before it reads.
+	var big := d.add("Art/huge.png", "x")
+	d.docs[big]["text"] = "x".repeat(20)
+	var hr: Dictionary = h._saf_dispatch("read_bytes", ["Art/huge.png", 10])
+	_ok(not bool(hr.get("ok", true)), "read_bytes: a file over max_len is refused by the handler")
+	_ok(bool(h._saf_dispatch("read_bytes", ["Art/huge.png", 100]).get("ok", false)), "read_bytes: under the cap reads")
+	## An old handler that does not know the ops: the picture is simply missing, as before VE-7.
+	var old := OldHandler.new()
+	old.inner = Handler.new(d)
+	bridge.vault_disconnect()
+	bridge.vault_connect_saf("content://fake/old", "Old", Callable(old, "_saf_dispatch"))
+	_ok(String(bridge.vault_embed_open("Notes/N.md", "map.png", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "missing", "old handler: a bare-name picture reads as missing, no error")
+	var direct: Dictionary = bridge.vault_embed_open("Notes/N.md", "Art/deep/map.png", PackedStringArray(["Notes/N.md"]))
+	_ok(String(direct.get("kind", "")) == "image", "old handler: a full path still resolves (exists + meta)")
+	_ok(bridge.vault_read_image("Art/deep/map.png").is_empty(), "old handler: its bytes are not readable, empty rather than wrong")

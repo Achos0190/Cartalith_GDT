@@ -276,6 +276,7 @@ README.md                     MAY     plain-text description of the archive
 preview.png                   MAY     a small thumbnail of the map
 appearance.json               MAY     presentation settings
 vault.json                    MAY     links out to an external Markdown vault
+assistant/conversation.json    MAY     the assistant's saved conversation (preference-gated; below)
 
 rasters/                              one value per grid cell — see §8
                                       (a 4-byte raster may instead be stored
@@ -3611,3 +3612,11 @@ A caller-owned document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`, l
 - A generate drops the bookmarks (a new world renumbers its settlements); an open restores the project's own.
 - **Not in this slot, and not in the world file at all**: the Context panel's arrangement (which tabs, in which order), which is per user, in the `[context_panel]` section of `cartalith_settings.cfg` (`DccSettings.context_panel_read()`); and the selection history the Recent list shows, which is session-only.
 - Forward compatibility: an older build ignores the unknown member (§14.3) and opens the project without the bookmarks. Whether it keeps the member when it saves is §6.2's rule for unknown entries; this change did not test an older build.
+
+## `assistant/conversation.json` (2026-11-16, PC-6, Ruling DY)
+
+A caller-owned document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`, listed among the caller-owned slots in `project_bridge.rs`'s `the_document_channel_partitions_every_registered_slot`) holding the assistant's conversation, saved "with the world" (`PC_SHELL_PROPOSAL.md` PQ5): `{"version":1,"messages":[{"who":"You"|"Assistant","text":string,"model":bool}]}`, oldest first, written by `llm_assistant_window.gd::conversation_document()` and read by `restore_conversation_document()`. Only the two parties' own turns as text: never the API key, a request's context, a source, a card or a system line.
+
+- **Written only when the `conv_save` preference ("Save the assistant conversation with the world") is on and there is at least one turn**, so older archives, untouched projects and every project saved with the preference off carry no such member and stay byte-identical. At most 200 turns are written (the newest).
+- **Reading**: absent means "leave the session's conversation alone" (one conversation per session). Text that is not a JSON object, or a `version` other than 1, adds a sentence to the open's notes and restores nothing; an entry without a `who` of `You` or `Assistant` or without non-blank `text` is dropped, never repaired; a file with no readable turn restores nothing. A reply running at the time defers the restore with a note.
+- Forward compatibility: an older build ignores the unknown member (§14.3) and opens the project without the conversation.

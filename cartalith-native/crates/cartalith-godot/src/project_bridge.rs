@@ -8863,6 +8863,9 @@ mod tests {
                 "appearance_overlay_adjust.json",
                 // ET-F3 (2026-10-12): the style-preset variant, GDScript state.
                 "appearance_style.json",
+                // PC-6 (2026-11-16): the assistant conversation, GDScript state saved only when
+                // the `conv_save` preference is on.
+                "assistant/conversation.json",
             ]
         );
     }

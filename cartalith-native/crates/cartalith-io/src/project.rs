@@ -632,6 +632,10 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "appearance_paint.json",
     "appearance.json",
     "vault.json",
+    // PC-6 (PQ5, Ruling DY; registered 2026-11-16): the assistant's saved conversation, caller-owned
+    // (GDScript state, `llm_assistant_window.gd::conversation_document()`). Written only when the
+    // `conv_save` preference is on and a conversation exists, so older archives stay byte-identical.
+    "assistant/conversation.json",
 ];
 
 /// `history/territory/` — the prefix a per-year territory raster sits

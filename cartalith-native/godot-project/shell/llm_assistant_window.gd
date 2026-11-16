@@ -2173,8 +2173,8 @@ func include_selection() -> void:
 		_refresh()
 
 
-## The file slot the saved conversation lives in (`SAVEFILE_COMPAT.md` gains it when it is registered in
-## `cartalith_io::DOCUMENT_SLOTS`: a Rust change this GDScript pass did not make, see `OUTSTANDING_WORK.md`).
+## The file slot the saved conversation lives in: registered in `cartalith_io::DOCUMENT_SLOTS` (2026-11-16), caller-owned,
+## and documented in `SAVEFILE_COMPAT.md` under `assistant/conversation.json`.
 const CONVERSATION_SLOT := "assistant/conversation.json"
 const CONVERSATION_VERSION := 1
 ## The transcript's minimum height (px) while the first-use card is shown: the card's sentence and both buttons.

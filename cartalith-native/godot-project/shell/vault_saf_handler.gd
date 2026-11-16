@@ -17,6 +17,7 @@ extends RefCounted
 ##   children(id) -> {ok, items:[{id, name, is_dir, flags:int}]}
 ##   stat(id) -> {ok, modified:int (Unix s, 0 unknown), len:int, flags:int}
 ##   read_text(id) -> {ok, text}
+##   read_bytes(id) -> {ok, bytes:PackedByteArray}        a picture (VE-7); `stat` is asked first for its length
 ##   write_text(id, text) -> {ok}                         replaces the whole file
 ##   create(parent_id, name, is_dir) -> {ok, id}          the id of what now exists with exactly that name
 ##   delete(id) -> {ok}
@@ -50,6 +51,10 @@ func _saf_dispatch(op: String, args: Array) -> Dictionary:
 			return _op_list(int(args[0]) if args.size() > 0 else 0)
 		"read":
 			return _op_read(String(args[0]))
+		"list_attachments":
+			return _op_list(int(args[0]) if args.size() > 0 else 0, false)
+		"read_bytes":
+			return _op_read_bytes(String(args[0]), int(args[1]) if args.size() > 1 else 0)
 		"meta":
 			return _op_meta(String(args[0]))
 		"exists":
@@ -135,7 +140,15 @@ func _ensure_dirs(segs: PackedStringArray) -> Dictionary:
 	return {"ok": true, "id": cur}
 
 
-func _op_list(limit: int) -> Dictionary:
+## The attachment extensions of `cartalith_vault::notelinks::ATTACHMENT_EXTENSIONS`, which `"list_attachments"` lists.
+## Copied, so a change there must be made here: `_vesaf_probe.gd` pins the picture ones.
+const ATTACHMENT_EXTS := ["base", "canvas", "avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp", "flac", "m4a",
+	"mp3", "ogg", "wav", "webm", "3gp", "mkv", "mov", "mp4", "ogv", "pdf"]
+
+
+## The vault-relative paths of the Markdown notes (`notes` true, the `"list"` op) or of the attachments (`"list_attachments"`),
+## at most `limit` (0 = no cap), sorted, dot-names skipped.
+func _op_list(limit: int, notes: bool = true) -> Dictionary:
 	var out := PackedStringArray()
 	var root: Dictionary = driver.root_id()
 	if not bool(root.get("ok", false)):
@@ -155,7 +168,7 @@ func _op_list(limit: int) -> Dictionary:
 			var rel := (String(top[1]) + "/" + name) if String(top[1]) != "" else name
 			if bool(it["is_dir"]):
 				stack.append([String(it["id"]), rel])
-			elif name.to_lower().ends_with(".md"):
+			elif (name.to_lower().ends_with(".md")) if notes else ATTACHMENT_EXTS.has(name.get_extension().to_lower()):
 				out.append(rel)
 				if limit > 0 and out.size() >= limit:
 					return {"ok": true, "value": out}
@@ -171,6 +184,24 @@ func _op_read(rel: String) -> Dictionary:
 	if not bool(t.get("ok", false)):
 		return t
 	return {"ok": true, "value": String(t["text"])}
+
+
+## A picture's bytes. The length is asked of `stat` and a file over `max_len` is refused before any byte is read;
+## a driver that cannot say a length (`len` 0 with data) is caught by the byte count after the read.
+func _op_read_bytes(rel: String, max_len: int) -> Dictionary:
+	var r := _resolve(rel)
+	if not bool(r.get("ok", false)) or bool(r.get("is_dir", false)):
+		return _fail(String(r.get("error", "not a file: %s" % rel)))
+	var st: Dictionary = driver.stat(String(r["id"]))
+	if bool(st.get("ok", false)) and max_len > 0 and int(st.get("len", 0)) > max_len:
+		return _fail("the file is longer than %d bytes" % max_len)
+	var t: Dictionary = driver.read_bytes(String(r["id"]))
+	if not bool(t.get("ok", false)):
+		return t
+	var b: PackedByteArray = t["bytes"]
+	if max_len > 0 and b.size() > max_len:
+		return _fail("the file is longer than %d bytes" % max_len)
+	return {"ok": true, "value": b}
 
 
 func _op_meta(rel: String) -> Dictionary:

@@ -129,6 +129,15 @@ pub fn cannot_move(describe: &str) -> VaultError {
     ))
 }
 
+/// The refusal of a provider that cannot read raw bytes (the default
+/// [`VaultProvider::read_bytes`]): [`std::io::ErrorKind::Unsupported`].
+pub fn cannot_read_bytes(describe: &str) -> VaultError {
+    VaultError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!("\"{describe}\" cannot read a picture's bytes from Cartalith"),
+    ))
+}
+
 /// The platform-neutral operations a Markdown vault provider gives
 /// [`crate::VaultSession`] — `MARKDOWN_VAULT_INTEGRATION.md` §6's
 /// `MarkdownVaultProvider` interface, narrowed to exactly the subset the
@@ -161,6 +170,19 @@ pub trait VaultProvider: std::fmt::Debug {
     fn list_attachments(&self, limit: usize) -> Result<Vec<String>, VaultError> {
         let _ = limit;
         Ok(Vec::new())
+    }
+
+    /// The raw bytes of `rel` (a picture), refusing a file longer than `max_len`
+    /// bytes **before** reading it where the provider can know the length.
+    /// VE-7's Android half: [`FsVault`] does not use this (the embed code
+    /// reads a real path it has canonicalised and checked for containment),
+    /// so this is the route for a provider that has no [`PathBuf`] -- the SAF
+    /// one, through its `"read_bytes"` op. The default refuses
+    /// ([`cannot_read_bytes`]), so a provider that cannot read a picture
+    /// leaves it unread rather than guessed at.
+    fn read_bytes(&self, rel: &str, max_len: u64) -> Result<Vec<u8>, VaultError> {
+        let _ = (rel, max_len);
+        Err(cannot_read_bytes(&self.describe()))
     }
 
     /// The full text of `rel`.

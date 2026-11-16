@@ -2915,7 +2915,9 @@ static func _embed_notice(r: Dictionary, inner: String) -> String:
 			"missing":
 				msg = "Embed not found: %s" % name
 			"ambiguous":
-				msg = "Embed %s could mean %d notes" % [name, (r.get("candidates", []) as Array).size()]
+				## VE-7: a bare picture name found in several folders is "files", not "notes".
+				var amb_what := "notes" if (r.get("candidates", []) as Array).is_empty() or String((r.get("candidates", []) as Array)[0]).to_lower().ends_with(".md") else "files"
+				msg = "Embed %s could mean %d %s" % [name, (r.get("candidates", []) as Array).size(), amb_what]
 			"cycle":
 				var names := PackedStringArray()
 				for p in (r.get("chain", []) as Array):

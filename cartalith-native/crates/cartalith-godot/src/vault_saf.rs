@@ -42,6 +42,8 @@
 //! |---|---|---|
 //! | `"available"` | `[]` | `value: bool` |
 //! | `"list"` | `[limit: int]` | `value: PackedStringArray` of vault-relative paths |
+//! | `"list_attachments"` | `[limit: int]` | `value: PackedStringArray` of vault-relative paths of the non-Markdown attachment files (the extensions of `cartalith_vault::notelinks::ATTACHMENT_EXTENSIONS`), dot-names skipped; VE-7 reads it to find `![[pic.png]]` by bare name. A handler that does not know the op leaves pictures found by path only |
+//! | `"read_bytes"` | `[rel: String, max_len: int]` | `value: PackedByteArray`, the file's bytes; must refuse (`ok: false`) a file longer than `max_len` rather than read it (VE-7's Android picture read) |
 //! | `"read"` | `[rel: String]` | `value: String` |
 //! | `"meta"` | `[rel: String]` | `modified: int` (Unix seconds, `0` if unknown), `len: int` |
 //! | `"exists"` | `[rel: String]` | `value: bool` |
@@ -190,6 +192,25 @@ impl VaultProvider for SafVaultProvider {
         let value = dict.get("value").ok_or_else(|| unavailable("\"list\" carried no value"))?;
         let arr = value.try_to::<PackedStringArray>().map_err(|_| unavailable("\"list\" did not return a string array"))?;
         Ok(arr.to_vec().into_iter().map(|s| s.to_string()).collect())
+    }
+
+    /// Lists attachment paths through `"list_attachments"`. A handler that does not know the op (an older build), or any failure, reads as an **empty list**, not an error: the only consumers are rename planning and bare-name picture lookup, and both degrade to what they did before the op existed (a link to such a file is left alone; a picture is found by path only). A reply whose `value` is not a string array is likewise empty, never a guess.
+    fn list_attachments(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        let Ok(dict) = self.call("list_attachments", varray![limit as i64]) else { return Ok(Vec::new()) };
+        let Some(arr) = dict.get("value").and_then(|v| v.try_to::<PackedStringArray>().ok()) else { return Ok(Vec::new()) };
+        Ok(arr.to_vec().into_iter().map(|s| s.to_string()).collect())
+    }
+
+    /// Reads a picture's bytes through `"read_bytes"`, passing `max_len` so the handler can refuse before reading. `rel` is checked by [`guard`] first. A reply without a `PackedByteArray` value is an error, never an empty picture, and a reply longer than `max_len` is refused here too, since a handler's own check is not a thing to trust with a memory bound.
+    fn read_bytes(&self, rel: &str, max_len: u64) -> Result<Vec<u8>, VaultError> {
+        guard(rel)?;
+        let dict = self.call("read_bytes", varray![rel, max_len as i64])?;
+        let value = dict.get("value").ok_or_else(|| unavailable("\"read_bytes\" carried no value"))?;
+        let bytes = value.try_to::<PackedByteArray>().map_err(|_| unavailable("\"read_bytes\" did not return bytes"))?;
+        if bytes.len() as u64 > max_len {
+            return Err(unavailable("the file is longer than the limit"));
+        }
+        Ok(bytes.to_vec())
     }
 
     /// Reads one note's text through `"read"`. `rel` is checked by [`guard`] first so a traversal path never reaches the handler; a non-string `value` is an error, never empty text.

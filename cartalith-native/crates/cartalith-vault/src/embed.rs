@@ -18,9 +18,12 @@
 //! - **A note is data.** The target, heading and size come out of free text; every one is parsed
 //!   defensively and a value that does not parse is "not a size", never a guess.
 //!
-//! Divergence from Obsidian, disclosed: an image is found as a vault-relative path (from the note's
-//! own folder first, then from the vault root), not by bare file name anywhere in the vault, because
-//! the provider lists Markdown notes only. A bare name that is not at either place reads as missing.
+//! An image is found as a vault-relative path first (from the note's own folder, then from the vault
+//! root), and failing that **by bare name anywhere in the vault** (VE-7), as Obsidian does: the
+//! provider lists attachments ([`provider::VaultProvider::list_attachments`]). Two images of one name
+//! are [`Embed::Ambiguous`], never a pick; Obsidian chooses the shortest path, a choice the author did not
+//! write. A `.gif` is listed but is [`Embed::Unsupported`], because Godot cannot decode it.
+//! On Android the bytes come through the provider's `read_bytes` ([`VaultSession::read_image`]).
 
 use std::path::Path;
 
@@ -318,18 +321,31 @@ impl VaultSession {
                 };
                 return Ok(Embed::Unsupported { target: p.target, why });
             }
+            let mut found: Option<String> = None;
             for rel in candidates(from, &p.target) {
                 if !provider::is_safe_relative_path(&rel) {
                     return Ok(Embed::Escape { target: p.target });
                 }
                 if v.exists(&rel) {
-                    let Some(fs) = v.as_fs_vault() else {
-                        return Ok(Embed::Unsupported {
-                            target: p.target,
-                            why: "this vault is not on the device's filesystem, so an image in it cannot be read yet".into(),
-                        });
-                    };
-                    return Ok(match contained_file(fs, &rel) {
+                    found = Some(rel);
+                    break;
+                }
+            }
+            // VE-7: Obsidian finds `![[map.png]]` by bare name anywhere in the vault. Only reached when
+            // neither the note's own folder nor the root has it, so the common case never walks the vault.
+            if found.is_none() {
+                match find_image_by_name(v, &p.target) {
+                    NameLookup::One(rel) => found = Some(rel),
+                    NameLookup::Many(candidates) => return Ok(Embed::Ambiguous { target: p.target, candidates }),
+                    NameLookup::None => {}
+                }
+            }
+            if let Some(rel) = found {
+                if !provider::is_safe_relative_path(&rel) {
+                    return Ok(Embed::Escape { target: p.target });
+                }
+                return Ok(match v.as_fs_vault() {
+                    Some(fs) => match contained_file(fs, &rel) {
                         None => Embed::Escape { target: p.target },
                         Some(full) => {
                             let m = std::fs::metadata(&full).map_err(|e| Error::Vault(e.into()))?;
@@ -340,8 +356,19 @@ impl VaultSession {
                                 Embed::Image { path: rel, stamp: format!("{}:{}", meta.modified, meta.len), width: p.width }
                             }
                         }
-                    });
-                }
+                    },
+                    // A provider with no filesystem path (Android's tree URI): the size and the stamp come
+                    // from its own `meta`, and the bytes later through `read_bytes`. There is no symlink to
+                    // follow out of a document tree, so the path rule above is the whole containment.
+                    None => {
+                        let meta = v.meta(&rel)?;
+                        if meta.len > IMAGE_MAX_BYTES {
+                            Embed::TooLarge { path: rel, bytes: meta.len, limit: IMAGE_MAX_BYTES }
+                        } else {
+                            Embed::Image { path: rel, stamp: format!("{}:{}", meta.modified, meta.len), width: p.width }
+                        }
+                    }
+                });
             }
             return Ok(Embed::Missing { target: p.target });
         }
@@ -386,13 +413,51 @@ impl VaultSession {
         if !is_drawable_image(rel) {
             return Err(bad("not an image Preview can draw"));
         }
-        let fs = v.as_fs_vault().ok_or_else(|| bad("this vault is not on the device's filesystem"))?;
+        let Some(fs) = v.as_fs_vault() else {
+            // No filesystem path (the SAF provider): the provider's own byte read, capped at the same size.
+            // `read_bytes` is told the cap so a handler can refuse before it reads a huge file.
+            let bytes = v.read_bytes(rel, IMAGE_MAX_BYTES)?;
+            if bytes.len() as u64 > IMAGE_MAX_BYTES {
+                return Err(bad("the image is larger than Preview reads"));
+            }
+            return Ok(bytes);
+        };
         let full = contained_file(fs, rel).ok_or_else(|| Error::Vault(provider::VaultError::Escapes(rel.to_string())))?;
         let len = std::fs::metadata(&full).map_err(|e| Error::Vault(e.into()))?.len();
         if len > IMAGE_MAX_BYTES {
             return Err(bad("the image is larger than Preview reads"));
         }
         std::fs::read(&full).map_err(|e| Error::Vault(e.into()))
+    }
+}
+
+/// What a bare-name image search found.
+enum NameLookup {
+    One(String),
+    Many(Vec<String>),
+    None,
+}
+
+/// Finds the drawable image a bare name (or a path tail, `maps/pic.png`) means, anywhere in the vault: every
+/// listed attachment whose path equals `target` or ends in `/target`, ignoring case as note resolution does.
+/// One match is the answer; several are [`NameLookup::Many`] (sorted), because nothing here may pick one the
+/// author did not. The listing is bounded by [`crate::LIST_CAP`] and names only (no file is opened); a provider
+/// that cannot list attachments yields none, so the embed reads as missing exactly as before this existed.
+fn find_image_by_name(v: &dyn provider::VaultProvider, target: &str) -> NameLookup {
+    let want = target.replace('\\', "/").to_lowercase();
+    let Ok(list) = v.list_attachments(crate::LIST_CAP) else { return NameLookup::None };
+    let mut hits: Vec<String> = list
+        .into_iter()
+        .filter(|rel| {
+            let l = rel.to_lowercase();
+            is_drawable_image(rel) && (l == want || l.ends_with(&format!("/{want}")))
+        })
+        .collect();
+    hits.sort();
+    match hits.len() {
+        0 => NameLookup::None,
+        1 => NameLookup::One(hits.remove(0)),
+        _ => NameLookup::Many(hits),
     }
 }
 
@@ -681,6 +746,178 @@ mod tests {
         assert!(matches!(s.embed_open("A.md", "inside.png", &top).unwrap(), Embed::Image { .. }), "a real file beside it still draws");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_file(outside);
+    }
+
+    /// Protects: VE-7's bare-name pictures over a real folder, with literals: `![[map.png]]` finds the one file of
+    /// that name in any folder, case-blind; a path tail (`img/map.png`) does too; the note's own folder and the root
+    /// still win over a deeper copy; two files of one name are `Ambiguous` (sorted), never a pick; a `.gif` is listed
+    /// but is `Unsupported`; a note is not found as a picture; a missing name is still `Missing`.
+    #[test]
+    fn a_picture_is_found_by_bare_name_anywhere_in_the_vault() {
+        let (root, s) = vault(
+            "bare",
+            &[
+                ("A.md", b"a"),
+                ("Places/B.md", b"b"),
+                ("Assets/deep/map.png", b"\x89PNG"),
+                ("Assets/Crest.JPG", b"jpg"),
+                ("Assets/twin.png", b"1"),
+                ("Other/twin.png", b"2"),
+                ("a/x/pic.webp", b"w"),
+                ("b/x/pic.webp", b"w"),
+                ("Assets/anim.gif", b"GIF"),
+                ("near.png", b"root"),
+                ("Places/near.png", b"nearer"),
+                (".hidden/secret.png", b"s"),
+            ],
+        );
+        let top = vec!["A.md".to_string()];
+        let img = |inner: &str, from: &str| match s.embed_open(from, inner, &[from.to_string()]).unwrap() {
+            Embed::Image { path, .. } => path,
+            o => format!("{o:?}"),
+        };
+        assert_eq!(img("map.png", "A.md"), "Assets/deep/map.png", "a bare name anywhere in the vault");
+        assert_eq!(img("MAP.PNG|200", "A.md"), "Assets/deep/map.png", "case-blind, with a size");
+        assert_eq!(img("deep/map.png", "A.md"), "Assets/deep/map.png", "a path tail");
+        assert_eq!(img("crest.jpg", "A.md"), "Assets/Crest.JPG");
+        assert_eq!(img("near.png", "Places/B.md"), "Places/near.png", "the note's own folder wins");
+        assert_eq!(img("near.png", "A.md"), "near.png", "the root wins over a deeper copy");
+        match s.embed_open("A.md", "twin.png", &top).unwrap() {
+            Embed::Ambiguous { candidates, .. } => assert_eq!(candidates, vec!["Assets/twin.png", "Other/twin.png"]),
+            o => panic!("{o:?}"),
+        }
+        match s.embed_open("A.md", "x/pic.webp", &top).unwrap() {
+            Embed::Ambiguous { candidates, .. } => assert_eq!(candidates, vec!["a/x/pic.webp", "b/x/pic.webp"]),
+            o => panic!("{o:?}"),
+        }
+        assert!(matches!(s.embed_open("A.md", "anim.gif", &top).unwrap(), Embed::Unsupported { .. }));
+        assert!(matches!(s.embed_open("A.md", "secret.png", &top).unwrap(), Embed::Missing { .. }), "dot-folders are never listed");
+        assert!(matches!(s.embed_open("A.md", "nothing.png", &top).unwrap(), Embed::Missing { .. }));
+        // A found picture's path reads back through `read_image`.
+        assert_eq!(s.read_image("Assets/deep/map.png").unwrap(), b"\x89PNG");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A provider with no filesystem path, standing in for the Storage Access Framework one: a map of bytes it
+    /// lists, measures and reads through the trait only.
+    #[derive(Debug)]
+    struct NoFs(std::collections::BTreeMap<String, Vec<u8>>);
+
+    impl provider::VaultProvider for NoFs {
+        /// Always reachable.
+        fn available(&self) -> bool {
+            true
+        }
+        /// The `.md` keys.
+        fn list_markdown(&self, _limit: usize) -> Result<Vec<String>, provider::VaultError> {
+            Ok(self.0.keys().filter(|k| k.ends_with(".md")).cloned().collect())
+        }
+        /// The non-`.md` keys, as the SAF handler's `"list_attachments"` does.
+        fn list_attachments(&self, _limit: usize) -> Result<Vec<String>, provider::VaultError> {
+            Ok(self.0.keys().filter(|k| !k.ends_with(".md")).cloned().collect())
+        }
+        /// The bytes, refusing a file over `max_len`.
+        fn read_bytes(&self, rel: &str, max_len: u64) -> Result<Vec<u8>, provider::VaultError> {
+            let b = self.0.get(rel).ok_or_else(|| provider::VaultError::Io(std::io::ErrorKind::NotFound.into()))?;
+            if b.len() as u64 > max_len {
+                return Err(provider::VaultError::Io(std::io::Error::other("too long")));
+            }
+            Ok(b.clone())
+        }
+        /// The text of a note.
+        fn read(&self, rel: &str) -> Result<String, provider::VaultError> {
+            Ok(String::from_utf8_lossy(self.0.get(rel).ok_or_else(|| provider::VaultError::Io(std::io::ErrorKind::NotFound.into()))?).into_owned())
+        }
+        /// A fixed clock and the real length.
+        fn meta(&self, rel: &str) -> Result<provider::FileMeta, provider::VaultError> {
+            let b = self.0.get(rel).ok_or_else(|| provider::VaultError::Io(std::io::ErrorKind::NotFound.into()))?;
+            Ok(provider::FileMeta { modified: 7, len: b.len() as u64 })
+        }
+        /// Whether the key exists.
+        fn exists(&self, rel: &str) -> bool {
+            self.0.contains_key(rel)
+        }
+        /// Read-only here.
+        fn write(&self, _rel: &str, _text: &str) -> Result<(), provider::VaultError> {
+            Err(provider::VaultError::Io(std::io::Error::other("read only")))
+        }
+        /// A label.
+        fn describe(&self) -> String {
+            "fake://nofs".into()
+        }
+    }
+
+    /// Protects: VE-7's Android half through the trait alone, with no filesystem path: a picture beside the note, one
+    /// found by bare name, its stamp from `meta`, its bytes from `read_bytes`, and the size cap enforced both from
+    /// `meta` (`TooLarge`) and by `read_image` (a provider that under-reports still cannot hand over more than the cap).
+    /// Before this a non-filesystem vault answered every picture `Unsupported`.
+    #[test]
+    fn a_picture_in_a_provider_without_a_path_is_found_and_read() {
+        let mut files = std::collections::BTreeMap::new();
+        files.insert("A.md".to_string(), b"a".to_vec());
+        files.insert("Notes/B.md".to_string(), b"b".to_vec());
+        files.insert("img/map.png".to_string(), b"\x89PNGdata".to_vec());
+        files.insert("near.png".to_string(), b"n".to_vec());
+        files.insert("big.png".to_string(), vec![0u8; (IMAGE_MAX_BYTES + 1) as usize]);
+        let mut s = VaultSession::default();
+        s.connect_provider(Box::new(NoFs(files)), Some("fake")).unwrap();
+        assert!(s.vault().unwrap().as_fs_vault().is_none());
+        let top = vec!["A.md".to_string()];
+        match s.embed_open("A.md", "map.png|50", &top).unwrap() {
+            Embed::Image { path, stamp, width } => assert_eq!((path.as_str(), stamp.as_str(), width), ("img/map.png", "7:8", Some(50))),
+            o => panic!("{o:?}"),
+        }
+        match s.embed_open("A.md", "near.png", &top).unwrap() {
+            Embed::Image { path, .. } => assert_eq!(path, "near.png"),
+            o => panic!("{o:?}"),
+        }
+        assert!(matches!(s.embed_open("A.md", "big.png", &top).unwrap(), Embed::TooLarge { .. }));
+        assert!(matches!(s.embed_open("A.md", "gone.png", &top).unwrap(), Embed::Missing { .. }));
+        assert_eq!(s.read_image("img/map.png").unwrap(), b"\x89PNGdata");
+        assert!(s.read_image("big.png").is_err(), "the cap is passed to the provider, which refuses");
+        assert!(s.read_image("../x.png").is_err());
+        assert!(s.read_image("A.md").is_err(), "a note is not a picture");
+    }
+
+    /// Protects: the trait's default `read_bytes` refuses, so a provider that cannot read a picture is `Err`, never an
+    /// empty picture, and the default `list_attachments` stays empty (a bare name is then `Missing`, as before VE-7).
+    #[test]
+    fn the_default_provider_cannot_read_a_picture() {
+        #[derive(Debug)]
+        struct Bare;
+        impl provider::VaultProvider for Bare {
+            /// Reachable.
+            fn available(&self) -> bool {
+                true
+            }
+            /// No notes.
+            fn list_markdown(&self, _l: usize) -> Result<Vec<String>, provider::VaultError> {
+                Ok(vec![])
+            }
+            /// Nothing.
+            fn read(&self, _r: &str) -> Result<String, provider::VaultError> {
+                Ok(String::new())
+            }
+            /// Nothing.
+            fn meta(&self, _r: &str) -> Result<provider::FileMeta, provider::VaultError> {
+                Ok(provider::FileMeta { modified: 0, len: 0 })
+            }
+            /// Nothing exists.
+            fn exists(&self, _r: &str) -> bool {
+                false
+            }
+            /// Refused.
+            fn write(&self, _r: &str, _t: &str) -> Result<(), provider::VaultError> {
+                Ok(())
+            }
+            /// A label.
+            fn describe(&self) -> String {
+                "bare".into()
+            }
+        }
+        use provider::VaultProvider;
+        assert!(Bare.read_bytes("a.png", 10).is_err());
+        assert!(Bare.list_attachments(10).unwrap().is_empty());
     }
 
     /// Protects: an image over the cap is `TooLarge`, one byte under is an image.

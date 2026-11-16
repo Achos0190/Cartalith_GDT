@@ -174,6 +174,18 @@ func read_text(id: String) -> Dictionary:
 	return {"ok": true, "text": (bytes as PackedByteArray).get_string_from_utf8()}
 
 
+## A picture's bytes (VE-7). The same stream as `read_text`, kept as bytes: a decode to text would corrupt them.
+func read_bytes(id: String) -> Dictionary:
+	var stream = _resolver.openInputStream(_doc_uri(id))
+	if stream == null:
+		return _fail("the picture could not be opened")
+	var bytes = stream.readAllBytes()
+	stream.close()
+	if bytes == null:
+		return _fail("the picture could not be read")
+	return {"ok": true, "bytes": bytes as PackedByteArray}
+
+
 ## Opened with mode `"wt"` so an existing file is truncated; the handler reads the file back to check it.
 func write_text(id: String, text: String) -> Dictionary:
 	var out = _resolver.openOutputStream(_doc_uri(id), "wt")
