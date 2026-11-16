@@ -280,6 +280,23 @@ static func axis_distance(tip: Vector2, r: float, p: Vector2, angle: float = 0.0
 	return _seg_dist(p, tip, tip + Vector2(0.0, -stem * r).rotated(angle))
 
 
+## pin rings (FA follow-up): where the pin's own point stands when it is lifted `lift` px out along its tilt axis (the unit vector
+## `(sin angle, -cos angle)`, the way an upright pin's stem points rotated clockwise by `angle`). `lift == 0` returns `tip`.
+## The ONE place the lift is applied, so what is drawn (`draw`), picked (`hit_styled`, `rank_distance`) and measured by a probe agree.
+static func lifted_tip(tip: Vector2, angle: float, lift: float) -> Vector2:
+	if lift == 0.0:
+		return tip
+	return tip + Vector2(sin(angle), -cos(angle)) * lift
+
+
+## pin rings (FA follow-up): the stalk of an outer-ring pin: the place's dot and a thin line out to the pin's point (`lifted_tip`), the
+## circles' leader's look (`draw_leader`). Called in the caller's pass that runs BEFORE every pin is drawn, so every head
+## covers every stalk. Draws nothing for `lift <= 0`. `true_tip` is the place; `w` and `r` as `draw_leader`.
+static func draw_stalk(ci: CanvasItem, true_tip: Vector2, angle: float, lift: float, r: float, w: float = 1.0) -> void:
+	if lift > 0.0:
+		draw_leader(ci, true_tip, lifted_tip(true_tip, angle, lift), r, w)
+
+
 ## The pad (px, in the pin's units) that makes the head plus its slack at least `TOUCH_TARGET_DP * unit` across,
 ## where `unit` converts dp to the pin's units (the phone's density-based scale, divided by the camera zoom on the
 ## map). Never below `HIT_PAD`. A mouse uses `HIT_PAD` and never this.
@@ -320,9 +337,12 @@ static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0
 ## local units at deep zoom and a one-unit floor would eat the head at x4.
 static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
 		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "",
-		fill_col: Color = Color(0, 0, 0, 0), ink_col: Color = Color(0, 0, 0, 0), min_line: float = 1.0) -> void:
+		fill_col: Color = Color(0, 0, 0, 0), ink_col: Color = Color(0, 0, 0, 0), min_line: float = 1.0, lift: float = 0.0) -> void:
 	if r <= 0.0:
 		return
+	## pin rings (FA follow-up): a pin on an OUTER ring of a big fan stands `lift` px out along its tilt axis. The stalk back to the true place
+	## is NOT drawn here: `draw_stalk` is, by the caller's leader pass BEFORE every pin, so no stalk crosses a head.
+	tip = lifted_tip(tip, angle, lift)
 	## An icon set draws the owner's texture when `kind` has one and the file loads; otherwise it falls through to the
 	## drawn pin below (the stated fallback, and exactly what `shape()` reports for the footprint).
 	if icon_set != "" and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set):
@@ -590,31 +610,31 @@ static func hit_ring(centre: Vector2, r: float, p: Vector2, pad: float) -> bool:
 ## marker goes through, so no caller picks a shape on its own and then picks a footprint for another.
 ## `angle` is the pin's tilt (ignored by a circle: a disc has no stem to rotate).
 static func draw_styled(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, circles: bool,
-		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "") -> void:
+		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "", lift: float = 0.0) -> void:
 	if circles:
 		draw_ring(ci, tip, r, kind, has_note, w, alpha, outline)
 	else:
-		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle, icon_set)
+		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle, icon_set, Color(0, 0, 0, 0), Color(0, 0, 0, 0), 1.0, lift)
 
 
 ## `hit()` or `hit_ring()` by style: the footprint that goes with `draw_styled()`'s shape, read by every pick.
 ## `kind` and `icon_set` select the footprint of a textured pin (`shape()`): the drawn pin's for `icon_set == ""` or a kind with
 ## no icon, the icon's own circle-plus-triangle otherwise. A circle ignores both.
 static func hit_styled(tip: Vector2, r: float, p: Vector2, pad: float, circles: bool, angle: float = 0.0,
-		kind: String = "", icon_set: String = "") -> bool:
+		kind: String = "", icon_set: String = "", lift: float = 0.0) -> bool:
 	if circles:
 		return hit_ring(tip, r, p, pad)
 	var sh := shape(r, kind, icon_set)
-	return hit(tip, float(sh["r"]), p, pad, angle, float(sh["stem"]))
+	return hit(lifted_tip(tip, angle, lift), float(sh["r"]), p, pad, angle, float(sh["stem"]))
 
 
 ## The sort key of a hit by style: the distance to the circle's centre in circles mode, `axis_distance()` for a pin.
 static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool, angle: float = 0.0,
-		kind: String = "", icon_set: String = "") -> float:
+		kind: String = "", icon_set: String = "", lift: float = 0.0) -> float:
 	if circles:
 		return p.distance_to(tip)
 	var sh := shape(r, kind, icon_set)
-	return axis_distance(tip, float(sh["r"]), p, angle, float(sh["stem"]))
+	return axis_distance(lifted_tip(tip, angle, lift), float(sh["r"]), p, angle, float(sh["stem"]))
 
 
 # -- Head-overlap handling (CL-1's last bar, `CITY_MAP_LOOK_SCOPE.md` section 4.2; PINS REPLACED BY RULING FA) -------------
@@ -636,8 +656,8 @@ static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool, ang
 const FAN_OVERLAP_KEEP := 0.75
 ## Circles only: where a slid disc ends up, its neighbours' centres at least this share of the radii sum apart (a 5 % gap).
 const FAN_CLEAR := 1.05
-## The largest cluster that is handled. A bigger knot (the whole-world view of a dense landmark field) is left in place:
-## a fan of 40 would cover the map, and zooming in resolves it. Stated, not silent.
+## The largest CIRCLES cluster that is handled (pin rings (FA follow-up): pins use `FAN_PIN_MAX`). A bigger knot (the whole-world view of a
+## dense landmark field) is left in place: a fan of 40 would cover the map, and zooming in resolves it. Stated, not silent.
 const FAN_MAX := 18
 ## Ruling FA: the tilt of each pin of an overlapping PAIR, about its own tip, in degrees. 45 each side makes the two stems
 ## 90 degrees apart, the owner's "straight line is at a 90 degree angle ... a heart like shape". Quoted from the ruling.
@@ -650,64 +670,206 @@ const TILT_FAN3_SPREAD_DEG := 120.0
 ## labelled judgement) ...
 const TILT_FAN_STEP_DEG := 60.0
 ## ... up to this total (a half circle: a fan wider than that would point stems at the ground). A labelled judgement. So
-## four pins on one tip still clear one another's heads (+/-90, +/-30); five or more fit the half circle only by
-## overlapping like a fan of cards: a stated limit, not a silent one (`OUTSTANDING_WORK.md`, City map look row).
+## four pins on one tip still clear one another's heads (+/-90, +/-30). **From five, the rest stand on outer rings
+## (pin rings (FA follow-up), `FAN_RING_STEP` below), which replaced the old fan-of-cards overlap**; this constant is every ring's half circle.
 const TILT_FAN_MAX_DEG := 180.0
 
 
-## The tilt of each overlapping pin, as `{id: angle in radians}` holding ONLY pins that tilt (a lone pin is absent). `items`
-## are `{id: int, pos: Vector2, r: float}`: the stable key, the TIP in screen px, the head radius. **Tips are never moved**:
-## the pin rotates about `pos`. A cluster is the transitive closure of "heads overlap by more than a quarter, or one pin's
-## head sits on the other's stem" (`_pins_collide`); inside a cluster the members are ordered left to right by tip x (then
-## y, then `id`) and take angles evenly from -spread/2 to +spread/2: an overlapping pair gets -/+ `TILT_PAIR_DEG`, three get
-## +/-`TILT_FAN3_SPREAD_DEG`/2 and 0, more widen by `TILT_FAN_STEP_DEG` each up to `TILT_FAN_MAX_DEG`. A negative angle swings
-## the head left, so pins always tilt AWAY from each other, and pins on one shared tip fan about that point. A knot over
-## `FAN_MAX` is left upright. Pure, deterministic and translation-invariant.
-static func tilt_angles(items: Array, icon_set: String = "") -> Dictionary:
+## pin rings (FA follow-up) (owner-delegated, 2026-11-16; `CITY_MAP_LOOK_SCOPE.md` build note): a fan of MORE than four pins on one place
+## no longer overlaps like a hand of cards. Pins beyond the first four stand on OUTER RINGS: the same pin, lifted
+## `FAN_RING_STEP` head diameters further out along its tilt axis per ring, on a thin stalk with the place's dot at the foot
+## (`draw_leader`). Four rings hold `FAN_PIN_MAX` pins, which also replaces the old "a knot over 18 stays upright".
+const FAN_RING_STEP := 2.3
+## Rings of the fan, innermost first (ring 0 is the Ruling FA fan: no lift). A labelled judgement: four rings is a stalk about
+## nine head radii long at most, which the map's pin size keeps under 100 px; a fifth would be a sunburst across the map.
+const FAN_RINGS := 4
+## The largest cluster that fans: the capacity of the four rings of a pin of the default shape (4 + 7 + 11 + 14, each ring a
+## half circle with heads `FAN_CLEAR` apart). A bigger knot stays upright (zoom resolves it; the declutter thins it first).
+const FAN_PIN_MAX := 36
+
+
+## Per-item pin geometry the layout reads: `{rh: head radius, stem: tip-to-head-centre px}` from `shape()`.
+static func _pin_dims(it: Dictionary, icon_set: String) -> Dictionary:
+	var sh := shape(float(it["r"]), String(it.get("kind", "")), icon_set)
+	var rh := float(sh["r"])
+	return {"rh": rh, "stem": float(sh["stem"]) * rh}
+
+
+## The layout of every overlapping pin, as `{id: Vector2(angle in radians, lift in px)}` holding ONLY pins that move (a lone
+## pin is absent). `items` are `{id: int, pos: Vector2, r: float, kind?: String}`: the stable key, the TIP in screen px, the head
+## radius. **Tips are never moved**: a pin rotates about `pos` and, on an outer ring, stands `lift` px out on a stalk from it.
+##
+## **Clusters.** The transitive closure of "heads overlap by more than a quarter, or one head sits on the other's stem"
+## (`_pins_collide`). **A fan can reach a neighbouring cluster** (the old widening passes were removed with Ruling FA): so the
+## clusters are laid out, every pin's FANNED head is compared with the other clusters' heads, and two clusters whose
+## fanned heads would overlap are merged and laid out again, until none do or the merge would pass `FAN_PIN_MAX`.
+##
+## **Inside a cluster** (members ordered left to right by tip x, then y, then `id`): two pins make a heart (+/-45 degrees),
+## three a fan (+/-60 and 0), four a half circle (+/-90, +/-30): Ruling FA's look, unchanged. From five, ring 0 keeps those four
+## and the rest take ring 1 (up to 7), ring 2 (11), ring 3 (14); a ring's slots are `max(clear step, 180 / n)` degrees apart
+## across a half circle, where the clear step is `2 asin(FAN_CLEAR / S)` for its stem `S` in head radii, so two heads of one
+## ring never overlap. Members take the slots in angle order (ties: inner ring first), so a pin right of another leans right.
+## Pure, deterministic and translation-invariant (it reads only relative tip positions).
+static func fan_layout(items: Array, icon_set: String = "") -> Dictionary:
 	var n := items.size()
 	var out := {}
 	if n < 2:
 		return out
+	var dims: Array = []
+	for it in items:
+		dims.append(_pin_dims(it, icon_set))
 	var parent := PackedInt32Array()
 	parent.resize(n)
 	for i in n:
 		parent[i] = i
+	var any := false
 	for i in n:
 		for j in range(i + 1, n):
 			if _pins_collide(items[i], items[j], icon_set):
-				var a := i
-				while parent[a] != a:
-					a = parent[a]
-				var b := j
-				while parent[b] != b:
-					b = parent[b]
-				if a != b:
-					parent[maxi(a, b)] = mini(a, b)
-	var clusters := {}
+				_union(parent, i, j)
+				any = true
+	if not any:
+		return out
+	var lay := {}
+	for _pass in 8:
+		var groups := _groups(parent)
+		lay = {}
+		var csize := {}   ## cluster root -> member count, kept current as clusters merge in this pass
+		for root in groups:
+			var members: Array = groups[root]
+			csize[root] = members.size()
+			if members.size() >= 2 and members.size() <= FAN_PIN_MAX:
+				lay.merge(_ring_layout(items, dims, members), true)
+		var merged := false
+		# Sweep the heads by x: only pins within the largest possible clash distance of one another can overlap.
+		var heads: Array = []
+		var rmax := 0.0
+		for i in n:
+			var l: Vector2 = lay.get(i, Vector2.ZERO)
+			var head := lifted_tip(items[i]["pos"] as Vector2, l.x, l.y) + Vector2(0.0, -float(dims[i]["stem"])).rotated(l.x)
+			heads.append(head)
+			rmax = maxf(rmax, float(dims[i]["rh"]))
+		var order: Array = range(n)
+		order.sort_custom(func(a, b) -> bool: return (heads[a] as Vector2).x < (heads[b] as Vector2).x)
+		for oi in n:
+			var a: int = order[oi]
+			for oj in range(oi + 1, n):
+				var b: int = order[oj]
+				if (heads[b] as Vector2).x - (heads[a] as Vector2).x >= FAN_OVERLAP_KEEP * 2.0 * rmax:
+					break
+				var ra := _root(parent, a)
+				var rb := _root(parent, b)
+				if ra == rb:
+					continue
+				if (heads[a] as Vector2).distance_to(heads[b]) < FAN_OVERLAP_KEEP * (float(dims[a]["rh"]) + float(dims[b]["rh"])):
+					if int(csize[ra]) + int(csize[rb]) <= FAN_PIN_MAX:
+						_union(parent, a, b)
+						csize[mini(ra, rb)] = int(csize[ra]) + int(csize[rb])
+						merged = true
+		if not merged:
+			break
 	for i in n:
-		var root := i
-		while parent[root] != root:
-			root = parent[root]
-		if not clusters.has(root):
-			clusters[root] = []
-		(clusters[root] as Array).append(i)
-	for root in clusters:
-		var members: Array = clusters[root]
-		if members.size() < 2 or members.size() > FAN_MAX:
-			continue
-		members.sort_custom(func(a, b) -> bool:
-			var pa := items[a]["pos"] as Vector2
-			var pb := items[b]["pos"] as Vector2
-			# A 1e-3 px resolution so a sub-pixel wobble cannot reorder two members; `id` decides a tie.
-			if absf(pa.x - pb.x) > 1e-3:
-				return pa.x < pb.x
-			if absf(pa.y - pb.y) > 1e-3:
-				return pa.y < pb.y
-			return int(items[a]["id"]) < int(items[b]["id"]))
-		var m := members.size()
+		if lay.has(i):
+			out[int(items[i]["id"])] = lay[i]
+	return out
+
+
+static func _root(parent: PackedInt32Array, i: int) -> int:
+	var a := i
+	while parent[a] != a:
+		a = parent[a]
+	return a
+
+
+static func _union(parent: PackedInt32Array, i: int, j: int) -> void:
+	var a := _root(parent, i)
+	var b := _root(parent, j)
+	if a != b:
+		parent[maxi(a, b)] = mini(a, b)
+
+
+## `{root: [member indices]}` of a union-find forest.
+static func _groups(parent: PackedInt32Array) -> Dictionary:
+	var groups := {}
+	for i in parent.size():
+		var r := _root(parent, i)
+		if not groups.has(r):
+			groups[r] = []
+		(groups[r] as Array).append(i)
+	return groups
+
+
+## One cluster's rings, `{item index: Vector2(angle, lift)}` for every member (see `fan_layout`).
+static func _ring_layout(items: Array, dims: Array, members: Array) -> Dictionary:
+	members = members.duplicate()
+	members.sort_custom(func(a, b) -> bool:
+		var pa := items[a]["pos"] as Vector2
+		var pb := items[b]["pos"] as Vector2
+		# A 1e-3 px resolution so a sub-pixel wobble cannot reorder two members; `id` decides a tie.
+		if absf(pa.x - pb.x) > 1e-3:
+			return pa.x < pb.x
+		if absf(pa.y - pb.y) > 1e-3:
+			return pa.y < pb.y
+		return int(items[a]["id"]) < int(items[b]["id"]))
+	var m := members.size()
+	var out := {}
+	if m == 2 or m == 3 or m == 4:
 		var spread := TILT_PAIR_DEG * 2.0 if m == 2 else minf(TILT_FAN3_SPREAD_DEG + TILT_FAN_STEP_DEG * float(m - 3), TILT_FAN_MAX_DEG)
 		for k in m:
-			out[int(items[members[k]]["id"])] = deg_to_rad(-spread * 0.5 + spread * float(k) / float(m - 1))
+			out[members[k]] = Vector2(deg_to_rad(-spread * 0.5 + spread * float(k) / float(m - 1)), 0.0)
+		return out
+	var u := 0.0
+	var stem := 0.0
+	for i in members:
+		u = maxf(u, float(dims[i]["rh"]))
+		stem = maxf(stem, float(dims[i]["stem"]))
+	var slots: Array = []   ## [angle degrees, ring]
+	var left := m
+	for k in FAN_RINGS:
+		if left <= 0:
+			break
+		var s_k := (stem + float(k) * FAN_RING_STEP * u) / u   ## this ring's stem in head radii
+		var step_min := rad2deg_(2.0 * asin(minf(1.0, FAN_CLEAR / s_k)))
+		var cap := maxi(2, int(floor(TILT_FAN_MAX_DEG / step_min + 1e-6)) + 1)
+		var cnt := mini(left, cap) if k < FAN_RINGS - 1 else left
+		left -= cnt
+		var step := 0.0
+		if cnt > 1:
+			step = minf(maxf(step_min, TILT_FAN_MAX_DEG / float(cnt)), 90.0)
+			if step * float(cnt - 1) > TILT_FAN_MAX_DEG:
+				step = TILT_FAN_MAX_DEG / float(cnt - 1)
+		for j in cnt:
+			slots.append([(float(j) - float(cnt - 1) * 0.5) * step, k])
+	slots.sort_custom(func(a, b) -> bool:
+		if absf(float(a[0]) - float(b[0])) > 1e-6:
+			return float(a[0]) < float(b[0])
+		return int(a[1]) < int(b[1]))
+	for k in m:
+		out[members[k]] = Vector2(deg_to_rad(float(slots[k][0])), float(slots[k][1]) * FAN_RING_STEP * u)
+	return out
+
+
+static func rad2deg_(x: float) -> float:
+	return x * 180.0 / PI
+
+
+## The tilt of each overlapping pin as `{id: angle in radians}`: `fan_layout`'s angle half (the shape every caller drew with
+## before the outer rings; kept so a caller that has no lift to apply still reads one number per pin).
+static func tilt_angles(items: Array, icon_set: String = "") -> Dictionary:
+	var out := {}
+	var lay := fan_layout(items, icon_set)
+	for id in lay:
+		out[id] = (lay[id] as Vector2).x
+	return out
+
+
+## The lift (px) of each pin that stands on an outer ring, `{id: px}`; ring 0 pins are absent.
+static func fan_lifts(items: Array, icon_set: String = "") -> Dictionary:
+	var out := {}
+	var lay := fan_layout(items, icon_set)
+	for id in lay:
+		if (lay[id] as Vector2).y > 0.0:
+			out[id] = (lay[id] as Vector2).y
 	return out
 
 

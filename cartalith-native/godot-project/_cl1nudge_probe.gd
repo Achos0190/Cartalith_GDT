@@ -479,7 +479,7 @@ func _leg_u_tilt(r: float) -> void:
 	for k in five:
 		t5.append(snappedf(deg.call(float(five[k])), 0.01))
 	t5.sort()
-	_ok("T5: five fan -90, -45, 0, 45, 90 degrees (the half-circle cap) (%s)" % [str(t5)], t5 == [-90.0, -45.0, 0.0, 45.0, 90.0])
+	_ok("T5: five fan -90, -30, 0, 30, 90 degrees: four on the half circle and the fifth on ring 1 (pin rings (FA follow-up)) (%s)" % [str(t5)], t5 == [-90.0, -30.0, 0.0, 30.0, 90.0])
 	var four: Dictionary = Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100, 100), Vector2(100, 100), Vector2(100, 100)], r))
 	var t4: Array = []
 	for k in four:
@@ -490,9 +490,9 @@ func _leg_u_tilt(r: float) -> void:
 	_ok("T6: a lone pin and a far pin are absent", Pin.tilt_angles(_items([Vector2(100, 100), Vector2(103, 98), Vector2(900, 900)], r)).has(2) == false)
 	_ok("T6: heads overlapping by under a quarter are left upright", Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100 + 2.0 * r * 0.8, 100)], r)).is_empty())
 	var knot: Array = []
-	for k in Pin.FAN_MAX + 1:
+	for k in Pin.FAN_PIN_MAX + 1:
 		knot.append(Vector2(200.0 + 0.1 * k, 200.0))
-	_ok("T7: a knot of %d is left upright" % [Pin.FAN_MAX + 1], Pin.tilt_angles(_items(knot, r)).is_empty())
+	_ok("T7: a knot of %d (over FAN_PIN_MAX, pin rings (FA follow-up)) is left upright" % [Pin.FAN_PIN_MAX + 1], Pin.tilt_angles(_items(knot, r)).is_empty())
 	# Pan invariance: a translation changes no angle.
 	var pts := [Vector2(100, 100), Vector2(103, 98), Vector2(98, 104)]
 	var base: Dictionary = Pin.tilt_angles(_items(pts, r))
@@ -780,7 +780,7 @@ func _leg_v(unused: bool) -> void:
 	for k in poi_idx:
 		angs.append(snappedf(rad_to_deg(cv.pin_tilt(k)), 0.01))
 	angs.sort()
-	var spread_ok := absf(float(angs[2])) <= 90.0 and absf(float(angs[0])) <= 90.0 and float(angs[1]) - float(angs[0]) >= 10.0 and float(angs[2]) - float(angs[1]) >= 10.0
+	var spread_ok := absf(float(angs[2])) <= 90.0 and absf(float(angs[0])) <= 90.0 and float(angs[1]) - float(angs[0]) >= 3.0 and float(angs[2]) - float(angs[1]) >= 3.0   ## 3 degrees: in a big merged cluster (phone) the outer rings' slots interleave, so three POIs can sit 7 degrees apart (pin rings)
 	_ok("V6: the three tilt to distinct angles in a fan (%s)" % str(angs), spread_ok)
 	# No jitter across small pans.
 	var jit := true

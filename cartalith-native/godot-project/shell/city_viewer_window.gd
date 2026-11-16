@@ -610,19 +610,24 @@ func _draw_canvas() -> void:
 	var circles := DccSettings.markers_are_circles()
 	var all_pins := _pins()
 	var nudge := _pin_nudges(all_pins, vt, pr, circles)
-	var tilt := _pin_tilts(all_pins, vt, pr, circles)
+	var lay := _pin_layout(all_pins, vt, pr, circles)
 	## The circles' slide (CL-1): leaders first, so a moved disc covers its line's far end. Pins have no leaders: they stay on
 	## their tips and tilt (Ruling FA, `tilt`).
 	for i in nudge:
 		var t: Vector2 = to_screen.call(all_pins[i]["at"])
 		PinMarker.draw_leader(_canvas, t, t + (nudge[i] as Vector2), pr)
+	## pin rings (FA follow-up): the stalks of the outer-ring pins, before every pin so each head covers every stalk.
+	for i in lay:
+		var lo0: Vector2 = lay[i]
+		PinMarker.draw_stalk(_canvas, to_screen.call(all_pins[i]["at"]), lo0.x, lo0.y, pr)
 	for i in all_pins.size():
 		var pin: Dictionary = all_pins[i]
 		## A user-placed POI (Ruling EW item 4) speaks for itself; every derived pin speaks for its town.
 		var pin_note: bool = bool(pin["has_note"]) if pin.has("poi") else has_note
+		var lo: Vector2 = lay.get(i, Vector2.ZERO)
 		PinMarker.draw_styled(_canvas, (to_screen.call(pin["at"]) as Vector2) + (nudge.get(i, Vector2.ZERO) as Vector2),
-			pr, String(pin["kind"]), pin_note, circles, 1.0, 1.0, PinMarker.INK, float(tilt.get(i, 0.0)),
-			DccSettings.marker_icon_set())   ## the owner's icon set when chosen (2026-11-15); the viewer always shows its pins (Ruling FC)
+			pr, String(pin["kind"]), pin_note, circles, 1.0, 1.0, PinMarker.INK, lo.x,
+			DccSettings.marker_icon_set(), lo.y)   ## the owner's icon set when chosen (2026-11-15); the viewer always shows its pins (Ruling FC)
 
 
 ## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
@@ -764,6 +769,22 @@ func _pin_tilts(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictio
 	return {} if circles else PinMarker.tilt_angles(_pin_items(pins, vt, pr), DccSettings.marker_icon_set())
 
 
+## pin rings (FA follow-up): `{pin index: Vector2(tilt radians, outer-ring lift px)}` for the pins that fan (`PinMarker.fan_layout`: from five
+## pins on one place the rest stand on rings further out, and two fans that would collide merge into one); `{}` for circles. The
+## draw and `pin_at` read this one answer, so the picked head is the drawn one.
+func _pin_layout(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
+	return {} if circles else PinMarker.fan_layout(_pin_items(pins, vt, pr), DccSettings.marker_icon_set())
+
+
+## The outer-ring lift (canvas px) of pin `i` of `_pins()` as drawn now; 0 for a pin on ring 0, a lone pin, a bad index and circles.
+func pin_lift(i: int) -> float:
+	var pins := _pins()
+	if i < 0 or i >= pins.size() or _layout.is_empty():
+		return 0.0
+	var lay := _pin_layout(pins, _view_transform(), PIN_HEAD_R * _pin_unit(), DccSettings.markers_are_circles())
+	return (lay.get(i, Vector2.ZERO) as Vector2).y
+
+
 ## The tilt (radians, about the tip) of pin `i` of `_pins()` as drawn now; `0.0` for a lone pin, a bad index and the circles
 ## style. What a probe reads, as it reads `pin_tip`.
 func pin_tilt(i: int) -> float:
@@ -798,15 +819,16 @@ func pin_at(pos: Vector2) -> int:
 	var best_d := INF
 	var pins := _pins()
 	var nudge := _pin_nudges(pins, vt, pr, circles)
-	var tilt := _pin_tilts(pins, vt, pr, circles)
+	var lay := _pin_layout(pins, vt, pr, circles)
 	for i in pins.size():
 		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"]) \
 			+ (nudge.get(i, Vector2.ZERO) as Vector2)   ## the drawn head, nudge included
-		var ang := float(tilt.get(i, 0.0))   ## the drawn pin's tilt about its tip (Ruling FA)
+		var lo: Vector2 = lay.get(i, Vector2.ZERO)
+		var ang := lo.x   ## the drawn pin's tilt about its tip (Ruling FA) and its outer-ring lift (pin rings (FA follow-up))
 		var pkind := String(pins[i]["kind"])
 		var iset := DccSettings.marker_icon_set()   ## a textured pin is hit as the drawn texture (`PinMarker.shape`)
-		if PinMarker.hit_styled(tip, pr, pos, pad, circles, ang, pkind, iset):
-			var d := PinMarker.rank_distance(tip, pr, pos, circles, ang, pkind, iset)
+		if PinMarker.hit_styled(tip, pr, pos, pad, circles, ang, pkind, iset, lo.y):
+			var d := PinMarker.rank_distance(tip, pr, pos, circles, ang, pkind, iset, lo.y)
 			if d < best_d:
 				best = i
 				best_d = d
