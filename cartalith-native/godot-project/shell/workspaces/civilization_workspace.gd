@@ -1749,7 +1749,10 @@ func _fill_conflicts(parent: Control, rows: Array) -> void:
 			"● " if c.get("active", false) else "○ ",
 			nm if not nm.is_empty() else "(unnamed #%d)" % int(c.get("id", 0)),
 			CONFLICT_KIND_LABELS.get(String(c.get("kind", "")), "?"), span],
-			select_conflict.bind(int(c.get("id", 0))))
+			func() -> void:
+				## PC-4 leftover (F7): a list pick moves the year to the conflict's first year, then selects it.
+				app.conflict_goto_start(int(c.get("id", 0)))
+				select_conflict(int(c.get("id", 0))))
 		b.tooltip_text = ("Active in %d -- drawn on the map." % year) if c.get("active", false) \
 			else ("Not active in %d -- hidden on the map until the year cursor enters its range." % year)
 
@@ -7770,10 +7773,21 @@ func tl_set_filter(which: String, on: bool) -> void:
 
 ## PC-3, the strip's **+ Record year**: records a snapshot at `year` through the same call the dock's Add year
 ## makes (`bridge.civ_add_year`), then repaints the territory and rebuilds the Timeline body, which tells
-## the strip. There is no undo step: the engine keeps none for a recorded year, here or in the dock, and
-## the strip does not pretend to (the proposal's "one undo step" is an open gap, `STATUS.md`).
+## the strip. One undo step since the PC-3 leftover pass (`year_record_history.gd`: the engine keeps none
+## for a recorded year, so the strip's own history removes the year with `civ_remove_year` and records it again on
+## redo); the dock's own Add year still has none.
 func tl_record_year(year: int) -> void:
+	var was_new: bool = not Array(bridge.get_civ_timeline_years()).has(year)
 	bridge.civ_add_year(year)
+	_tl_refresh_territory_view()
+	_rebuild_timeline()
+	## PC-3 leftover: one undo step, only for a year that was not recorded (an already-recorded year is a no-op).
+	if was_new and Array(bridge.get_civ_timeline_years()).has(year):
+		app.year_history.note_recorded(year, "record year %d" % year)
+		app._refresh_undo_ui()
+
+## PC-3 leftover: the recorded years changed through the strip's undo or redo; repaint exactly as a record does.
+func tl_records_changed() -> void:
 	_tl_refresh_territory_view()
 	_rebuild_timeline()
 

@@ -37,6 +37,9 @@ const LIVE_KEYS: PackedStringArray = [
 	"faction_roster_window", "settlement_types_window", "place_editor_window",
 	"generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window",
 	"planner_window",
+	## The Context panel's module windows (`context_module_window.gd`): one per module, all this key; the choice is
+	## per window instance, so popping the Faith window out does not move the Links one.
+	"context_module_window",
 ]
 
 ## The scene-tree group every window whose key is live joins (docked or not), so `BusyOverlay` can

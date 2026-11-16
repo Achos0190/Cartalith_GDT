@@ -1418,6 +1418,8 @@ const LLM_DEFAULTS := {
 	"prose": false,            ## Prose and Vault assist (LLM-3)
 	"commands": false,         ## view / layer / parameter commands (LLM-5, LLM-6)
 	"edit": false,             ## sculpt / paint edit actions (LLM-5, LLM-7); its own switch
+	"conv_save": false,        ## PC-6 (PQ5, Ruling DY): save the assistant conversation inside the world file; OFF until answered
+	"conv_save_asked": false,  ## PC-6: the first-use card (or the settings switch) has been answered, so the card is not shown again
 	"regen_on_apply": true,    ## Ruling DS: Apply on a setting proposal also rebuilds the world (owner wants ON); global, not per profile
 	"local_allowed": false,    ## localhost and LAN endpoints
 	"remote_allowed": false,   ## hosted endpoints

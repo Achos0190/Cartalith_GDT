@@ -330,22 +330,14 @@ func build_here(parent: Control, subject: Dictionary, _year: int) -> void:
 		return
 	app.right_dock_ctrl.build_here(parent, subject)
 
-## Routes & journeys. The roads that end at the subject (rows that open the road's reading in Inspect,
-## the right dock's Route context, `RightDock.show_route()`), the saved journeys through a settlement
-## (the Place editor's `_build_journey_passes`), and Plan a journey from here.
-func build_routes(parent: Control, subject: Dictionary, _year: int) -> void:
-	var at := Vector2.INF
-	var s := _settlement(subject)
-	var lm := _landmark(subject)
-	if not s.is_empty():
-		at = Vector2(float(s.get("x", 0)), float(s.get("y", 0)))
-	elif not lm.is_empty() and lm.has("x") and lm.has("y"):
-		at = Vector2(float(lm["x"]), float(lm["y"]))
-	if at == Vector2.INF:
-		_note(parent, String(spec("routes")["empty"]))
-		return
+## The "Roads from here" section: the roads whose first or last point lies within `ROAD_END_CELLS` of cell
+## `at` (a labelled judgement: `bridge.roads()` carries no endpoint settlement), each a row that shows the
+## road's reading in Inspect (`RightDock.show_route`), capped at `ROAD_ROWS_CAP` with the remainder counted.
+## Shared by the Routes module and Inspect's settlement page (PC-4 leftover, `PC_SHELL_PROPOSAL.md` 3.3 "its
+## roads"), so the two never list different roads. Returns the number of roads found (not just listed).
+func roads_section(parent: Control, at: Vector2, node_name := "ModuleRoads") -> int:
 	var sec := DccWidgets.section(parent, "Roads from here")
-	sec.name = "ModuleRoads"
+	sec.name = node_name
 	var rows := 0
 	var found := 0
 	for r in app.bridge.roads():
@@ -371,6 +363,23 @@ func build_routes(parent: Control, subject: Dictionary, _year: int) -> void:
 		DccWidgets.note(sec, "No road ends here.")
 	elif found > rows:
 		DccWidgets.note(sec, "%d more roads end here and are not listed (the first %d are)." % [found - rows, rows])
+	return found
+
+## Routes & journeys. The roads that end at the subject (rows that open the road's reading in Inspect,
+## the right dock's Route context, `RightDock.show_route()`), the saved journeys through a settlement
+## (the Place editor's `_build_journey_passes`), and Plan a journey from here.
+func build_routes(parent: Control, subject: Dictionary, _year: int) -> void:
+	var at := Vector2.INF
+	var s := _settlement(subject)
+	var lm := _landmark(subject)
+	if not s.is_empty():
+		at = Vector2(float(s.get("x", 0)), float(s.get("y", 0)))
+	elif not lm.is_empty() and lm.has("x") and lm.has("y"):
+		at = Vector2(float(lm["x"]), float(lm["y"]))
+	if at == Vector2.INF:
+		_note(parent, String(spec("routes")["empty"]))
+		return
+	roads_section(parent, at)
 	if not s.is_empty():
 		_place_host(parent, int(subject["id"]))._build_journey_passes(parent, s)
 	var is_sel: bool = app.selection == subject and not s.is_empty()

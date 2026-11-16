@@ -8,7 +8,7 @@ source of truth for progress; this file is evidence and will age.
 ## The answer
 
 **The owner's feeling is right.** Of 65 milestones across the seven plans (PC 11, MS 11, VE 10, CQ 9, SM 7, CM 7,
-AP 10), **56 are DONE, 7 are PARTLY, 1 is OPEN and 1 is SUPERSEDED in part.** What remains is mostly **device passes on
+AP 10), **56 are DONE, 7 are PARTLY, 1 is OPEN and 1 is SUPERSEDED in part** (the count at the audit; PC-6 moved to DONE the same day, below). What remains is mostly **device passes on
 the 6T and the Pad** and a list of named leftovers, not unbuilt milestones.
 
 **How old is the GUI.** `shell/dcc_shell.gd` first landed 2026-08-18 (`2a814163`, "the eight regions, seven menus, five
@@ -30,27 +30,27 @@ Verdicts: **DONE**, **PARTLY** (what is missing is named), **OPEN**, **SUPERSEDE
 
 ---
 
-## 1. `PC_SHELL_PROPOSAL.md` (PC-1…PC-11): 10 DONE, 1 PARTLY
+## 1. `PC_SHELL_PROPOSAL.md` (PC-1…PC-11): 10 DONE, 1 PARTLY at the audit; 11 DONE after the 2026-11-16 leftover pass (PC-6 except its file slot's Rust registration)
 
 | Milestone | Verdict | Evidence symbol | Landed | Device? |
 |---|---|---|---|---|
 | PC-1 One selection | DONE | `DccApp.select()`, `selection`, `select_back/forward`, `current_faction()` in `app.gd`; the bar's grep `right_dock_ctrl.on_settlement_selected(` returns 0 | `5ea29148` 2026-11-07 | desktop probe only |
 | PC-2 One year | DONE | `DccShell.tl_set_year(year, exact)` in `dcc_shell.gd`; `civ_goto_year(` is called only there (grep) | `bec4f064` 2026-11-07 | desktop only |
-| PC-3 Strip at program scope | DONE | `app.gd::_on_workspace_changed` shows the strip in all three domains; `tl_filter`, `tl_record_year`, `tl_go_recorded`. Stated gaps: collapsed line's slider, undo for + Record year | `55312a12` 2026-11-08 (`ae60ed86` conflict row) | desktop only |
-| PC-4 Context panel: header, pin, Inspect | DONE | `right_dock.gd` (`RightDock`, `show_subject`, `on_selection`); pin and FOLLOWING/PINNED. Leftovers below | `2f2af9e9` 2026-11-08 | desktop only |
+| PC-3 Strip at program scope | DONE | `app.gd::_on_workspace_changed` shows the strip in all three domains; `tl_filter`, `tl_record_year`, `tl_go_recorded`. **Update 2026-11-16:** the collapsed line's slider (`TimelineCollapsedSlider`, desktop only) and one undo step for + Record year (`year_record_history.gd`) are built | `55312a12` 2026-11-08 (`ae60ed86` conflict row) | desktop only |
+| PC-4 Context panel: header, pin, Inspect | DONE | `right_dock.gd` (`RightDock`, `show_subject`, `on_selection`); pin and FOLLOWING/PINNED. **Update 2026-11-16:** Inspect's edit mode (`_build_settlement_edit_rows`), roads (`roads_section`) and F7 (`DccApp.conflict_goto_start`) are built; the founding year is not (no engine field, owner question) | `2f2af9e9` 2026-11-08 | desktop only |
 | PC-5 Note tab | DONE | `shell/context_note.gd`; the vault window's one editor; `_context_tab_ready()` in `menus.gd`; private line live 2026-11-14 | `1d0bc3e9` 2026-11-08 | desktop/tablet windowed |
-| PC-6 Ask tab | **PARTLY** | `RightDock.show_tab()`, `LlmAssistantWindow.present_in()`, `shown_block` (Rust `cartalith_llm::prompt`). **Missing** (grep: no "Ask about this", no note chip, no save-with-world slot): the save preference + first-use card + world-file slot (PQ5), the Ask note chip and a note card going to the subject's note, names and years as links, per-subject task chips, "Ask about this" on Inspect and the card | `1f526394` 2026-11-08 | desktop only |
-| PC-7 Non-exclusive context windows | DONE | `shell/context_window.gd` (`applies()`, `arrived()`), `context_nav.gd` Back/Forward trail, `popout_host.gd` | `de1568cc` 2026-11-08; leftovers 2026-11-14, Ctrl+[ / Ctrl+] 2026-11-15 | desktop only |
+| PC-6 Ask tab | **DONE except the file slot (2026-11-16)** | `RightDock.show_tab()`, `LlmAssistantWindow.present_in()`, `shown_block` (Rust `cartalith_llm::prompt`). **Built 2026-11-16** (`_subject_note`, `_toggle_note_chip`, `_SUBJECT_TASKS`, `_mentions_in`, `_follow_citation`, `DccApp.ask_about`, `ContextBroker.ask_rows`, `conv_save` + `ConvSaveCard`, `conversation_document`); **still missing: the world-file slot's registration in `cartalith_io::DOCUMENT_SLOTS` (Rust)**, so the document is built but written nowhere yet | `1f526394` 2026-11-08 | desktop only |
+| PC-7 Non-exclusive context windows | DONE | `shell/context_window.gd` (`applies()`, `arrived()`), `context_nav.gd` Back/Forward trail, `popout_host.gd` (`context_module_window` joined `LIVE_KEYS` 2026-11-16) | `de1568cc` 2026-11-08; leftovers 2026-11-14, Ctrl+[ / Ctrl+] 2026-11-15 | desktop only |
 | PC-8 Planner in its own window | DONE | `app.gd::planner_in_window()`, `open_journey_planner()`, `planner_window.gd`, `JourneyPlannerView._open_window` | `9d23b027` 2026-11-08 | planner on monitor 2 is owner-run, unmeasured |
 | PC-9 Menus and keys | DONE | `menus.gd` (`ID_SHARE_PROJECT` is MS-4's; Records, Generate world in File, `_context_tab_ready`); Escape-deselects and desktop search 2026-11-08; four of five 3-level paths flattened `5c1d178f` | `922c7bb2` 2026-11-07 | n/a (desktop) |
 | PC-10 Ten modules | DONE | `context_modules.gd`, `context_module_window.gd`, `DccApp.context_module_registry()` / `context_panel_modules()` / `set_context_module_shown()`; `CTX_MODULES` in `menus.gd` (ten rows) | `8253037b` 2026-11-08 | desktop/tablet windowed |
 | PC-11 Tool-options bar holds tool settings only | DONE | `app.gd::_tool_options_generate()` contains 0 `DccWidgets.action(` calls (counted) | `922c7bb2` 2026-11-07 | n/a |
 
-**Remaining leftovers (from the proposal's §6 notes, re-checked at symbols):** PC-6's list above (M); PC-4 Inspect
-edit mode (PQ9), roads, founding year in AT YEAR, F7's year move on picking a conflict (M); PC-10 Pop out for a module
-window and a module's own key (S); PC-3 the collapsed line's slider and undo for + Record year (S); PC-8 the route-name
-disagreement M2 and the window floor wider than the map at 1 600 px (S); PC-5 Pop out of the Note tab and citations
-opening the tab at a heading (S).
+**Remaining leftovers after the 2026-11-16 pass (`STATUS.md` has the evidence):** the world-file slot's Rust registration
+(S); the founding year in AT YEAR (needs an engine field; owner); PC-8's route-name disagreement M2 and the window floor
+wider than the map at 1 600 px (both owner decisions, not guessed); a module's own key (S); the tablet's collapsed-strip
+slider (owner: the touch strip is 34 px). Built 2026-11-16: PC-6's six items, PC-4's edit mode, roads and F7, PC-3's slider
+and undo, PC-10's module Pop out, PC-5's Note Pop out and note citations.
 
 ## 2. `MOBILE_SHELL_PROPOSAL.md` (MS-1…MS-11): 8 DONE, 2 PARTLY, 1 OPEN
 
@@ -163,7 +163,7 @@ claim is false (S); Android folder import on glass (S, device).
 
 | Plan | Done / partly / open / superseded | Open items (size) |
 |---|---|---|
-| PC shell | 10 / 1 / 0 / 0 | PC-6 leftovers: save-with-world preference + card + world-file slot, note chip and note-card routing, linked names/years, task chips, "Ask about this" (**M**); PC-4 Inspect edit mode, roads, founding year, F7 year move (**M**); PC-10/PC-5 pop-outs, PC-3 collapsed slider and undo, PC-8 M2 and floor (**S** each) |
+| PC shell | 11 / 0 / 0 / 0 (2026-11-16) | the world-file slot's Rust registration (**S**); owner decisions, not built: founding year, route name M2, planner window floor, tablet collapsed slider |
 | Mobile shell | 8 / 2 / 1 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run); MS-3 node chips + tool palette atop the domain sheet and MAP's own tool domain (**S-M**, NOT built 2026-11-16: the proposal gives only a sentence, "the node's chips, the domain's tool palette, then every category", and the dock's accordion headers already are the chips; what is undecided is whether a second chip strip duplicates them, and which tools the palette holds per domain, the rail having tools on desktop only; an owner design call); MS-1 B7/B9/B10 device and probe rows (**S**); delete the unreachable `QuickBarPhoneList` sheet (**S**); MS-5 card `param` rows, only if the owner wants them (**S**) |
 | Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); VE-7 pictures by bare name, Android pictures, browse embeds, drawn chronos track (**M**); VE-5 end-of-Preview copy, 17-function probes (**S**) |
 | Custom quick bar | 7 / 1 / 0 / 1 | CQ-5 Pad pass (**S**, owner-run); CQ-6 long-press reorder and 6T bars (**S**); CQ-8's three deferrals, each needing an owner answer (**M**); ring parts overhanging a dock panel not clickable, phone tool cell 3.5-5 px high (**S**) |
@@ -171,7 +171,7 @@ claim is false (S); Android folder import on glass (S, device).
 | Map context | 6 / 1 / 0 / 0 | CM-4 device check of the pen barrel button and haptics (**S**, owner-run); F5's tablet edge sliders and further ring customisation (**M**, unscheduled) |
 | Asset pack tools | 10 / 0 / 0 / 0 | the five small leftovers above (**S** each), Android folder import on glass (**S**, device) |
 
-**By size.** Genuinely unbuilt design work: about **5 M** items (PC-6 leftovers, PC-4 Inspect edit mode, VE-7 edges,
+**By size.** Genuinely unbuilt design work: about **3 M** items (VE-7 edges,
 CQ-8 deferrals, F5 sliders) plus MS-3's S-M. **Device-bound work** (owner on the 6T or Pad, no code): MS-10, CQ-5, CM-4,
 VE-0/4/8, AP-8, MS-1 B7. Everything else is S.
 

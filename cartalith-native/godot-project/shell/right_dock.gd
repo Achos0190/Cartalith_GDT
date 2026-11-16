@@ -938,6 +938,11 @@ func on_settlement_selected(data: Variant, index: int) -> void:
 		_settlement_index = -1
 	else:
 		_context = CTX_SETTLEMENT
+		## PC-4 leftover: edit mode belongs to the place it was turned on for; a name still being typed is
+		## written to that place first.
+		if index != _settlement_index:
+			_commit_inspect_name()
+			_inspect_edit = false
 		_settlement_data = data
 		_settlement_index = index
 	_rebuild()
@@ -1458,8 +1463,36 @@ func refresh_note(present := false) -> void:
 		c.queue_free()
 	_build_context_header(_note_head)
 	_note.refresh(_module_subject())
+	## PC-5 leftover (`PC_SHELL_PROPOSAL.md` 3.3 "Pop out"): the docked note can leave the panel for its own window,
+	## which pops out to a second screen (the vault window is a `PopoutHost` window). Desktop only; shown only
+	## while a note is docked, so a tab that says "no note" offers nothing to move.
+	if not DccTheme.is_tablet() and app.vault_window.is_docked():
+		var prow := HBoxContainer.new()
+		prow.name = "NotePopRow"
+		prow.alignment = BoxContainer.ALIGNMENT_END
+		var pb := DccWidgets.action(prow, "Pop out" if PopoutHost.supported() else "Open in a window", note_pop_out)
+		pb.name = "NotePopOut"
+		pb.tooltip_text = "Opens this note in the vault window and, where the system allows, moves that window out of the main one for a second screen. The note keeps autosaving; this tab says where it went."
+		DccWidgets.pad(_note_head, 8, 2, 8, 2).add_child(prow)
 	if present and app.vault_window.is_docked():
 		app.vault_window._refocus_editor.call_deferred()
+
+## PC-5 leftover. The Note tab's **Pop out**: hands the docked editor back (saved first; a note that cannot be
+## saved stays here with the reason, `release_dock()` says false), opens the same note in the vault window, and
+## moves that window out of the main one when the platform can (`PopoutHost`), unless the setting already did.
+## One editor throughout: the tab's frame releases it before the window takes it (`MISTAKES.md`, one writer).
+func note_pop_out() -> void:
+	var vw = app.vault_window
+	if vw == null or not vw.is_docked():
+		return
+	var rel: String = vw.docked_path()
+	if not vw.release_dock():
+		return
+	vw.open_note(rel)
+	if PopoutHost.supported():
+		await get_tree().process_frame
+		if vw.visible and vw.is_embedded():
+			PopoutHost.toggle(vw)
 
 ## PC-5. Whether the Note tab's editor holds text not yet on disk. Read by the probes.
 func note_dirty() -> bool:
@@ -1630,6 +1663,14 @@ func _build_context_header(body: Control) -> void:
 		facts.name = "CtxFacts"
 		facts.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		box.add_child(facts)
+	## PC-6 (`PC_SHELL_PROPOSAL.md` 3.5 "Entry points": "Every Inspect page ... get Ask about this"). Inspect's header
+	## only (the Ask tab already is the assistant), and only where the assistant exists in this build; a subject
+	## the selection cannot name (a pinned one) is selected first, which `ask_about` does. Opens Ask with the
+	## selection chip on; contacts nothing, since only Send does, through the gate.
+	if _effective_tab() == TAB_INSPECT and not subj.is_empty() and app != null and app.bridge != null and app.bridge.llm_api:
+		var ask_subj: Dictionary = subj.duplicate()
+		_header_button(box, "CtxAskAbout", "ASK ABOUT THIS", func() -> void: app.ask_about(ask_subj),
+			"Open Ask about %s. Nothing is sent until you press Send." % String(txt[0]))
 
 	if _pinned and app != null and app.selection != _pin_subject:
 		var banner := HBoxContainer.new()
@@ -3482,10 +3523,27 @@ func _build_settlement(body: Control) -> void:
 		return
 	var s: Dictionary = _settlement_data
 	var sec := DccWidgets.section(body, "Settlement")
-	_field(sec, "Name", String(s.get("name", "—")))
-	_field(sec, "Class", String(s.get("kind", "—")).capitalize())
+	## PC-4 leftover (PQ9, Ruling DY): Inspect's edit mode, desktop and tablet only (the phone's sheet keeps its
+	## shipped rows, `PC_SHELL_PROPOSAL.md` 3.11). Off whenever another place is shown (`on_settlement_selected`).
+	var editing := _panel_chrome() and _inspect_edit and _settlement_index >= 0
+	if _panel_chrome():
+		var eb := DccWidgets.action(sec, "Done editing" if editing else "Edit", func() -> void:
+			## The DCC buttons take no focus, so a name still being typed has not lost focus and `focus_exited`
+			## will not commit it: commit it here, before the page is rebuilt without the field.
+			_commit_inspect_name()
+			_inspect_edit = not _inspect_edit
+			_rebuild())
+		eb.name = "InspectEditToggle"
+		eb.tooltip_text = ("Leave edit mode: the page reads the place again." if editing else
+			"Edit this place's name, class, faction and walls here. Everything else stays in the Place editor window, which follows the selection.")
+	if editing:
+		_build_settlement_edit_rows(sec, s)
+	else:
+		_field(sec, "Name", String(s.get("name", "—")))
+		_field(sec, "Class", String(s.get("kind", "—")).capitalize())
 	_field(sec, "Population", str(int(s.get("population", 0))))
-	_settlement_faction_row(sec, int(s.get("faction", 0)))
+	if not editing:
+		_settlement_faction_row(sec, int(s.get("faction", 0)))
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
 	## MM-6/MM-8: this place's share of its faction's standing army, read at
@@ -3521,9 +3579,17 @@ func _build_settlement(body: Control) -> void:
 	## Roads and sea routes are plain polylines with no settlement index, so
 	## nothing associates a route with a particular settlement (tracked in
 	## STRANDED_TOOLS.md row 11).
-	_field(sec, "Routes", "—",
-		"Not available -- roads and sea routes are not linked back to the " +
-		"settlements they connect.", false)
+	## PC-4 leftover: the page now lists the roads that end here (`Roads from here`, below), found by
+	## geometry because `bridge.roads()` carries no endpoint settlement; the row says so.
+	if _panel_chrome():
+		_field(sec, "Routes", "see Roads from here",
+			"Roads and sea routes are not linked back to the settlements they connect, so the Roads from here " +
+			"section lists the roads whose first or last point lies within two cells of this place (a judgement).", true)
+	else:
+		## The phone's sheet keeps its shipped rows (`PC_SHELL_PROPOSAL.md` 3.11): no roads section there.
+		_field(sec, "Routes", "—",
+			"Not available -- roads and sea routes are not linked back to the " +
+			"settlements they connect.", false)
 
 	## RD-03: all three destinations now exist, so these are live rather than
 	## disabled placeholders. Economy opens `world_data_window`'s own Economy
@@ -3571,6 +3637,101 @@ func _build_settlement(body: Control) -> void:
 	_build_settlement_layout(body)
 	_build_settlement_why(body, why)
 
+## PC-4 leftover. True while Inspect's settlement page is in edit mode (`InspectEditToggle`). Cleared when
+## another place is shown (`on_settlement_selected`), so edit mode never follows the selection onto a place
+## the person did not choose to edit.
+var _inspect_edit := false
+
+## PC-4 leftover (PQ9, Ruling DY: "quick fields only"). Edit mode's four fields, each writing through the
+## Place editor's own paths so there is ONE implementation of each edit and one refusal message:
+## name (`civ_edit_settlement`, on Enter or focus loss, as the Place editor), class (the same call; class and the
+## capital flag move together in the engine), faction (`PlaceEditorWindow.transfer_settlement`, which asks
+## before it moves land and is not undoable, as that window's Polity row) and walls (`civ_edit_settlement`
+## `walls`: -1 auto, 0 none, 1 fortified; the settlement record has no "fortified" flag, so Walls is the
+## nearest real field, as PC-10's Military module found). After a write `place_changed` is emitted, which
+## re-reads CIVIL and this page. The engine keeps no undo step for these edits (the Place editor's neither).
+func _build_settlement_edit_rows(sec: Control, s: Dictionary) -> void:
+	var idx := _settlement_index
+	var tablet := DccTheme.is_tablet()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var l := DccTheme.label("Name", "text_dim", DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL)
+	l.custom_minimum_size.x = _FIELD_LABEL_W
+	row.add_child(l)
+	var le := LineEdit.new()
+	le.name = "InspectEditName"
+	le.text = String(s.get("name", ""))
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.custom_minimum_size.y = float(DccTheme.role_px("btn_min_h")) if tablet else 0.0
+	le.tooltip_text = "Rename this place. Press Enter, or click away, to apply."
+	_edit_name_field = le
+	_edit_name_idx = idx
+	var commit := func(t: String) -> void:
+		_commit_inspect_name()
+	le.text_submitted.connect(commit)
+	le.focus_exited.connect(func() -> void: _commit_inspect_name())
+	row.add_child(le)
+	sec.add_child(row)
+	var kinds: Array = PlaceEditorWindow.KIND_ORDER
+	var kc := DccWidgets.choice(sec, "Class", kinds.map(func(k): return String(k).capitalize()),
+		maxi(0, kinds.find(String(s.get("kind", "town")))),
+		func(i: int) -> void: _inspect_edit_apply(idx, {"kind": kinds[i]}),
+		"The size class. A capital or metropolis is its polity's seat, so changing it also sets or clears the capital flag.")
+	kc.name = "InspectEditClass"
+	var facs: Array = bridge.get_factions()
+	var ids: Array = []
+	var labels: Array = []
+	for f in facs:
+		ids.append(int((f as Dictionary).get("id", 1)))
+		labels.append("%d · %s" % [int((f as Dictionary).get("id", 1)), String((f as Dictionary).get("name", "?"))])
+	if not ids.is_empty():
+		var fc := DccWidgets.choice(sec, "Faction", labels, maxi(0, ids.find(int(s.get("faction", 1)))),
+			func(i: int) -> void: app.place_editor_window.transfer_settlement(idx, int(ids[i]),
+				func() -> void: app.place_editor_window.place_changed.emit(), true),
+			"Moves the place to this faction, with its land (a metropolis, capital or city takes its whole province). Asks first; not undoable.")
+		fc.name = "InspectEditFaction"
+	var det: Dictionary = bridge.civ_settlement_details(idx)
+	var walls := int(det.get("walls", -1))
+	var wc := DccWidgets.choice(sec, "Walls", ["Auto", "No fortifications", "Fortified"],
+		0 if walls < 0 else (1 if walls == 0 else 2),
+		func(i: int) -> void: _inspect_edit_apply(idx, {"walls": (-1 if i == 0 else (0 if i == 1 else 1))}),
+		"Auto lets the settlement's size and age decide; the other two override it.")
+	wc.name = "InspectEditWalls"
+
+## The name editor Inspect's edit mode drew, and the settlement index it was drawn for (a later selection must
+## write to THAT place, not to whatever is shown by then).
+var _edit_name_field: LineEdit = null
+var _edit_name_idx := -1
+
+## Commits the name editor's text when it differs from the engine's name for the place it was drawn for and is not
+## blank. Called on Enter, on focus loss, by Done editing and before a selection change rebuilds the page. A blank
+## or unchanged name writes nothing; a refusal is said on the status line by `_inspect_edit_apply`.
+func _commit_inspect_name() -> void:
+	if _edit_name_field == null or not is_instance_valid(_edit_name_field) or _edit_name_idx < 0:
+		return
+	var all: Array = bridge.settlements()
+	if _edit_name_idx >= all.size():
+		return
+	var t := _edit_name_field.text
+	if t.strip_edges() == "" or t == String((all[_edit_name_idx] as Dictionary).get("name", "")):
+		return
+	var idx := _edit_name_idx
+	_edit_name_field = null
+	_inspect_edit_apply(idx, {"name": t})
+
+## One quick-field write: the engine call all-or-nothing, a refusal said on the status line (never left showing a
+## value the engine refused), then `place_changed` so CIVIL, the Place editor and this page re-read. Returns whether
+## the engine accepted it.
+func _inspect_edit_apply(idx: int, fields: Dictionary) -> bool:
+	if idx < 0:
+		return false
+	if not bridge.civ_edit_settlement(idx, fields):
+		app.set_status("hint", "Edit refused — a value was outside the engine's own vocabulary.", "accent")
+		_rebuild()
+		return false
+	app.place_editor_window.place_changed.emit()
+	return true
+
 ## PC-4 (§3.3, "A settlement shows": "its political history as dated periods, each with its holder
 ## and a 'go to' year; the conflicts fought over it, its nearest neighbours"). Three sections, each
 ## from a call the shell already makes: `civ_settlement_ownership_periods(tid)` (the Place editor's
@@ -3614,6 +3775,9 @@ func _build_settlement_history(body: Control, s: Dictionary) -> void:
 	_link(sec, "Full history in the Place editor…",
 		func(): app.place_editor_window.open_for_tab(idx, "political"),
 		"Opens the Place editor's Political history tab: the ownership bar and the population trajectory.")
+
+	## PC-4 leftover (§3.3, "its roads"): the same road rows the Routes module draws, from the one helper.
+	app.context_modules_obj().roads_section(body, Vector2(float(s.get("x", 0)), float(s.get("y", 0))), "InspectRoads")
 
 	var conflicts: Array = bridge.conflicts_touching_settlement(tid)
 	var csec := DccWidgets.section(body, "Conflicts here" if conflicts.is_empty() else

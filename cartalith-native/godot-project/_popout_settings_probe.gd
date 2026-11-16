@@ -384,7 +384,7 @@ func _tables() -> void:
 	for r in rows:
 		_ok(PopoutHost.wants_native(r[0], r[1], r[2], live) == r[3], "wants_native(setting=%s, platform=%s, key='%s') == %s" % [r[0], r[1], r[2], r[3]])
 	_ok(PopoutHost.wants_native(true, true, "a", PackedStringArray()) == false, "an empty live list lets nothing out")
-	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window", "settlement_types_window", "place_editor_window", "generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window", "planner_window"]), "PW-3 puts the seven v1 windows in LIVE_KEYS, in the scope's order, and PW-4 the planner after them (PW-1 shipped it empty, PW-2 the roster alone)")
+	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window", "settlement_types_window", "place_editor_window", "generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window", "planner_window", "context_module_window"]), "PW-3 puts the seven v1 windows in LIVE_KEYS, in the scope's order, and PW-4 the planner, then the PC-10 leftover the Context module windows (PW-1 shipped it empty, PW-2 the roster alone)")
 
 
 # -- 3 ------------------------------------------------------------------------------------

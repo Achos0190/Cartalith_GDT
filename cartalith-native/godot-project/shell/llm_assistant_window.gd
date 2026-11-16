@@ -131,6 +131,29 @@ var _built := false
 ## the session, like the conversation; the source itself is Preferences ▸ Assistant's "Send: selection
 ## and year" (`ctx_selection`), which these never override.
 var _left_out := {"selection": false, "year": false}
+## PC-6 (note chip, `PC_SHELL_PROPOSAL.md` 3.5): true while the NOTE chip routes the selection's linked note into the
+## Note and Save paths. Session state, off by default (a note's text goes to the model only when this AND the
+## "Send: named Vault notes" source are on, and never when the note is private, Ruling DP).
+var _note_routed := false
+## The vault path the chip routed, so turning it off clears `_note` only when it still holds that note and never
+## a note the person picked by hand.
+var _routed_rel := ""
+## The Note-tab logic (`context_note.gd::resolve`), made on first use; it holds no frame.
+var _ctx_note_logic = null
+## `_subject_note()`'s display cache, keyed on the selection, cleared when the context moves or a note is
+## picked, saved or reloaded. Display only: every action re-asks afresh (`_subject_note(true)`).
+var _sn_cache := {}
+var _sn_key := ""
+## PC-6 task chips row, rebuilt by `_refresh_subject_tasks()` only when the selection's kind or id changes.
+var _tasks_row: HFlowContainer
+var _tasks_key := ""
+## PC-6: the request text a task chip last put in the prompt box, so a chip press replaces its own text and
+## never the person's.
+var _canned_text := ""
+## PC-6 (PQ5): the conversation's own turns, `{who, label, model, token}`, for `conversation_document()`.
+var _conv: Array = []
+## True once the first-use card was put in this transcript (it is shown once per New, never again once answered).
+var _conv_card_shown := false
 var _body: VBoxContainer
 var _task := "prose"
 var _note_action := "note_summarise"
@@ -175,6 +198,8 @@ const WindowRepresent := preload("res://shell/window_represent.gd")
 const _VIEW := preload("res://shell/llm_view.gd")
 ## AC-1: the shell half of the action catalogue (`llm_actions.gd`: the runnable index rows, the world flag, the year track).
 const _ACTIONS := preload("res://shell/llm_actions.gd")
+## PC-6: the Note tab's resolver (`resolve(subject)` -> the subject's linked note), preloaded (no `class_name`).
+const _CTXNOTE := preload("res://shell/context_note.gd")
 ## AC-7: the words of an action card, per kind (reads the app, builds nothing, runs nothing).
 const _CARDS := preload("res://shell/llm_action_cards.gd")
 ## LLM-7: the edit card and its one writer (`llm_edit.gd`), and the region the user chose (`llm_region.gd`).
@@ -438,6 +463,12 @@ func _on_context_moved() -> void:
 	if not _built or not bridge.llm_api:
 		return
 	_place = _current_place()
+	_sn_key = ""
+	_sn_cache = {}
+	## A routed note follows the selection, and goes off (with the chip) when the new selection has none it may use.
+	if _note_routed and not run.busy():
+		if not _route_subject_note():
+			_unroute_note()
 	_refresh()
 
 
@@ -549,6 +580,8 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	if kept_msgs == null:
 		cards.clear()
 		source_cards.clear()
+		_conv.clear()
+		_conv_card_shown = false
 	else:
 		dropped = 0
 	_clear(_body)
@@ -589,6 +622,13 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	var new_btn := _button(top2, "New", _on_new)
 	new_btn.tooltip_text = "Start a new conversation. The one you have stays until you press this: closing the panel, switching tabs and selecting other things keep it."
 	controls["new"] = new_btn
+	## PC-6 (PQ5): "The tab's header says saved with the world" while the preference is on.
+	var saved_l := DccTheme.label("saved with the world", "accent", DccTheme.FS_MICRO)
+	saved_l.name = "SavedWithWorld"
+	saved_l.tooltip_text = "This conversation is stored inside the world file and travels with it when you share it. Turn it off in Preferences, Assistant."
+	saved_l.visible = false
+	top2.add_child(saved_l)
+	controls["saved_with_world"] = saved_l
 	if not _phone and not DccTheme.is_tablet():
 		var win_btn := _button(top2, "Open in a window", open_window)
 		win_btn.tooltip_text = "Show this conversation in its own window, which can pop out to a second screen. Closing the window brings it back to the Ask tab; a reply still running is stopped."
@@ -801,6 +841,28 @@ func _rebuild(keep_transcript: bool = false) -> void:
 		cs.clip_text = true
 		cs.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		controls["chip_selection"] = cs
+		## PC-6: the subject's note, the third chip (`_toggle_note_chip()`). Same shape as the selection chip: its
+		## own line, cut with an ellipsis, with no sibling to collapse beside.
+		var cn := DccWidgets.segment(crow, "", func(): _toggle_note_chip())
+		cn.custom_minimum_size.y = maxi(int(cn.custom_minimum_size.y), _field_h())
+		cn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cn.clip_text = true
+		cn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		cn.name = "ChipNote"
+		controls["chip_note"] = cn
+
+	# -- the selection's own tasks (PC-6, 3.5 "the prompt row above the input") -------------------
+	## Desktop and tablet; the phone sheet has no row to spare (measured 2026-10-26). Filled by
+	## `_refresh_subject_tasks()`; hidden when the selection offers none.
+	_tasks_row = null
+	_tasks_key = ""
+	if not _phone:
+		_tasks_row = HFlowContainer.new()
+		_tasks_row.name = "SubjectTasks"
+		_tasks_row.add_theme_constant_override("h_separation", 6)
+		_tasks_row.add_theme_constant_override("v_separation", 6)
+		_body.add_child(_tasks_row)
+		controls["subject_tasks"] = _tasks_row
 
 	# -- input ------------------------------------------------------------------------------
 	_input = TextEdit.new()
@@ -1086,6 +1148,8 @@ func _shown_sent_with(args: Dictionary) -> String:
 		parts.append(String(args["shown_selection"]))
 	if args.has("shown_year"):
 		parts.append("year %d" % int(args["shown_year"]))
+	if args.has("note_path"):
+		parts.append("note %s" % String(args["note_path"]))
 	return "" if parts.is_empty() else "Sent with: " + " · ".join(parts)
 
 
@@ -1138,6 +1202,179 @@ func _refresh_chips(busy: bool) -> void:
 		## The selection chip may be cut with an ellipsis: its tooltip leads with the whole text.
 		if key == "selection" and have:
 			b.tooltip_text = "%s\n%s" % [sel, b.tooltip_text]
+	## The note chip (PC-6). Its own states: a linked public note, none, or private.
+	var sn := _subject_note()
+	var cn := controls["chip_note"] as Button
+	var st := String(sn["state"])
+	var routed: bool = _note_routed and not _note.is_empty() and st == "note" and String(_note["rel"]) == String(sn["rel"])
+	match st:
+		"note":
+			cn.text = "Note: %s" % String(sn["rel"]).get_file()
+		"private":
+			cn.text = "Note: private, never sent"
+		_:
+			cn.text = "Note: none linked"
+	DccWidgets.set_segment_on(cn, routed)
+	cn.disabled = busy or st != "note"
+	if st != "note":
+		cn.tooltip_text = String(sn["why"])
+	elif routed:
+		cn.tooltip_text = "%s\nThe selection's note is the one the Note task reads and Save to note writes. Press to let it go." % String(sn["rel"])
+	else:
+		cn.tooltip_text = "%s\nPress to use the selection's note for the Note task and for Save to note." % String(sn["rel"])
+	if st == "note" and not bool(DccSettings.llm_value("ctx_notes")):
+		cn.tooltip_text += "\nSend: named Vault notes is off, so its text is NOT sent; it is only the Save target."
+
+
+## **The subject's linked note, for the NOTE chip and Save's preselection** (PC-6, `PC_SHELL_PROPOSAL.md` 3.5: "a note
+## card goes to the subject's linked note, preselected"). `{state, rel?, why}`: `note` (a linked note this window may
+## use), `private` (it has one and Ruling DP holds it back: never offered, so never routed, saved into by default or
+## sent), or `none` (nothing selected, no vault, a kind with no note binding, or no linked note) with the reason in
+## `why`. One implementation of "which note": the Note tab's (`ContextNote.resolve`), so the chip, the tab and the card
+## cannot name different notes. `fresh` re-asks, skipping the display cache; every ACTION passes it (the privacy
+## check reads the file as it is now). Writes nothing.
+func _subject_note(fresh := false) -> Dictionary:
+	var sel = app.get("selection")
+	var key := ""
+	if typeof(sel) == TYPE_DICTIONARY and not (sel as Dictionary).is_empty():
+		key = "%s:%d" % [String((sel as Dictionary).get("kind", "")), int((sel as Dictionary).get("id", -1))]
+	if not fresh and _sn_key == key and not _sn_cache.is_empty():
+		return _sn_cache
+	var out := {"state": "none", "why": "Nothing is selected."}
+	if bridge.generating or not bridge.has_world:
+		out = {"state": "none", "why": "Open or generate a world first."}
+	elif key != "":
+		if _ctx_note_logic == null:
+			_ctx_note_logic = _CTXNOTE.new(app)
+		var r: Dictionary = _ctx_note_logic.resolve(sel)
+		match String(r.get("state", "none")):
+			"note":
+				var blk := _note_block(String(r["rel"]))
+				if blk != "":
+					out = {"state": "private", "rel": String(r["rel"]), "why": blk}
+				else:
+					out = {"state": "note", "rel": String(r["rel"]), "why": ""}
+			"no_note":
+				out = {"state": "none", "why": "%s has no linked note. Make one in the Note tab." % String(r.get("name", "The selection"))}
+			"novault":
+				out = {"state": "none", "why": "No Vault is connected."}
+			"unsupported":
+				out = {"state": "none", "why": String(r.get("why", "This kind of selection has no note."))}
+	_sn_key = key
+	_sn_cache = out
+	return out
+
+
+## The NOTE chip: routes the selection's linked note (reads it, remembers its hash, selects it in the picker) or lets it
+## go. Refused with the reason in the transcript when the note is private or unreadable, and the chip stays off.
+func _toggle_note_chip() -> void:
+	if run.busy():
+		return
+	if _note_routed:
+		_unroute_note()
+	else:
+		_note_routed = true
+		if not _route_subject_note():
+			_note_routed = false
+	_refresh()
+
+
+## Reads the selection's linked note into `_note` and the picker. False (and `_note` untouched by a refusal's own
+## clearing in `_read_note`) when there is none or it may not be used.
+func _route_subject_note() -> bool:
+	var sn := _subject_note(true)
+	if String(sn["state"]) != "note":
+		return false
+	var rel := String(sn["rel"])
+	if not _read_note(rel):
+		return false
+	_routed_rel = rel
+	var i := _note_paths.find(rel)
+	if controls.has("note") and i >= 0:
+		(controls["note"] as OptionButton).select(i + 1)
+	return true
+
+
+## Lets the routed note go: `_note` is cleared only while it still holds the note the chip routed.
+func _unroute_note() -> void:
+	_note_routed = false
+	if not _note.is_empty() and String(_note["rel"]) == _routed_rel:
+		_note = {}
+		if controls.has("note"):
+			(controls["note"] as OptionButton).select(0)
+	_routed_rel = ""
+
+
+## **The selection's own tasks** (PC-6, `PC_SHELL_PROPOSAL.md` 3.5: "It offers the subject's own tasks, so a place offers
+## Describe, History, Suggest links and Draft a chronos entry"). Per selection kind, `[id, label, task, note_action,
+## request]`: pressing one sets the task (and the Note action), puts its canned request in the prompt box when the box is
+## empty or still holds a canned one, and routes the selection's note when the task needs one. It NEVER sends: the person
+## reads the request, edits it and presses Send, so no chip can put a sentence in front of a model unseen.
+## A kind not listed (a culture, a conflict, a river...) has no chips: no canned task is invented for it.
+const _SUBJECT_TASKS := {
+	"settlement": [
+		["describe", "Describe", "prose", "", "Describe this place."],
+		["history", "History", "story", "", "Summarise the history of this place from its recorded periods and events."],
+		["links", "Suggest links", "note", "note_links", "Suggest notes and places this note should link to."],
+		["chronos", "Draft a chronos entry", "story", "", "Draft one dated chronos entry for this place from its recorded history, as a single line I can paste into its note."],
+	],
+	"faction": [
+		["summarise", "Summarise", "story", "", "Summarise this faction: who it is and what it holds."],
+		["relations", "Relations", "story", "", "Describe this faction's relations with its neighbours."],
+	],
+	"landmark": [
+		["describe", "Describe", "story", "", "Describe this landmark and why it matters."],
+	],
+}
+
+## Rebuilds the chip row when the selection's kind or id changed (the key), and keeps every chip disabled while a
+## reply runs. Hidden when the selection offers no task.
+func _refresh_subject_tasks(busy: bool) -> void:
+	if _tasks_row == null or not is_instance_valid(_tasks_row):
+		return
+	var sel = app.get("selection")
+	var kind := ""
+	var key := ""
+	if typeof(sel) == TYPE_DICTIONARY and not (sel as Dictionary).is_empty() and not bridge.generating and bridge.has_world:
+		kind = String((sel as Dictionary).get("kind", ""))
+		key = "%s:%d" % [kind, int((sel as Dictionary).get("id", -1))]
+	if key != _tasks_key:
+		_tasks_key = key
+		for c in _tasks_row.get_children():
+			_tasks_row.remove_child(c)
+			c.queue_free()
+		for t in _SUBJECT_TASKS.get(kind, []):
+			var spec: Array = t
+			var b := DccWidgets.segment(_tasks_row, String(spec[1]), func(): _pick_subject_task(spec))
+			b.custom_minimum_size.y = maxi(int(b.custom_minimum_size.y), _field_h())
+			b.name = "SubjectTask_" + String(spec[0])
+			b.tooltip_text = "Sets up \"%s\" in the prompt box. Nothing is sent until you press Send." % String(spec[4])
+	_tasks_row.visible = _tasks_row.get_child_count() > 0
+	for c in _tasks_row.get_children():
+		(c as Button).disabled = busy
+
+
+## A task chip press: the task (and note action), the canned request, and the note when the task is a Note one.
+func _pick_subject_task(spec: Array) -> void:
+	if run.busy():
+		return
+	_task = String(spec[2])
+	if String(spec[3]) != "":
+		_note_action = String(spec[3])
+		var act := controls["note_action"] as OptionButton
+		for i in _NOTE_ACTIONS.size():
+			if _NOTE_ACTIONS[i][0] == _note_action:
+				act.select(i)
+	var cur := _input.text.strip_edges()
+	if cur == "" or cur == _canned_text:
+		_input.text = String(spec[4])
+		_canned_text = String(spec[4])
+	if _task == "note" and _note.is_empty():
+		_note_routed = true
+		if not _route_subject_note():
+			_note_routed = false
+	_refresh()
+	_relayout_phone.call_deferred()
 
 
 func _task_id() -> String:
@@ -1245,6 +1482,8 @@ func _refresh() -> void:
 	(controls["new"] as Button).disabled = busy
 	(controls["new"] as Button).tooltip_text = "Wait for the reply to finish, or press Stop." if busy else "Start a new conversation. The one you have stays until you press this: closing the panel, switching tabs and selecting other things keep it."
 	_refresh_chips(busy)
+	_refresh_subject_tasks(busy)
+	(controls["saved_with_world"] as Control).visible = bool(DccSettings.llm_value("conv_save"))
 
 	## Grounded prose: make sure the facts for the chosen place are gathered (cached by place,
 	## picked note and Vault setting; Send always regathers).
@@ -1334,8 +1573,8 @@ func _refresh() -> void:
 		why = "Wait for the reply to finish."
 	elif _reply.strip_edges() == "":
 		why = "No reply to save yet."
-	elif _note.is_empty():
-		why = "Pick a note to save into."
+	elif _note.is_empty() and String(_subject_note()["state"]) != "note":
+		why = "Pick a note to save into, or select something with a linked note."
 	_save.disabled = why != ""
 	_save.tooltip_text = why
 	_save_reason.text = why
@@ -1574,6 +1813,10 @@ func _relayout_phone() -> void:
 func _on_note_picked(index: int) -> void:
 	if _building:
 		return
+	## A hand pick is the person's choice: the chip stops routing (it would otherwise swap the note back on the
+	## next selection).
+	_note_routed = false
+	_routed_rel = ""
 	if index <= 0 or index - 1 >= _note_paths.size():
 		_note = {}
 	elif not _read_note(_note_paths[index - 1]):
@@ -1698,10 +1941,10 @@ func _on_sources(info: Dictionary) -> void:
 				## PC-6 (§3.5, finding A3): a verified world citation selects what it names, through the
 				## one selection path, so the map, the Context panel and these chips follow. Only VERIFIED
 				## ids (retrieved by the app this request) become links; the rest stay text, as before.
-				var link := DccWidgets.text_button(col, ctext, func(): app.select(String(target["kind"]), int(target["id"])))
+				var link := DccWidgets.text_button(col, ctext, func(): _follow_citation(target))
 				link.add_theme_color_override("font_color", DccTheme.c("accent"))
 				link.alignment = HORIZONTAL_ALIGNMENT_LEFT
-				link.tooltip_text = "Select %s on the map." % String(cd.get("title", cd.get("id", "")))
+				link.tooltip_text = ("Open the note %s, at its heading." if String(target["kind"]) == "note" else "Select %s on the map.") % String(cd.get("title", cd.get("id", "")))
 				link.set_meta("cite_target", target)
 				link.custom_minimum_size.y = maxi(int(link.custom_minimum_size.y), _field_h())
 		elif bool(cd.get("mentioned", false)):
@@ -1719,6 +1962,15 @@ func _on_sources(info: Dictionary) -> void:
 ## index `select()` takes; a faction's key is its id and a landmark's its index. Any other kind (a trade
 ## flow, a river, a province, a culture, a Vault note) is not a selection this build can show, so `{}`.
 func _citation_target(id: String) -> Dictionary:
+	## PC-6 (A3: "a note citation opens the note ... at the heading"): `V:<path>` or `V:<path>#<H1 > H2>`
+	## (`cartalith_knowledge::model`). Only a VERIFIED id reaches here (the caller checks), so the note is one the app
+	## retrieved this request, never a path the model made up.
+	if id.begins_with("V:") and id.length() > 2:
+		var rest := id.substr(2)
+		var hash_at := rest.find("#")
+		var rel := rest if hash_at < 0 else rest.substr(0, hash_at)
+		var heading := "" if hash_at < 0 else rest.substr(hash_at + 1).split(" > ")[-1].strip_edges()
+		return {"kind": "note", "rel": rel, "heading": heading}
 	var parts := id.split(":")
 	if parts.size() != 3 or parts[0] != "W" or not parts[2].is_valid_int():
 		return {}
@@ -1735,6 +1987,28 @@ func _citation_target(id: String) -> Dictionary:
 			if key >= 0 and key < (bridge.landmarks() as Array).size():
 				return {"kind": "landmark", "id": key}
 	return {}
+
+
+## PC-6. A citation link. A world citation selects what it names; a note citation shows the note, at its heading.
+func _follow_citation(target: Dictionary) -> void:
+	if String(target["kind"]) == "note":
+		_open_cited_note(String(target["rel"]), String(target.get("heading", "")))
+	else:
+		app.select(String(target["kind"]), int(target["id"]))
+
+
+## PC-6. Shows the cited note. When it is the selection's own linked note, the Note tab (it IS the Note tab's subject);
+## otherwise the vault window's one editor (`VaultWindow.open_note`), the same door Find notes uses. The heading is
+## jumped to one frame later, when the editor exists. Never writes the note.
+func _open_cited_note(rel: String, heading: String) -> void:
+	var sn := _subject_note(true)
+	if String(sn["state"]) == "note" and String(sn["rel"]) == rel and app.open_context_tab("note"):
+		return
+	app.vault_window.open_note(rel)
+	if heading != "":
+		(func() -> void:
+			if app.vault_window.has_method("_jump_to_heading"):
+				app.vault_window._jump_to_heading(heading)).call_deferred()
 
 
 ## Send: the gate, then the stream. A `consent_needed` gate turns the button into the consent card.
@@ -1830,6 +2104,8 @@ func _on_send() -> void:
 		if String(r.get("knowledge_note", "")) != "":
 			_add_msg("", String(r["knowledge_note"]), "warn")
 		_input.text = ""
+		_canned_text = ""
+		_maybe_ask_save_card()
 		_groups_were_chosen = not _chosen_groups.is_empty()
 		_chosen_groups.clear()
 		_sent_facts = _facts.duplicate(true) if args.has("place_bundle") else {}
@@ -1871,6 +2147,7 @@ func _on_retrying(reason: String) -> void:
 func _on_finished(info: Dictionary) -> void:
 	if info.get("finish_reason", "") == "length":
 		_add_msg("", "The reply was cut at the length limit.", "warn")
+	_add_mentions()
 	_show_grounding()
 	_refresh()
 
@@ -1887,6 +2164,228 @@ func _on_cancelled() -> void:
 	_add_msg("", "Stopped.", "text_ghost")
 	_stop.disabled = false
 	_refresh()
+
+
+## PC-6: puts the selection chip back on (`DccApp.ask_about`). Session state only.
+func include_selection() -> void:
+	_left_out["selection"] = false
+	if _built:
+		_refresh()
+
+
+## The file slot the saved conversation lives in (`SAVEFILE_COMPAT.md` gains it when it is registered in
+## `cartalith_io::DOCUMENT_SLOTS`: a Rust change this GDScript pass did not make, see `OUTSTANDING_WORK.md`).
+const CONVERSATION_SLOT := "assistant/conversation.json"
+const CONVERSATION_VERSION := 1
+## The transcript's minimum height (px) while the first-use card is shown: the card's sentence and both buttons.
+## Labelled judgement: measured as the card's height at the dock's 304 px width (about 150).
+const CARD_SCROLL_MIN := 160.0
+## The most turns one saved conversation keeps. Labelled judgement: a long session is trimmed to its newest 200.
+const CONVERSATION_MAX := 200
+
+## **The conversation as a world-file document** (PC-6, PQ5, Ruling DY), or `""` when nothing is to be written: the
+## preference "Save the assistant conversation with the world" is OFF (nothing is saved while it is), or there is no
+## turn. Only the person's and the assistant's own turns, as text: never the key, a request's context, a card, a
+## source, or a system line (a private note's name can appear in those). Pure read.
+func conversation_document() -> String:
+	if not bool(DccSettings.llm_value("conv_save")):
+		return ""
+	var turns: Array = []
+	for e in _conv:
+		var ed: Dictionary = e
+		if not is_instance_valid(ed["label"]):
+			continue
+		var t := String((ed["label"] as Label).text)
+		if t.strip_edges() == "":
+			continue
+		turns.append({"who": ed["who"], "text": t, "model": bool(ed["model"])})
+	if turns.is_empty():
+		return ""
+	if turns.size() > CONVERSATION_MAX:
+		turns = turns.slice(turns.size() - CONVERSATION_MAX)
+	return JSON.stringify({"version": CONVERSATION_VERSION, "messages": turns}, "", true)
+
+
+## Replaces the transcript with the saved one (`text` is the slot's content). Returns `""` or one sentence for the
+## open's notes when it could not be used (not JSON, a newer version, nothing readable); a bad entry is dropped, never
+## repaired into a plausible turn. Does nothing while a reply runs. Opening a world WITHOUT the slot leaves the
+## session's conversation alone (one conversation per session, PQ5).
+func restore_conversation_document(text: String) -> String:
+	if text.strip_edges() == "" or not bridge.llm_api:
+		return ""
+	var parsed = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return "the saved assistant conversation is not valid JSON"
+	if int((parsed as Dictionary).get("version", 0)) != CONVERSATION_VERSION:
+		return "the saved assistant conversation is from a newer version"
+	var good: Array = []
+	for m in (parsed as Dictionary).get("messages", []):
+		if typeof(m) == TYPE_DICTIONARY and ["You", "Assistant"].has(String((m as Dictionary).get("who", ""))) \
+				and typeof((m as Dictionary).get("text", null)) == TYPE_STRING and String(m["text"]).strip_edges() != "":
+			good.append(m)
+	if good.is_empty():
+		return "the saved assistant conversation held no readable turn"
+	if run != null and run.busy():
+		return "a reply was running, so the saved assistant conversation was not restored"
+	_ensure_built()
+	_rebuild()
+	_built = true
+	for m in good.slice(maxi(0, good.size() - CONVERSATION_MAX)):
+		var md: Dictionary = m
+		_add_msg(String(md["who"]), String(md["text"]), "text" if String(md["who"]) == "You" else "text_secondary",
+			bool(md.get("model", false)))
+	_add_msg("", "Restored the conversation saved with this world.", "text_ghost")
+	return ""
+
+
+## The first-use card (PQ5): the first Send while the preference is unanswered puts this in the transcript, once. It
+## does not hold the Send. Its two buttons set the preference and say so; neither sends anything.
+func _maybe_ask_save_card() -> void:
+	if _conv_card_shown or bool(DccSettings.llm_value("conv_save")) or bool(DccSettings.llm_value("conv_save_asked")):
+		return
+	_conv_card_shown = true
+	var box := PanelContainer.new()
+	box.name = "ConvSaveCard"
+	box.add_theme_stylebox_override("panel", DccWidgets.box("border", "sunken", 8, 6))
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	box.add_child(col)
+	var l := DccTheme.label("Save this conversation with the world? It is stored inside the world file and travels with it when you share it.", "text", DccTheme.FS_SMALL)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.custom_minimum_size.x = WRAP_MIN_W
+	col.add_child(l)
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	col.add_child(row)
+	var yes := _button(row, "Save with the world", func() -> void:
+		_answer_save_card(box, true), true)
+	yes.name = "ConvSaveYes"
+	var no := _button(row, "Not now", func() -> void:
+		_answer_save_card(box, false))
+	no.name = "ConvSaveNo"
+	_msgs.add_child(box)
+	controls["conv_save_card"] = box
+	## The docked transcript's floor is 80 px, which showed the buttons and scrolled the question out of sight
+	## (seen in `_pcl_conv_probe`'s frame, 2026-11-16): the floor rises while the card waits and returns on the answer.
+	_scroll.custom_minimum_size.y = maxf(_scroll.custom_minimum_size.y, CARD_SCROLL_MIN)
+	_scroll_to_end()
+
+
+## The card's answer: sets the preference and marks it answered, so the card is never shown again.
+func _answer_save_card(box: Control, on: bool) -> void:
+	DccSettings.set_llm_value("conv_save", on)
+	DccSettings.set_llm_value("conv_save_asked", true)
+	if is_instance_valid(box):
+		box.queue_free()
+	controls.erase("conv_save_card")
+	_scroll.custom_minimum_size.y = 100 if _phone else 80
+	_add_msg("", "This conversation will be saved with the world." if on else "Not saved with the world. Preferences, Assistant, has the switch if you change your mind.", "text_ghost")
+	_refresh()
+
+
+## Most names and years a reply's MENTIONED row links. Labelled judgement: a row, not a list; the rest stay text.
+const MENTION_NAMES_MAX := 8
+const MENTION_YEARS_MAX := 6
+
+## **Names and years in an answer as links** (PC-6, A3: "a name selects that thing; a year moves the timeline"). The reply
+## is plain text in a Label, so the links are a row under it, never inline markup the model could forge: only a settlement
+## or faction name THIS world holds (whole word, case-sensitive, at least 3 characters) and a year written as `year N`,
+## `N AD/CE` or `N BC/BCE` become a button. A name the model invented has no button; a settlement is found by its place in
+## the live list, the index `select()` takes. Never sends or writes anything; the buttons call `select()` and the one
+## year writer. Desktop and tablet (the phone's sheet has no row to spare).
+func _mentions_in(text: String) -> Array:
+	var out: Array = []
+	if bridge.generating or not bridge.has_world:
+		return out
+	var seen := {}
+	var all: Array = bridge.settlements()
+	for i in all.size():
+		var nm := String((all[i] as Dictionary).get("name", ""))
+		if nm.length() < 3 or seen.has("s:" + nm) or not _has_word(text, nm):
+			continue
+		seen["s:" + nm] = true
+		out.append({"kind": "settlement", "id": i, "text": nm})
+		if out.size() >= MENTION_NAMES_MAX:
+			break
+	if out.size() < MENTION_NAMES_MAX:
+		for f in bridge.get_factions():
+			var fd: Dictionary = f
+			var fn := String(fd.get("name", ""))
+			if fn.length() < 3 or seen.has("f:" + fn) or not _has_word(text, fn):
+				continue
+			seen["f:" + fn] = true
+			out.append({"kind": "faction", "id": int(fd.get("id", 0)), "text": fn})
+			if out.size() >= MENTION_NAMES_MAX:
+				break
+	var years := {}
+	var re1 := RegEx.create_from_string("(?i)\\byear\\s+(-?\\d{1,4})\\b")
+	var re2 := RegEx.create_from_string("(?i)\\b(\\d{1,4})\\s*(AD|CE|BCE|BC)\\b")
+	for m in re1.search_all(text):
+		years[int(m.get_string(1))] = m.get_string(0)
+	for m in re2.search_all(text):
+		var y := int(m.get_string(1))
+		if m.get_string(2).to_upper().begins_with("B"):
+			y = -y
+		years[y] = m.get_string(0)
+	var n := 0
+	for y in years:
+		if n >= MENTION_YEARS_MAX:
+			break
+		n += 1
+		out.append({"year": int(y), "text": String(years[y])})
+	return out
+
+
+## Whole-word, case-sensitive containment: `word` bounded by non-letters, non-digits, non-underscore on both sides.
+func _has_word(text: String, word: String) -> bool:
+	var wc := RegEx.create_from_string("[\\p{L}\\p{N}_]")
+	var from := 0
+	while true:
+		var at := text.find(word, from)
+		if at < 0:
+			return false
+		var before_ok := at == 0 or wc.search(text.substr(at - 1, 1)) == null
+		var end := at + word.length()
+		var after_ok := end >= text.length() or wc.search(text.substr(end, 1)) == null
+		if before_ok and after_ok:
+			return true
+		from = at + 1
+	return false
+
+
+## Adds the MENTIONED row under the finished reply (see `_mentions_in`). A reply that mentions nothing gets no row.
+func _add_mentions() -> void:
+	if _phone or _reply_label == null or not is_instance_valid(_reply_label) or _reply.strip_edges() == "":
+		return
+	var found := _mentions_in(_reply)
+	if found.is_empty():
+		return
+	var row := HFlowContainer.new()
+	row.name = "Mentions"
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 4)
+	row.add_child(DccTheme.label("MENTIONED", "text_dim", DccTheme.FS_MICRO))
+	for m in found:
+		var md: Dictionary = m
+		var b: Button
+		if md.has("year"):
+			var yy := int(md["year"])
+			b = DccWidgets.text_button(row, String(md["text"]), func(): app.tl_set_year(yy, true))
+			b.tooltip_text = "Move the timeline to year %d." % yy
+			b.set_meta("mention_year", yy)
+		else:
+			var kind := String(md["kind"])
+			var id := int(md["id"])
+			b = DccWidgets.text_button(row, String(md["text"]), func(): app.select(kind, id))
+			b.tooltip_text = "Select %s." % String(md["text"])
+			b.set_meta("mention_target", {"kind": kind, "id": id})
+		b.add_theme_color_override("font_color", DccTheme.c("accent"))
+		b.custom_minimum_size.y = maxi(int(b.custom_minimum_size.y), _field_h())
+	_reply_label.get_parent().add_child(row)
+	_scroll_to_end()
 
 
 ## Appends a message card; returns its body label. An assistant card carries the amber
@@ -1920,6 +2419,10 @@ func _add_msg(who: String, text: String, token: String, model_marked: bool = fal
 	l.custom_minimum_size.x = WRAP_MIN_W
 	col.add_child(l)
 	_msgs.add_child(box)
+	## PC-6 (PQ5): the person's and the assistant's own turns are the conversation that can be saved with the world;
+	## system lines (who == "") are not, so a note's path in a "never sent" line cannot reach the file.
+	if who == "You" or who == "Assistant":
+		_conv.append({"who": who, "label": l, "model": model_marked, "token": token})
 	_scroll_to_end()
 	return l
 
@@ -2779,8 +3282,17 @@ func _tick_group(name: String) -> void:
 ## was read, plus the model-generated block, guarded by the hash from the same read. A note
 ## edited since is refused by the Vault and nothing is written.
 func _on_save() -> void:
-	if run.busy() or _reply.strip_edges() == "" or _note.is_empty():
+	if run.busy() or _reply.strip_edges() == "":
 		return
+	## PC-6 (3.5, "Each Apply goes to the linked note, preselected, instead of a pick from a flat list"): with no
+	## note picked, Save goes to the selection's linked note, which is read now (its hash guards the write) and
+	## shown in the picker. "Another note..." is the picker, which still works and wins when used.
+	var routed_here := false
+	if _note.is_empty():
+		if not _route_subject_note():
+			return
+		routed_here = true
+	_sn_key = ""
 	var date := Time.get_date_string_from_system()
 	var c: Dictionary = run.stream.compose_note(String(_note["text"]), run.model, date, _reply)
 	if not bool(c.get("ok", false)):
@@ -2790,7 +3302,8 @@ func _on_save() -> void:
 	if bool(w.get("ok", false)):
 		_note["text"] = String(c["text"])
 		_note["hash"] = String(w["hash"])
-		_add_msg("", "Saved to %s, marked model-generated." % String(_note["rel"]), "good")
+		_add_msg("", "Saved to %s%s, marked model-generated." % [String(_note["rel"]),
+			" (the selection's linked note)" if routed_here else ""], "good")
 		note_saved.emit(String(_note["rel"]))
 	else:
 		var err := String(w.get("error", ""))

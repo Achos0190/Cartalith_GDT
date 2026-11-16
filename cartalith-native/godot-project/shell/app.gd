@@ -57,6 +57,8 @@ var look_history = preload("res://shell/look_history.gd").new()
 ## single-step paths below behave exactly as before. Untyped for the reason
 ## `look_history` is. Session-only; `_refresh_world_dependent()` tells it.
 var undo_groups = preload("res://shell/undo_group.gd").new()
+## PC-3 leftover: the undo history of the strip's + Record year (`year_record_history.gd`).
+var year_history = preload("res://shell/year_record_history.gd").new()
 ## The cross-section's bottom strip (`design/Cartalith Measurement Toolbar
 ## .dc.html` state 2). A `viewport_content` overlay rather than a shell
 ## region -- see `section_strip.gd`'s own header for why. Hidden unless the
@@ -1185,6 +1187,20 @@ func context_module_registry() -> Array:
 		_context_modules = ContextModulesScript.new(self)
 	return _context_modules.registry()
 
+## PC-3 leftover. The strip's recorded years changed under an undo or redo: the CIVIL workspace repaints the
+## territory and rebuilds the Timeline body, which tells the strip (the same two calls `tl_record_year` makes).
+func civ_year_records_changed() -> void:
+	var ws := _civ_workspace()
+	if ws != null:
+		ws.tl_records_changed()
+
+## PC-4 leftover. The modules' builder object (made on first use), for the Inspect page's shared sections
+## (`ContextModules.roads_section`), so Inspect and the Routes module list one set of roads.
+func context_modules_obj():
+	if _context_modules == null:
+		_context_modules = ContextModulesScript.new(self)
+	return _context_modules
+
 ## PC-10. The modules' builder object (`context_modules.gd`), made on first use.
 var _context_modules = null
 ## PC-10. `context_modules.gd`, preloaded (no `class_name`, so it needs no `--headless --import` pass).
@@ -1713,6 +1729,7 @@ func _ready() -> void:
 		return
 	super._ready()
 	undo_groups.app = self
+	year_history.app = self
 	get_tree().node_added.connect(_watch_dialog)
 	_enable_idle_mode()
 	tool_armed.connect(_sync_tool_strip)
@@ -2247,6 +2264,7 @@ func _reset_timeline_handles() -> void:
 	_tl_max_label = null
 	_tl_end_hint = null
 	_tl_collapsed_dot = null
+	_tl_collapsed_slider = null
 	_tl_transport.clear()
 	_tl_day_slider = null
 	_tl_date_label = null
@@ -3268,6 +3286,7 @@ func _refresh_world_dependent() -> void:
 	## Ruling BY item 2: a different world means the look history's snapshots
 	## describe another project's ramp/biome table -- drop them.
 	look_history.clear()
+	year_history.reset()
 	if viewport != null and viewport.overlay != null:
 		viewport.overlay.set_trade_load(PackedFloat32Array())
 	for ws in _workspaces:
@@ -3737,6 +3756,8 @@ var _tl_min_label: Label
 ## The `YEAR TL_YEAR_MAX` range literal at the end of the track.
 var _tl_max_label: Label
 var _tl_end_hint: Label                   ## `step back or drag to resume`, row 1, end of track only.
+## PC-3 leftover: the collapsed line's year slider, or null (expanded, tablet, phone).
+var _tl_collapsed_slider: HSlider
 var _tl_collapsed_dot: Label              ## Board B's `·`; hidden with the word it separates.
 ## True between a press on the scrub track and the release that ends it. Drives
 ## the bubble and the `scrubbing` word, and nothing else -- the cursor itself is
@@ -3787,6 +3808,7 @@ func _fill_timeline_strip() -> void:
 	_tl_phone_button = null
 	_tl_transport = []
 	_tl_collapsed_dot = null
+	_tl_collapsed_slider = null
 	_tl_status_labels = []
 	_tl_detail_label = null
 	_tl_detail_dot = null
@@ -3879,6 +3901,37 @@ func _build_timeline_collapsed() -> void:
 	var gap := DccTheme.spacer()
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(gap)
+	## **The collapsed line's slider (PC-3 leftover, `PC_SHELL_PROPOSAL.md` 3.2 "Collapsed", CV-24), right-aligned, with a clear margin before the expand word.** One year
+	## slider across the strip's range, so the year moves without expanding. It writes through the one writer
+	## (`tl_set_year`) and is repainted by `_repaint_timeline()` (`set_value_no_signal`), so it never fires its
+	## own change. **Desktop only, a stated departure**: the touch strip is `h_status` 34 px high, under the
+	## 44 px floor a thumb needs, and one tap on the strip expands to the full track, so the tablet and phone
+	## keep the shipped composition. It is RIGHT-aligned (after the spacer) with a clear 64 px margin before the
+	## expand word, for two measured reasons: left of the spacer it moved sideways whenever the year or state words
+	## changed width, so a drag lost the slider under the pointer (the strip rebuilt as an expand); and at the very end it
+	## took the press `_pc3strip_probe` makes at 95 percent of the strip's width, which must expand it (the whole strip
+	## is one button). The slider takes presses itself (it is a child of that button, and a press on it must not expand
+	## the strip); the margin is a spacer that hands its press to the button beneath.
+	if not DccTheme.is_tablet():
+		var cs := HSlider.new()
+		cs.name = "TimelineCollapsedSlider"
+		cs.step = 1
+		cs.custom_minimum_size = Vector2(180, 0)
+		cs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cs.focus_mode = Control.FOCUS_NONE
+		cs.mouse_filter = Control.MOUSE_FILTER_STOP
+		cs.tooltip_text = "Move the year cursor without expanding the strip. Drag, or press to jump."
+		_tl_sync_collapsed_slider(cs)
+		cs.value_changed.connect(func(v: float) -> void: tl_set_year(int(v)))
+		_tl_collapsed_slider = cs
+		_tl_transport.append(cs)
+		row.add_child(cs)
+		## A plain Control, not `DccTheme.spacer()`: that one EXPANDS, and two expanding spacers split the free width, which put the
+		## slider in the middle of the strip (found by `_pc3strip_probe`'s 50 percent press).
+		var margin := Control.new()
+		margin.custom_minimum_size.x = 64
+		margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(margin)
 	## `▴` U+25B4 -- not in `DccIcons.SYMBOLS`, and the table is not this
 	## file's to extend. Same `SystemFont` fallback as every other missing mark.
 	row.add_child(DccTheme.mono_label("\u25b4 expand", "text_faint",
@@ -3893,6 +3946,15 @@ func _build_timeline_collapsed() -> void:
 	for c in row.get_children():
 		if c is Label:
 			(c as Label).vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+
+## PC-3 leftover. Sets the collapsed slider's range to the strip's range (`tl_range()`, from the world) and its
+## value to the cursor's year, clamped into it (an exact write outside the range pins to the end, as the
+## expanded track does), without firing `value_changed`.
+func _tl_sync_collapsed_slider(sl: HSlider) -> void:
+	var rng := tl_range()
+	sl.min_value = float(rng["min"])
+	sl.max_value = float(rng["max"])
+	sl.set_value_no_signal(clampf(float(tl_year()), sl.min_value, sl.max_value))
 
 ## §4.2's three rows, plus a fourth this build owes the reader -- see
 ## `_build_timeline_layers()`.
@@ -4723,6 +4785,8 @@ func _repaint_timeline() -> void:
 		_tl_date_label.text = tl_date_text() if live else "—"
 	if is_instance_valid(_tl_day_slider):
 		_tl_day_slider.set_value_no_signal(tl_day())
+	if is_instance_valid(_tl_collapsed_slider):
+		_tl_sync_collapsed_slider(_tl_collapsed_slider)
 	if is_instance_valid(_tl_state_label):
 		_tl_state_label.text = tl_state_text() if live else "no world"
 		## **The ink is per state, not per label.** Board C draws `paused` in the
@@ -5292,6 +5356,13 @@ func _restore_project_documents() -> PackedStringArray:
 	var bnote := restore_bookmarks_document(String(docs.get(BOOKMARKS_SLOT, "")))
 	if bnote != "":
 		notes.append("%s, so they were left as they are in the file" % bnote)
+
+	## PC-6 (PQ5): a saved assistant conversation replaces the session's; a project without one leaves it alone.
+	var cdoc := String(docs.get("assistant/conversation.json", ""))
+	if cdoc != "" and assistant_window != null:
+		var cnote: String = assistant_window.restore_conversation_document(cdoc)
+		if cnote != "":
+			notes.append(cnote)
 
 	var travel := String(docs.get("library/travel.json", ""))
 	if travel != "":
@@ -5997,6 +6068,13 @@ func _project_documents() -> Dictionary:
 	var bm := bookmarks_document()
 	if bm != "":
 		documents[BOOKMARKS_SLOT] = bm
+	## PC-6 (PQ5, Ruling DY): the assistant conversation, only while "Save the assistant conversation with the
+	## world" is on and only when this engine build registers the slot (`project_document_slots()`): a build
+	## without it is refused by the engine ("not a slot the project format defines"), which would fail the WHOLE
+	## save, so it is skipped here and the preference simply has no file to write to yet.
+	var conv: String = assistant_window.conversation_document() if assistant_window != null else ""
+	if conv != "" and bridge.project_document_slots().has(assistant_window.CONVERSATION_SLOT):
+		documents[assistant_window.CONVERSATION_SLOT] = conv
 	## `lazy-riding-piglet.md` Batch D. `SettlementTypeStore` is a static
 	## store (`trade_store.gd`'s own shape), so this reads it directly rather
 	## than through the window -- the library survives the window being
@@ -6721,6 +6799,27 @@ func claim_cells_for_faction(fid: int) -> void:
 			ws.claim_for_faction(fid)
 			return
 
+## PC-4 leftover (`PC_SHELL_PROPOSAL.md` 3.2 "What the year moves", flow F7, `GUI_PLANS_AUDIT_2026-11-16.md`): picking
+## a conflict from a list moves the year to the conflict's FIRST year, so its campaign (drawn only while the
+## year is inside its range) is on the map when it is selected. Through the one writer (`tl_set_year`, exact: a
+## conflict may start outside the strip's range). Returns true when the year was written; false (the year is
+## left alone, never set to 0) when there is no world or the id names no conflict in `conflict_list()`.
+## It is called by the list pickers only (Story ▸ Conflicts…, the faction hub's Military tab through
+## `open_conflict`, CIVIL's Military ▸ Conflicts rows): NOT by a conflict a person has just drawn or clicked
+## on the map, and NOT by a link on an Inspect page (those keep the year, as `select()` always did). It also
+## does nothing when the year already is the start year (no `timeline_changed` for an unchanged write).
+func conflict_goto_start(id: int) -> bool:
+	if not bridge.has_world or not tl_available():
+		return false
+	for c in bridge.conflict_list():
+		var d: Dictionary = c
+		if int(d.get("id", -1)) == id and d.has("start_year"):
+			var y := int(d["start_year"])
+			if y != int(tl_year()):
+				tl_set_year(y, true)
+			return true
+	return false
+
 ## Opens conflict `id` in the right dock's Conflict context (where its sides are
 ## edited) and selects its stroke on the map: the CIVIL workspace's
 ## `select_conflict`, the one handler Civilization > Military > Conflicts rows call
@@ -6730,6 +6829,7 @@ func claim_cells_for_faction(fid: int) -> void:
 ## right sheet, which `show_conflict` does not do itself and which would
 ## otherwise leave the selection on a dock nothing on screen draws.
 func open_conflict(id: int) -> void:
+	conflict_goto_start(id)
 	for ws in _workspaces:
 		if ws.has_method("select_conflict"):
 			ws.select_conflict(id)
@@ -6787,6 +6887,20 @@ func open_quick_bar_window() -> void:
 ## contacts nothing; only Send does, and only through the gate.
 func open_assistant_panel() -> void:
 	assistant_window.open()
+
+## PC-6 (`PC_SHELL_PROPOSAL.md` 3.5 "Entry points"): **Ask about this**, the Inspect header's and the context card's
+## button. Makes `subject` (`{kind, id}`; empty = the current selection) the selection through the one path when it
+## is not already, puts the selection chip back on (a chip left off earlier would otherwise send nothing about it),
+## and opens Ask (`open_assistant_panel`). Never sends: the person types and presses Send, and the source
+## "Send: selection and year" still decides whether the selection goes with it. Returns whether Ask opened.
+func ask_about(subject: Dictionary = {}) -> bool:
+	if bridge == null or not bridge.llm_api or assistant_window == null:
+		return false
+	if not subject.is_empty() and subject != selection:
+		select(String(subject.get("kind", "")), int(subject.get("id", -1)))
+	assistant_window.include_selection()
+	open_assistant_panel()
+	return true
 
 ## The shell is leaving: join every assistant worker thread before the library unloads (a thread
 ## still running this library's code when Godot unmaps it dies with an access violation; the
@@ -7049,12 +7163,12 @@ func _browse_root(key: String, readout: Label) -> void:
 ## the two cannot drift. Which history `undo_last()` then consumes is
 ## `undo_target_label()`'s question.
 func can_undo_any() -> bool:
-	return look_history.can_undo() or bridge.can_undo() or _planner_stops("stops_can_undo")
+	return look_history.can_undo() or bridge.can_undo() or _planner_stops("stops_can_undo") or year_history.can_undo()
 
 ## The Redo mirror of `can_undo_any()`. `bridge.redo_available()` already answers
 ## false on a cdylib without the binding.
 func can_redo_any() -> bool:
-	return look_history.can_redo() or bridge.redo_available() or _planner_stops("stops_can_redo")
+	return look_history.can_redo() or bridge.redo_available() or _planner_stops("stops_can_redo") or year_history.can_redo()
 
 ## PC-8: asks the planner's stop history (`journey_planner_view.gd`, Start here / Add as stop / End here,
 ## one undo step each) `method`, false when the planner is not built yet. The one way the undo routing
@@ -7079,6 +7193,8 @@ func undo_target_label() -> String:
 		return undo_groups.undo_label()
 	if _planner_stops("stops_wants_undo"):
 		return journey_planner_view.stops_undo_label()
+	if year_history.wants_undo():
+		return year_history.undo_label()
 	if look_history.wants_undo(bridge):
 		return look_history.undo_label()
 	return bridge.undo_label() if bridge.can_undo() else ""
@@ -7090,6 +7206,8 @@ func redo_target_label() -> String:
 		return undo_groups.redo_label()
 	if _planner_stops("stops_wants_redo"):
 		return journey_planner_view.stops_redo_label()
+	if year_history.wants_redo():
+		return year_history.redo_label()
 	if look_history.wants_redo(bridge):
 		return look_history.redo_label()
 	return bridge.redo_label() if bridge.redo_available() else ""
@@ -7144,6 +7262,13 @@ func _undo_last_impl() -> void:
 	## undone first; `stops_wants_undo()` derives "after" from the other histories' depth.
 	if _planner_stops("stops_wants_undo"):
 		journey_planner_view.stops_undo()
+		return
+	## PC-3 leftover: the strip's + Record year, one undo step (`year_record_history.gd`).
+	if year_history.wants_undo():
+		var yr: Dictionary = year_history.undo()
+		set_status("pass" if bool(yr["ok"]) else "hint",
+			("undid %s" % String(yr["text"]).to_lower()) if bool(yr["ok"]) else String(yr["text"]),
+			"text_dim" if bool(yr["ok"]) else "warn")
 		return
 	var split: String = undo_groups.blocks_single_undo(look_history.wants_undo(bridge))
 	if split != "":
@@ -7300,6 +7425,10 @@ func _redo_last_impl() -> void:
 	## PC-8: the mirror of `_undo_last_impl()`'s planner branch.
 	if _planner_stops("stops_wants_redo"):
 		journey_planner_view.stops_redo()
+		return
+	if year_history.wants_redo():
+		var yr2: Dictionary = year_history.redo()
+		set_status("pass", "redid %s" % String(yr2["text"]).to_lower(), "text_dim")
 		return
 	var split: String = undo_groups.blocks_single_redo(look_history.wants_redo(bridge))
 	if split != "":

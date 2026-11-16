@@ -235,6 +235,7 @@ func collect(req: Dictionary) -> Array:
 		if ws.has_method("context_actions"):
 			rows.append_array(ws.context_actions(req))
 	rows.append_array(note_rows(req))
+	rows.append_array(ask_rows(req))
 	return merge(rows)
 
 
@@ -262,6 +263,33 @@ func note_rows(req: Dictionary) -> Array:
 	if _note == null:
 		_note = ContextNoteScript.new(app)
 	return _note.card_rows(subject)
+
+
+## PC-6 (`PC_SHELL_PROPOSAL.md` 3.5 "Entry points": "the context card gets Ask about this"): ONE row, in the INFO
+## section, when the request has exactly one hit of a kind the assistant can be asked about (a settlement, a faction
+## or a landmark; the same one-subject rule the note section follows) and the build has an assistant. It is not a note
+## row (Ruling FJ keeps the card's one `note.open` entry): it opens Ask, and the row's callable is `DccApp.ask_about`,
+## which selects the subject through the one path first. Contacts nothing: only Send does.
+const ASK_KINDS := ["settlement", "faction", "landmark"]
+
+func ask_rows(req: Dictionary) -> Array:
+	if app.bridge == null or not app.bridge.llm_api:
+		return []
+	var subject: Dictionary = {}
+	for h in req.get("hits", []):
+		var kind := String((h as Dictionary).get("kind", ""))
+		if not ASK_KINDS.has(kind) or int((h as Dictionary).get("id", -1)) < 0:
+			continue
+		if not subject.is_empty():
+			return []
+		subject = {"kind": kind, "id": int((h as Dictionary)["id"])}
+	if subject.is_empty():
+		return []
+	## No `detail`: a row's detail line is drawn at the card's width and a sentence here widened the card by more than
+	## 40 px, which then covered the right dock's last tab row and swallowed the press on it (found by
+	## `_pc10modules_probe`'s Recent tab, 2026-11-16). The label says what the row does; Send is the only thing that sends.
+	return [{"id": "ask.about", "label": "Ask about this", "section": "info", "enabled": true,
+		"callable": func() -> void: app.ask_about(subject)}]
 
 
 ## Stable sort by §4.1 section; provider order kept within a section. An

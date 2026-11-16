@@ -14,8 +14,8 @@ extends AcceptDialog
 ## not offer Open in a window there, so `DccApp.open_context_tab_window()` refuses before making one.
 ## Keep a copy of the selection: it holds only the subject it is pinned to, read from
 ## `DccApp.selection` while following. Draw a module that does not fit the subject: it says which kinds
-## the module shows for instead (§3.3, "Fit"). It has no Pop out button (Ruling DK's per-window Pop out is
-## for `PopoutHost.LIVE_KEYS`; a module window is not one of them, a stated gap).
+## the module shows for instead (§3.3, "Fit"). It has Ruling DK's Pop out button since the PC-10 leftover pass
+## (`context_module_window` is in `PopoutHost.LIVE_KEYS`; `setup()` adds the button, `open()` runs `prepare()`).
 
 ## PC-7's rules, shared by every non-blocking window.
 const ContextWindow := preload("res://shell/context_window.gd")
@@ -67,6 +67,9 @@ func setup(host, key: String) -> void:
 	## Tells `RightDock.build_here()` it is drawing into a window, not the panel.
 	_body.set_meta("ctx_module_window", true)
 	scroll.add_child(_body)
+	## Ruling DK's Pop out (PC-10 leftover): the button joins the dialog's own row before the follow chip, so the
+	## chip takes the balance's place (`ContextWindow.make_context`, the roster's order).
+	PopoutHost.add_toggle_button(self)
 	host.bridge.generation_finished.connect(func(_ok: bool): rebuild_later())
 	host.bridge.world_loaded.connect(rebuild_later)
 	ContextWindow.make_context(self, host, true)
@@ -82,6 +85,7 @@ func open() -> void:
 	if visible:
 		grab_focus()
 	else:
+		PopoutHost.prepare(self)
 		popup_centered()
 
 ## PC-7. Called by `ContextWindow` when the selection moves while this window is visible and following.

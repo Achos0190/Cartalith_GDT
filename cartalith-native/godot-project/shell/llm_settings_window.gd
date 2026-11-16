@@ -104,6 +104,8 @@ const _SWITCHES := [
 		"note": "Before asking the model, Cartalith looks through its menus, layers, windows and tools for the ones your words name, and sends their descriptions along. Only Cartalith's own action names are sent, never your world. On by default because it helped a local model pick the right action; turn it off to send only the Commands button's short list."},
 	{"key": "regen_on_apply", "label": "Regenerate when I apply a proposal",
 		"note": "Applying a settings suggestion also regenerates the world (asking first if you have hand edits). Turn off to change only the settings and press Generate yourself."},
+	{"key": "conv_save", "label": "Save the assistant conversation with the world",
+		"note": "The conversation is stored inside the world file (a separate member of the .zip) and comes back when the world is opened. It travels with the file when you share it. Never the key, never a source, never a private note's text. Off by default."},
 	{"key": "edit", "label": "Edit actions: raise, lower, smooth",
 		"note": "The model proposes terrain edits to an area you paint or box on the map (Assistant > Edit). You see a preview computed by the app; nothing changes until you press Apply, and one Apply is one undo step. It never generates, erodes or changes settings. Only raise, lower and smooth in this release; painting colours comes later. Needs the region source below, and goes only to a model on this computer or your network."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "Models on this computer or your network.",
@@ -1002,6 +1004,9 @@ func _on_switch(key: String, on: bool) -> void:
 					_rebuild_deferred())
 			return
 	_store(key, on)
+	if key == "conv_save":
+		## Answering here is answering the first-use card too (PC-6): it is not shown after the switch was touched.
+		_store("conv_save_asked", true)
 	if key == "enabled":
 		_rebuild_deferred()
 	_after_change()
