@@ -401,7 +401,7 @@ pub fn water_samples(ways: &[AuditWay], classification: &[u8], gw: usize, gh: us
 /// River crossings along the drawn ways: each maximal run of samples whose cell
 /// has a channel (`order >= 1`) is one crossing, rated by the highest order it
 /// touches. Returns `(crossings, crossings of order >= bridge_order)`. `step` in
-/// cells.
+/// cells. Counted from [`river_crossing_runs`], so the two always agree.
 pub fn river_crossings(
     ways: &[AuditWay],
     order: &[i16],
@@ -410,33 +410,42 @@ pub fn river_crossings(
     step: f64,
     bridge_order: i16,
 ) -> (usize, usize) {
-    let (mut all, mut bridge) = (0, 0);
+    let runs = river_crossing_runs(ways, order, gw, gh, step);
+    let bridge = runs.iter().filter(|r| r.iter().map(|&i| order[i]).max().unwrap_or(0) >= bridge_order).count();
+    (runs.len(), bridge)
+}
+
+/// The crossings [`river_crossings`] counts, each as the grid cells (index
+/// `y * gw + x`, one per sample, in drawn order) of its run: a maximal run of
+/// samples every `step` cells along one drawn run of a way whose nearest cell
+/// has `order >= 1`. A pen lift (a seam) ends a run. For a census that rates a
+/// crossing against a second raster (Ruling FF item 5's crossing-cost check in
+/// `town_river_census.rs`), which needs the cells, not just the count.
+pub fn river_crossing_runs(ways: &[AuditWay], order: &[i16], gw: usize, gh: usize, step: f64) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
     for w in ways {
-        let mut cur: Option<i16> = None;
+        let mut cur: Vec<usize> = Vec::new();
         let mut last_run = usize::MAX;
         for s in sample_way(w, step) {
             let (cx, cy) = (s.x.round().clamp(0.0, gw as f64 - 1.0) as usize, s.y.round().clamp(0.0, gh as f64 - 1.0) as usize);
-            let o = order[cy * gw + cx];
+            let i = cy * gw + cx;
             if s.run != last_run {
-                if let Some(m) = cur.take() {
-                    all += 1;
-                    bridge += usize::from(m >= bridge_order);
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
                 }
                 last_run = s.run;
             }
-            if o >= 1 {
-                cur = Some(cur.map_or(o, |m| m.max(o)));
-            } else if let Some(m) = cur.take() {
-                all += 1;
-                bridge += usize::from(m >= bridge_order);
+            if order[i] >= 1 {
+                cur.push(i);
+            } else if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
             }
         }
-        if let Some(m) = cur {
-            all += 1;
-            bridge += usize::from(m >= bridge_order);
+        if !cur.is_empty() {
+            out.push(cur);
         }
     }
-    (all, bridge)
+    out
 }
 
 /// Total drawn length of `ways`, map cells.
@@ -566,6 +575,27 @@ mod tests {
         let st = bundle_stretches(&ways, &[(0.0, 50.0), (100.0, 50.0)], v);
         assert!(st.iter().any(|s| (s.p, s.q) == (0, 1) && s.overlap));
         assert!(st.iter().any(|s| (s.p, s.q) == (0, 2) && !s.overlap));
+    }
+
+    /// Protects `river_crossing_runs` (Ruling FF item 5's census): an order-1
+    /// channel is a crossing (the map's smallest river), each run holds the
+    /// cells it crossed in drawn order, a gap of dry land splits two runs, and
+    /// the count agrees with `river_crossings`. Mutating the `>= 1` to `>= 2`
+    /// turns this red.
+    #[test]
+    fn crossing_runs_hold_their_cells_and_start_at_order_one() {
+        let (gw, gh) = (40, 10);
+        let mut order = vec![0i16; gw * gh];
+        order[5 * gw + 10] = 1;
+        order[5 * gw + 20] = 3;
+        order[5 * gw + 21] = 2;
+        let a = line((2.0, 5.0), (37.0, 5.0));
+        let ways = [way(&a, (0, 1))];
+        let runs = river_crossing_runs(&ways, &order, gw, gh, 0.25);
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert!(runs[0].iter().all(|&i| i == 5 * gw + 10), "the order-1 brook: {:?}", runs[0]);
+        assert!(runs[1].contains(&(5 * gw + 20)) && runs[1].contains(&(5 * gw + 21)) && runs[1].windows(2).all(|w| w[0] <= w[1]));
+        assert_eq!(river_crossings(&ways, &order, gw, gh, 0.25, 3), (2, 1));
     }
 
     /// Protects: water and river crossings are counted on the drawn line, the pin

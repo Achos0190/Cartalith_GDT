@@ -1,0 +1,266 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 5ebc8839011d
+ERROR: Couldn't open directory at path "C:/cw/ff56_appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5167)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2695)
+  ff 0: map_rivers false harbour_box false
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2ad6f061600, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2ad6f061600, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x2ad6f061600, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  the world generated (233 settlements)
+S 0 271 285 21123 capital false river
+S 1 365 233 21481 capital false river
+S 2 371 284 635 village false river
+S 3 348 168 1743 town false river
+S 4 378 244 198 hamlet false river
+S 5 240 205 2208 town false river
+S 6 96 92 23761 capital true riverthrough
+S 7 361 251 1998 town false river
+S 8 368 170 146 hamlet false river
+S 9 96 73 156 hamlet false river
+S 10 314 123 23367 capital true riverthrough
+S 11 177 98 144 hamlet false river
+S 12 346 214 7996 city false river
+S 13 343 241 504 village false river
+S 14 188 85 19694 capital false river
+S 15 19 57 583 village false river
+S 16 53 286 20416 capital true river
+S 17 350 264 148 hamlet false river
+S 18 39 81 512 village true riverthrough
+S 19 13 210 181 hamlet false river
+S 20 326 220 185 hamlet false river
+S 21 157 97 174 hamlet false river
+S 22 179 266 511 village false river
+S 23 323 94 145 hamlet true riverthrough
+S 24 378 266 155 hamlet false river
+S 25 216 193 1948 town true riverthrough
+S 26 315 153 145 hamlet false river
+S 27 180 140 1758 town true riverthrough
+S 28 17 31 173 hamlet false river
+S 29 263 266 141 hamlet false river
+S 30 163 123 135 hamlet true riverthrough
+S 31 179 284 185 hamlet false river
+S 32 105 213 143 hamlet true riverthrough
+S 33 375 233 0 hamlet false river
+S 34 370 231 0 hamlet false river
+S 35 380 232 0 hamlet false river
+S 36 269 277 0 hamlet false river
+S 37 358 236 0 hamlet false river
+S 38 372 244 0 hamlet false river
+S 39 353 237 0 hamlet false river
+S 40 234 203 0 hamlet false river
+S 41 362 170 0 hamlet false river
+S 42 349 241 0 hamlet false river
+S 43 355 253 0 hamlet false river
+S 44 365 247 0 hamlet false river
+S 45 340 218 0 hamlet false river
+S 46 185 96 0 hamlet false river
+S 47 356 168 0 hamlet false river
+S 48 358 226 0 hamlet false river
+S 49 272 272 0 hamlet false river
+S 50 348 181 0 hamlet false river
+S 51 342 270 0 hamlet false river
+S 52 177 272 0 hamlet false river
+S 53 343 165 0 hamlet false river
+S 54 243 211 0 hamlet false river
+S 55 228 198 0 hamlet false river
+S 56 184 260 0 hamlet false river
+S 57 350 217 0 hamlet false river
+S 58 19 215 0 hamlet false river
+S 59 6 211 0 hamlet false river
+S 60 337 242 0 hamlet false river
+S 61 192 81 0 hamlet false river
+S 62 249 211 0 hamlet false river
+S 63 357 267 0 hamlet false river
+S 64 357 272 0 hamlet false river
+S 65 367 281 0 hamlet false river
+S 66 169 108 0 hamlet false river
+S 67 13 43 0 hamlet false river
+S 68 332 219 0 hamlet false river
+S 69 379 251 0 hamlet false river
+S 70 184 252 0 hamlet false river
+S 71 361 262 0 hamlet false river
+S 72 371 250 0 hamlet false river
+S 73 336 161 0 hamlet false river
+S 74 243 216 0 hamlet false river
+S 75 326 160 0 hamlet false river
+S 76 162 93 0 hamlet false river
+S 77 160 119 0 hamlet false riverthrough
+S 78 50 64 0 hamlet false river
+S 79 336 272 0 hamlet false river
+S 80 286 184 0 hamlet false river
+S 81 16 52 0 hamlet false river
+S 82 353 224 0 hamlet false river
+S 83 307 145 0 hamlet false riverthrough
+S 84 7 70 0 hamlet false riverthrough
+S 85 140 209 0 hamlet false riverthrough
+S 86 333 123 0 hamlet false river
+S 87 300 176 0 hamlet false river
+S 88 354 276 0 hamlet false river
+S 89 342 185 0 hamlet false river
+S 90 367 238 0 hamlet false river
+S 91 21 71 0 hamlet false riverthrough
+S 92 249 217 0 hamlet false river
+S 93 360 241 0 hamlet false river
+S 94 380 280 0 hamlet false river
+S 95 310 149 0 hamlet false river
+S 96 45 69 0 hamlet false river
+S 97 294 178 0 hamlet false river
+S 98 343 126 0 hamlet false river
+S 99 179 85 0 hamlet false river
+S 100 3 11 0 hamlet false river
+S 101 346 279 0 hamlet false river
+S 102 186 108 0 hamlet false river
+S 103 181 78 0 hamlet false river
+S 104 364 218 0 hamlet false river
+S 105 337 248 0 hamlet false river
+S 106 368 202 0 hamlet false river
+S 107 304 167 0 hamlet false river
+S 108 12 228 0 hamlet false river
+S 109 303 172 0 hamlet false river
+S 110 351 173 0 hamlet false river
+S 111 381 192 0 hamlet false river
+S 112 183 71 0 hamlet false river
+S 113 100 79 0 hamlet false river
+S 114 336 266 0 hamlet false river
+S 115 382 225 0 hamlet false river
+S 116 14 37 0 hamlet false river
+S 117 289 179 0 hamlet false river
+S 118 156 102 0 hamlet false river
+S 119 44 221 0 hamlet false river
+S 120 28 219 0 hamlet false river
+S 121 365 256 0 hamlet false river
+S 122 35 221 0 hamlet false river
+S 123 172 119 0 hamlet false river
+S 124 324 207 0 hamlet false river
+S 125 375 165 0 hamlet false river
+S 126 365 228 0 hamlet false river
+S 127 259 262 0 hamlet false river
+S 128 60 277 0 hamlet false riverthrough
+S 129 17 26 0 hamlet false river
+S 130 354 124 0 hamlet false river
+S 131 329 233 0 hamlet false river
+S 132 337 126 0 hamlet false river
+S 133 145 98 0 hamlet false river
+S 134 23 21 0 hamlet false river
+S 135 56 58 0 hamlet false river
+S 136 171 89 0 hamlet false river
+S 137 334 205 0 hamlet false river
+S 138 359 189 0 hamlet false river
+S 139 193 126 0 hamlet false river
+S 140 48 25 0 hamlet false river
+S 141 325 121 0 hamlet false river
+S 142 50 36 0 hamlet false river
+S 143 359 280 0 hamlet false river
+S 144 114 205 0 hamlet false riverthrough
+S 145 367 208 0 hamlet false river
+S 146 337 223 0 hamlet false river
+S 147 78 30 0 hamlet false river
+S 148 330 247 0 hamlet false river
+S 149 173 3 0 hamlet false river
+S 150 30 16 0 hamlet false river
+S 151 146 262 0 hamlet false river
+S 152 56 42 0 hamlet false river
+S 153 4 227 0 hamlet false river
+S 154 165 4 0 hamlet false river
+S 155 160 105 0 hamlet false river
+S 156 1 16 0 hamlet false river
+S 157 83 49 0 hamlet false river
+S 158 328 265 0 hamlet false river
+S 159 359 256 0 hamlet false river
+S 160 349 127 0 hamlet false river
+S 161 50 222 0 hamlet false river
+S 162 339 212 0 hamlet false river
+S 163 195 9 0 hamlet false river
+S 164 17 229 0 hamlet false river
+S 165 276 250 0 hamlet false river
+S 166 90 55 0 hamlet false river
+S 167 197 137 0 hamlet false river
+S 168 197 25 0 hamlet false river
+S 169 78 37 0 hamlet false river
+S 170 184 15 0 hamlet false river
+S 171 281 262 0 hamlet false river
+S 172 79 43 0 hamlet false river
+S 173 325 175 0 hamlet false river
+S 174 170 22 0 hamlet false river
+S 175 193 245 0 hamlet false river
+S 176 12 29 0 hamlet false river
+S 177 317 278 0 hamlet false river
+S 178 58 33 0 hamlet false river
+S 179 312 276 0 hamlet false river
+S 180 324 237 0 hamlet false river
+S 181 270 265 0 hamlet false river
+S 182 190 13 0 hamlet false river
+S 183 26 210 0 hamlet false river
+S 184 107 86 0 hamlet false river
+S 185 372 115 0 hamlet false river
+S 186 279 274 0 hamlet false river
+S 187 156 116 0 hamlet false riverthrough
+S 188 317 110 0 hamlet false riverthrough
+S 189 278 266 0 hamlet false river
+S 190 285 259 0 hamlet false river
+S 191 43 45 0 hamlet false river
+S 192 251 225 0 hamlet false river
+S 193 10 11 0 hamlet false river
+S 194 355 244 0 hamlet false river
+S 195 192 26 0 hamlet false river
+S 196 156 12 0 hamlet false river
+S 197 92 61 0 hamlet false river
+S 198 300 181 0 hamlet false river
+S 199 327 275 0 hamlet false river
+S 200 120 165 0 hamlet false landlocked
+S 201 145 81 0 hamlet false river
+S 202 155 207 0 hamlet false riverthrough
+S 203 151 35 0 hamlet false river
+S 204 259 203 0 hamlet false river
+S 205 2 5 0 hamlet false river
+S 206 277 221 0 hamlet false river
+S 207 204 24 0 hamlet false river
+S 208 48 41 0 hamlet false river
+S 209 383 239 0 hamlet false river
+S 210 373 267 0 hamlet false river
+S 211 299 206 0 hamlet false river
+S 212 273 213 0 hamlet false river
+S 213 235 217 0 hamlet false river
+S 214 61 59 0 hamlet false river
+S 215 377 226 0 hamlet false river
+S 216 149 258 0 hamlet false river
+S 217 116 194 0 hamlet false riverthrough
+S 218 34 66 0 hamlet false river
+S 219 179 30 0 hamlet false river
+S 220 282 253 0 hamlet false river
+S 221 163 25 0 hamlet false river
+S 222 150 249 0 hamlet false river
+S 223 21 233 0 hamlet false river
+S 224 101 52 0 hamlet false river
+S 225 166 83 0 hamlet false river
+S 226 1 251 0 hamlet false river
+S 227 270 260 0 hamlet false river
+S 228 65 212 0 hamlet false riverthrough
+S 229 117 201 0 hamlet false river
+S 230 80 24 0 hamlet false river
+S 231 368 120 0 hamlet false river
+S 232 202 282 0 hamlet false river
+RESULT: PASS (0 failed) checks=1
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

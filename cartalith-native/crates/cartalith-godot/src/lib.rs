@@ -2366,7 +2366,8 @@ mod forced_lake_tests {
 mod civ_pipeline_tests {
     use super::{
         CivData, civ_commit_territory_paint, civ_rebase_territory_paint, civ_roster_bridge, civ_tools_bridge,
-        coarse_ocean_wind_fields, compute_civilisation, recovery_index_map, remap_after_recovery,
+        civ_river_network, coarse_ocean_wind_fields, compute_civilisation, harbour_badge, map_river_network,
+        recovery_index_map, remap_after_recovery,
     };
     use cartalith_civ::timeline::CollapsePlace;
     use cartalith_civ::{HierarchicalNetworkResult, NamedSettlement, RoadEdge, SettlementKind, Way, WayType};
@@ -2735,6 +2736,87 @@ mod civ_pipeline_tests {
                 "network town {i} at ({sx}, {sy}) has no way"
             );
         }
+    }
+
+    /// Protects Ruling FF item 5 (owner 2026-11-15) on a real world (the 256 x
+    /// 192 app fixture): with `civ.map_rivers` on, the network the civ pass sites
+    /// towns and prices roads on is the map's own (`WorldState::stream_order`):
+    /// every settlement's panel `river_order` reading is the map's order at its
+    /// cell, and `civ_river_network` hands back exactly the map's order and
+    /// polylines. Off, it is the rebuild (`fresh_river_network_with`), which on
+    /// this world differs from the map's (premise), so the panel reads the
+    /// rebuild and the towns or roads move; and with Ruling EX's frontage term
+    /// off the map's network is still the one read. MUTATION: the helper
+    /// ignoring the switch, `compute_civilisation` passing `false`, or tracing
+    /// the map's network only for the frontage term, fails a bar.
+    #[test]
+    fn towns_and_roads_read_the_maps_rivers() {
+        let (ws, base) = world();
+        let (gw, gh) = (base.gw, base.gh);
+        assert!(base.civ.map_rivers, "premise: the app reads the map's rivers");
+        let map = map_river_network(ws, gw, gh).expect("premise: the fixture has a map network");
+        let (on_o, on_p) = civ_river_network(ws, gw, gh, ws.sea_level, base.world, base.river_density, base.map_width_km, true, Some(&map));
+        assert_eq!(on_o.as_slice(), map.1, "on: the map's order");
+        assert_eq!(on_p, map.0, "on: the map's polylines");
+        let (off_o, _) = civ_river_network(ws, gw, gh, ws.sea_level, base.world, base.river_density, base.map_width_km, false, Some(&map));
+        let rebuilt = cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, base.world, base.river_density, base.map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, base.world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing)).0;
+        assert_eq!(off_o, rebuilt, "off: the rebuild");
+        assert_ne!(off_o.as_slice(), map.1, "premise: the rebuild is not the map's network on this world");
+        let (no_o, _) = civ_river_network(ws, gw, gh, ws.sea_level, base.world, base.river_density, base.map_width_km, true, None);
+        assert_eq!(no_o, rebuilt, "on with no map network (a loaded save): the rebuild");
+
+        let mut off_p = base.clone();
+        off_p.civ.map_rivers = false;
+        let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
+        let reads = |c: &CivData, order: &[i16]| {
+            c.settlements.iter().zip(&c.explanations).all(|(s, e)| e.river_order == order[s.placement.y * gw + s.placement.x])
+        };
+        assert!(reads(&on, map.1), "on: every settlement reads the map's order");
+        assert!(reads(&off, &rebuilt), "off: every settlement reads the rebuild");
+        // On with Ruling EX's frontage term off: the map's network is still traced for siting.
+        let mut nofront_p = base.clone();
+        nofront_p.civ.river_front = false;
+        assert!(reads(&civ(&nofront_p, &[]), map.1), "on, frontage off: every settlement reads the map's order");
+        let cells = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        let paths = |c: &CivData| c.ways.iter().map(|w| w.pts.clone()).collect::<Vec<_>>();
+        assert!(cells(&on) != cells(&off) || paths(&on) != paths(&off), "the switch moved no town and no road");
+    }
+
+    /// Protects Ruling FF item 6 (owner 2026-11-15): `harbour_badge` keeps a
+    /// radius badge only with sea in the town box and never makes one, on a
+    /// synthetic coast (sea west of `x = 10` on a 64-cell, 800 km grid, a cell
+    /// 12.5 km); and on the 256 x 192 app fixture, with `civ.harbour_box` on,
+    /// the towns stand where they stood with it off and the badged set is
+    /// exactly the radius badges whose box holds sea (premise: at least one
+    /// radius badge has none), and the sea lanes do not grow. MUTATION: dropping the
+    /// `radius_badge &&`, the box test, or the gate in `compute_civilisation`
+    /// fails a bar.
+    #[test]
+    fn a_harbour_needs_sea_in_the_town_box() {
+        let (gw, gh) = (64usize, 64usize);
+        let field: Vec<f32> = (0..gw * gh).map(|i| if i % gw < 10 { 0.2 } else { 0.6 }).collect();
+        let wb: Vec<u8> = (0..gw * gh).map(|i| u8::from(i % gw < 10)).collect();
+        // Cell 9 is sea (its box straddles the shore); cell 12 is 2 cells inland.
+        assert!(harbour_badge(true, &field, &wb, gw, gh, 0.42, 800.0, 9, 30), "sea in the box: kept");
+        assert!(!harbour_badge(true, &field, &wb, gw, gh, 0.42, 800.0, 12, 30), "no sea in the box: dropped");
+        assert!(!harbour_badge(false, &field, &wb, gw, gh, 0.42, 800.0, 9, 30), "never makes a badge");
+
+        let (ws, base) = world();
+        assert!(base.civ.harbour_box, "premise: the app gates the badge");
+        let mut off_p = base.clone();
+        off_p.civ.harbour_box = false;
+        let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
+        let cells = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        assert_eq!(cells(&on), cells(&off), "the gate moves no town: it runs after placement");
+        let badged = |c: &CivData| c.settlements.iter().filter(|s| s.placement.coastal).map(|s| (s.placement.x, s.placement.y)).collect::<HashSet<_>>();
+        let (b_on, b_off) = (badged(&on), badged(&off));
+        let sea = |&(x, y): &(usize, usize)| {
+            cartalith_civ::urban_adapter::um_box_has_sea(&ws.field, &off.water_bodies, base.gw, base.gh, ws.sea_level, base.map_width_km, x as f64, y as f64)
+        };
+        let kept: HashSet<_> = b_off.iter().copied().filter(sea).collect();
+        assert!(b_off.len() > kept.len(), "premise: the radius badges a town with no sea in its box ({} badges, {} with sea)", b_off.len(), kept.len());
+        assert_eq!(b_on, kept, "on: exactly the radius badges whose box holds sea");
+        assert!(on.sea_routes.len() <= off.sea_routes.len(), "fewer ports, no more lanes: {} vs {}", on.sea_routes.len(), off.sea_routes.len());
     }
 
     /// Protects owner Ruling EU item 1's contract on a real world (the 256 x 192
@@ -4830,6 +4912,75 @@ mod claim_grid_tests {
 /// Godot types: that is what lets the tests drive it under `cargo test`. `forced_lakes` is Ruling
 /// BO's mask, applied right after `build_water_bodies`, and `None` must reproduce the unforced
 /// result byte for byte.
+/// The river network the map draws and the town layouts read:
+/// `WorldState::stream_order` traced along `channels` (`min_order` 1, as
+/// `urban_bridge` and the map's river layer trace it), as `(polylines,
+/// order)`. `None` when the world carries no such network (a loaded save,
+/// which keeps neither field). Shared by [`compute_civilisation`] and the
+/// export's suitability layer so both read one network. Must never return a
+/// rebuilt network: callers fall back to that themselves, by name.
+pub(crate) fn map_river_network(ws: &cartalith_engine::WorldState, gw: usize, gh: usize) -> Option<(Vec<Vec<(f64, f64)>>, &[i16])> {
+    match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+        (Some(order), Some(ch)) => Some((cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1), order.as_slice())),
+        _ => None,
+    }
+}
+
+/// The river network the civilisation pass sites towns (Ruling N's river
+/// term) and prices road crossings on, as `(order, polylines)`.
+///
+/// With `map_rivers` (`CivParams::map_rivers`, Ruling FF item 5, owner
+/// 2026-11-15) and the map's network in hand (`map_net`, from
+/// [`map_river_network`]): that network, so a town is drawn by, and a road
+/// priced across, the rivers the map shows. Otherwise the reference's rebuild
+/// on the final field (`fresh_river_network_with`, along the tree the world
+/// was routed with, Ruling ER), which shares only about two thirds of its cells
+/// with the map's (4 408 of 6 941 map cells on seed 483920 at 384,
+/// `town_river_census.rs::town_placement_audit`). That is the reference
+/// boundary (`WorldParams::defaults`, `map_rivers` false) and every golden, and
+/// the fallback for a world with no map network. Must never mix the two: the
+/// order raster and the polylines always come from one network.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn civ_river_network(
+    ws: &cartalith_engine::WorldState,
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    map_rivers: bool,
+    map_net: Option<&(Vec<Vec<(f64, f64)>>, &[i16])>,
+) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
+    match map_net {
+        Some((polys, order)) if map_rivers => (order.to_vec(), polys.clone()),
+        // Ruling ER: rebuilt along the tree the world was routed with.
+        _ => cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing)),
+    }
+}
+
+/// The harbour badge under Ruling FF item 6 (`CivParams::harbour_box`, owner
+/// 2026-11-15): `radius_badge` (`civ_is_coastal`'s verdict, ocean within about
+/// 12.5 km) kept only when the town's own box holds sea
+/// (`cartalith_civ::urban_adapter::um_box_has_sea` at the settlement's cell,
+/// the test the town layout draws its coast from). Never turns a badge on: a
+/// town the radius test refused stays inland. Callers apply it only with the
+/// switch on.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn harbour_badge(
+    radius_badge: bool,
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    map_width_km: f64,
+    x: usize,
+    y: usize,
+) -> bool {
+    radius_badge && cartalith_civ::urban_adapter::um_box_has_sea(field, water_bodies, gw, gh, sea_level, map_width_km, x as f64, y as f64)
+}
+
 fn compute_civilisation(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -4970,27 +5121,28 @@ fn compute_civilisation(
         gh,
     );
     let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea_level);
-    // One channel pass, two products: `river_order` for the road network's
+    // The river network the MAP draws and the town layouts read
+    // (`WorldState::stream_order` traced along `channels`), traced only when a
+    // switch below reads it, so the reference boundary allocates nothing for
+    // it. `None` for a world without that network (a loaded save).
+    let map_net = if opts.river_front || opts.map_rivers { map_river_network(ws, gw, gh) } else { None };
+    // One network, two products: `river_order` for the road network's
     // crossing costs and the settlement diagnostics below, `river_polys` for
-    // Ruling N's suitability river term.
-    let (river_order, river_polys) =
-        // Ruling ER: rebuilt along the tree the world was routed with.
-        cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
+    // Ruling N's suitability river term. Ruling FF item 5 (`civ.map_rivers`,
+    // owner 2026-11-15): the map's own network; off (the reference, and a
+    // world with no map network), the civ pass's rebuild, which shares only
+    // about two thirds of its cells with the map's
+    // (`cartalith_civ::build_river_front`'s doc). See `civ_river_network`.
+    let (river_order, river_polys) = civ_river_network(ws, gw, gh, sea_level, world, river_density, map_width_km, opts.map_rivers, map_net.as_ref());
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
     // Ruling EX (2026-11-14): the river frontage term and the river constraint
     // (`river_on`, read by placement and village seeding below), built only
     // when `civ.river_front` is on, so the reference boundary allocates nothing
-    // for them. Both read the river network the MAP draws and the town layouts
-    // read (`WorldState::stream_order` traced along `channels`), not the
-    // rebuild above, which shares only about two thirds of its cells with it
-    // (`cartalith_civ::build_river_front`'s doc); a world without that network
-    // (a loaded save) falls back to the rebuild.
+    // for them. Both read the map's network (`map_net`) whatever
+    // `civ.map_rivers` says; a world without it falls back to the network
+    // above.
     let cell_m = map_width_km * 1000.0 / gw as f64;
     let (river_front, river_on) = if opts.river_front {
-        let map_net = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
-            (Some(order), Some(ch)) => Some((cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1), order)),
-            _ => None,
-        };
         let (polys, order): (&[Vec<(f64, f64)>], &[i16]) = match map_net.as_ref() {
             Some((p, o)) => (p, o),
             None => (&river_polys, &river_order),
@@ -5009,6 +5161,7 @@ fn compute_civilisation(
         reach: cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, map_width_km) as isize,
     });
     drop(river_polys);
+    drop(map_net);
 
     // One definition, built twice: here for the suitability grid, and again
     // for the per-settlement explanations below, after the six extra
@@ -5087,10 +5240,22 @@ fn compute_civilisation(
             let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, thresh, supp_r);
             // `river_constraint` is `None` with `civ.river_front` off: the
             // reference's placement by control flow.
-            cartalith_civ::place_settlements_on_rivers(
+            let mut placed = cartalith_civ::place_settlements_on_rivers(
                 &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
                 &flood, &ws.flow_discharge, flow_thresh, map_width_km, want, river_constraint,
-            )
+            );
+            // Ruling FF item 6 (`civ.harbour_box`): the harbour badge needs sea
+            // in the town's own box. Here, on the placements' final cells and
+            // before anything reads `coastal` (the sea lanes, recovery's ports
+            // and trade navigability all come later); the SG-02 keep path above
+            // keeps each settlement's saved badge. Off: the reference's radius
+            // test alone, by control flow.
+            if opts.harbour_box {
+                for p in placed.iter_mut() {
+                    p.coastal = harbour_badge(p.coastal, &ws.field, &wb.classification, gw, gh, sea_level, map_width_km, p.x, p.y);
+                }
+            }
+            placed
         }
     };
     // Village seeding is the only reader of `suit` and `wb.fill_level` after
@@ -16386,6 +16551,9 @@ impl WorldGen {
         // A blank name is generated in the faction's culture as the roster
         // holds it, so a reassigned culture names the next drop.
         let culture = cartalith_civ::civ_faction_culture(&civ.faction_roster.cultures(), faction as i32);
+        // Ruling FF item 6: a hand-placed town is badged a harbour on the test a
+        // generated one is (`harbour_badge`), when the world's switch is on.
+        let (harbour_box, map_width_km, before) = (self.params.civ.harbour_box, self.map_width_km, civ.settlements.len());
         match civ_tools_bridge::drop_settlement(
             &mut civ.settlements,
             &mut civ.next_tid,
@@ -16405,6 +16573,12 @@ impl WorldGen {
             &name,
         ) {
             Some(i) => {
+                // Only a new settlement (the drop appended one): a click that
+                // selected an existing place leaves its badge alone.
+                if harbour_box && civ.settlements.len() > before {
+                    let p = &mut civ.settlements[i].placement;
+                    p.coastal = harbour_badge(p.coastal, &ws.field, &civ.water_bodies, gw, gh, sea, map_width_km, p.x, p.y);
+                }
                 // SG-01: roads, territory, provinces and trade balances were
                 // all derived before this settlement existed.
                 self.civ_dirty = true;

@@ -1014,6 +1014,63 @@ fn path_touches_box(path: &[Vec2], wm: f64, hm: f64) -> bool {
 /// one-pixel sliver of sea in a corner from turning an inland town coastal.
 const BOX_SEA_FRAC: f64 = 0.02;
 
+/// Whether the town box centred on grid point `(px, py)` holds sea: the share
+/// of its 22 m raster that is sea is above [`BOX_SEA_FRAC`], counted exactly
+/// as [`um_water_ctx`] counts [`UmWater::sea_frac`] (the bilinear
+/// `field < sea_level` test, minus the nearest-cell lake cells, cells off the
+/// grid skipped), so a town this calls seaside is one the layout draws a coast
+/// for. `water_bodies` is the `0 land / 1 ocean / 2 lake` classification;
+/// empty reads as no lakes, as there.
+///
+/// What it is for (Ruling FF item 6, owner 2026-11-15): the harbour badge
+/// (`SettlementPlacement::coastal`, also port and sea-lane eligibility) only
+/// with sea in the town box. `civ_is_coastal`'s 12.5 km reach badged river
+/// towns a cell or two up from the sea whose box has none (9 of 699 at 384 and
+/// 7 of 720 at 2 048, `town_river_census.rs::town_placement_audit`). Must never
+/// disagree with [`um_water_ctx`]'s own count; its unit test compares the two.
+#[allow(clippy::too_many_arguments)]
+pub fn um_box_has_sea(field: &[f32], water_bodies: &[u8], gw: usize, gh: usize, sea_level: f64, map_width_km: f64, px: f64, py: f64) -> bool {
+    if field.is_empty() || gw == 0 || gh == 0 {
+        return false;
+    }
+    // Only the fields `bilin_field` and the frame read; the rest is inert.
+    let w = UrbanWorld {
+        field,
+        flow: &[],
+        water_bodies,
+        order: None,
+        river_polys: &[],
+        gw,
+        gh,
+        sea_level,
+        map_width_km,
+        flow_thresh: 0.0,
+        world_seed: 0,
+        river_kind_from_map: false,
+    };
+    let (wm, hm) = (SITE_WM, SITE_HM);
+    let (cx, cy) = (wm / 2.0, hm / 2.0);
+    let gpm = w.grid_per_meter();
+    let cell_m = CTX_CELL_M;
+    let mw = js_max(8.0, js_round(wm / cell_m)) as usize;
+    let mh = js_max(8.0, js_round(hm / cell_m)) as usize;
+    let mut sea_cells = 0u64;
+    for j in 0..mh {
+        for i in 0..mw {
+            let gx = px + ((i as f64 + 0.5) * cell_m - cx) * gpm;
+            let gy = py + ((j as f64 + 0.5) * cell_m - cy) * gpm;
+            if gx < 0.0 || gx >= gw as f64 || gy < 0.0 || gy >= gh as f64 {
+                continue;
+            }
+            let lake = !water_bodies.is_empty() && water_bodies.get(js_round(gy) as usize * gw + js_round(gx) as usize).copied() == Some(2);
+            if !lake && w.bilin_field(gx, gy) < sea_level {
+                sea_cells += 1;
+            }
+        }
+    }
+    sea_cells as f64 / (mw * mh) as f64 > BOX_SEA_FRAC
+}
+
 /// The site kind a town is laid out as: the proxy's verdict `kind`
 /// ([`um_site_kind_from_terrain`]) where the town box's real water agrees with
 /// it, and the box's water where it does not (Ruling EX and its follow-up,

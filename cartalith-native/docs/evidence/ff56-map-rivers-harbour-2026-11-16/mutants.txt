@@ -1,0 +1,21 @@
+Mutants for Ruling FF items 5 and 6 (2026-11-16). Python, exact literal replace (occurs exactly once),
+BUILD_ERROR told apart from SURVIVED, file restored in `finally` and its SHA-256 checked. Tests run:
+cartalith-godot civ_pipeline_tests::{towns_and_roads_read_the_maps_rivers, a_harbour_needs_sea_in_the_town_box};
+cartalith-civ urban_adapter::tests::box_sea_test_matches_the_layouts_own_sea_share and
+way_audit::tests::{water_and_crossings_are_counted_on_the_drawn_line, crossing_runs_hold_their_cells_and_start_at_order_one}.
+
+M1  civ_river_network: `if map_rivers` -> `if !map_rivers`                       KILLED
+M2  compute_civilisation passes `false` for map_rivers                          KILLED
+M3  map network traced only with civ.river_front                                SURVIVED, then KILLED once the test
+                                                                                 checked a world with the frontage term off
+M4  compute_civilisation: `if opts.harbour_box` -> `if false`                   KILLED
+M5  harbour_badge drops `radius_badge &&`                                        KILLED
+M6  um_box_has_sea: `> BOX_SEA_FRAC` -> any sea cell                            SURVIVED, then KILLED once the test
+                                                                                 found a box with a sea sliver of 2 % or less
+M7  um_box_has_sea counts lake cells as sea                                     KILLED
+M8  um_box_has_sea's box centre moved 300 m                                     KILLED
+M9  civ_drop_settlement (Settlement tool): gate `if false &&`                   SURVIVED: `WorldGen` is a cdylib
+                                                                                 GodotClass, not constructible in a unit test;
+                                                                                 the gate calls the tested `harbour_badge`
+M10 river_crossing_runs: `order >= 1` -> `>= 2` (census helper)                 SURVIVED, then KILLED by
+                                                                                 crossing_runs_hold_their_cells_and_start_at_order_one

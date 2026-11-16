@@ -58,6 +58,15 @@
 //! follow-up (c)). Its numbers are in
 //! `docs/evidence/town-river-2026-11-14/placement_audit.txt`.
 //!
+//! **Ruling FF items 5 and 6** (2026-11-15) add `TOWN_RIVER_MAP_RIVERS=0` and
+//! `TOWN_RIVER_HARBOUR_BOX=0` (the rebuilt river network for siting and road
+//! pricing, and the radius-only harbour badge: each one's "before"),
+//! `TOWN_RIVER_COMPARE=ff` (the towns that moved or changed badge against the
+//! same world with both flipped), and per seed the ports, sea lanes, the drawn
+//! roads' crossings of the map's rivers rated against the network the roads
+//! were priced on, and the river towns laying neither bridge nor ford. Numbers
+//! in `docs/evidence/ff56-map-rivers-harbour-2026-11-16/`.
+//!
 //! **`town_housing_audit`** (2026-11-15, the FH-R2 building-count drop) lays
 //! every town out with `urban_riverbank` off and on and reports buildings,
 //! housed population against `pop_target` and buildings in water; see its
@@ -79,6 +88,22 @@ fn generate_world(
     p.civ.factions = 6;
     p.use_gpu = false;
     p.civ.river_front = front;
+    // Ruling FF items 5 and 6 (2026-11-15): `TOWN_RIVER_MAP_RIVERS=0` sites
+    // towns and prices roads on the civ pass's rebuilt network, and
+    // `TOWN_RIVER_HARBOUR_BOX=0` badges harbours on the radius alone: the
+    // "before" of each. Unset, the app's (`params::defaults`, both on).
+    // `TOWN_RIVER_FF_FLIP=1` flips both, for the compare world below.
+    let flip = FF_FLIP.with(|f| f.get());
+    if let Ok(v) = std::env::var("TOWN_RIVER_MAP_RIVERS") {
+        p.civ.map_rivers = v != "0";
+    }
+    if let Ok(v) = std::env::var("TOWN_RIVER_HARBOUR_BOX") {
+        p.civ.harbour_box = v != "0";
+    }
+    if flip {
+        p.civ.map_rivers = !p.civ.map_rivers;
+        p.civ.harbour_box = !p.civ.harbour_box;
+    }
     // `TOWN_RIVER_VILLAGES=1` seeds villages, as the shell's probes ask
     // (`"villages": true`), so settlement indices match the app's.
     p.civ.villages = std::env::var("TOWN_RIVER_VILLAGES").is_ok_and(|v| v == "1");
@@ -88,6 +113,15 @@ fn generate_world(
         &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
     );
     (ws, civ, gh, p)
+}
+thread_local! {
+    /// [`town_placement_audit`]'s Ruling FF totals over the seeds: crossings,
+    /// navigable, unseen, misrated, unpriced, ports, sea lanes, unbridged towns.
+    static CROSS: std::cell::RefCell<[usize; 8]> = const { std::cell::RefCell::new([0; 8]) };
+    /// Set while [`town_placement_audit`] builds its `TOWN_RIVER_COMPARE=ff`
+    /// world: [`generate_world`] then flips `civ.map_rivers` and
+    /// `civ.harbour_box` instead of `civ.river_front`.
+    static FF_FLIP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 use cartalith_civ::urban_adapter::{PlaceOverrides, UrbanWorld, Vec2, run_layout, um_place_context_with};
 
@@ -517,8 +551,9 @@ fn bilin(field: &[f32], gw: usize, gh: usize, gx: f64, gy: f64) -> f64 {
 /// - `crossing_off_map_river`: a bridge or ford point further than
 ///   `CROSSING_SLACK_M` from the map's river (a crossing of an invented river).
 /// - `harbour_badge_inland`: the `coastal` flag (`civ_is_coastal`, the map's
-///   harbour badge) with no sea in the box. A ruled proxy (Ruling N, Ruling AR),
-///   reported, not corrected here.
+///   harbour badge) with no sea in the box. Corrected under Ruling FF item 6
+///   (`civ.harbour_box`, 2026-11-15); `TOWN_RIVER_HARBOUR_BOX=0` measures the
+///   radius test alone.
 const KINDS: [&str; 12] = [
     "in_water",
     "river_town_off_river",
@@ -550,6 +585,7 @@ const CROSSING_SLACK_M: f64 = 120.0;
 #[test]
 #[ignore = "measurement; see the module doc and KINDS"]
 fn town_placement_audit() {
+    CROSS.with(|c| *c.borrow_mut() = [0; 8]);
     let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
     let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
     // `TOWN_RIVER_ALL=1`: a row for every town, matched or not (to choose frames).
@@ -570,10 +606,11 @@ fn town_placement_audit() {
             _ => Vec::new(),
         };
         let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km);
-        // Premise: the rivers settlement siting reads (`compute_civilisation`'s
-        // `fresh_river_network_with`) are the rivers the map draws and the
-        // layouts read (the world's own `stream_order`/`channels`).
-        let (_, civ_polys) = cartalith_civ::fresh_river_network_with(
+        // How far the civ pass's rebuilt network (`fresh_river_network_with`,
+        // what siting and road pricing read with `civ.map_rivers` off) is from
+        // the rivers the map draws and the layouts read (the world's own
+        // `stream_order`/`channels`, what they read with it on: Ruling FF item 5).
+        let (rebuilt_order, civ_polys) = cartalith_civ::fresh_river_network_with(
             &ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, p.world, p.river_density, p.map_width_km, ws.integrated_drainage,
             cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, p.world).as_ref(),
             cartalith_engine::fill_tilt_of(ws.basin_routing),
@@ -612,6 +649,9 @@ fn town_placement_audit() {
         let on = cartalith_civ::build_river_on(&river_polys, gw, gh, cell_m);
         let reach = cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, p.map_width_km) as i64;
         let mut slivers = 0usize;
+        // River-kind layouts with real water and a river in the box that lay
+        // neither a bridge nor a ford (Ruling FF item 5's road check, town side).
+        let mut unbridged_layouts = 0usize;
         // River-kind layouts the built-off-water test could not judge (see KINDS).
         let (mut no_street, mut no_water_or_buildings) = (0usize, 0usize);
         println!("seed {seed} at {gw}x{gh} ({cell_m:.0} m a cell), civ.river_front {front}: {} settlements ({} villages)", civ.settlements.len(), civ.village_tids.len());
@@ -746,6 +786,14 @@ fn town_placement_audit() {
             if !crossing_off.is_empty() {
                 hits.push("crossing_off_map_river");
             }
+            if river_kind
+                && let Some(l) = layout.as_ref()
+                && l.uses_real_water
+                && l.bridges.as_ref().is_none_or(|b| b.is_empty())
+                && l.ford.is_none()
+            {
+                unbridged_layouts += 1;
+            }
             if s.placement.coastal && !sea_in_box {
                 hits.push("harbour_badge_inland");
             }
@@ -812,14 +860,66 @@ fn town_placement_audit() {
                 unlinked.push(i);
             }
         }
+        // Ruling FF items 5 and 6: ports, sea lanes, and the drawn roads'
+        // crossings of the map's rivers rated against the network the road
+        // network was priced on (`civ_river_crossing_cost`: a crossing costs
+        // where flow is over the river threshold, at a ford (order <= 2),
+        // middling (3-4) or bridge (5+) rate read from that network's order).
+        {
+            let ports = civ.settlements.iter().filter(|s| s.placement.coastal).count();
+            println!("  ports (harbour badge): {ports}; sea lanes: {}; river-kind towns laying neither bridge nor ford: {unbridged_layouts}", civ.sea_routes.len());
+            let map_order: &[i16] = ws.stream_order.as_deref().unwrap_or(&rebuilt_order);
+            let cost_order: &[i16] = if p.civ.map_rivers && ws.stream_order.is_some() && ws.channels.is_some() { map_order } else { &rebuilt_order };
+            let view = crate::way_census::CivView::of(&civ);
+            let geo = crate::way_census::drawn(&view);
+            let ways: Vec<cartalith_civ::way_audit::AuditWay> = geo
+                .iter()
+                .filter(|g| g.2.way_type != cartalith_civ::WayType::Ancient)
+                .map(|(pts, brks, w)| cartalith_civ::way_audit::AuditWay { pts, brks, under_px: 1.0, ends: (w.a_idx, w.b_idx) })
+                .collect();
+            let runs = cartalith_civ::way_audit::river_crossing_runs(&ways, map_order, gw, gh, 0.25);
+            let class = |o: i16| if o <= 2 { 0 } else if o <= 4 { 1 } else { 2 };
+            let (mut nav, mut unpriced, mut misrated, mut unseen) = (0usize, 0usize, 0usize, 0usize);
+            for r in &runs {
+                let mo = r.iter().map(|&i| map_order[i]).max().unwrap_or(0);
+                let co = r.iter().map(|&i| cost_order[i]).max().unwrap_or(0);
+                nav += usize::from(mo >= cartalith_civ::river_class::NAVIGABLE_ORDER);
+                // No cell over the flow threshold: the road paid nothing to cross.
+                if !r.iter().any(|&i| ws.flow_discharge[i] as f64 > flow_thresh) {
+                    unpriced += 1;
+                }
+                // The pricing network had no river there at all.
+                if co < 1 {
+                    unseen += 1;
+                }
+                if class(co) != class(mo) {
+                    misrated += 1;
+                }
+            }
+            println!(
+                "  road crossings of the map's rivers: {} ({nav} navigable); not a river in the network the roads were priced on: {unseen}; priced at the wrong ford/bridge rate: {misrated}; priced nothing (flow under threshold): {unpriced}",
+                runs.len()
+            );
+            CROSS.with(|c| {
+                let mut c = c.borrow_mut();
+                for (k, v) in [(0, runs.len()), (1, nav), (2, unseen), (3, misrated), (4, unpriced), (5, ports), (6, civ.sea_routes.len()), (7, unbridged_layouts)] {
+                    c[k] += v;
+                }
+            });
+        }
         println!(
             "  network towns with no way: {} of {} {:?}",
             unlinked.len(),
             civ.settlements.iter().filter(|s| !civ.village_tids.contains(&s.tid)).count(),
             unlinked
         );
-        if std::env::var("TOWN_RIVER_COMPARE").is_ok() {
-            let (_, off, _, _) = generate_world(seed, gw, !front);
+        if let Ok(cmp) = std::env::var("TOWN_RIVER_COMPARE") {
+            // `ff`: against the same world with Ruling FF's two switches
+            // flipped; anything else: with `civ.river_front` flipped.
+            let ff = cmp == "ff";
+            FF_FLIP.with(|f| f.set(ff));
+            let (_, off, _, _) = generate_world(seed, gw, if ff { front } else { !front });
+            FF_FLIP.with(|f| f.set(false));
             let mut moved: Vec<f64> = civ
                 .settlements
                 .iter()
@@ -836,9 +936,21 @@ fn town_placement_audit() {
             let n = moved.len();
             let med = median(&mut moved).unwrap_or(f64::NAN);
             let max = moved.iter().cloned().fold(f64::NAN, f64::max);
+            if ff {
+                // Every town (villages too) that is not on a cell the flipped
+                // world has a town on, for choosing frames.
+                for (i, a) in civ.settlements.iter().enumerate() {
+                    let (ax, ay) = (a.placement.x, a.placement.y);
+                    let near = off.settlements.iter().map(|b| ((ax as f64 - b.placement.x as f64).powi(2) + (ay as f64 - b.placement.y as f64).powi(2)).sqrt()).fold(f64::INFINITY, f64::min);
+                    let badge_off = off.settlements.iter().find(|b| (b.placement.x, b.placement.y) == (ax, ay)).map(|b| b.placement.coastal);
+                    if near > 0.0 || badge_off.is_some_and(|c| c != a.placement.coastal) {
+                        println!("    moved/badge #{i} ({ax},{ay}) {} nearest flipped town {near:.2} cells; badge here {} flipped {:?}", if civ.village_tids.contains(&a.tid) { "village" } else { "town" }, a.placement.coastal, badge_off);
+                    }
+                }
+            }
             println!(
-                "  network towns against civ.river_front {}: {same} of {n} on the same cell; distance to the nearest town there median {med:.2} cells ({:.2} km), max {max:.2} cells",
-                !front,
+                "  network towns against {}: {same} of {n} on the same cell; distance to the nearest town there median {med:.2} cells ({:.2} km), max {max:.2} cells",
+                if ff { "Ruling FF's switches flipped".to_string() } else { format!("civ.river_front {}", !front) },
                 med * cell_m / 1000.0
             );
             all_same += same;
@@ -848,6 +960,13 @@ fn town_placement_audit() {
         all_river_towns += river_towns;
     }
     println!("all seeds at {gw}: {all_towns} towns, {all_river_towns} river towns");
+    CROSS.with(|c| {
+        let c = c.borrow();
+        println!(
+            "  ports {}; sea lanes {}; road crossings of the map's rivers {} ({} navigable), not in the pricing network {}, wrong ford/bridge rate {}, priced nothing {}; river-kind towns with neither bridge nor ford {}",
+            c[5], c[6], c[0], c[1], c[2], c[3], c[4], c[7]
+        );
+    });
     for k in KINDS {
         println!("  {k:28} {}", total[k]);
     }

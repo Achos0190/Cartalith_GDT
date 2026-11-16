@@ -2145,12 +2145,22 @@ impl AtlasFields {
             gh,
         );
         let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
+        // The networks exactly as `compute_civilisation` chooses them: Ruling
+        // FF item 5's `civ.map_rivers` for Ruling N's river term, and the map's
+        // network for Ruling EX's frontage term (each falling back to the
+        // rebuild on a world without one).
+        let civ = &wg.params.civ;
+        let map_net = if civ.river_front || civ.map_rivers { crate::map_river_network(ws, gw, gh) } else { None };
         let (river_order, river_polys) =
-            cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
+            crate::civ_river_network(ws, gw, gh, sea, world, wg.params.river_density, map_width_km, civ.map_rivers, map_net.as_ref());
         let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
         // Ruling EX's river frontage term, exactly as `compute_civilisation` builds it.
-        let river_front = wg.params.civ.river_front.then(|| {
-            cartalith_civ::build_river_front(&river_polys, &river_order, gw, gh, map_width_km * 1000.0 / gw as f64)
+        let river_front = civ.river_front.then(|| {
+            let (polys, order): (&[Vec<(f64, f64)>], &[i16]) = match map_net.as_ref() {
+                Some((p, o)) => (p, o),
+                None => (&river_polys, &river_order),
+            };
+            cartalith_civ::build_river_front(polys, order, gw, gh, map_width_km * 1000.0 / gw as f64)
         });
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),

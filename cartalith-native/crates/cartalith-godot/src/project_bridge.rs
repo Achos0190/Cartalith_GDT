@@ -7654,7 +7654,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7674,6 +7674,8 @@ mod tests {
         assert!(!p.urban_market_scale, "an old archive keeps the reference's square");
         // Ruling EX (2026-11-14): an archive that predates the river frontage term keeps its placements.
         assert!(!p.civ.river_front, "an old archive places its towns without the frontage term");
+        // Ruling FF items 5 and 6 (2026-11-15): an old archive sites on the rebuilt network and badges on the radius.
+        assert!(!p.civ.map_rivers && !p.civ.harbour_box, "an old archive keeps the rebuilt network and the radius badge");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (false, false, false, false, false, false)
@@ -7696,6 +7698,7 @@ mod tests {
         assert!(p.urban_riverbank, "a new world builds its river towns to the bank (2026-11-15)");
         assert!(p.urban_street_village, "a new world lays its villages along their roads (Ruling FE item 2)");
         assert!(p.urban_market_scale, "a new world sizes its market squares with the town (judgement change 6)");
+        assert!(p.civ.map_rivers && p.civ.harbour_box, "a new world sites on the map's rivers and badges harbours by the box (Ruling FF)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)
@@ -7716,7 +7719,7 @@ mod tests {
             "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law",
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
-            "urban_street_village", "urban_market_scale",
+            "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

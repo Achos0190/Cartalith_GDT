@@ -296,9 +296,15 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     // Ruling EX (2026-11-14): the river frontage term, on in the app only.
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.river_front, "the reference has no frontage term");
     assert!(params::defaults().civ.river_front, "new worlds put river towns on their river (Ruling EX)");
+    // Ruling FF items 5 and 6 (2026-11-15): the map's rivers for siting and
+    // roads, and the harbour badge only with sea in the town box; app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.map_rivers, "the reference rebuilds its river network");
+    assert!(params::defaults().civ.map_rivers, "new worlds site towns and roads on the map's rivers (Ruling FF item 5)");
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.harbour_box, "the reference badges on the radius alone");
+    assert!(params::defaults().civ.harbour_box, "new worlds badge harbours only with sea in the box (Ruling FF item 6)");
 }
 
-/// Protects: the civ group being seventeen contiguous `civ.`-keyed rows that `groups()` lists,
+/// Protects: the civ group being nineteen contiguous `civ.`-keyed rows that `groups()` lists,
 /// that `set` reaches and types correctly, and that clamp at their floors (factions >= 1,
 /// recovery_phase 0..=4).
 ///
@@ -309,11 +315,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// `wantCounts`' flag and its five counts, plus `civ.garrison_exposure_scale`
 /// (Ruling AZ, folded in from a standalone `WorldGen` field), plus
 /// `civ.merge_ways` (Ruling EU item 1, 2026-11-12), plus `civ.base_ag_tech` (New World's base technology, 2026-11-13),
-/// plus `civ.river_front` (Ruling EX, 2026-11-14).
+/// plus `civ.river_front` (Ruling EX, 2026-11-14), plus `civ.map_rivers` and
+/// `civ.harbour_box` (Ruling FF items 5 and 6, 2026-11-15).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_seventeen() {
+fn the_civ_group_is_a_real_contiguous_group_of_nineteen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 17, "the civ group is seventeen rows");
+    assert_eq!(rows.len(), 19, "the civ group is nineteen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -1336,6 +1343,10 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.urban_street_village = false;
     // And the market square (judgement change 6): a save without the key drew the one-size square.
     expect.urban_market_scale = false;
+    // And Ruling FF items 5 and 6: a save without the keys sited on the rebuilt
+    // river network and badged harbours on the radius alone.
+    expect.civ.map_rivers = false;
+    expect.civ.harbour_box = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1498,6 +1509,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_riverbank = false;
     neutral.urban_street_village = false;
     neutral.urban_market_scale = false;
+    neutral.civ.map_rivers = false;
+    neutral.civ.harbour_box = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1517,7 +1530,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         authorised fields (twenty-nine with `urban_market_scale`)"
+         authorised fields (thirty-one with Ruling FF's `civ.map_rivers` and `civ.harbour_box`)"
     );
 }
 

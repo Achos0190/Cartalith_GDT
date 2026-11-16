@@ -336,6 +336,17 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's placements every golden reads
     // (`DECISIONS.md` section 7p). See `CivParams::river_front`.
     p.civ.river_front = true;
+    // Ruling FF item 5 (owner 2026-11-15): town siting (Ruling N's river term)
+    // and the road network's crossing costs read the map's own river network,
+    // not the civ pass's rebuild. Off in `WorldParams::defaults`, the
+    // reference's rebuilt network every golden reads (`DECISIONS.md` section
+    // 7p). See `CivParams::map_rivers`.
+    p.civ.map_rivers = true;
+    // Ruling FF item 6 (owner 2026-11-15): the harbour badge, and with it port
+    // and sea-lane eligibility, needs sea in the town's own box. Off in
+    // `WorldParams::defaults`, the reference's radius test (section 7p). See
+    // `CivParams::harbour_box`.
+    p.civ.harbour_box = true;
     p
 }
 
@@ -981,6 +992,21 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.river_front", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns sit on their river", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.river_front), set_fn: |p, v| p.civ.river_front = v != 0.0 },
+    // Ruling FF item 5 (owner 2026-11-15): town siting and the road network read
+    // the map's own river network. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control (the reference always
+    // rebuilds). A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read by
+    // `compute_civilisation`, so the `civ.*` wildcard marks the civ layer stale.
+    ParamSpec { key: "civ.map_rivers", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Towns and roads use the map's rivers", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.map_rivers), set_fn: |p, v| p.civ.map_rivers = v != 0.0 },
+    // Ruling FF item 6 (owner 2026-11-15): the harbour badge (port, sea lanes)
+    // needs sea in the town box. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control. A save without the key
+    // loads OFF. Read by `compute_civilisation` and the Settlement tool's drop.
+    ParamSpec { key: "civ.harbour_box", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Harbours need sea in the town", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.harbour_box), set_fn: |p, v| p.civ.harbour_box = v != 0.0 },
     // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
     // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
     // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
@@ -1274,6 +1300,10 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.merge_ways", ""),
     // Ruling EX: no reference control; the reference has no frontage term.
     ("civ.river_front", ""),
+    // Ruling FF items 5 and 6: no reference control; the reference always
+    // rebuilds its river network and badges harbours on the radius alone.
+    ("civ.map_rivers", ""),
+    ("civ.harbour_box", ""),
     ("civ.base_ag_tech", ""),
 ];
 
@@ -1506,6 +1536,11 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // River frontage (Ruling EX, 2026-11-14): every save without the key placed
     // its towns without the term, so a regenerate places them there again.
     ("civ.river_front", Value::Bool(false)),
+    // Ruling FF items 5 and 6 (2026-11-15): every save without the keys sited
+    // its towns and roads on the rebuilt network and badged harbours on the
+    // radius alone, so a regenerate puts them back there.
+    ("civ.map_rivers", Value::Bool(false)),
+    ("civ.harbour_box", Value::Bool(false)),
 ];
 
 /// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its

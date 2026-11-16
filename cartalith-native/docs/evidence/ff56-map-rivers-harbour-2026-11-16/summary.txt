@@ -1,0 +1,49 @@
+Ruling FF items 5 and 6 (owner 2026-11-15), measured 2026-11-16.
+Switches: civ.map_rivers (item 5) and civ.harbour_box (item 6); two switches, because they are two
+concerns (which river network the civ pass reads; which towns are harbours) and each moves a
+different set of outputs. Both ON in params::defaults, OFF in WorldParams::defaults and for a save
+without the key.
+
+Census: town_river_census.rs::town_placement_audit, seeds 483920, 912345, 246371, 800 km,
+6 factions, villages on, CPU world. Command (release test binary, one thread):
+  TOWN_RIVER_GW=<384|2048> [TOWN_RIVER_GH=288] TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 \
+    [TOWN_RIVER_MAP_RIVERS=0 TOWN_RIVER_HARBOUR_BOX=0]   (before)
+    [TOWN_RIVER_COMPARE=ff]                              (after, with the moved-town list)
+  cargo test --release -p cartalith-godot --lib town_placement_audit -- --ignored --nocapture --test-threads 1
+Files: before_384.txt, after_384.txt, before_2048.txt, after_2048.txt (full output).
+
+Pooled over the three seeds                       384 x 288 before -> after   2048 x 1311 before -> after
+  towns (villages included)                       699 -> 699                  720 -> 720
+  river towns off their river                     1 of 690 -> 0 of 692        2 of 687 -> 4 of 692 (all villages)
+  river-kind towns, no map river in the box       0 -> 0                      0 -> 0
+  river layout with no river in the box           0 -> 0                      0 -> 0
+  harbour badge with no sea in the box            9 -> 0                      7 -> 0
+  ports (harbour badge)                           15 -> 5                     15 -> 8
+  sea lanes                                       9 -> 1                      5 -> 4
+  road crossings of the map's rivers              533 -> 531                  655 -> 654
+    on a cell the pricing network has no river    281 -> 0                    299 -> 0
+    priced at the wrong ford/bridge rate          209 -> 0                    226 -> 0
+    priced nothing (flow under the river threshold) 281 -> 280                299 -> 291
+  river layouts laying neither bridge nor ford    475 -> 478                  476 -> 483
+  river_kind_built_off_water                      578 -> 561                  652 -> 650
+  network towns on the same cell as before        85 of 99                    96 of 120
+  every other KINDS row (in water, coast without sea, landlocked with sea, crossing off the map's river): 0 -> 0
+
+"Priced nothing": the road cost (civ_river_crossing_cost, the reference's own rule) charges a crossing only
+where flow exceeds river_flow_thresh; about half the map's river cells a drawn road crosses carry less flow
+than that (the map's network is built with the density-adjusted channel threshold), so those crossings cost
+nothing whichever network is read. Item 5 makes the RATE (ford / middling / bridge) and the navigable
+discount read the map's order; the flow gate is unchanged. Routed in OUTSTANDING_WORK.md.
+
+Frames: frames/sheet_<seed>_<before cell>_<after cell>.png, each the world map at x16 (top, before | after)
+and the City Viewer in the map look (bottom, before | after), from the windowed shell at 384 x 288 (the app's
+GPU-terrain world, so cells differ from the CPU census), probe probe_ff56.gd.txt (a scratch copy of
+_townriver_probe.gd with --ff, --list, --cells, --tag; not committed to godot-project). lists/ holds every
+settlement of each run (index, cell, population, kind, coastal, site kind).
+  Moved towns: 912345 353:241 -> 355:241 (the capital now), 912345 93:121 -> 92:121, 483920 155:27 -> 154:26,
+  483920 77:195 -> 70:194, 483920 66:96 -> 60:94, 246371 348:168 -> 349:168, 246371 336:272 -> 333:273.
+  Former badge towns: 483920 360:258 and 912345 140:161 (badged before, no sea in the town box, unbadged after).
+  map_246371_rerun_ff0_ff1.png: the 246371 crop re-shot alone; the dashed-versus-continuous river stroke
+  between runs is a render-timing artefact of the river tiles (it swapped sides on the re-run), not this change.
+  Some crops draw the centred settlement's pin very large (both before and after runs, not tied to a switch;
+  cause not diagnosed: a hover enlargement under the window's mouse cursor is a guess, not checked).

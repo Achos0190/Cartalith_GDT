@@ -121,14 +121,14 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     for d in c.dropped.iter().filter(|d| !d.id.starts_with("menu:")) {
         eprintln!("AC1 dropped (non-menu): {} ({})", d.id, d.why);
     }
-    assert_eq!(by("params"), 123, "every offered registry row is an entry (122 until `urban_market_scale`, judgement change 6, 2026-11-15; 121 until `urban_street_village`, Ruling FE item 2, 2026-11-15; 120 until `urban_riverbank`)");
+    assert_eq!(by("params"), 125, "every offered registry row is an entry (123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box`, 2026-11-15; 122 until `urban_market_scale`, judgement change 6, 2026-11-15; 121 until `urban_street_village`, Ruling FE item 2, 2026-11-15; 120 until `urban_riverbank`)");
     assert_eq!(by("view"), 10 + 3, "ten layers plus the style preset, zoom and the (withheld) landmark filter");
     assert_eq!(by("window"), 10);
     assert_eq!(by("context"), 26, "31 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear; world.sculpt_here, MS-5, passes unexempted)");
     assert_eq!(by("tool"), 13);
     assert_eq!(by("timeline"), 1);
     assert_eq!(by("menu"), 32, "66 rows less 10 merged into windows and 24 refused (AC-5 allow-listed undo_history)");
-    assert_eq!(c.entries().len(), 123 + 13 + 10 + 26 + 13 + 1 + 32);
+    assert_eq!(c.entries().len(), 125 + 13 + 10 + 26 + 13 + 1 + 32);
     assert_eq!(c.derived_desc_count(), 0, "AC-5: every real row carries a written description (the work list was 27 at AC-5's start)");
     // Accounting: each of the 66 rows is an entry, a merge or a refusal.
     for r in &facts.menu_rows {
@@ -631,7 +631,7 @@ fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
         }
     }
     eprintln!("AC3 proposable by route: {by:?}");
-    assert_eq!(by.get("param"), Some(&123)); // 122 until `urban_market_scale` (judgement change 6); 121 until `urban_street_village` (Ruling FE item 2)
+    assert_eq!(by.get("param"), Some(&125)); // 123 until Ruling FF's two switches; 122 until `urban_market_scale` (judgement change 6); 121 until `urban_street_village` (Ruling FE item 2)
     assert_eq!(by.get("window"), Some(&10));
     assert_eq!(by.get("tool"), Some(&13));
     assert_eq!(by.get("year"), Some(&1));

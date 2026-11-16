@@ -998,6 +998,37 @@ pub struct CivParams {
     /// without the key loads it off (`params::apply_saved_state`), so a
     /// regenerate of an old world places its towns where they were.
     pub river_front: bool,
+    /// Owner Ruling FF item 5 (2026-11-15, `LARGE_ITEM_RULINGS.md`; Ruling EX's
+    /// follow-up (a), and Ruling N's river term): town siting and the road
+    /// network read **the map's own river network** (`WorldState::stream_order`
+    /// traced along `channels`, the rivers the map draws and the town layouts
+    /// read) instead of the civ pass's rebuild
+    /// (`cartalith_civ::fresh_river_network_with`), which shares only about two
+    /// thirds of its cells with it. In `cartalith-godot`'s `compute_civilisation`
+    /// that is Ruling N's suitability river term (`build_river_reach`), the road
+    /// network's ford/bridge crossing costs and navigable discount
+    /// (`civ_iterative_network`, `way_merge`), and the settlement panel's river
+    /// readings. A world without that network (a loaded save) keeps the rebuild.
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the
+    /// `DECISIONS.md` §7p split: the reference rebuilds its network on the final
+    /// field (`_riverNet` nulled after `carveRiverValleys`), so every golden keeps
+    /// it. A save without the key loads it off, so a regenerate of an old world
+    /// sites its towns and roads where they were.
+    pub map_rivers: bool,
+    /// Owner Ruling FF item 6 (2026-11-15; Ruling EX's follow-up (b)): the
+    /// harbour badge (`SettlementPlacement::coastal`, which also makes a town a
+    /// port for the sea lanes and the trade and recovery passes) needs **sea in
+    /// the town's own box** (`cartalith_civ::urban_adapter::um_box_has_sea`: more
+    /// than 2 % of the 1.7 x 1.25 km box's 22 m raster, the test the town layout
+    /// draws its coast from), on top of `civ_is_coastal`'s ocean within about
+    /// 12.5 km. Without it a river town a cell or two up from the sea was badged
+    /// a harbour and drawn without one.
+    ///
+    /// **`false` here, `true` in the shipped app**, the same §7p split: the
+    /// reference badges on the radius alone (`_civIsCoastal`). A save without the
+    /// key loads it off.
+    pub harbour_box: bool,
     /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
     /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
     /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
@@ -1601,6 +1632,10 @@ impl WorldParams {
                 merge_ways: false,
                 // Ruling EX: the reference has no river frontage term.
                 river_front: false,
+                // Ruling FF item 5: the reference rebuilds its river network.
+                map_rivers: false,
+                // Ruling FF item 6: the reference badges on the radius alone.
+                harbour_box: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
             },

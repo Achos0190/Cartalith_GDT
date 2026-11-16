@@ -2378,3 +2378,45 @@ fn a_path_touches_the_box_only_where_it_enters_it() {
     assert!(path_touches_box(&[Vec2::new(850.0, 625.0)], wm, hm), "a point inside");
     assert!(!path_touches_box(&[], wm, hm));
 }
+
+/// Protects Ruling FF item 6 (owner 2026-11-15): `um_box_has_sea`, the harbour
+/// badge's box test, answers exactly what the town layout's own water context
+/// says (`um_water_ctx`'s `sea_frac` above `BOX_SEA_FRAC`), over a sweep of
+/// boxes across the fixture's shoreline (the bilinear sea line sits at
+/// `y = 47.68`; a box is 0.1 cells tall here), with a labelled lake cut into
+/// the sea (`x` 30..34, whose cells must not count), and at the grid's west
+/// edge (cells off the grid skipped). The sweep must find both answers, so it
+/// cannot pass vacuously. Then three literal cases: a dry inland box, a box in
+/// open sea, and a box wholly over the lake. Mutating the 2 % line, dropping the
+/// lake exclusion, or reading the box from another centre turns this red.
+#[test]
+fn box_sea_test_matches_the_layouts_own_sea_share() {
+    let mut f = Fixture::new();
+    for y in 48..GH {
+        for x in 30..34 {
+            f.water_bodies[y * GW + x] = 2;
+        }
+    }
+    let w = f.world();
+    let has = |x: f64, y: f64| um_box_has_sea(&f.field, &f.water_bodies, GW, GH, SEA, 800.0, x, y);
+    let (mut yes, mut no) = (0, 0);
+    for &x in &[0.01, 10.0, 31.5, 33.97] {
+        for k in 0..=60 {
+            let y = 47.45 + k as f64 * 0.005;
+            let layout = um_water_ctx(&w, x, y).is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);
+            assert_eq!(has(x, y), layout, "box at ({x}, {y})");
+            if layout { yes += 1 } else { no += 1 }
+        }
+    }
+    assert!(yes > 20 && no > 20, "the sweep must cross the shore: {yes} with sea, {no} without");
+    // The 2 % line itself: a box whose last raster row or two is sea (a sliver
+    // above zero and at most `BOX_SEA_FRAC`) is not a seaside box.
+    let sliver = (0..400)
+        .map(|k| 47.60 + k as f64 * 0.0001)
+        .find(|&y| um_water_ctx(&w, 10.0, y).is_some_and(|u| u.sea_frac > 0.0 && u.sea_frac <= BOX_SEA_FRAC))
+        .expect("premise: a box with a sea sliver of 2 % or less");
+    assert!(!has(10.0, sliver), "a sliver of sea is not sea in the box (y {sliver})");
+    assert!(!has(20.0, 30.0), "a dry inland box");
+    assert!(has(10.0, 60.0), "a box in open sea");
+    assert!(!has(31.5, 60.0), "a box over a lake is not sea");
+}
