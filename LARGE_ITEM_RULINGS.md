@@ -3821,3 +3821,10 @@ Answers to `ZOOM_REFINEMENT_SCOPE.md`'s questions:
 1. **Depth: as deep as the LOD goes** (to about 2 m texels on a 40 075 km world), not stopping at about 15-20 m. Owner, verbatim: *"but a user should be asked at saving the project how many layers they want to save. A calculation should warn them about the approximate size"*. So refined tiles **can** go into a save (overrides the scope's Q7 default "no"): on save, the user picks how many refined levels to include, with an estimated size shown before saving.
 2. **Disk cap: a user setting** in Preferences, defaulting to the scope's values (2 GB desktop, 512 MB phone), refined tiles evicted before user bakes.
 3. **Start with ZR-0** (measure, go/no-go) before building the rest; other questions keep the scope's defaults until the owner says otherwise.
+
+## Ruling FI: ports, river crossings and river-mouth towns after the harbour gate (owner, 2026-11-16)
+
+After `8919dc7c` (Ruling FF items 5 and 6) cut ports from 15 to 5 at 384 (sea lanes 9 to 1; one seed with no port):
+1. **Move coastal towns to the shore**: a town that the placement treats as a port candidate is placed so its own box touches the sea, so the port count recovers without false badges.
+2. **Charge every crossing of a drawn map river**: road costs bridge or ford wherever a road crosses a river the map draws (map river order), not only where flow exceeds the river threshold (new worlds only; §7p).
+3. **River-mouth towns that read as seaside shift to the shore** (the one cell to the coast) and so become harbours.
