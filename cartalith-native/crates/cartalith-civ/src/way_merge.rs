@@ -331,7 +331,9 @@ fn retrace(
 /// The pass-1 cost grid the topology routes its tree over: `civ_enhanced_travel_cost`
 /// with no reuse term, then settlement gravity -- the same two calls, with the
 /// same arguments, as `civ_hierarchical_network_topology`'s pass 1. Returns the
-/// grid and its width, height and wrap flag.
+/// grid and its width, height and wrap flag. `map_crossings` is Ruling FI item
+/// 2's crossing rule (`civ.map_crossings`), passed as the topology was built
+/// with it, so the re-trace prices crossings exactly as pass 1 did.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_pass1_cost(
     places: &[SettlementPlacement],
@@ -345,12 +347,13 @@ pub fn civ_pass1_cost(
     water_bodies: &[u8],
     world: bool,
     map_width_km: f64,
+    map_crossings: bool,
 ) -> (Vec<f32>, usize, usize) {
     let grid = civ_routing_grid(field, gw, gh);
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
     let mut cost = civ_enhanced_travel_cost(
         &grid.dfld, grid.rw, grid.rh, sea, None, gw, gh, Some(water_bodies), Some(flow), flow_thresh,
-        Some(river_order), Some(biome),
+        Some(river_order), Some(biome), map_crossings,
     );
     civ_apply_settlement_gravity(&mut cost, grid.rw, grid.rh, grid.sc, places, world);
     (cost, grid.rw, grid.rh)
@@ -401,6 +404,7 @@ pub fn civ_merge_network_paths(
     world: bool,
     map_width_km: f64,
     opts: &WayMergeOpts,
+    map_crossings: bool,
 ) -> WayMergeReport {
     let n_edges = topology.edges.len();
     let mut report = WayMergeReport {
@@ -412,7 +416,7 @@ pub fn civ_merge_network_paths(
         return report;
     }
     let (cost, rw, rh) =
-        civ_pass1_cost(places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km);
+        civ_pass1_cost(places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km, map_crossings);
     let weight = |i: usize| kinds.get(i).map(|&k| tier_weight(k)).unwrap_or(0);
     let mut order: Vec<usize> = (0..n_edges).collect();
     // Stable, so equal tier sums keep the topology's own order (pass 1's tree
@@ -1294,6 +1298,7 @@ mod tests {
             let rep = civ_merge_network_paths(
                 &mut topo, &places[..2], &kinds, w, h, 0.4, &field, &zeros_f, &zeros_o, &zeros_b, &zeros_w, false, 600.0,
                 &WayMergeOpts { passes, ..WayMergeOpts::default() },
+                false,
             );
             (topo, rep)
         };
@@ -1337,6 +1342,7 @@ mod tests {
         civ_merge_network_paths(
             &mut topo, &places, &kinds, w, h, 0.4, &field, &zeros_f, &zeros_o, &zeros_b, &zeros_w, false, 600.0,
             &WayMergeOpts::default(),
+            false,
         );
         assert!(topo.edges[0].path.contains(&mid), "premise: the lone edge keeps its straight row");
         assert_eq!(topo.usage_count[mid], 8);
@@ -1395,6 +1401,7 @@ mod tests {
         let rep = civ_merge_network_paths(
             &mut topo, &places, &kinds, w, h, 0.4, &field, &zeros_f, &zeros_o, &zeros_b, &zeros_w, false, 600.0,
             &WayMergeOpts::default(),
+            false,
         );
         assert!(!rep.rerouted[1], "the trunk is laid first, on an empty grid, as it was routed");
         assert!(rep.rerouted[0], "the hamlet road joins the trunk");

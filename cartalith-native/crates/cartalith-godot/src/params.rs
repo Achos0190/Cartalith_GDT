@@ -347,6 +347,14 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's radius test (section 7p). See
     // `CivParams::harbour_box`.
     p.civ.harbour_box = true;
+    // Ruling FI items 1 and 3 (owner 2026-11-16): a port candidate whose own
+    // box holds no sea is nudged to the nearest cell whose box does. Off in
+    // `WorldParams::defaults` (section 7p). See `CivParams::port_shore`.
+    p.civ.port_shore = true;
+    // Ruling FI item 2 (owner 2026-11-16): every crossing of a river the map
+    // draws is charged as a ford or bridge. Off in `WorldParams::defaults`
+    // (section 7p). See `CivParams::map_crossings`.
+    p.civ.map_crossings = true;
     p
 }
 
@@ -1007,6 +1015,20 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.harbour_box", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Harbours need sea in the town", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.harbour_box), set_fn: |p, v| p.civ.harbour_box = v != 0.0 },
+    // Ruling FI items 1 and 3 (owner 2026-11-16): port candidates nudged to the
+    // shore. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control. A save without the key loads OFF. Read by
+    // `compute_civilisation`'s placement.
+    ParamSpec { key: "civ.port_shore", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Port towns move to the shore", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.port_shore), set_fn: |p, v| p.civ.port_shore = v != 0.0 },
+    // Ruling FI item 2 (owner 2026-11-16): every drawn river crossing charged.
+    // ON at the app boundary, OFF in `WorldParams::defaults`; no reference
+    // control. A save without the key loads OFF. Read by `compute_civilisation`'s
+    // road network.
+    ParamSpec { key: "civ.map_crossings", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Roads pay to cross every drawn river", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.map_crossings), set_fn: |p, v| p.civ.map_crossings = v != 0.0 },
     // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
     // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
     // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
@@ -1304,6 +1326,10 @@ const JS_PATHS: &[(&str, &str)] = &[
     // rebuilds its river network and badges harbours on the radius alone.
     ("civ.map_rivers", ""),
     ("civ.harbour_box", ""),
+    // Ruling FI: no reference control; the reference neither nudges ports nor
+    // charges a crossing below the flow threshold.
+    ("civ.port_shore", ""),
+    ("civ.map_crossings", ""),
     ("civ.base_ag_tech", ""),
 ];
 
@@ -1541,6 +1567,10 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // radius alone, so a regenerate puts them back there.
     ("civ.map_rivers", Value::Bool(false)),
     ("civ.harbour_box", Value::Bool(false)),
+    // Ruling FI (2026-11-16): every save without the keys placed its ports
+    // without the shore nudge and priced roads with the reference's flow gate.
+    ("civ.port_shore", Value::Bool(false)),
+    ("civ.map_crossings", Value::Bool(false)),
 ];
 
 /// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its

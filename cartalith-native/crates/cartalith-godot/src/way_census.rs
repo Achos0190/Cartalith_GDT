@@ -367,6 +367,7 @@ pub(crate) fn audit_at(
     let biome = cartalith_civ::build_biome_raster(wb, &ws.temperature, &ws.rainfall);
     let (cost1, rw, rh) = cartalith_civ::way_merge::civ_pass1_cost(
         &net_places, gw, gh, sea, &ws.field, &ws.flow_discharge, &river_order, &biome, wb, p.world, p.map_width_km,
+        p.civ.map_crossings,
     );
     let mut ratios = Vec::new();
     let mut climbs = Vec::new();
@@ -574,6 +575,7 @@ fn measure_way_merge_sweep() {
             civ_merge_network_paths(
                 &mut topo, &net_places, &kinds, gw, gh, ws.sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome,
                 &off.water_bodies, p.world, p.map_width_km, &WayMergeOpts { reuse_factor: f, detour_tol: tol, passes },
+                p.civ.map_crossings,
             );
             let dt = t0.elapsed().as_secs_f64();
             let mut ways = cartalith_civ::civ_consolidate_merged_ways(&topo, &off.settlements, &ws.field, &off.water_bodies, gw, gh, p.map_width_km);

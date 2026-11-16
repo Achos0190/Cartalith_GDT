@@ -7699,6 +7699,7 @@ mod tests {
         assert!(p.urban_street_village, "a new world lays its villages along their roads (Ruling FE item 2)");
         assert!(p.urban_market_scale, "a new world sizes its market squares with the town (judgement change 6)");
         assert!(p.civ.map_rivers && p.civ.harbour_box, "a new world sites on the map's rivers and badges harbours by the box (Ruling FF)");
+        assert!(p.civ.port_shore && p.civ.map_crossings, "a new world nudges ports to the shore and charges every drawn crossing (Ruling FI)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)
@@ -7719,7 +7720,7 @@ mod tests {
             "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law",
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
-            "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box",
+            "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

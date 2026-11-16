@@ -1,0 +1,29 @@
+# Roads whose drawn route changed between --fi 0 and --fi 1 (probe list logs): matched by
+# endpoints (both within 1.5 cells); reports the largest point distance and where it is.
+import sys, math
+def roads(path):
+    out = []
+    for line in open(path, encoding='utf-8', errors='replace'):
+        if line.startswith('R '):
+            parts = line.split()
+            pts = [tuple(map(float, q.split(','))) for q in parts[2:]]
+            if len(pts) >= 2:
+                out.append((parts[1], pts))
+    return out
+def d(a, b): return math.hypot(a[0]-b[0], a[1]-b[1])
+def poly_dist(p, pl): return min(d(p, q) for q in pl)
+for seed in sys.argv[1:]:
+    b = roads(f'C:/cw/rulingfi_scratch/probe_list_{seed}_0.log')
+    a = roads(f'C:/cw/rulingfi_scratch/probe_list_{seed}_1.log')
+    res = []
+    for ta, pa in a:
+        for tb, pb in b:
+            ends = (d(pa[0], pb[0]) < 1.5 and d(pa[-1], pb[-1]) < 1.5) or (d(pa[0], pb[-1]) < 1.5 and d(pa[-1], pb[0]) < 1.5)
+            if ends:
+                worst = max(pa, key=lambda p: poly_dist(p, pb))
+                res.append((poly_dist(worst, pb), ta, pa[0], pa[-1], worst, len(pa), len(pb)))
+                break
+    res.sort(reverse=True)
+    print(seed, 'matched', len(res), 'of', len(a), 'changed>2 cells', sum(1 for r in res if r[0] > 2))
+    for r in res[:5]:
+        print('  dev %.1f cells %s ends %s %s at (%.0f,%.0f) pts %d vs %d' % (r[0], r[1], tuple(round(v) for v in r[2]), tuple(round(v) for v in r[3]), r[4][0], r[4][1], r[5], r[6]))

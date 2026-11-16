@@ -1029,6 +1029,31 @@ pub struct CivParams {
     /// reference badges on the radius alone (`_civIsCoastal`). A save without the
     /// key loads it off.
     pub harbour_box: bool,
+    /// Owner Ruling FI items 1 and 3 (2026-11-16, `LARGE_ITEM_RULINGS.md`):
+    /// a town placement treats as a port candidate (`civ_is_coastal`'s ocean
+    /// within about 12.5 km) whose own town box holds no sea is moved onto the
+    /// nearest cell within `cartalith_civ::SHORE_NUDGE_KM` whose box does
+    /// (`cartalith_civ::civ_settle_on_shore`, inside
+    /// `place_settlements_on_rivers`), so it becomes a harbour that
+    /// `harbour_box` keeps; a river-mouth town keeps to its river where it can.
+    /// A town the radius test does not badge is never moved. Without it,
+    /// `harbour_box` cut ports from 15 to 5 at 384 (`8919dc7c`).
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the
+    /// `DECISIONS.md` §7p split: the reference places towns without it. A save
+    /// without the key loads it off.
+    pub port_shore: bool,
+    /// Owner Ruling FI item 2 (2026-11-16): the road network charges a ford or
+    /// bridge **wherever a road crosses a river the map draws** (the order
+    /// raster the network is priced on, the map's own with `map_rivers`), not
+    /// only where discharge exceeds the river threshold, the reference's gate
+    /// (`civ_river_crossing_cost`), which left about half the drawn crossings
+    /// free (280 of 531 at 384, 291 of 654 at 2 048, `8919dc7c`). See
+    /// `cartalith_civ`'s `civ_map_river_crossing_cost`.
+    ///
+    /// **`false` here, `true` in the shipped app**, the same §7p split. A save
+    /// without the key loads it off.
+    pub map_crossings: bool,
     /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
     /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
     /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
@@ -1636,6 +1661,10 @@ impl WorldParams {
                 map_rivers: false,
                 // Ruling FF item 6: the reference badges on the radius alone.
                 harbour_box: false,
+                // Ruling FI items 1 and 3: the reference does not nudge ports to the shore.
+                port_shore: false,
+                // Ruling FI item 2: the reference charges a crossing only above the flow threshold.
+                map_crossings: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
             },

@@ -1,0 +1,32 @@
+Ruling FI mutants (2026-11-16): Python (mut.py), exact literal replace occurring exactly once, run the named tests,
+restored in finally and the file hash checked after each. Round 1: all twelve; round 2: the four survivors after the tests added for them.
+
+Round 1
+M1 nudge a town the radius test did not badge: KILLED 
+M2 no river preference: KILLED 
+M3 skip ok(): KILLED 
+M4 ignore the reach circle: SURVIVED 
+M5 suitability before distance: KILLED 
+M6 badge not re-taken at the new cell: SURVIVED 
+M7 map crossings branch never taken: KILLED 
+M8 no threshold floor: KILLED 
+M9 only the sampled cell: KILLED 
+M10 max(sampled) dropped: SURVIVED 
+M11 placement passes false: KILLED 
+M12 network passes false: SURVIVED 
+MUT_DONE
+
+Round 2 (tests added: the reach is a circle; the badge is re-taken where the town lands, a basin case;
+the reference's charge wins when larger; the network build alone carries the switch with the trunk merge off)
+M4 ignore the reach circle: KILLED 
+M6 badge not re-taken at the new cell: KILLED 
+M10 max(sampled) dropped: KILLED 
+M12 network passes false: KILLED 
+MUT_DONE
+
+Killing tests: cartalith-civ tests::a_port_candidate_is_nudged_onto_the_shore_only_when_asked,
+tests::civ_settle_on_shore_takes_the_nearest_sea_box_and_keeps_to_the_river, tests::every_drawn_river_crossing_is_charged_with_map_crossings;
+cartalith-godot civ_pipeline_tests::port_candidates_move_onto_the_shore, civ_pipeline_tests::every_drawn_river_crossing_costs_the_road_network.
+
+Not mutated: the trunk-merge pass's own map_crossings argument (civ_merge_network_paths); a mutant there is masked by the
+network build, which already routes with the switch, and no test separates the two.

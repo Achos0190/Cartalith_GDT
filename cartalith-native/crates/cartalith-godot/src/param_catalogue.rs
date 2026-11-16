@@ -253,6 +253,8 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.river_front", "On: a town near a river is placed on it, the river through the town (current). Off: a town may sit a little off its river, as older worlds did."),
     ("civ.map_rivers", "On: towns are sited and roads priced on the rivers the map draws (current). Off: both use a rebuilt river network, as older worlds did."),
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
+    ("civ.port_shore", "On: a coastal town whose town map has no sea moves up to 4 km to the shore and becomes a harbour (current). Off: it stays put, as older worlds did."),
+    ("civ.map_crossings", "On: roads pay a ford or bridge wherever they cross a river the map draws (current). Off: only bigger rivers cost to cross, as older worlds did."),
     ("civ.base_ag_tech", "Raise: every faction starts with more advanced farming, 0 hoe to 5 industrial. Lower: simpler farming. Applies to a newly generated world."),
 ];
 

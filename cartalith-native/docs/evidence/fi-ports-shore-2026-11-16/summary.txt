@@ -1,0 +1,63 @@
+Ruling FI (owner 2026-11-16), measured 2026-11-16.
+Switches: civ.port_shore (items 1 and 3: one mechanism, a port candidate whose own 1.7 km box holds no sea moves
+to the nearest cell within SHORE_NUDGE_KM = 4 km whose box does) and civ.map_crossings (item 2: the road network's
+cost grid charges a ford or bridge on every routing cell over a drawn river, not only above the flow threshold).
+Neither rides civ.harbour_box (which towns are harbours) or civ.map_rivers (which network is read). Both ON in
+params::defaults, OFF in WorldParams::defaults and for a save without the key.
+
+Census: town_river_census.rs::town_placement_audit, seeds 483920, 912345, 246371, 800 km, 6 factions, villages
+on, CPU world. Command (release test binary, one thread):
+  TOWN_RIVER_GW=<384|2048> [TOWN_RIVER_GH=288] TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 \
+    [TOWN_RIVER_PORT_SHORE=0 TOWN_RIVER_MAP_CROSSINGS=0]   (before)
+    [TOWN_RIVER_COMPARE=fi]                               (after, with the moved-town list against the flipped world)
+  cargo test --release -p cartalith-godot --lib town_placement_audit -- --ignored --nocapture --test-threads 1
+Files: before_384.txt, after_384.txt, before_2048.txt, after_2048.txt (full output).
+
+Pooled over the three seeds                       384 x 288 before -> after   2048 x 1311 before -> after
+  towns (villages included)                       699 -> 699                  720 -> 720
+  ports (harbour badge)                           5 -> 10                     8 -> 10
+  sea lanes                                       1 -> 5                      4 -> 4
+  harbour badge with no sea in the box            0 -> 0                      0 -> 0
+  drawn crossings of the map's rivers             531 -> 488                  654 -> 533
+    the router paid nothing (cost-grid term)      280 -> 0                    447 -> 9
+    priced                                        251 -> 488                  207 -> 524
+    under the flow threshold (FF's measure)       280 -> 247                  291 -> 254
+  towns moved by the nudge                        5 (each 2.08 km, 1 cell)    2 (2.34 km, 0.39 km)
+  river towns off their river                     0 -> 5                      4 -> 4
+  drawn road length                               9 933.1 -> 10 057.7 km      8 832.5 -> 9 448.5 km
+  river_kind_built_off_water                      561 -> 549                  650 -> 653
+  every other KINDS row: 0 -> 0
+
+Per seed, 384: ports 3 -> 5, 2 -> 3, 0 -> 2; lanes 1 -> 3, 0 -> 1, 0 -> 1 (483920, 912345, 246371).
+Per seed, 2048: ports 3 -> 3, 4 -> 6, 1 -> 1; lanes 2 -> 2, 2 -> 2, 0 -> 0.
+
+"The router paid nothing": civ_crossing_charge_map gives the crossing term the cost grid adds at each routing cell,
+spread over the full-resolution cells it covers; a drawn crossing (way_audit::river_crossing_runs over the map's
+order) is free when none of its cells is charged. Before, at 384 that equals FF's flow-only count (280): the routing
+grid is the full grid. At 2048 the routing grid is 1024 wide, and its cell sampled one full-resolution cell, so 156
+more one-cell rivers were missed between samples; the switch reads the whole block. The 9 left at 2048 are drawn,
+smoothed ways crossing a river beside the routed path: all 9 have a charged cell one cell away (the "with a
+charged cell beside them" count in after_2048.txt, 6 + 2 + 1).
+
+Nudge reach (TOWN_RIVER_HARBOUR_BOX=0 TOWN_RIVER_SHORE_DIST=1, so the radius badges survive): the port candidates
+still without a sea box after the nudge are 4.17 km (912345 #18 at 384), 6.59 and 8.59 km (246371 at 384), and
+7.58-11.96 km (five at 2048) from the nearest dry cell whose box holds sea; those it moved were 0.39-2.34 km. 4 km
+sits in that gap: the ones left are towns several km inland that civ_is_coastal's 12.5 km radius badges.
+
+Frames: frames/sheet_<seed>_<before cell>_<after cell>.png (world map at x16, top, before | after; City Viewer in
+the map look, fitted, middle; the same zoomed out to x0.25, bottom) and frames/road_<seed>_<cell>.png (x16 map crops
+on a road whose route changed, chosen by roaddiff.py.txt from the app's own roads, lists/). From the windowed shell
+at 384 x 288 (the app's GPU-terrain world, so cells differ from the CPU census), probe probe_fi.gd.txt (a scratch
+copy of _townriver_probe.gd with --fi, --list, --cells, --pts, --tag; not committed to godot-project); before is
+--fi 0 (both switches off), after --fi 1, the same build.
+  River-mouth towns (ruling item 3): 483920 360:258 -> 359:258, 912345 140:161 -> 141:161.
+  Recovered ports: 246371 314:123 -> 314:122 (a capital), 246371 140:209 -> 141:209, 483920 155:136 -> 154:136,
+  912345 303:82 -> 304:82. In the app's world ports 5 -> 13 over the three seeds (lists/).
+  Roads: 483920 at 342:206, 912345 at 358:218, 246371 at 153:224.
+  Seen: 483920 359:258's sea is a 198 m strip at the box's west edge (the layout's water mask, area 0.20 km2) about
+  650 m from the walls, off the fitted frame (visible zoomed out); 154:136's is a 418 m strip and its river ends at
+  the market (the polyline's last point is the market), leaving a dry gap to the sea. Probe artefacts in both runs:
+  the centred pin drawn very large on some crops, and some river/terrain tiles still coarse when shot.
+
+Baselines: fh_r2_baseline AT_CURRENT and g1_baseline G1_0 / EA-0 re-recorded; attribution in each file's doc and
+STATUS.md. Mutants: mutants.txt.

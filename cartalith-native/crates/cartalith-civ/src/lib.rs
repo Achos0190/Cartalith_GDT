@@ -4362,6 +4362,95 @@ pub fn civ_settle_on_river(
     best.map(|(bx, by, _, _)| (bx, by))
 }
 
+/// How far, in km, [`civ_settle_on_shore`] may move a port candidate whose own
+/// town box holds no sea (Ruling FI items 1 and 3, owner 2026-11-16).
+///
+/// A **labelled judgement**, checked against measurement
+/// (`docs/evidence/fi-ports-shore-2026-11-16/summary.txt`, seeds 483920,
+/// 912345 and 246371 on an 800 km map): the port candidates the nudge moved
+/// sat 0.39 to 2.34 km from the nearest cell whose town box (1.7 x 1.25 km)
+/// holds sea, and those left behind 4.17 km (one, at 384) and 6.6 to 12 km
+/// away: towns several km inland that `civ_is_coastal`'s 12.5 km radius
+/// badges. 4 km sits in that gap, so the nudge recovers the river-mouth and
+/// one-cell-short towns and leaves the inland ones inland, a third of the
+/// port radius: a nudge, never a re-siting. In whole cells it is
+/// `floor(4 / cell_km)`, at least one: 1 cell (2.08 km) at 384 x 288, 10 at
+/// 2 048.
+pub const SHORE_NUDGE_KM: f64 = 4.0;
+
+/// Moves a port candidate at `(x, y)` (a town [`civ_is_coastal`] badges, ocean
+/// within its radius) whose own town box holds no sea onto the nearest cell
+/// whose box does, or `None` when it stays (Ruling FI items 1 and 3, owner
+/// 2026-11-16: *"a town that the placement treats as a port candidate is
+/// placed so its own box touches the sea"*, and *"river-mouth towns that read
+/// as seaside shift to the shore"*).
+///
+/// `has_sea(x, y)` is the caller's town-box sea test
+/// (`urban_adapter::um_box_has_sea`, the test the harbour badge and the town
+/// layout read); `ok(x, y)` the caller's dry-land, landmass and spacing tests.
+/// A town whose own cell already passes `has_sea` stays (`None`).
+///
+/// **Ranking.** Among the cells within `reach` cells (Euclidean) that `ok` and
+/// `has_sea` accept: when `river_on` is given and the town stands on an
+/// `river_on` cell (Ruling EX put it on its river), cells still on the river
+/// come first, so a river-mouth town moves down its own river to the mouth
+/// rather than off it where a river cell's box holds sea (the five river-mouth
+/// towns measured at 384 had none, and left their river for the shore: the
+/// trade Ruling FI item 3 asks for); then the nearer; then the higher
+/// suitability `suit`;
+/// then row-then-column order. Distance decides before suitability because the
+/// move is a nudge: the town keeps the site suitability chose for it, as close
+/// as the sea allows.
+///
+/// Never moves a town further than `reach` cells, never onto a cell `ok` or
+/// `has_sea` refuses, and never moves a town whose box already holds sea.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_settle_on_shore(
+    x: usize,
+    y: usize,
+    reach: isize,
+    river_on: Option<&[bool]>,
+    suit: &[f32],
+    gw: usize,
+    gh: usize,
+    has_sea: impl Fn(usize, usize) -> bool,
+    ok: impl Fn(usize, usize) -> bool,
+) -> Option<(usize, usize)> {
+    if x >= gw || y >= gh || has_sea(x, y) {
+        return None;
+    }
+    // Only a town that is on its river prefers the river.
+    let keep_river = river_on.filter(|on| on[y * gw + x]);
+    // (x, y, off_river, d2, suit)
+    let mut best: Option<(usize, usize, bool, isize, f64)> = None;
+    for dy in -reach..=reach {
+        let yy = y as isize + dy;
+        if yy < 0 || yy >= gh as isize {
+            continue;
+        }
+        for dx in -reach..=reach {
+            let d2 = dx * dx + dy * dy;
+            let xx = x as isize + dx;
+            if d2 == 0 || d2 > reach * reach || xx < 0 || xx >= gw as isize {
+                continue;
+            }
+            let (ux, uy) = (xx as usize, yy as usize);
+            let i = uy * gw + ux;
+            let off = keep_river.is_some_and(|on| !on[i]);
+            let sv = suit.get(i).copied().unwrap_or(0.0) as f64;
+            let better = match best {
+                None => true,
+                Some((_, _, bo, bd, bs)) => (off, d2) < (bo, bd) || ((off, d2) == (bo, bd) && sv > bs),
+            };
+            // The box test is the expensive one (a 77 x 57 raster): last.
+            if better && ok(ux, uy) && has_sea(ux, uy) {
+                best = Some((ux, uy, off, d2, sv));
+            }
+        }
+    }
+    best.map(|(bx, by, ..)| (bx, by))
+}
+
 /// How far a real traced coastline reaches, in grid cells, before
 /// [`build_coast_reach`] falls to zero -- Ruling N's coastal half
 /// (`LARGE_ITEM_RULINGS.md`, 2026-09-20).
@@ -6098,7 +6187,7 @@ pub fn place_settlements_with_counts(
 ) -> Vec<SettlementPlacement> {
     place_settlements_on_rivers(
         seeds, suit, field, wb, lake_fill, gw, gh, sea, world, faction_count, flood, flow, flow_thresh, map_width_km, want_counts,
-        None,
+        None, false,
     )
 }
 
@@ -6123,8 +6212,17 @@ pub struct RiverOn<'a> {
 /// town's own landmass, and not touching (Chebyshev distance 1) a town placed
 /// before it in rank order.
 ///
-/// `None` is [`place_settlements_with_counts`] by control flow: the reference
-/// boundary (`DECISIONS.md` section 7p) and every golden-parity caller.
+/// `shore` is Ruling FI's shore nudge (`civ.port_shore`, owner 2026-11-16):
+/// a town [`civ_is_coastal`] badges as a port candidate whose own town box
+/// holds no sea (`urban_adapter::um_box_has_sea`) is moved, after the river
+/// constraint, onto the nearest cell within [`SHORE_NUDGE_KM`] whose box does
+/// ([`civ_settle_on_shore`]; a town on its river keeps to the river where it
+/// can), under the same dry-land, landmass and spacing tests. A town the radius
+/// test does not badge is never moved by it.
+///
+/// `None` and `false` are [`place_settlements_with_counts`] by control flow:
+/// the reference boundary (`DECISIONS.md` section 7p) and every golden-parity
+/// caller.
 #[allow(clippy::too_many_arguments)]
 pub fn place_settlements_on_rivers(
     seeds: &[SettlementSeed],
@@ -6143,6 +6241,7 @@ pub fn place_settlements_on_rivers(
     map_width_km: f64,
     want_counts: Option<[usize; 5]>,
     river: Option<RiverOn<'_>>,
+    shore: bool,
 ) -> Vec<SettlementPlacement> {
     let max_places = match want_counts {
         Some(w) => w.iter().sum(),
@@ -6200,8 +6299,11 @@ pub fn place_settlements_on_rivers(
     // (`civ_ocean_dist_field`), so that's what drives the seaNear widening
     // here instead of porting `_umSiteProfile` for one number.
     let ocean_dist = civ_ocean_dist_field(Some(wb), field, gw, gh, sea);
-    // Final positions so far, rank order: the river constraint's spacing test.
+    // Final positions so far, rank order: the river constraint's and the shore
+    // nudge's spacing test.
     let mut placed: Vec<(usize, usize)> = Vec::new();
+    // Ruling FI's nudge reach, in whole cells of this grid (at least one).
+    let shore_reach = ((SHORE_NUDGE_KM / cell_km).floor() as isize).max(1);
 
     candidates
         .iter()
@@ -6269,8 +6371,33 @@ pub fn place_settlements_on_rivers(
                 }
                 None => (fx, fy),
             };
+            let mut coastal = civ_is_coastal(fx, fy, coast_r, true, field, Some(wb), gw, gh, sea, world);
+            // Ruling FI items 1 and 3 (`shore`): a port candidate whose own box
+            // holds no sea moves to the nearest cell whose box does; a town the
+            // radius test did not badge is never moved. `false` leaves (fx, fy).
+            let (fx, fy) = if shore && coastal {
+                let home = comp[fy * gw + fx];
+                let has_sea = |x: usize, y: usize| urban_adapter::um_box_has_sea(field, wb, gw, gh, sea, map_width_km, x as f64, y as f64);
+                let ok = |x: usize, y: usize| {
+                    let i = y * gw + x;
+                    (field[i] as f64) >= sea
+                        && wb[i] == 0
+                        && !civ_lake_flooded(x, y, field, wb, lake_fill, gw, gh)
+                        && comp[i] == home
+                        && placed.iter().all(|&(px, py): &(usize, usize)| px.abs_diff(x).max(py.abs_diff(y)) > 1)
+                };
+                match civ_settle_on_shore(fx, fy, shore_reach, river.map(|r| r.on), suit, gw, gh, has_sea, ok) {
+                    Some((nx, ny)) => {
+                        // The badge describes where the pin now is.
+                        coastal = civ_is_coastal(nx, ny, coast_r, true, field, Some(wb), gw, gh, sea, world);
+                        (nx, ny)
+                    }
+                    None => (fx, fy),
+                }
+            } else {
+                (fx, fy)
+            };
             placed.push((fx, fy));
-            let coastal = civ_is_coastal(fx, fy, coast_r, true, field, Some(wb), gw, gh, sea, world);
             SettlementPlacement {
                 x: fx,
                 y: fy,
@@ -7452,6 +7579,145 @@ fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: 
     }
 }
 
+/// The full-resolution cells routing cell `v` of a `w`-cell routing axis
+/// covers along that axis of `n >= w` full-resolution cells:
+/// `v * n / w .. (v + 1) * n / w` in integer arithmetic, never empty (as
+/// `n >= w`), and over `v = 0 .. w` an exact partition of `0 .. n` (integer
+/// division, so no float rounding can leave the last column uncovered).
+fn routing_block(v: usize, w: usize, n: usize) -> std::ops::Range<usize> {
+    (v * n / w).min(n - 1)..((v + 1) * n / w).clamp(v * n / w + 1, n)
+}
+
+/// Ruling FI item 2 (`civ.map_crossings`, owner 2026-11-16): the ford/bridge
+/// cost of a routing cell when **every crossing of a river the map draws** is
+/// charged, or `None` when no full-resolution cell the routing cell covers is
+/// on that network (the caller then applies [`civ_river_crossing_cost`] as
+/// before).
+///
+/// The routing cell `(x, y)` of a `w x h` routing grid covers the
+/// full-resolution cells [`routing_block`] gives (`x * gw / w .. (x + 1) * gw /
+/// w`, likewise in y), one cell when the grids match (every map at or below [`RW_CAP`] wide), two
+/// across at 2 048. A river is there when one of them has `river_order >= 1`
+/// (the map's Strahler order with `civ.map_rivers`), so a river one cell wide
+/// cannot slip between the routing grid's samples. The rate is the reference's
+/// expression ([`civ_river_crossing_cost`]): `8 * mag * ford_k`, `ford_k` from
+/// the highest order there, `mag` from the highest discharge on those river
+/// cells **floored at the river threshold**, so a river the map draws below the
+/// threshold costs what one just at it does (`8 * ln 2 / 5 * ford_k`, about
+/// 0.39 for an order-1 ford against a base step cost of 1) and the charge is
+/// continuous where the reference's gate begins.
+///
+/// Must never charge where the map draws no river. The caller takes the larger
+/// of this and [`civ_river_crossing_cost`] at the cell it samples, so the rule
+/// never charges less than the reference's.
+#[allow(clippy::too_many_arguments)]
+fn civ_map_river_crossing_cost(
+    flow: &[f32],
+    flow_thresh: f64,
+    river_order: &[i16],
+    gw: usize,
+    gh: usize,
+    (x, y): (usize, usize),
+    (w, h): (usize, usize),
+) -> Option<f64> {
+    let (mut ord, mut q) = (0i16, f64::NEG_INFINITY);
+    for fy in routing_block(y, h, gh) {
+        for fx in routing_block(x, w, gw) {
+            let i = fy * gw + fx;
+            if river_order[i] >= 1 {
+                ord = ord.max(river_order[i]);
+                q = q.max(flow[i] as f64);
+            }
+        }
+    }
+    if ord < 1 {
+        return None;
+    }
+    let mag = river_class::magnitude_raw(q.max(flow_thresh), flow_thresh);
+    let ford_k = if ord <= 2 {
+        0.35
+    } else if ord <= 4 {
+        0.75
+    } else {
+        1.0
+    };
+    Some(8.0 * mag * ford_k)
+}
+
+/// The additive river-crossing term of routing cell `(x, y)` in
+/// [`civ_enhanced_travel_cost`], which samples full-resolution cell `fi`:
+/// the reference's [`civ_river_crossing_cost`] at `fi`, or with
+/// `map_crossings` (Ruling FI item 2) the larger of that and
+/// [`civ_map_river_crossing_cost`] over the cells the routing cell covers.
+/// One function so the cost grid and the census's charge map
+/// ([`civ_crossing_charge_map`]) cannot disagree.
+#[allow(clippy::too_many_arguments)]
+fn civ_crossing_term(
+    flow: Option<&[f32]>,
+    flow_thresh: f64,
+    river_order: Option<&[i16]>,
+    gw: usize,
+    gh: usize,
+    xy: (usize, usize),
+    wh: (usize, usize),
+    fi: usize,
+    map_crossings: bool,
+) -> f64 {
+    let sampled = civ_river_crossing_cost(flow, flow_thresh, river_order, fi);
+    // `false` is the reference by control flow.
+    let drawn = match (map_crossings, flow, river_order) {
+        (true, Some(fl), Some(ro)) => civ_map_river_crossing_cost(fl, flow_thresh, ro, gw, gh, xy, wh),
+        _ => None,
+    };
+    drawn.map_or(sampled, |d| d.max(sampled))
+}
+
+/// For a census (`cartalith-godot`'s `town_river_census.rs`, Ruling FI item
+/// 2): the river-crossing charge the road network's cost grid
+/// ([`civ_enhanced_travel_cost`]) adds at each routing cell, spread back over
+/// the full-resolution cells that routing cell covers (the same
+/// [`routing_block`]s [`civ_map_river_crossing_cost`] reads), so a drawn
+/// road's crossing, given as full-resolution cells, can be asked whether the
+/// router paid to cross it. Cells under the sea or a lake read `0` (the cost
+/// grid makes them impassable, not charged). Read-only; never used to route.
+pub fn civ_crossing_charge_map(
+    field: &[f32],
+    water_bodies: &[u8],
+    flow: &[f32],
+    river_order: &[i16],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+    map_crossings: bool,
+) -> Vec<f32> {
+    let grid = civ_routing_grid(field, gw, gh);
+    let (w, h) = (grid.rw, grid.rh);
+    let (sc_x, sc_y) = (gw as f64 / w as f64, gh as f64 / h as f64);
+    let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+    let mut out = vec![0.0f32; gw * gh];
+    for y in 0..h {
+        for x in 0..w {
+            if (grid.dfld[y * w + x] as f64) < sea {
+                continue;
+            }
+            let fx = ((x as f64 * sc_x).round() as usize).min(gw - 1);
+            let fy = ((y as f64 * sc_y).round() as usize).min(gh - 1);
+            let fi = fy * gw + fx;
+            if water_bodies.get(fi).is_some_and(|&c| c != 0) {
+                continue;
+            }
+            let c = civ_crossing_term(Some(flow), flow_thresh, Some(river_order), gw, gh, (x, y), (w, h), fi, map_crossings) as f32;
+            for yy in routing_block(y, h, gh) {
+                for xx in routing_block(x, w, gw) {
+                    out[yy * gw + xx] = c;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// `_civRoutingGrid` (reference ~line 21022): the shared downsampled
 /// routing grid every civ router builds through, so paths/discount masks/
 /// place snapping all agree cell-for-cell.
@@ -7762,6 +8028,7 @@ fn civ_enhanced_travel_cost(
     flow_thresh: f64,
     river_order: Option<&[i16]>,
     biome: Option<&[u8]>,
+    map_crossings: bool,
 ) -> Vec<f32> {
     /// Slope-squared cost weight, the reference's `slopeK` default of 50 (`_civEnhancedTravelCost`, line 20960).
     const SLOPE_K: f64 = 50.0;
@@ -7806,7 +8073,7 @@ fn civ_enhanced_travel_cost(
             // own v1.95 comment already found once for this file's other
             // shared terrain-cost terms.
             c *= civ_swamp_penalty(flow, flow_thresh, d_i, sea, fi);
-            c += civ_river_crossing_cost(flow, flow_thresh, river_order, fi);
+            c += civ_crossing_term(flow, flow_thresh, river_order, gw, gh, (x, y), (w, h), fi, map_crossings);
             if let Some(ro) = river_order {
                 c *= civ_navigable_river_discount(ro[fi]);
             }
@@ -7950,6 +8217,9 @@ pub struct HierarchicalNetworkResult {
 /// ported (see the same doc comment); this is the `{}` / no-existing-ways
 /// shape, which is what the real auto-populate call site
 /// (`_civIterativeAutoWorld`) always uses in production.
+///
+/// This is [`civ_hierarchical_network_topology_with`] with
+/// `map_crossings` false: the reference's flow-gated crossing cost.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_hierarchical_network_topology(
     places: &[SettlementPlacement],
@@ -7963,6 +8233,28 @@ pub fn civ_hierarchical_network_topology(
     water_bodies: &[u8],
     world: bool,
     map_width_km: f64,
+) -> HierarchicalNetworkResult {
+    civ_hierarchical_network_topology_with(places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km, false)
+}
+
+/// [`civ_hierarchical_network_topology`] with Ruling FI item 2's crossing rule:
+/// `map_crossings` true charges a ford or bridge on every routing cell over a
+/// river `river_order` draws ([`civ_map_river_crossing_cost`]), in both passes'
+/// cost grids; false is the reference by control flow.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_hierarchical_network_topology_with(
+    places: &[SettlementPlacement],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    field: &[f32],
+    flow: &[f32],
+    river_order: &[i16],
+    biome: &[u8],
+    water_bodies: &[u8],
+    world: bool,
+    map_width_km: f64,
+    map_crossings: bool,
 ) -> HierarchicalNetworkResult {
     let n = places.len();
     if n < 2 {
@@ -7994,6 +8286,7 @@ pub fn civ_hierarchical_network_topology(
         flow_thresh,
         Some(river_order),
         Some(biome),
+        map_crossings,
     );
     civ_apply_settlement_gravity(&mut cost1, rw, rh, sc, places, world);
     let rp1: Vec<usize> = places
@@ -8087,6 +8380,7 @@ pub fn civ_hierarchical_network_topology(
         flow_thresh,
         Some(river_order),
         Some(biome),
+        map_crossings,
     );
     civ_apply_settlement_gravity(&mut cost2, rw, rh, sc, places, world);
     let rp2: Vec<usize> = places
@@ -8392,11 +8686,33 @@ pub fn civ_iterative_network(
     world: bool,
     map_width_km: f64,
 ) -> HierarchicalNetworkResult {
+    civ_iterative_network_with(places, passes, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km, false)
+}
+
+/// [`civ_iterative_network`] with Ruling FI item 2's crossing rule passed to
+/// every build ([`civ_hierarchical_network_topology_with`]); `map_crossings`
+/// false is the reference by control flow.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_iterative_network_with(
+    places: &mut [SettlementPlacement],
+    passes: usize,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    field: &[f32],
+    flow: &[f32],
+    river_order: &[i16],
+    biome: &[u8],
+    water_bodies: &[u8],
+    world: bool,
+    map_width_km: f64,
+    map_crossings: bool,
+) -> HierarchicalNetworkResult {
     let passes = passes.max(1);
     let mut pass = 0;
     loop {
-        let net = civ_hierarchical_network_topology(
-            places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km,
+        let net = civ_hierarchical_network_topology_with(
+            places, gw, gh, sea, field, flow, river_order, biome, water_bodies, world, map_width_km, map_crossings,
         );
         pass += 1;
         if pass == passes {
@@ -21739,6 +22055,58 @@ mod tests {
         assert_eq!(civ_river_crossing_cost(Some(&[10.0f32]), 10.0, Some(&[1i16]), 0), 0.0);
     }
 
+    /// Protects Ruling FI item 2 (owner 2026-11-16): with `map_crossings`, a
+    /// river the order raster draws is charged even below the flow threshold,
+    /// at the at-threshold rate (`8 * ln 2 / 5 * ford_k`, literal); a cell with
+    /// no drawn river is never charged; a 2x-coarse routing cell finds a river
+    /// on either full-resolution column it covers (here the odd one, which the
+    /// cell's own sample `round(x * 2)` misses); and with the switch off the
+    /// reference's gate holds (0 below the threshold). MUTATION: dropping the
+    /// `map_crossings` branch, the threshold floor, or reading only the sampled
+    /// cell fails a bar.
+    #[test]
+    fn every_drawn_river_crossing_is_charged_with_map_crossings() {
+        let thresh = 10.0;
+        // 4 x 1 full-resolution cells, a routing grid 2 x 1: cell 1 and cell 3
+        // carry an order-1 river at flow 2 (well under the threshold).
+        let flow = [0.0f32, 2.0, 0.0, 2.0];
+        let order = [0i16, 1, 0, 1];
+        let at = 8.0 * (2.0f64).ln() / 5.0 * 0.35;
+        let on = civ_crossing_term(Some(&flow), thresh, Some(&order), 4, 1, (0, 0), (2, 1), 0, true);
+        assert!((on - at).abs() < 1e-12, "on: the at-threshold ford rate, {on} vs {at}");
+        let off = civ_crossing_term(Some(&flow), thresh, Some(&order), 4, 1, (0, 0), (2, 1), 0, false);
+        assert_eq!(off, 0.0, "off: the reference's flow gate charges nothing below the threshold");
+        // No drawn river in the block: nothing, whatever the switch.
+        let dry = [0i16; 4];
+        assert_eq!(civ_crossing_term(Some(&flow), thresh, Some(&dry), 4, 1, (1, 0), (2, 1), 2, true), 0.0);
+        // Same grid, full resolution (1:1): only the cell itself counts.
+        assert_eq!(civ_crossing_term(Some(&flow), thresh, Some(&order), 4, 1, (0, 0), (4, 1), 0, true), 0.0, "1:1: cell 0 has no river");
+        assert!(civ_crossing_term(Some(&flow), thresh, Some(&order), 4, 1, (1, 0), (4, 1), 1, true) > 0.0, "1:1: cell 1 does");
+        // Above the threshold the switch changes nothing at a full-resolution cell.
+        let big = [0.0f32, 40.0, 0.0, 0.0];
+        let a = civ_crossing_term(Some(&big), thresh, Some(&order), 4, 1, (1, 0), (4, 1), 1, true);
+        let b = civ_crossing_term(Some(&big), thresh, Some(&order), 4, 1, (1, 0), (4, 1), 1, false);
+        assert_eq!(a, b, "over the threshold: the reference's charge either way");
+        // The sampled cell's own (reference) charge wins when it is larger: cell 0 carries flow over the
+        // threshold but no drawn order, cell 1 a drawn river below it.
+        let mixed = [40.0f32, 2.0, 0.0, 0.0];
+        let sampled = civ_river_crossing_cost(Some(&mixed), thresh, Some(&order), 0);
+        let both = civ_crossing_term(Some(&mixed), thresh, Some(&order), 4, 1, (0, 0), (2, 1), 0, true);
+        assert!(sampled > at, "premise: the sampled charge exceeds the at-threshold one");
+        assert_eq!(both, sampled, "never less than the reference's charge");
+        // Blocks partition the axis exactly (2 048 over 1 024, 1 311 over 656).
+        for (w, n) in [(1024usize, 2048usize), (656, 1311), (384, 384)] {
+            let mut next = 0;
+            for v in 0..w {
+                let r = routing_block(v, w, n);
+                assert_eq!(r.start, next, "block {v} of {w} over {n} starts where the last ended");
+                assert!(r.end > r.start);
+                next = r.end;
+            }
+            assert_eq!(next, n, "blocks of {w} cover all {n}");
+        }
+    }
+
     /// `civ_sea_time_edge_cost` -- the `_civSeaTimeEdgeCost` port.
     #[test]
     fn civ_sea_time_edge_cost_is_none_without_any_field_and_penalises_a_current_aligned_edge() {
@@ -23544,7 +23912,7 @@ mod tests {
             on[y * gw + 13] = true;
         }
         let place = |river: Option<RiverOn<'_>>| {
-            place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None, river)
+            place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None, river, false)
         };
         let off = place(None);
         assert_eq!((off[0].x, off[0].y), (10, 10), "premise: suitability put it at (10, 10)");
@@ -23553,6 +23921,105 @@ mod tests {
         let moved = place(Some(RiverOn { on: &on, reach: 5 }));
         assert_eq!((moved[0].x, moved[0].y), (13, 10), "three cells east onto the river, the nearest of equal cells");
         assert_eq!(place(Some(RiverOn { on: &on, reach: 2 }))[0].x, 10, "a river past the reach leaves it");
+    }
+
+    #[test]
+    fn a_port_candidate_is_nudged_onto_the_shore_only_when_asked() {
+        // Protects Ruling FI items 1 and 3 (owner 2026-11-16) in placement: sea
+        // west of x = 10 on a 64-cell grid of 0.8 km cells (51.2 km), so only a
+        // town at x = 10 has sea in its 1.7 km box (the shore crosses at
+        // x = 9.55). A town at x = 15 is a port candidate (ocean within the
+        // 6-cell radius) with no sea in its box: with `shore` it moves to x = 10
+        // and keeps its badge; without, it stays at x = 15 (the reference). A
+        // town at x = 40 has no ocean in the radius and never moves.
+        // MUTATION: skipping the nudge, nudging a town the radius test did not
+        // badge, or not re-taking the badge at the new cell (the basin case at
+        // the end) fails a bar.
+        let (gw, gh) = (64usize, 40usize);
+        let n = gw * gh;
+        let field: Vec<f32> = (0..n).map(|i| if i % gw < 10 { 0.2 } else { 0.6 }).collect();
+        let wb: Vec<u8> = (0..n).map(|i| u8::from(i % gw < 10)).collect();
+        let lake_fill = vec![0.0f32; n];
+        let zeros = vec![0.0f32; n];
+        let mut suit = vec![0.5f32; n];
+        suit[20 * gw + 15] = 0.9;
+        suit[20 * gw + 40] = 0.85;
+        let seeds = vec![SettlementSeed { x: 15, y: 20, score: 0.9 }, SettlementSeed { x: 40, y: 20, score: 0.85 }];
+        let (sea, km) = (0.42, 51.2);
+        let place = |shore: bool| place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore);
+        let box_sea = |x: usize, y: usize| urban_adapter::um_box_has_sea(&field, &wb, gw, gh, sea, km, x as f64, y as f64);
+        assert!(box_sea(10, 20) && !box_sea(11, 20), "premise: only x = 10 has sea in the box");
+        let off = place(false);
+        assert_eq!((off[0].x, off[0].y, off[0].coastal), (15, 20, true), "premise: a port candidate with no sea in its box at x = 15");
+        assert_eq!((off[1].x, off[1].coastal), (40, false), "premise: an inland town");
+        let on = place(true);
+        assert_eq!((on[0].x, on[0].y), (10, 20), "the port candidate moves to the shore, the nearest cell with sea in its box");
+        assert!(on[0].coastal, "and is badged where it now stands");
+        assert_eq!((on[1].x, on[1].y, on[1].coastal), (40, 20, false), "an inland town never moves");
+        // The same low ground not classified as ocean (`wb` 0, as a basin below
+        // sea level the water-body pass did not call ocean): its box test still
+        // sees "sea", but the radius test does not badge the town, so it is no
+        // port candidate and stays.
+        let wb0 = vec![0u8; n];
+        let basin = place_settlements_on_rivers(&seeds, &suit, &field, &wb0, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, true);
+        assert_eq!((basin[0].x, basin[0].coastal), (15, false), "not a port candidate: not moved");
+        // The badge is re-taken where the town lands: ocean (`wb` 1) only at x < 2, and a low basin the
+        // water-body pass did not call ocean (`wb` 0) east of x = 12. The town at x = 7 is a port
+        // candidate (ocean 6 cells west); the nearest sea box is x = 11 on the basin's shore (4 cells,
+        // against 5 to x = 2), where no ocean lies within the radius, so it moves and loses its badge.
+        let field2: Vec<f32> = (0..n).map(|i| if i % gw < 2 || (12..20).contains(&(i % gw)) { 0.2 } else { 0.6 }).collect();
+        let wb2: Vec<u8> = (0..n).map(|i| u8::from(i % gw < 2)).collect();
+        let mut suit2 = vec![0.5f32; n];
+        suit2[20 * gw + 7] = 0.9;
+        let seeds2 = vec![SettlementSeed { x: 7, y: 20, score: 0.9 }];
+        let place2 = |shore: bool| place_settlements_on_rivers(&seeds2, &suit2, &field2, &wb2, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore);
+        let off2 = place2(false);
+        assert_eq!((off2[0].x, off2[0].coastal), (7, true), "premise: a port candidate at x = 7");
+        let on2 = place2(true);
+        assert_eq!(on2[0].x, 11, "moved to the nearest sea box, on the basin");
+        assert!(!on2[0].coastal, "no ocean in the radius where it now stands: no badge");
+    }
+
+    #[test]
+    fn civ_settle_on_shore_takes_the_nearest_sea_box_and_keeps_to_the_river() {
+        // Protects Ruling FI's ranking (`civ_settle_on_shore`): a town whose box
+        // already holds sea stays; otherwise the nearest accepted cell with sea
+        // within `reach` (Euclidean); a town on its river prefers a river cell
+        // even when a dry one is nearer; `ok` refusing every candidate, or a
+        // shore past the reach, leaves it. MUTATION: ranking suitability before
+        // distance, dropping the river preference, or skipping `ok` fails a bar.
+        let (gw, gh) = (20usize, 20usize);
+        // Sea boxes: column x = 4, everywhere.
+        let has_sea = |x: usize, _y: usize| x == 4;
+        let suit = vec![0.5f32; gw * gh];
+        let any = |_: usize, _: usize| true;
+        assert_eq!(civ_settle_on_shore(4, 10, 5, None, &suit, gw, gh, has_sea, any), None, "sea in its box: it stays");
+        assert_eq!(civ_settle_on_shore(7, 10, 5, None, &suit, gw, gh, has_sea, any), Some((4, 10)), "the nearest sea box");
+        // Suitability does not outrank distance: (4, 8) is better but farther.
+        let mut s2 = suit.clone();
+        s2[8 * gw + 4] = 0.9;
+        assert_eq!(civ_settle_on_shore(7, 10, 5, None, &s2, gw, gh, has_sea, any), Some((4, 10)), "distance before suitability");
+        // ...but breaks a distance tie: (4, 9) and (4, 11) are equally near (4, 10)'s row neighbours.
+        let refuse_row = |x: usize, y: usize| !(x == 4 && y == 10);
+        let mut s3 = suit.clone();
+        s3[11 * gw + 4] = 0.9;
+        assert_eq!(civ_settle_on_shore(7, 10, 5, None, &s3, gw, gh, has_sea, refuse_row), Some((4, 11)), "a tie goes to suitability");
+        // A town on its river (column-row 12 river cells) prefers a river cell.
+        let mut on = vec![false; gw * gh];
+        for x in 4..=7 {
+            on[12 * gw + x] = true;
+        }
+        on[10 * gw + 7] = true; // the town's own cell is on the river
+        assert_eq!(civ_settle_on_shore(7, 10, 5, Some(&on), &suit, gw, gh, has_sea, any), Some((4, 12)), "down its river to the mouth");
+        // A town off the river ignores it.
+        on[10 * gw + 7] = false;
+        assert_eq!(civ_settle_on_shore(7, 10, 5, Some(&on), &suit, gw, gh, has_sea, any), Some((4, 10)), "off the river: the nearest");
+        assert_eq!(civ_settle_on_shore(7, 10, 5, None, &suit, gw, gh, has_sea, |_, _| false), None, "every cell refused: it stays");
+        assert_eq!(civ_settle_on_shore(10, 10, 5, None, &suit, gw, gh, has_sea, any), None, "the shore past the reach: it stays");
+        // The reach is a circle: a sea box at (+4, +4) is inside the 5-cell square but 5.66 cells away.
+        let corner = |x: usize, y: usize| (x, y) == (14, 14);
+        assert_eq!(civ_settle_on_shore(10, 10, 5, None, &suit, gw, gh, corner, any), None, "the square's corner is past the reach");
+        assert_eq!(civ_settle_on_shore(10, 10, 6, None, &suit, gw, gh, corner, any), Some((14, 14)), "control: inside a 6-cell reach");
     }
 
     /// Protects the river constraint in village seeding (Ruling EX's follow-up):

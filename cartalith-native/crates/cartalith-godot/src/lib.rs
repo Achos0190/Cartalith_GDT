@@ -2683,7 +2683,9 @@ mod civ_pipeline_tests {
     /// sit on it, nineteen in twenty or better, and every one of the network
     /// towns (placement's own call, apart from village seeding's); with it off
     /// a measurable share sit beside it, so the bar measures something. Every
-    /// network town still has a way. MUTATION: passing `None` for the
+    /// network town still has a way. Read with Ruling FI's shore nudge off; with
+    /// it on, a network river town off its river must be a harbour the nudge
+    /// moved to the coast. MUTATION: passing `None` for the
     /// constraint to placement, or building it from the civ pass's rebuilt
     /// network, fails a bar.
     #[test]
@@ -2693,6 +2695,11 @@ mod civ_pipeline_tests {
         let mut on_p = base.clone();
         on_p.civ.villages = true;
         assert!(on_p.civ.river_front, "premise: the app has the constraint on");
+        // Ruling FI (2026-11-16): the shore nudge (`civ.port_shore`) may take a
+        // river-mouth port off its river to the coast, the trade item 3 asks
+        // for. This bar is Ruling EX's, so it is read with the nudge off; the
+        // nudge's own towns are checked at the end.
+        on_p.civ.port_shore = false;
         let mut off_p = on_p.clone();
         off_p.civ.river_front = false;
         let order = ws.stream_order.as_ref().expect("premise: a river network");
@@ -2726,6 +2733,17 @@ mod civ_pipeline_tests {
         assert!(c_on >= 20, "premise: river towns to measure, got {c_on}");
         assert!(s_on * 20 >= c_on * 19, "on: {s_on} of {c_on} river towns on the map's river");
         assert!(s_off * 10 < c_off * 9, "control: off already has {s_off} of {c_off} on it, so the bar measures nothing");
+        // With the nudge on (the app): a network river town is off its river
+        // only where the nudge made it a harbour.
+        let mut shore_p = on_p.clone();
+        shore_p.civ.port_shore = true;
+        let shore = civ(&shore_p, &[]);
+        for s in shore.settlements.iter().filter(|s| !shore.village_tids.contains(&s.tid)) {
+            let (x, y) = (s.placement.x, s.placement.y);
+            let near = (y.saturating_sub(reach)..=(y + reach).min(gh - 1))
+                .any(|yy| (x.saturating_sub(reach)..=(x + reach).min(gw - 1)).any(|xx| on_cells[yy * gw + xx]));
+            assert!(!near || on_cells[y * gw + x] || s.placement.coastal, "nudge on: a river town at ({x}, {y}) off its river and no harbour");
+        }
         for (i, s) in on.settlements.iter().enumerate() {
             if on.village_tids.contains(&s.tid) {
                 continue;
@@ -2817,6 +2835,78 @@ mod civ_pipeline_tests {
         assert!(b_off.len() > kept.len(), "premise: the radius badges a town with no sea in its box ({} badges, {} with sea)", b_off.len(), kept.len());
         assert_eq!(b_on, kept, "on: exactly the radius badges whose box holds sea");
         assert!(on.sea_routes.len() <= off.sea_routes.len(), "fewer ports, no more lanes: {} vs {}", on.sea_routes.len(), off.sea_routes.len());
+    }
+
+    /// Protects Ruling FI items 1 and 3 (owner 2026-11-16) on the 256 x 192 app
+    /// fixture: with `civ.port_shore` on (and `civ.harbour_box`, as shipped),
+    /// at least one town moves (premise), every town that moved is within
+    /// `SHORE_NUDGE_KM` of where it stood with the switch off, every harbour
+    /// has sea in its box, and there are more harbours than with it off. With
+    /// it off the towns stand where Ruling FF left them. MUTATION: the
+    /// placement call passing `false`, or the nudge ignoring the reach, fails
+    /// a bar.
+    #[test]
+    fn port_candidates_move_onto_the_shore() {
+        let (ws, base) = world();
+        assert!(base.civ.port_shore && base.civ.harbour_box, "premise: the app nudges ports and gates the badge");
+        let mut off_p = base.clone();
+        off_p.civ.port_shore = false;
+        let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
+        assert_eq!(on.settlements.len(), off.settlements.len(), "the nudge adds and drops no town");
+        let cell_km = base.map_width_km / base.gw as f64;
+        let mut moved = 0usize;
+        for (a, b) in on.settlements.iter().zip(&off.settlements) {
+            let d = ((a.placement.x as f64 - b.placement.x as f64).powi(2) + (a.placement.y as f64 - b.placement.y as f64).powi(2)).sqrt();
+            if d > 0.0 {
+                moved += 1;
+                let reach = (cartalith_civ::SHORE_NUDGE_KM / cell_km).floor().max(1.0);
+                assert!(d <= reach, "a town moved {d:.2} cells, past the {reach} the nudge may");
+            }
+        }
+        assert!(moved > 0, "premise: the fixture has a port candidate with no sea in its box");
+        let sea = |s: &cartalith_civ::NamedSettlement| {
+            cartalith_civ::urban_adapter::um_box_has_sea(&ws.field, &on.water_bodies, base.gw, base.gh, ws.sea_level, base.map_width_km, s.placement.x as f64, s.placement.y as f64)
+        };
+        assert!(on.settlements.iter().filter(|s| s.placement.coastal).all(sea), "every harbour has sea in its box");
+        let ports = |c: &CivData| c.settlements.iter().filter(|s| s.placement.coastal).count();
+        assert!(ports(&on) > ports(&off), "the nudge recovers harbours: {} vs {}", ports(&on), ports(&off));
+    }
+
+    /// Protects Ruling FI item 2 (owner 2026-11-16) on the 256 x 192 app
+    /// fixture: `civ.map_crossings` moves no town (it prices roads only, after
+    /// placement) and changes the road network (premise: the fixture's roads
+    /// cross rivers the map draws below the flow threshold), and with it on
+    /// every drawn crossing of the pricing network's rivers is charged in the
+    /// cost grid's own term (`civ_crossing_charge_map`), which it is not with it
+    /// off; with Ruling EU's trunk merge off too, so the network build alone
+    /// carries it. MUTATION: `compute_civilisation` passing `false` to the
+    /// network fails the merge-off bar.
+    #[test]
+    fn every_drawn_river_crossing_costs_the_road_network() {
+        let (ws, base) = world();
+        assert!(base.civ.map_crossings, "premise: the app charges every drawn crossing");
+        let mut off_p = base.clone();
+        off_p.civ.map_crossings = false;
+        let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
+        let cells = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        assert_eq!(cells(&on), cells(&off), "the crossing rule moves no town");
+        let paths = |c: &CivData| c.ways.iter().map(|w| w.pts.clone()).collect::<Vec<_>>();
+        assert_ne!(paths(&on), paths(&off), "the crossing rule changed no road");
+        // With Ruling EU's trunk merge off, so only the network build carries the switch.
+        let mut on_nm = base.clone();
+        on_nm.civ.merge_ways = false;
+        let mut off_nm = on_nm.clone();
+        off_nm.civ.map_crossings = false;
+        assert_ne!(paths(&civ(&on_nm, &[])), paths(&civ(&off_nm, &[])), "merge off: the network build ignored the crossing rule");
+        let map = map_river_network(ws, base.gw, base.gh).expect("premise: a map network");
+        let charge = |mc: bool| {
+            cartalith_civ::civ_crossing_charge_map(&ws.field, &on.water_bodies, &ws.flow_discharge, map.1, base.gw, base.gh, ws.sea_level, base.map_width_km, mc)
+        };
+        let (c_on, c_off) = (charge(true), charge(false));
+        let land_river = |i: usize| map.1[i] >= 1 && (ws.field[i] as f64) >= ws.sea_level && on.water_bodies[i] == 0;
+        let river_cells: Vec<usize> = (0..map.1.len()).filter(|&i| land_river(i)).collect();
+        assert!(river_cells.iter().all(|&i| c_on[i] > 0.0), "on: every land cell of a drawn river is charged");
+        assert!(river_cells.iter().any(|&i| c_off[i] == 0.0), "premise: off, some drawn river cell is free");
     }
 
     /// Protects owner Ruling EU item 1's contract on a real world (the 256 x 192
@@ -5243,6 +5333,8 @@ fn compute_civilisation(
             let mut placed = cartalith_civ::place_settlements_on_rivers(
                 &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
                 &flood, &ws.flow_discharge, flow_thresh, map_width_km, want, river_constraint,
+                // Ruling FI items 1 and 3: port candidates nudged to the shore.
+                opts.port_shore,
             );
             // Ruling FF item 6 (`civ.harbour_box`): the harbour badge needs sea
             // in the town's own box. Here, on the placements' final cells and
@@ -5292,8 +5384,11 @@ fn compute_civilisation(
     // the reference's own `if(wantCounts) break` (v2.11 26107): re-tiering by
     // centrality would undo the counts the user asked for.
     let passes = if keeping || want.is_some() { 1 } else { cartalith_civ::CIV_AUTO_WORLD_PASSES };
-    let mut topology = cartalith_civ::civ_iterative_network(
+    // Ruling FI item 2 (`civ.map_crossings`): every crossing of a river the
+    // pricing network draws is charged; off, the reference's flow gate.
+    let mut topology = cartalith_civ::civ_iterative_network_with(
         &mut placements, passes, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
+        opts.map_crossings,
     );
     // `RoadEdge::a`/`.b` index into `placements`, and
     // `civ_consolidate_and_smooth_ways` below reads them as indices into
@@ -5384,6 +5479,7 @@ fn compute_civilisation(
         cartalith_civ::way_merge::civ_merge_network_paths(
             &mut topology, &placements, &kinds, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome,
             &wb.classification, world, map_width_km, &cartalith_civ::way_merge::WayMergeOpts::default(),
+            opts.map_crossings,
         );
     }
 
