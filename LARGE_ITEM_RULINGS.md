@@ -3838,3 +3838,9 @@ Owner, on the phone card (screenshot of a capital's card showing both NOTE ▸ *
 After `cfa1cf0d` (Ruling FI: ports 5 to 10, sea lanes 1 to 5; five river-mouth towns left their river and some harbour walls stand 400-650 m from their own sea):
 1. **Harbour towns lay out to the water**: keep the shore nudge; the town layout grows toward its sea (quay, harbour district) and a river-mouth town's river runs through the town to the sea, so no harbour stands inland of its own water.
 2. **Port reach shrinks to about 4 km** (from `civ_is_coastal`'s 12.5 km), so only towns that can reach the shore are port candidates.
+
+## Ruling FL: domain tool palette, the quick bar's three deferred extras, parallel generation timing (owner, 2026-11-16)
+
+1. **MS-3: a tool palette only.** The phone and tablet domain sheet gets a row of the domain's own tools at its top (for example Sculpt and Paint in WORLD, Pins and Measure in CARTO); no second chip strip (the section headers already serve as chips).
+2. **CQ-8's three deferred extras are all wanted:** export and import of the quick-bar layout as a file; a pin may replace one of the ring's four diagonal slots; a domain's own tools can be pinned to the bar.
+3. **Parallelising the serial generation floor waits for the refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`), where the fills are unified anyway and an exact parallel fill is a candidate (`TERRAIN_COMPUTE_METHODS_RESEARCH.md`).
