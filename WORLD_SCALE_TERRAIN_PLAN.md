@@ -186,9 +186,21 @@ Two larger options, to measure first: **erosion-like analytic noise** (slope-dam
 cheaper, visually close, only at the deepest levels) and a **learned upsampler** trained on the app's own high-res
 output (longer project; determinism needs care).
 
+## 10a. The GPU, on PC and on phones (owner, 2026-11-16)
+
+*"let's not forget that, at least on pc we can use a gpu. Same for mobile devices albeit less powerful."* Every
+expensive stage above is a candidate for the GPU on both: per-tile colouring and shading, noise octaves, upsampling,
+implicit erosion sweeps, flow accumulation (parallel prefix over a flow tree), and coarse climate. The constraint
+learned in Ruling EZ item 3 (`e4183543`): float GPU kernels (warp, heterogeneity, weather) gave **different worlds per
+device** because of FMA contraction and division/`exp` precision, while integer or exact kernels (plate assignment,
+stress, blur with a CPU-uploaded normaliser) were bit-identical on PC, 6T and Pad. So generation kernels that must make
+the same world everywhere are written integer/fixed-point (or kept on CPU), and display-only kernels (colouring,
+shading, tile drawing) may use floats freely since they change no saved data. Measure each on the RX 7800 XT, the
+9800X3D's iGPU, the 6T (Adreno 630) and the Pad 3, and keep a kernel on the GPU only where it pays on that device.
+
 ## 11. Next steps (owner-ordered)
 
-1. **16k test run on the PC** (owner, 2026-11-16): CPU alone, then CPU + discrete GPU, then CPU + iGPU + GPU
+1. **16k test run on the PC** (owner, 2026-11-16): CPU alone, then CPU + discrete GPU, then CPU + iGPU + GPU, with each GPU stage checked for a bit-identical result against the CPU and across devices
    (RX 7800 XT and the 9800X3D's integrated Radeon; 31 GB RAM). Per stage: time, peak memory, page-file use.
 2. **32k measurement**, run in full using the SSD page file (owner: *"don't worry"*); stages in RAM and paging
    reported separately; page-file size and free SSD space checked first and reported, never changed without asking.
