@@ -3828,3 +3828,7 @@ After `8919dc7c` (Ruling FF items 5 and 6) cut ports from 15 to 5 at 384 (sea la
 1. **Move coastal towns to the shore**: a town that the placement treats as a port candidate is placed so its own box touches the sea, so the port count recovers without false badges.
 2. **Charge every crossing of a drawn map river**: road costs bridge or ford wherever a road crosses a river the map draws (map river order), not only where flow exceeds the river threshold (new worlds only; §7p).
 3. **River-mouth towns that read as seaside shift to the shore** (the one cell to the coast) and so become harbours.
+
+## Ruling FJ: one note entry on the card; the vault holds the detail (owner, 2026-11-16)
+
+Owner, on the phone card (screenshot of a capital's card showing both NOTE ▸ *Create note…* and INFO ▸ *Attach note to …*): *"There's two options for notes here, should maybe just open the vault and have these options in detail there."* The card (desktop, tablet, phone) shows a **single** note entry for the selected thing: *Open note* when one is linked, otherwise *Note…*, which opens the vault focused on this place. The vault then offers the detail: create a new note (with the folder chooser), attach an existing note, unlink, and the place's linked notes. The separate *Create note…* and *Attach note to …* rows are removed from the card. Owning documents: `VAULT_EDITOR_PROPOSAL.md`, `MAP_CONTEXT_SCOPE.md`.
