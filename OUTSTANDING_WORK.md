@@ -51,6 +51,14 @@ Added by the 2026-10-26 docs reconciliation. Rows are grouped by subject; the ow
 row below overlaps an older row further down, this one is newer. Rows finished since (LLM-1 to LLM-6d, LLM-8 to LLM-12,
 CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the industrial levy) are in `STATUS.md`, not here.
 
+**Where the current list stands (coordinator, 2026-11-16; a router, not state -- `STATUS.md` wins on any status).**
+Order (owner): finish this list -> the codebase refactor (`CODEBASE_REFACTOR_PROPOSAL.md`) -> world-scale terrain (`WORLD_SCALE_TERRAIN_PLAN.md`, parked).
+- **Running:** Ruling FK (harbours lay out to their water, port reach ~4 km); a small GUI batch (delete the unreachable `QuickBarPhoneList`, CQ-6 long-press reorder, VE-6 template chooser).
+- **Engine, open:** town leftovers (towns growing along their river for the 15 % riverside bar; villages with no house near water; village market points across the bridge; wall/hull p90 at 2048; unreached call sites); town judgement change 4 (deep plots, prototype) and the smaller items; industrial-era standing armies slightly above band; the serial generation floor (needs a §7p ruling).
+- **GUI, open:** the per-plan remainder in the GUI plans audit row (line "GUI plans audit, 2026-11-16"): PC-6 and PC-4 leftovers (M), MS-3/MS-7 small items, VE-7 picture edges (M), VE-5/VE-6/probes (S), CQ-8's three deferrals (owner answers), CM F5 tablet edge sliders (M, unscheduled), AP's five small leftovers; the phone MAP sheet's North-up and scale-bar toggles (wait on rotation and a scale-bar setting).
+- **Owner-run device passes:** MS-10 (6T, tablet, 4K), MS-1 rows B7/B9/B10, VE-0/VE-4/VE-8 on the 6T, CQ-5 on the Pad, CM-4 pen and haptics, Android folder import, and today's town/pin/palette work (a new APK after Ruling FK).
+- **LLM assistant (last):** the red `ac1_static_sources` test (regenerate the action catalogue), undo-and-regenerate, the LLM-7 remainder, live runs.
+
 **Open from 2026-11-13: owner reports from the 6T and verifier leftovers** (rows only; the work happens in the owning
 document, and `STATUS.md` records what lands)
 - ~~**`_exportoverlay_probe` red: "town plans: stitched tiles agree with one tile"**~~ **Done 2026-11-16 (`STATUS.md`, "The integrated Radeon's silent 16k world fixed ...").** Not an export bug: moving only the tile origin (no seam) already differs from a single tile by 5 lone pixels at the town; the probe's bound was set against a region where it was 1. Re-pointed to a labelled bound of 8 with the origin control held inside it; a one-column-off stitch mutant turns it red.
