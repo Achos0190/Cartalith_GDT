@@ -1,0 +1,208 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:149:9
+    |
+149 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1941:4
+     |
+1941 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2040:4
+     |
+2040 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: function `cpus_allowed_count` is never used
+    --> crates\cartalith-engine\src\lib.rs:2102:4
+     |
+2102 | fn cpus_allowed_count(status: &str) -> Option<usize> {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-engine` (lib) generated 1 warning
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:7987:9
+     |
+7987 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SALT_BIOMES_FOR_TEST` is never used
+   --> crates\cartalith-civ\src\landmark\natural_kinds.rs:371:18
+    |
+371 | pub(super) const SALT_BIOMES_FOR_TEST: [u8; 3] = [crate::BIOME_DESERT, crate::BIOME_TROP_DRY, crate::BIOME_SHRUB];
+    |                  ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 2 warnings (run `cargo fix --lib -p cartalith-civ` to apply 1 suggestion)
+warning: trailing semicolon in macro used in expression position
+    --> crates\cartalith-godot\src\project_bridge.rs:4426:27
+     |
+4426 |                   Err(e) => godot_warn!(
+     |  ___________________________^
+4427 | |                     "cartalith-godot: this project's vault.json could not be read ({e}); \
+4428 | |                      its links were left out of the opened project rather than merged. \
+4429 | |                      The links already in memory are untouched."
+4430 | |                 ),
+     | |_________________^
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+     = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+     = note: this warning originates in the macro `godot_warn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+   --> crates\cartalith-godot\src\town_river_census.rs:249:17
+    |
+249 |             let mut moved: Vec<f64> = civ
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `preview_patch` is never used
+    --> crates\cartalith-godot\src\paint_bridge.rs:1211:12
+     |
+ 482 | impl PaintEditor {
+     | ---------------- method in this implementation
+...
+1211 |     pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+     |            ^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `is_new_world_rule` is never used
+    --> crates\cartalith-godot\src\params.rs:1616:8
+     |
+1616 | pub fn is_new_world_rule(key: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^
+
+warning: function `grain_lattice` is never used
+    --> crates\cartalith-godot\src\render.rs:6711:15
+     |
+6711 | pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+     |               ^^^^^^^^^^^^^
+
+warning: function `land_grain` is never used
+    --> crates\cartalith-godot\src\render.rs:6838:15
+     |
+6838 | pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
+     |               ^^^^^^^^^^
+
+warning: function `lake_color` is never used
+    --> crates\cartalith-godot\src\render.rs:8830:4
+     |
+8830 | fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+     |    ^^^^^^^^^^
+
+warning: method `pixel` is never used
+     --> crates\cartalith-godot\src\render.rs:10669:12
+      |
+10594 | impl BakeFields {
+      | --------------- method in this implementation
+...
+10669 |     pub fn pixel(&self, ctx: &RenderCtx, gx: f64, gy: f64) -> (f64, f64, f64) {
+      |            ^^^^^
+
+warning: field `repainted` is never read
+     --> crates\cartalith-godot\src\render.rs:11692:9
+      |
+11691 | pub struct RiverPost {
+      |            --------- field in this struct
+11692 |     pub repainted: usize,
+      |         ^^^^^^^^^
+
+warning: function `shore_depth_forced` is never used
+     --> crates\cartalith-godot\src\render.rs:15018:8
+      |
+15018 | pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, s...
+      |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `ref_fit_ppc` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1339:8
+     |
+1339 | pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+     |        ^^^^^^^^^^^
+
+warning: function `visible_share` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1418:8
+     |
+1418 | pub fn visible_share(ppc: f32) -> f32 {
+     |        ^^^^^^^^^^^^^
+
+warning: method `is_empty` is never used
+   --> crates\cartalith-godot\src\undo.rs:150:12
+    |
+132 | impl ColumnSnapshot {
+    | ------------------- method in this implementation
+...
+150 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: `cartalith-godot` (lib test) generated 13 warnings (run `cargo fix --lib -p cartalith-godot --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.13s
+     Running unittests src\lib.rs (C:/cw/rulingfk_target\release\deps\cartalith_godot-ef2bae2908f55c33.exe)
+
+running 1 test
+test town_river_census::harbour_front_audit ...   #  1 ( 337, 234) town    riverthrough pop_target 20000 buildings 4808 harbour: nearest building 1 m from its water (town body 1 m), housed 21674 of 20000 wall/hull 1.140 wall IN WATER
+  #  5 ( 380, 209) town    riverthrough pop_target 400 buildings 109 harbour: nearest building 190 m from its water (town body 190 m), housed 317 of 400 river-mouth: end 185 m from open water (FAILS)
+  #  6 ( 360, 194) town    riverthrough pop_target 400 buildings 112 harbour: nearest building 709 m from its water (town body 709 m), housed 400 of 400 river-mouth: end 805 m from open water (FAILS)
+  # 27 ( 314, 199) town    coast pop_target 400 buildings 172 harbour: nearest building 513 m from its water (town body 519 m), housed 400 of 400
+  # 31 ( 346, 267) town    coast pop_target 400 buildings 173 harbour: nearest building 3 m from its water (town body 3 m), housed 400 of 400
+  # 77 ( 346, 177) village riverthrough pop_target 400 buildings 170 river-mouth: end 604 m from open water (FAILS)
+  #168 ( 342, 169) village riverthrough pop_target 400 buildings 162 river-mouth: end 272 m from open water (FAILS)
+  #200 ( 265, 263) village riverthrough pop_target 400 buildings 155 river-mouth: end 683 m from open water (FAILS)
+seed 483920 at 384x288, urban_harbour_front false, civ.port_reach false: ports 5, sea lanes 3; harbours over 23 m from their water 3 of 5; river-mouth towns 5, river not reaching the water 5 (+0 at a junction); river towns off their river 2 of 227; buildings in water 0; walled 10, square outside 0, wall in water 1; markets moved 0
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 3 of 5
+  # 22 ( 228, 124) town    riverthrough pop_target 7904 buildings 2608 harbour: nearest building 35 m from its water (town body 35 m), housed 11658 of 7904 river-mouth: end 415 m from open water (FAILS) wall/hull 1.054
+  # 29 ( 344, 144) town    riverthrough pop_target 400 buildings 96 harbour: nearest building 318 m from its water (town body 318 m), housed 499 of 400 river-mouth: end 322 m from open water (FAILS)
+  # 32 ( 144, 154) town    coast pop_target 1843 buildings 309 harbour: nearest building 10 m from its water (town body 225 m), housed 1700 of 1843 wall/hull 1.000 square OUTSIDE the wall
+  #144 ( 152, 172) village riverthrough pop_target 400 buildings 133 river-mouth: end 179 m from open water (FAILS)
+  #147 ( 192, 106) village riverthrough pop_target 400 buildings 175 river-mouth: end 618 m from open water (FAILS)
+  #158 ( 209, 106) village riverthrough pop_target 400 buildings 152 river-mouth: end 534 m from open water (FAILS)
+seed 912345 at 384x288, urban_harbour_front false, civ.port_reach false: ports 3, sea lanes 1; harbours over 23 m from their water 2 of 3; river-mouth towns 5, river not reaching the water 5 (+0 at a junction); river towns off their river 1 of 232; buildings in water 0; walled 13, square outside 1, wall in water 0; markets moved 0
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 3 of 3
+  #  7 (  88,  99) town    coast pop_target 20000 buildings 1847 harbour: nearest building 1 m from its water (town body 1 m), housed 8970 of 20000 wall/hull 1.070 wall IN WATER
+  # 12 ( 157, 127) town    coast pop_target 2062 buildings 469 harbour: nearest building 354 m from its water (town body 354 m), housed 2142 of 2062 wall/hull 1.026 square OUTSIDE the wall
+  # 82 ( 306, 142) village riverthrough pop_target 400 buildings 96 river-mouth: end 685 m from open water (FAILS)
+  # 92 ( 313,  96) village riverthrough pop_target 400 buildings 162 river-mouth: end 514 m from open water (FAILS)
+seed 246371 at 384x288, urban_harbour_front false, civ.port_reach false: ports 2, sea lanes 1; harbours over 23 m from their water 1 of 2; river-mouth towns 2, river not reaching the water 2 (+0 at a junction); river towns off their river 2 of 233; buildings in water 0; walled 14, square outside 3, wall in water 1; markets moved 0
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 1 of 2
+all seeds at 384, (urban_harbour_front, civ.port_reach) Some((false, false)): ports 10, sea lanes 5; harbours over 23 m from their water 6 of 10; river-mouth towns 12, river not reaching the water 12 (+0 at a junction); river towns off their river 5 of 692; buildings in water 0; walled 37, square outside 4, wall in water 2; markets moved 0
+  harbour gap to its water, m: n 10 min 1 p10 1 median 190 p90 513 max 709
+  harbours whose town body stands over 23 m from its water: 7 of 10; body gap, m: n 10 min 1 p10 1 median 225 p90 519 max 709
+  wall/hull, walled towns of PLAZA_MARKET_POP and up: n 34 min 1.00 p10 1.00 median 1.04 p90 1.12 max 1.19; of them with sea in the box: n 5 min 1.00 p10 1.00 median 1.05 p90 1.14 max 1.14
+  market moved, m: n 0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1401 filtered out; finished in 34.52s
+

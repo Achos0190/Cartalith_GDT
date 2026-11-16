@@ -699,9 +699,11 @@ const POI_TOWN_RADIUS_M := 850.0
 ## The user-placed points of interest (Ruling EW item 4, CL-11) that stand inside this town, as pins:
 ## `[{kind, at, poi, id, has_note}]`, `kind` the POI's own kind key (so it takes its pictogram), `at` in model metres,
 ## `poi` its index in `poi_list()` (the selection handle). **The map's own town transform, inverted**
-## (`MapOverlay._draw_urban_layouts`): map point = settlement cell + 0.5 + R(orient) * (model - market) / metres-per-cell,
-## so a POI's model point is `market + R(-orient) * (map point - settlement cell - 0.5) * metres-per-cell`. Empty, never a
-## guess, when the layout has no `market` anchor, the settlement has no cell, or the engine reports no cell size.
+## (`MapOverlay._draw_urban_layouts`): map point = settlement cell + 0.5 + R(orient) * (model - pin) / metres-per-cell,
+## so a POI's model point is `pin + R(-orient) * (map point - settlement cell - 0.5) * metres-per-cell`. `pin` is the
+## market except where Ruling FK's harbour front moved it toward the sea (then the box centre); a layout without the key
+## falls back to the market. Empty, never a guess, when the layout has no `market` anchor, the settlement has no cell,
+## or the engine reports no cell size.
 func _poi_pins() -> Array:
 	var out: Array = []
 	if _layout.is_empty() or not _layout.has("market") or not _settlement.has("x") or not _settlement.has("y"):
@@ -710,7 +712,7 @@ func _poi_pins() -> Array:
 	if km <= 0.0:
 		return out
 	var m_per_cell := km * 1000.0
-	var anchor: Vector2 = _layout["market"]
+	var anchor: Vector2 = _layout.get("pin", _layout["market"])
 	var rot := float(_layout.get("orient", 0.0))
 	var c := cos(-rot)
 	var s := sin(-rot)

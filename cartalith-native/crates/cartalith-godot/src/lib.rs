@@ -2806,9 +2806,12 @@ mod civ_pipeline_tests {
     /// 12.5 km); and on the 256 x 192 app fixture, with `civ.harbour_box` on,
     /// the towns stand where they stood with it off and the badged set is
     /// exactly the radius badges whose box holds sea (premise: at least one
-    /// radius badge has none), and the sea lanes do not grow. MUTATION: dropping the
-    /// `radius_badge &&`, the box test, or the gate in `compute_civilisation`
-    /// fails a bar.
+    /// radius badge has none), and the sea lanes do not grow. Read with Ruling
+    /// FK's `civ.port_reach` off (2026-11-16): within its 4 km radius every
+    /// badged town of this fixture has sea in its box, so the gate would have
+    /// nothing to drop; this bar is the gate's, on the reference radius.
+    /// MUTATION: dropping the `radius_badge &&`, the box test, or the gate in
+    /// `compute_civilisation` fails a bar.
     #[test]
     fn a_harbour_needs_sea_in_the_town_box() {
         let (gw, gh) = (64usize, 64usize);
@@ -2819,8 +2822,11 @@ mod civ_pipeline_tests {
         assert!(!harbour_badge(true, &field, &wb, gw, gh, 0.42, 800.0, 12, 30), "no sea in the box: dropped");
         assert!(!harbour_badge(false, &field, &wb, gw, gh, 0.42, 800.0, 9, 30), "never makes a badge");
 
-        let (ws, base) = world();
-        assert!(base.civ.harbour_box, "premise: the app gates the badge");
+        let (ws, app) = world();
+        assert!(app.civ.harbour_box, "premise: the app gates the badge");
+        let mut base = app.clone();
+        base.civ.port_reach = false;
+        let base = &base;
         let mut off_p = base.clone();
         off_p.civ.harbour_box = false;
         let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
@@ -2870,6 +2876,40 @@ mod civ_pipeline_tests {
         assert!(on.settlements.iter().filter(|s| s.placement.coastal).all(sea), "every harbour has sea in its box");
         let ports = |c: &CivData| c.settlements.iter().filter(|s| s.placement.coastal).count();
         assert!(ports(&on) > ports(&off), "the nudge recovers harbours: {} vs {}", ports(&on), ports(&off));
+    }
+
+    /// Protects Ruling FK item 2 (owner 2026-11-16) on the 256 x 192 app
+    /// fixture, with the shore nudge and the box gate off so the badge is the
+    /// radius test alone and no town moves: with `civ.port_reach` on, the
+    /// badged towns are a strict subset of those badged with it off (premise:
+    /// the fixture has a town with ocean between about 4 and 12.5 km), every
+    /// town stands where it did, and every badged town has an ocean cell
+    /// within `civ_port_radius_cells` of it. MUTATION: `compute_civilisation`
+    /// passing `false` for `port_reach` fails the subset bar.
+    #[test]
+    fn ports_are_only_towns_within_about_4_km_of_the_ocean() {
+        let (_ws, base) = world();
+        assert!(base.civ.port_reach, "premise: the app shrinks the port reach");
+        let mut on_p = base.clone();
+        on_p.civ.port_shore = false;
+        on_p.civ.harbour_box = false;
+        let mut off_p = on_p.clone();
+        off_p.civ.port_reach = false;
+        let (on, off) = (civ(&on_p, &[]), civ(&off_p, &[]));
+        let at = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        assert_eq!(at(&on), at(&off), "the reach moves no town");
+        let badged = |c: &CivData| c.settlements.iter().filter(|s| s.placement.coastal).map(|s| (s.placement.x, s.placement.y)).collect::<HashSet<_>>();
+        let (b_on, b_off) = (badged(&on), badged(&off));
+        assert!(b_on.is_subset(&b_off) && b_on.len() < b_off.len(), "on: fewer port candidates, all of them candidates off ({} vs {})", b_on.len(), b_off.len());
+        let r = cartalith_civ::civ_port_radius_cells(base.gw, base.map_width_km / base.gw as f64, true) as i64;
+        let (gw, gh) = (base.gw as i64, base.gh as i64);
+        for &(x, y) in &b_on {
+            let ocean = (-r..=r).any(|dy| (-r..=r).any(|dx| {
+                let (xx, yy) = (x as i64 + dx, y as i64 + dy);
+                dx * dx + dy * dy <= r * r && xx >= 0 && yy >= 0 && xx < gw && yy < gh && on.water_bodies[(yy * gw + xx) as usize] == 1
+            }));
+            assert!(ocean, "a port candidate at ({x}, {y}) with no ocean within {r} cells");
+        }
     }
 
     /// Protects Ruling FI item 2 (owner 2026-11-16) on the 256 x 192 app
@@ -5335,6 +5375,8 @@ fn compute_civilisation(
                 &flood, &ws.flow_discharge, flow_thresh, map_width_km, want, river_constraint,
                 // Ruling FI items 1 and 3: port candidates nudged to the shore.
                 opts.port_shore,
+                // Ruling FK item 2: port candidates within about 4 km of the ocean.
+                opts.port_reach,
             );
             // Ruling FF item 6 (`civ.harbour_box`): the harbour badge needs sea
             // in the town's own box. Here, on the placements' final cells and

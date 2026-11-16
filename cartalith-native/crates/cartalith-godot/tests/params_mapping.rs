@@ -308,6 +308,9 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     assert!(params::defaults().civ.port_shore, "new worlds put port towns on the shore (Ruling FI items 1 and 3)");
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.map_crossings, "the reference gates crossings on flow");
     assert!(params::defaults().civ.map_crossings, "new worlds charge every drawn river crossing (Ruling FI item 2)");
+    // Ruling FK item 2 (2026-11-16): ports within about 4 km of the ocean; app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.port_reach, "the reference badges ports within its own radius");
+    assert!(params::defaults().civ.port_reach, "new worlds badge ports within about 4 km (Ruling FK item 2)");
 }
 
 /// Protects: the civ group being twenty-one contiguous `civ.`-keyed rows that `groups()` lists,
@@ -323,11 +326,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// `civ.merge_ways` (Ruling EU item 1, 2026-11-12), plus `civ.base_ag_tech` (New World's base technology, 2026-11-13),
 /// plus `civ.river_front` (Ruling EX, 2026-11-14), plus `civ.map_rivers` and
 /// `civ.harbour_box` (Ruling FF items 5 and 6, 2026-11-15), plus `civ.port_shore`
-/// and `civ.map_crossings` (Ruling FI, 2026-11-16).
+/// and `civ.map_crossings` (Ruling FI, 2026-11-16), plus `civ.port_reach`
+/// (Ruling FK item 2, 2026-11-16).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_twenty_one() {
+fn the_civ_group_is_a_real_contiguous_group_of_twenty_two() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 21, "the civ group is twenty-one rows");
+    assert_eq!(rows.len(), 22, "the civ group is twenty-two rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -1358,6 +1362,10 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // shore nudge and priced crossings with the reference's flow gate.
     expect.civ.port_shore = false;
     expect.civ.map_crossings = false;
+    // And Ruling FK: a save without the keys drew its harbour towns round a
+    // box-centre market and badged ports within the reference's radius.
+    expect.urban_harbour_front = false;
+    expect.civ.port_reach = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1447,7 +1455,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `urban_wall_hug`; the twenty-sixth, Ruling EX's `civ.river_front`; then
 /// `urban_river_kind_map` and, 2026-11-15, `urban_riverbank`, Ruling FE
 /// item 2's `urban_street_village` and the town judgement's change 6,
-/// `urban_market_scale`.)
+/// `urban_market_scale`; Ruling FF's and FI's four civ switches; and, 2026-11-16,
+/// Ruling FK's `urban_harbour_front` and `civ.port_reach`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1489,6 +1498,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.urban_riverbank && !parity.urban_riverbank, "river towns build to the bank, 2026-11-15 under Ruling EX");
     assert!(app.urban_street_village && !parity.urban_street_village, "villages line their roads, Ruling FE item 2");
     assert!(app.urban_market_scale && !parity.urban_market_scale, "the market square is sized with the town, judgement change 6");
+    assert!(app.urban_harbour_front && !parity.urban_harbour_front, "harbour towns are built to their water, Ruling FK item 1");
+    assert!(app.civ.port_reach && !parity.civ.port_reach, "ports only within about 4 km of the ocean, Ruling FK item 2");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1524,6 +1535,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.harbour_box = false;
     neutral.civ.port_shore = false;
     neutral.civ.map_crossings = false;
+    neutral.urban_harbour_front = false;
+    neutral.civ.port_reach = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;

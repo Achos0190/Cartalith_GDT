@@ -1,0 +1,58 @@
+Ruling FK (owner 2026-11-16), measured 2026-11-16.
+Switches: urban_harbour_front (item 1: harbour towns lay out to their water; town layout only, read fresh) and
+civ.port_reach (item 2: civ_is_coastal's port-candidate radius about 4 km, PORT_REACH_KM, instead of the reference's
+max(6, floor(gw/60)) cells, about 12.5 km at 384). Both ON in params::defaults, OFF in WorldParams::defaults and for a
+save without the key.
+
+Census: town_river_census.rs::harbour_front_audit (new), seeds 483920, 912345, 246371, 800 km, 6 factions, villages
+on, CPU world, every town laid out as the app lays it out (wall hug, riverbank, street villages, square scale on).
+Command (release test binary, one thread; audit.sh.txt):
+  TOWN_RIVER_GW=<384|2048> TOWN_RIVER_GH=<288|1311> TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 \
+    TOWN_RIVER_HF=<0|1> TOWN_RIVER_PORT_REACH=<0|1> \
+  cargo test --release -p cartalith-godot --lib harbour_front_audit -- --ignored --nocapture --test-threads 1
+Files: before_384.txt (both off), after_384.txt (both on), hf_only_384.txt, reach_only_384.txt, before_2048.txt,
+after_2048.txt.
+
+Pooled over the three seeds                           384 x 288 before -> after   2048 x 1311 before -> after
+  ports (harbour badge)                               10 -> 10                    10 -> 9   (912345 6 -> 5)
+  sea lanes                                           5 -> 5                      4 -> 4
+  harbours, nearest building > 23 m from its water    6 of 10 -> 1 of 10          6 of 10 -> 1 of 9
+  harbours, town body > 23 m from its water           7 of 10 -> 1 of 10          6 of 10 -> 1 of 9
+    gap median / p90 / max, m (any building)          190 / 513 / 709 -> 6 / 22 / 191   80 / 235 / 301 -> 6 / 10 / 73
+  river-mouth towns whose layout river stops short    12 of 12 -> 1 of 11         12 of 21 -> 1 of 19
+  river towns off their river                         5 of 692 -> 5 of 692        4 of 692 -> 4 of 692
+  buildings in water                                  0 -> 0                      1 -> 1 (246371, both runs)
+  walled towns: square outside the wall               4 of 37 -> 2 of 37          2 of 36 -> 2 of 36
+  wall/hull (walled, PLAZA_MARKET_POP and up) median  1.04 -> 1.05 (p90 1.12, max 1.19 both)
+                                                                                  1.02 -> 1.03 (p90 1.19, max 1.25 both)
+  wall rings with a sample in open water              2 -> 3                      2 -> 1
+  markets moved by the harbour front                  0 -> 12 (181-730 m)          0 -> 20 (5-679 m)
+Attribution at 384: urban_harbour_front alone = every layout row of after_384; civ.port_reach alone = before_384 on
+every row (it moved no town and no badge at 384). At 2048 the one port lost is civ.port_reach's (the harbour front
+cannot change a badge).
+
+"Town body": buildings whose centroid is within max_rf of the market (cartalith_urban::generate::town_reaches_water):
+the reference's quay houses stand on the shore however far inland the town is, so "nearest building" alone called
+483920 359:258's town (wall 650 m from its sea in cfa1cf0d's frames) built to its water.
+Left at 384: 483920 #5 (a 400-person river-mouth hamlet, 191 m): its harbour-front layouts housed 166 and 317 of 400
+against 369 for the reference, under HARBOUR_HOUSING_KEEP, so the reference stands (its river does reach the sea).
+912345 #144 (a village): the carried river cost it its houses both ways, so it keeps the traced river (179 m short).
+At 2048: 483920 #10 (a city of 20 000, 73 m, market moved 35 m); 912345 #101 (a village, river 272 m short; not diagnosed).
+
+Frames: frames/sheet_<seed>_<x>_<y>.png, before (FK off) | after (FK on), from the windowed shell at 384 x 288 (the
+app's GPU world, so cells differ from the CPU census): world map x16, map x128 (the town plan on the map), City Viewer
+fitted, City Viewer x0.25. Probe probe_fk.gd.txt (scratch copy of FI's, --fk 0|1 sets both switches; never committed
+to godot-project), shot by frames.sh.txt under the window lock (withlock.sh.txt). Sixteen towns, every one looked at:
+  483920 359:258 (the ruling's case: now a walled town on its sea), 154:136 (the ruling's case: the river runs on to
+  the sea; the hamlet keeps its place, its harbour-front layout housed too few), 154:26, 147:63 (hamlets moved to the
+  river mouth), 360:212 (river carried to the sea), 152:18 (village at the mouth);
+  912345 141:161 (FI's nudged river-mouth town: already on the sea, unchanged), 221:102 (hamlet along the bank to the
+  mouth), 304:82 (unchanged, already at the quay), 249:138 (river carried to the sea);
+  246371 314:122 (capital, already at its sea, unchanged), 141:209 (town moved onto its shore), 96:92 (capital: the
+  river now runs through the city to the sea), 180:140 (unchanged: its harbour-front layout carried the river across
+  the town and housed 946 of 1 768, so the guard kept the reference), 323:93 (hamlet now on the shore with its quay),
+  317:110 (hamlet at the mouth).
+Known probe artefacts in both runs: on some x128 map crops a large dark blurred shape over a big town (the "pin drawn
+very large" artefact FI and FF recorded; it shows in before frames too, e.g. 246371 314:122).
+
+Mutants: mutants.txt (mut.py.txt).

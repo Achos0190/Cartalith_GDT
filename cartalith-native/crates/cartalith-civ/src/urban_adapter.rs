@@ -208,6 +208,9 @@ pub use cartalith_urban::wallhug::HugOutcome;
 /// polygon centroid, spelled here for the same census's size classes and
 /// bank sides (2026-11-15, Ruling FB's both-banks audit).
 pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
+/// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
+/// re-exported so the census counts harbours against the line the layout itself uses.
+pub use cartalith_urban::generate::HARBOUR_REACH_M;
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
 /// `military.rs` already takes them from `cartalith-jsmath` directly.
@@ -868,6 +871,14 @@ pub struct UmWater {
     /// kind follows the water the box really holds (Ruling EX, owner
     /// 2026-11-14).
     pub sea_frac: f64,
+    /// **Not the reference** -- Ruling FK item 1 ([`um_water_ctx_with`]'s
+    /// `to_sea`): the same water with the river carried on down the trunk it
+    /// stopped on and to the sea, when that changes the river; `None` with
+    /// `to_sea` off and wherever the river already ends at its water. A
+    /// second context rather than a replacement, so the town is laid out from
+    /// the river as traced first and from this one only where the harbour
+    /// front's second layout is kept (`cartalith_urban::generate`).
+    pub to_sea: Option<WaterCtx>,
 }
 
 /// `_umWaterCtx` (line 22300) — the real water near the settlement, packaged
@@ -902,6 +913,19 @@ pub struct UmWater {
 /// reaches this function, so no switch (`DECISIONS.md` section 7p), as for the
 /// transform fix above.
 pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
+    um_water_ctx_with(w, px, py, false)
+}
+
+/// [`um_water_ctx`], and with `to_sea` (Ruling FK item 1, owner 2026-11-16:
+/// *"a river-mouth town's river runs through the town to the sea"*;
+/// `WorldParams::urban_harbour_front`) also [`UmWater::to_sea`]: the same
+/// water with a river whose downstream end stops inside the box carried down
+/// the trunk it stopped on ([`river_downstream`]) and on to a sea in the box
+/// ([`river_to_sea`]), so the layout's river, its stamped band and every stage
+/// that walks it reach the water the map draws the river into. `ctx` is
+/// [`um_water_ctx`]'s either way; `false` is [`um_water_ctx`] by control flow,
+/// the reference boundary (`DECISIONS.md` section 7p).
+pub fn um_water_ctx_with(w: &UrbanWorld, px: f64, py: f64, to_sea: bool) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
     }
@@ -917,6 +941,8 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
     // cell, so a river in the adjacent cell must still be caught.
     let box_rad_g = js_max(1.8, js_max(wm, hm) * 0.75 * gpm);
     let mut river_path: Option<Vec<Vec2>> = None;
+    // Ruling FK item 1: the river carried on to its sea (`UmWater::to_sea`).
+    let mut river_ext: Option<Vec<Vec2>> = None;
     let mut river_width_m = 0.0f64;
     let mut river_order = 0.0f64;
     if let Some(order) = w.order {
@@ -938,6 +964,8 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
         if let Some((pl, bi)) = best
             && best_d < box_rad_g
         {
+            // The traced polyline itself, for the junction test below.
+            let traced: &Vec<(f64, f64)> = pl;
             {
                 let pl: Vec<(f64, f64)> = pl.iter().map(|&q| traced_to_cell(q)).collect();
                 let mut lo = bi;
@@ -959,18 +987,226 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
                     };
                     // `|| 1` — order 0 (or a lookup off the grid) reads as 1.
                     let local: Vec<Vec2> = pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect();
+                    // Ruling FK item 1 (`to_sea`): a river whose traced end
+                    // (`hi` is the polyline's last point: the trace runs
+                    // downstream) stops in the box is carried on: down the
+                    // trunk it joins where it stopped on one
+                    // ([`river_downstream`]), and to the sea where it ends
+                    // short of it ([`river_to_sea`]).
+                    let mut ext = local.clone();
+                    if to_sea && hi == pl.len() - 1 {
+                        let chain = river_downstream(w, traced, &mut ext, &grid_to_local, |q| js_hypot(q.0 - px, q.1 - py) < box_rad_g);
+                        // Only from the river's real end: not a junction, and not
+                        // where the search radius cut the trunk (on a fine grid
+                        // the last point inside the radius can stand inside the
+                        // box, and the river runs on past it).
+                        let own = chain[chain.len() - 1];
+                        let (ex, ey) = traced_to_cell(own[own.len() - 1]);
+                        let at_end = ext.last().is_some_and(|e| e.dist(grid_to_local(ex, ey)) < 1e-6);
+                        if at_end && junction_trunk(w, &chain, (ex, ey)).is_none() {
+                            river_to_sea(w, &local_to_grid, &mut ext);
+                        }
+                    }
                     // Not the reference: a river that never enters the town box
                     // is not the town's river (see this function's doc).
                     if path_touches_box(&local, wm, hm) {
                         river_order = if raw == 0.0 { 1.0 } else { raw };
                         river_width_m = js_max(12.0, js_min(46.0, 10.0 + river_order * 7.0));
+                        if ext.len() != local.len() {
+                            river_ext = Some(ext);
+                        }
                         river_path = Some(local);
                     }
                 }
             }
         }
     }
-    finish_water_ctx(w, local_to_grid, river_path, river_width_m, river_order)
+    // Ruling FK item 1: the river carried on, as a second context.
+    let to_sea = river_ext.and_then(|ext| finish_water_ctx(w, &local_to_grid, Some(ext), river_width_m, river_order)).map(|u| u.ctx);
+    finish_water_ctx(w, &local_to_grid, river_path, river_width_m, river_order).map(|u| UmWater { to_sea, ..u })
+}
+
+/// **Not the reference** -- Ruling FK item 1: carries a river `local` (local
+/// box metres, downstream last) whose traced polyline `traced` stops on a
+/// trunk ([`junction_trunk`]) on down that trunk: the trunk's points from the
+/// junction onward, while `inside` (the caller's search radius, in the cell
+/// frame) accepts them, appended through `to_local`. Repeated at the trunk's
+/// own end when that is a junction too, at most [`RIVER_DOWNSTREAM_HOPS`]
+/// times. Returns every polyline followed, `traced` first, so the caller can
+/// tell whether the last one's end is the river's real end.
+///
+/// Why: a coarse trace stops a tributary on the trunk it joins, and the
+/// river-stem search gives a town at a confluence the tributary, whose last
+/// point is the town's own cell: the town drew a river ending at its market
+/// with the trunk, the larger river, missing (912345 #144 and 246371 #92 at
+/// 384 x 288 in this change's census). Must never reorder or drop a traced
+/// point, nor follow a trunk past `inside`.
+fn river_downstream<'a>(
+    w: &UrbanWorld<'a>,
+    traced: &'a Vec<(f64, f64)>,
+    local: &mut Vec<Vec2>,
+    to_local: &impl Fn(f64, f64) -> Vec2,
+    inside: impl Fn((f64, f64)) -> bool,
+) -> Vec<&'a Vec<(f64, f64)>> {
+    let mut chain: Vec<&'a Vec<(f64, f64)>> = vec![traced];
+    for _ in 0..RIVER_DOWNSTREAM_HOPS {
+        let own = chain[chain.len() - 1];
+        let end = traced_to_cell(own[own.len() - 1]);
+        if !inside(end) {
+            break;
+        }
+        let Some((d, trunk, k)) = junction_trunk(w, &chain, end) else { break };
+        // The junction point itself, when it is the end's own cell, is already drawn.
+        let from = if d < 1e-9 { k + 1 } else { k };
+        let mut took = false;
+        for &q in &trunk[from..] {
+            let c = traced_to_cell(q);
+            if !inside(c) {
+                break;
+            }
+            local.push(to_local(c.0, c.1));
+            took = true;
+        }
+        chain.push(trunk);
+        if !took || !inside(traced_to_cell(trunk[trunk.len() - 1])) {
+            break;
+        }
+    }
+    chain
+}
+
+/// How many junctions [`river_downstream`] follows a river through, at most:
+/// a labelled judgement, enough for a tributary that meets a trunk that meets
+/// another inside one town's search radius (a few cells), and a bound on the
+/// walk.
+const RIVER_DOWNSTREAM_HOPS: usize = 3;
+
+/// The trunk a traced river ending at `end` (cell frame) stopped on, as
+/// `(distance in cells, polyline, index)`, or `None` when the end is the
+/// river's own end (a mouth). The trunk point is another polyline's point
+/// (not one in `skip`, the rivers already followed, and not that polyline's
+/// own last point, so two rivers reaching the sea side by side are both
+/// mouths) within [`RIVER_JUNCTION_CELLS`] of the end and no higher than it
+/// (`field` at the two cells: water runs down to its receiver, and a parallel
+/// tributary's upstream cell beside the end is higher). Nearest first; ties go
+/// to the earlier polyline and point. Why it is a junction:
+/// `trace_river_polylines` walks downstream until it leaves the channel
+/// network or meets a cell already traced, so a stem that stops on, or one
+/// cell short of, a lower traced cell stopped on a trunk.
+fn junction_trunk<'a>(w: &UrbanWorld<'a>, skip: &[&Vec<(f64, f64)>], end: (f64, f64)) -> Option<(f64, &'a Vec<(f64, f64)>, usize)> {
+    let height = |c: (f64, f64)| {
+        let (x, y) = (js_round(c.0), js_round(c.1));
+        if x < 0.0 || y < 0.0 || x >= w.gw as f64 || y >= w.gh as f64 {
+            return f64::INFINITY;
+        }
+        w.field.get(y as usize * w.gw + x as usize).map_or(f64::INFINITY, |&h| h as f64)
+    };
+    let h_end = height(end);
+    let mut best: Option<(f64, &'a Vec<(f64, f64)>, usize)> = None;
+    for pl in w.river_polys {
+        if skip.iter().any(|s| std::ptr::eq(*s, pl)) {
+            continue;
+        }
+        for (k, &q) in pl.iter().enumerate().take(pl.len().saturating_sub(1)) {
+            let c = traced_to_cell(q);
+            let d = js_hypot(c.0 - end.0, c.1 - end.1);
+            if d <= RIVER_JUNCTION_CELLS && best.is_none_or(|(bd, _, _)| d < bd) && height(c) <= h_end {
+                best = Some((d, pl, k));
+            }
+        }
+    }
+    best
+}
+
+/// Whether a river ending at cell `end` stopped on a trunk ([`junction_trunk`],
+/// skipping every traced river whose own last point is that cell), for the
+/// census (`town_river_census.rs::harbour_front_audit`), so it classifies a
+/// layout river's end by the adapter's own rule. Reads nothing else.
+pub fn um_river_ends_on_trunk(w: &UrbanWorld, end: (f64, f64)) -> bool {
+    let own: Vec<&Vec<(f64, f64)>> = w
+        .river_polys
+        .iter()
+        .filter(|pl| pl.last().is_some_and(|&q| {
+            let c = traced_to_cell(q);
+            js_hypot(c.0 - end.0, c.1 - end.1) < 1e-6
+        }))
+        .collect();
+    junction_trunk(w, &own, end).is_some()
+}
+
+/// How near, in grid cells, another traced river's point must lie to a
+/// river's last point for [`junction_trunk`] to call it a junction: an
+/// 8-connected neighbour (a diagonal is 1.414 cells) or the same cell, which
+/// is what a downstream trace that stops on, or beside, a trunk leaves.
+const RIVER_JUNCTION_CELLS: f64 = 1.5;
+
+/// **Not the reference** -- Ruling FK item 1 (owner, 2026-11-16): carries the
+/// river `path` (local box metres, downstream last) on to the sea when its
+/// last point stands inside the town box, the box holds sea (more than
+/// [`BOX_SEA_FRAC`] of its 22 m raster, the harbour badge's test), no open
+/// water (sea or lake) lies within half a raster cell of that point, and no
+/// lake cell is nearer to it than the nearest sea cell.
+///
+/// The river is extended in a straight line from its last point to the centre
+/// of the nearest sea cell of the box's raster (sea as `finish_water_ctx`
+/// counts it: the bilinear `field < sea_level` test, lakes excluded), a point
+/// every raster cell, plus one more cell beyond it so the channel opens into
+/// the sea rather than ending at its edge. The line is dry up to the sea cell:
+/// no sea cell is nearer to the river's end. Why: at a coarse map grid a river
+/// traced cell to cell ends at the last land cell's centre, up to a cell
+/// (2 km at 384 x 288) short of the coast the map paints it into, so a town
+/// laid out at a river mouth drew a river that stopped at its market with dry
+/// land between it and the sea (`cfa1cf0d`'s frames, 483920 154:136).
+///
+/// Leaves `path` unchanged in every other case. Must never shorten or reorder
+/// the traced river, and never extend it toward a lake.
+fn river_to_sea(w: &UrbanWorld, local_to_grid: &impl Fn(f64, f64) -> (f64, f64), path: &mut Vec<Vec2>) {
+    let (wm, hm) = (SITE_WM, SITE_HM);
+    let Some(&end) = path.last() else { return };
+    if end.x < 0.0 || end.y < 0.0 || end.x > wm || end.y > hm {
+        return;
+    }
+    let cell_m = CTX_CELL_M;
+    let mw = js_max(8.0, js_round(wm / cell_m)) as usize;
+    let mh = js_max(8.0, js_round(hm / cell_m)) as usize;
+    let mut sea_cells = 0usize;
+    let mut nearest_sea: Option<(f64, Vec2)> = None;
+    let mut nearest_open = f64::INFINITY;
+    for j in 0..mh {
+        for i in 0..mw {
+            let c = Vec2::new((i as f64 + 0.5) * cell_m, (j as f64 + 0.5) * cell_m);
+            let (gx, gy) = local_to_grid(c.x, c.y);
+            if gx < 0.0 || gx >= w.gw as f64 || gy < 0.0 || gy >= w.gh as f64 {
+                continue;
+            }
+            let lake = !w.water_bodies.is_empty() && w.water_bodies.get(js_round(gy) as usize * w.gw + js_round(gx) as usize).copied() == Some(2);
+            let sea = !lake && w.bilin_field(gx, gy) < w.sea_level;
+            if !(sea || lake) {
+                continue;
+            }
+            let d = js_hypot(c.x - end.x, c.y - end.y);
+            nearest_open = nearest_open.min(d);
+            if sea {
+                sea_cells += 1;
+                if nearest_sea.is_none_or(|(bd, _)| d < bd) {
+                    nearest_sea = Some((d, c));
+                }
+            }
+        }
+    }
+    let Some((d, target)) = nearest_sea else { return };
+    // No seaside box, the river already at its water, or a lake nearer than
+    // the sea (the river feeds the lake; never carried through it).
+    if sea_cells as f64 / (mw * mh) as f64 <= BOX_SEA_FRAC || nearest_open <= cell_m / 2.0 || nearest_open < d {
+        return;
+    }
+    let (dx, dy) = ((target.x - end.x) / d, (target.y - end.y) / d);
+    let steps = (d / cell_m).ceil().max(1.0) as usize;
+    for k in 1..=steps {
+        let t = d * k as f64 / steps as f64;
+        path.push(Vec2::new(end.x + dx * t, end.y + dy * t));
+    }
+    path.push(Vec2::new(target.x + dx * cell_m, target.y + dy * cell_m));
 }
 
 /// Whether polyline `path` (local box metres) touches the town box
@@ -1298,6 +1534,7 @@ fn finish_water_ctx(
         },
         mostly_water,
         sea_frac: sea_cells as f64 / (mw * mh) as f64,
+        to_sea: None,
     })
 }
 
@@ -1992,6 +2229,12 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::market_scale`], carried to `GenOpts::market_scale`
     /// (`TOWN_GENERATOR_JUDGEMENT.md` change 6).
     pub market_scale: bool,
+    /// [`PlaceOverrides::harbour_front`] where the town's box holds sea
+    /// ([`UmWater::sea_frac`] above [`BOX_SEA_FRAC`], the harbour badge's own
+    /// test, `um_box_has_sea`), carried to `GenOpts::harbour_front` (Ruling FK
+    /// item 1). `false` for every other town, so a lakeside or river town's
+    /// market stays where the reference puts it.
+    pub harbour_front: bool,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -2075,6 +2318,15 @@ pub struct PlaceOverrides<'a> {
     /// unmoved by control flow. The app sets it from
     /// `WorldParams::urban_market_scale` (`DECISIONS.md` section 7p).
     pub market_scale: bool,
+    /// Ruling FK item 1 (owner 2026-11-16): a harbour town lays out to its
+    /// water: a river ending inside its box is carried to the sea
+    /// ([`um_water_ctx_with`]) and, for a box that holds sea, the market moves
+    /// toward the water (`cartalith_urban::GenOpts::harbour_front`). **Not a
+    /// `_umPlaceContext` field** and not in the reference, so `false` (the
+    /// `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_harbour_front` (`DECISIONS.md` section 7p).
+    pub harbour_front: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2099,7 +2351,10 @@ pub fn um_place_context_with(
     // Not a reference field: a variant mixes into the seed and nothing else,
     // so every other input (site, water, terrain, roads) is the same town's.
     let seed = o.variant.map_or(seed, |v| seed ^ v.wrapping_mul(0x9E37_79B9));
-    let water = um_water_ctx(w, px, py);
+    // Ruling FK item 1: with `harbour_front` a river ending in a seaside box
+    // is carried to its sea; off, `um_water_ctx` by control flow.
+    let water = um_water_ctx_with(w, px, py, o.harbour_front);
+    let harbour_front = o.harbour_front && water.as_ref().is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);
     let site_kind = box_water_kind(w, um_site_kind_from_terrain(w, px, py), water.as_ref());
     let terrain = um_terrain_ctx(w, px, py);
     // v0.98: with real water the geometry is already in position, so no
@@ -2159,6 +2414,7 @@ pub fn um_place_context_with(
         riverbank: o.riverbank,
         street_village: o.street_village,
         market_scale: o.market_scale,
+        harbour_front,
     }
 }
 
@@ -2213,9 +2469,15 @@ pub struct LayoutParcel {
 pub struct UrbanLayout {
     pub wm: f64,
     pub hm: f64,
-    /// `anchors.market` — the point the whole town is organised around, and
-    /// the point the map renderer anchors onto the settlement's real position.
+    /// `anchors.market` — the point the whole town is organised around, and,
+    /// in the reference, the point the map renderer anchors onto the
+    /// settlement's real position (since Ruling FK, [`Self::pin`] is).
     pub market: Vec2,
+    /// `cartalith_urban::Town::pin`: where the settlement's real position
+    /// falls in this layout, the point a renderer anchors the layout on. The
+    /// market, except where Ruling FK's harbour front moved the market toward
+    /// the sea (then the box centre, so the layout's water lies on the map's).
+    pub pin: Vec2,
     /// `anchors.prov` — the reference's own derivation string for the market
     /// placement, one of three fixed values.
     pub market_prov: &'static str,
@@ -2497,6 +2759,10 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         riverbank: ctx.riverbank,
         street_village: ctx.street_village,
         market_scale: ctx.market_scale,
+        harbour_front: ctx.harbour_front,
+        // Ruling FK item 1: the river carried to the sea, for the harbour
+        // front's second layout only.
+        water_to_sea: if ctx.harbour_front { ctx.water.as_ref().and_then(|w| w.to_sea.clone()) } else { None },
     };
     let t = generate(ctx.seed, &opts);
 
@@ -2552,6 +2818,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         wm: t.wm,
         hm: t.hm,
         market: t.anchors.market,
+        pin: t.pin,
         market_prov: t.anchors.prov,
         site_kind: t.site.kind,
         orient: ctx.orient,

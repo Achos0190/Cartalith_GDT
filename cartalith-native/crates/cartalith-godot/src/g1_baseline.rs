@@ -136,6 +136,12 @@ type G1Row = (i32, u32, i32, u64, u64);
 /// rows (EA-0 127 / 7 / 156, `E > 1` 99, `capped` 19: the FF readings) and `map_crossings` alone on 20 of 20 (EA-0
 /// 122 / 7 / 161, 105, 20); both: 121 / 7 / 162, 105, 20, industrial sweep ordered 290 / 288, the same mobilization
 /// triples, six sweep hashes. Governments 0 of 20; `manpower.rs` untouched. Each moved row says what it was first.
+/// **RE-RECORDED 2026-11-16 after owner Ruling FK** (`urban_harbour_front`, town layouts; `civ.port_reach`, port
+/// candidates within about 4 km of the ocean; both on in the app's `params::defaults()`, section 7p). Attributed by
+/// forcing `civ.port_reach` off in `params::defaults()` on the build tree (restored): every pin here and in
+/// `fh_r2_baseline` held (11 of 11), so the harbour front moves none; `civ.port_reach` moved manpower on 2 of 20 rows
+/// (seed 707 at 800 km, 6 and 24 factions), the EA-0 standing triple 121 / 7 / 162 -> 122 / 7 / 161, `E > 1` 105 -> 106 and the six sweep hashes. Governments
+/// 0 of 20. Each moved row says what it was first.
 const G1_0: [G1Row; 20] = [
     (12345, 800, 6, 0x387148c99c9fda6a, 0xcccfaa60279cac3a), // manpower was 0x10b6e3a896640fbe before Ruling FI (2026-11-16); manpower was 0x072b8f527b5a20b4 before Ruling FF items 5 and 6 (2026-11-16); was 0x64b16d8af1206e49 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 1099 -> 2136 under empire; was 0xfcde937df27b6bce (before Ruling EV's basin routing); was 0x160622c110260b61 (merge off, before Ruling EU item 1), 0x0952af06bcae2404 (9a83061c), 0xfc0e51ebf531e378 (50a6fc6d), 0x8d1fce680f420476 (09a217dd), 0x40afff69143a03b2 (9b0bec28)
     (12345, 800, 24, 0x629827ce9cd3ce9b, 0xf3983b53f29446e5), // manpower was 0x6bc6083aa0cbc438 before Ruling FI (2026-11-16); manpower was 0x82c91d11630cb80d before Ruling FF items 5 and 6 (2026-11-16); was 0xb8f70db309a08146 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 24 armed of 24; f1 standing 642 -> 1247 under empire; was 0x1997a58b5308f80d (before Ruling EV's basin routing); was 0x3fb41cf3a98e8f23 (merge off, before Ruling EU item 1), 0x533dc283ee3e6944 (9a83061c), 0x4550aad3635d01a6 (50a6fc6d), 0xc0c340ff6043d71b (09a217dd), 0x9d68eb2559dbbfe5 (9b0bec28)
@@ -149,8 +155,8 @@ const G1_0: [G1Row; 20] = [
     (404, 800, 24, 0x629827ce9cd3ce9b, 0xa8b985c909b5dc96), // manpower was 0x9126907cb40c3b6d before Ruling FI (2026-11-16); manpower was 0xd9e36402f43ecee1 before Ruling FF items 5 and 6 (2026-11-16); was 0x50366977da15f149 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 24 armed of 24; f1 standing 1133 -> 2200 under empire; was 0x2d27e88fa8743cfc (before Ruling EV's basin routing); was 0xd95bb665a2b3eb5f (merge off, before Ruling EU item 1), 0x085651e29c16515a (9a83061c), 0xea29d89d89d94327 (50a6fc6d), 0x7495b670bef43d8a (09a217dd), 0xa1b881a5f02187d5 (9b0bec28)
     (404, 40075, 6, 0x387148c99c9fda6a, 0x5c53443358866c87), // manpower was 0x198824b7d2387b07 before Ruling FI (2026-11-16); manpower was 0x3c445cdd4f7787a4 before Ruling FF items 5 and 6 (2026-11-16); was 0x6c380f62a91ec15c (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 619 -> 1202 under empire; was 0x8ce2a6d89264de2b (before Ruling EV's basin routing); was 0x8c2f54265ead3475 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x37d679638e0fc2cc (merge off, before Ruling EU item 1), 0x6914db27e6cd6a41 (9a83061c), 0xc8f1b87cc652c8da (50a6fc6d), 0x70e295d237feec7f (09a217dd), 0xef0b692385832191 (9b0bec28)
     (404, 40075, 24, 0x629827ce9cd3ce9b, 0x0820bcb3a47dea75), // manpower was 0xb516ffdd64d77604 before Ruling FI (2026-11-16); manpower was 0x077c18a7502e44c1 before Ruling FF items 5 and 6 (2026-11-16); was 0xf61ccf8d8b92ae01 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 22 armed of 24; f1 standing 141 -> 274 under empire; was 0x0844c16deaed22e5 (before Ruling EV's basin routing); was 0xc1ac09bbff8e5b3a (9a83061c), 0x79882e57d5958ea0 (50a6fc6d), 0x1d87ef0405ba9c73 (09a217dd), 0x628063fecd169372 (9b0bec28)
-    (707, 800, 6, 0x387148c99c9fda6a, 0xf7312ca37b88b0f2), // manpower was 0xb98a2e4294c151e0 before Ruling FI (2026-11-16); manpower was 0x9fd90d2f8afe00e6 before Ruling FF items 5 and 6 (2026-11-16); was 0xe61f4982af141b21 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 3133 -> 6086 under empire; was 0x93b8f99386a9ead0 (before Ruling EV's basin routing); was 0x5cbac70408df138c (merge off, before Ruling EU item 1), 0x4f9a6e604ffd9648 (9a83061c), 0x84c9fe7e30e6d628 (50a6fc6d), 0x3c1b811a681ef994 (09a217dd), 0xd4faed791bc4806d (9b0bec28)
-    (707, 800, 24, 0x629827ce9cd3ce9b, 0xc1121ee73f074e13), // manpower was 0x6055a1a52c23957d before Ruling FI (2026-11-16); manpower was 0x6a88f854e07ce55d before Ruling FF items 5 and 6 (2026-11-16); was 0xfb0aef0e21ecf6b6 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 24 armed of 24; f1 standing 141 -> 274 under empire; was 0xebd8ba5ad09b16ce (before Ruling EV's basin routing); was 0x1b168f7d74de1342 (merge off, before Ruling EU item 1), 0x40150f5475edb4d6 (9a83061c), 0xc4c1ab53dfbd0250 (50a6fc6d), 0x3373836f05fd2a9f (09a217dd), 0x5e8dfd4bb51afb57 (9b0bec28)
+    (707, 800, 6, 0x387148c99c9fda6a, 0x37f9be96415ec86b), // manpower was 0xf7312ca37b88b0f2 before Ruling FK (2026-11-16); manpower was 0xb98a2e4294c151e0 before Ruling FI (2026-11-16); manpower was 0x9fd90d2f8afe00e6 before Ruling FF items 5 and 6 (2026-11-16); was 0xe61f4982af141b21 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 3133 -> 6086 under empire; was 0x93b8f99386a9ead0 (before Ruling EV's basin routing); was 0x5cbac70408df138c (merge off, before Ruling EU item 1), 0x4f9a6e604ffd9648 (9a83061c), 0x84c9fe7e30e6d628 (50a6fc6d), 0x3c1b811a681ef994 (09a217dd), 0xd4faed791bc4806d (9b0bec28)
+    (707, 800, 24, 0x629827ce9cd3ce9b, 0xb50c1926d9540534), // manpower was 0xc1121ee73f074e13 before Ruling FK (2026-11-16); manpower was 0x6055a1a52c23957d before Ruling FI (2026-11-16); manpower was 0x6a88f854e07ce55d before Ruling FF items 5 and 6 (2026-11-16); was 0xfb0aef0e21ecf6b6 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 24 armed of 24; f1 standing 141 -> 274 under empire; was 0xebd8ba5ad09b16ce (before Ruling EV's basin routing); was 0x1b168f7d74de1342 (merge off, before Ruling EU item 1), 0x40150f5475edb4d6 (9a83061c), 0xc4c1ab53dfbd0250 (50a6fc6d), 0x3373836f05fd2a9f (09a217dd), 0x5e8dfd4bb51afb57 (9b0bec28)
     (707, 40075, 6, 0x387148c99c9fda6a, 0x5d973028365e209d), // manpower was 0x7e7254ca2152fc8d before Ruling FI (2026-11-16); manpower was 0x19cd64c0275d9e81 before Ruling FF items 5 and 6 (2026-11-16); was 0xd95d0873b29acbe7 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 3172 -> 6162 under empire; was 0x27ec7c1bc4477098 (before Ruling EV's basin routing); was 0x5c27aa52c6324c16 (merge off, before Ruling EU item 1), 0x325c01cc92342341 (9a83061c), 0xba874abc6cef0dd8 (50a6fc6d), 0x57a839f04dd271e2 (09a217dd), 0x6bfe018f56856cd0 (9b0bec28)
     (707, 40075, 24, 0x629827ce9cd3ce9b, 0xf9833395938dc3f4), // manpower was 0x711945e2d897d9a9 before Ruling FI (2026-11-16); manpower was 0x9e9f9787ee528656 before Ruling FF items 5 and 6 (2026-11-16); was 0x434bdbb5980caefe (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 22 armed of 24; f1 standing 1422 -> 2762 under empire; was 0x75335243288211c4 (before Ruling EV's basin routing); was 0x6848e275052f0e9d (9a83061c), 0xab6410cafb16d9b9 (50a6fc6d), 0xbbc834eb6fc9668d (09a217dd), 0x2156b64519909040 (9b0bec28)
     (24601, 800, 6, 0x387148c99c9fda6a, 0xfef27edf82257d40), // manpower was 0xff490639aede967e before Ruling FI (2026-11-16); manpower was 0xab5d301df0d572ff before Ruling FF items 5 and 6 (2026-11-16); was 0xe0c210dd1606c326 (before the lake runoff share, 3ae0e658, and Ruling EX's river_front, 40747897); 6 armed of 6; f1 standing 817 -> 1588 under empire; was 0xafae7903b75fe44f (before Ruling EV's basin routing); was 0x3d91e72ac24b9f40 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x77bbfb32521d7dd0 (merge off, before Ruling EU item 1), 0x123fd1984c32de9c (9a83061c), 0x3aa52e78359cbdfd (50a6fc6d), 0xd9d08f090224da7b (09a217dd), 0x84342cc840db9ca6 (9b0bec28)
@@ -821,13 +827,15 @@ fn ea0_ecological_ordering_diagnostic() {
     // `civ.harbour_box` alone 124 / 10 / 156, both off the line above)
     // (121, 7, 162) after Ruling FI (2026-11-16; `civ.port_shore` alone reads 127 / 7 / 156, `civ.map_crossings`
     // alone 122 / 7 / 161, both off the line above)
-    assert_eq!((default.within, default.above, default.below), (121, 7, 162), "standing verdicts");
+    // (122, 7, 161) after Ruling FK (2026-11-16; `civ.port_reach` alone; with it off the line above)
+    assert_eq!((default.within, default.above, default.below), (122, 7, 161), "standing verdicts");
     // Ruling DE does not move E; Rulings DG/DJ's terrain does: 112 at 50a6fc6d,
     // 109 at 9a83061c, 117 after Ruling ER, 120 after Ruling ET
     // 111 after Ruling EX's river_front (120 before; 120 with it forced off, 2026-11-15)
     // 99 after Ruling FF items 5 and 6 (2026-11-16; 99 with `civ.map_rivers` alone, 111 with `civ.harbour_box` alone)
     // 105 after Ruling FI (2026-11-16; 99 with `civ.port_shore` alone, 105 with `civ.map_crossings` alone)
-    assert_eq!(default.eco_above_one, 105, "non-empty factions with E > 1");
+    // 106 after Ruling FK (2026-11-16; `civ.port_reach` alone; 105 with it off)
+    assert_eq!(default.eco_above_one, 106, "non-empty factions with E > 1");
     assert_eq!(unordered_worlds.len(), 0, "worlds with an unordered faction"); // before: 15
     assert_eq!((g1.ordered, g1.armed()), (160, 160), "forced G1 forms"); // before: 132
     assert_eq!((reference.ordered, reference.armed()), (160, 160), "forced reference forms"); // before: 128
@@ -877,16 +885,20 @@ fn ea0_ecological_ordering_diagnostic() {
     // RE-RECORDED 2026-11-16 (Ruling FI's `civ.port_shore` and `civ.map_crossings` moved the worlds; the model did
     // not; see `G1_0`'s note): the six before, in order: 0x2f1fbd33a767130e, 0x4f6bb9476bab86aa, 0x24c832e64c19ed32,
     // 0xc339f72c9a20102f, 0x1f0837dc434000a0, 0x7af6d06dc03d36d9. The four pre-industrial rows still read 290 ordered.
+    // RE-RECORDED 2026-11-16 (Ruling FK's `civ.port_reach` moved two worlds; the model did not; with it forced off
+    // every count and hash here held; see `G1_0`'s note): the six before, in order: 0xa0e2ad76e5968a5b,
+    // 0x7f0bf827c95e4dd5, 0x966146d98cf089f6, 0x786092b2766d3ff5, 0xf709b7c481b8a116, 0xd2016974fae5327d. Every
+    // ordered count, both industrial mobilization triples and `capped` are unchanged.
     let hashes: Vec<u64> = sweep_hash.iter().map(|h| h.0).collect();
     assert_eq!(
         hashes,
         vec![
-            0xa0e2ad76e5968a5b,
-            0x7f0bf827c95e4dd5,
-            0x966146d98cf089f6,
-            0x786092b2766d3ff5,
-            0xf709b7c481b8a116,
-            0xd2016974fae5327d,
+            0x4e2b00ad37fbc793,
+            0x2878c0ddc886ffe9,
+            0x937338a15ca8d3e9,
+            0x48e60129b69425e9,
+            0xdb810a7aff1bfe26,
+            0xfd92dc8c3684a768,
         ],
         "ag-tech sweep manpower hashes"
     );

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Runs the Ruling FK measurements: harbour_front_audit at 384 (four switch states) and 2048 (before, after).
+set -u
+export CARGO_TARGET_DIR=C:/cw/rulingfk_target
+EV=C:/cw/rulingfk/cartalith-native/docs/evidence/fk-harbour-front-2026-11-16
+cd C:/cw/rulingfk/cartalith-native
+run() { # name gw gh hf reach
+  TOWN_RIVER_GW=$2 TOWN_RIVER_GH=$3 TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_HF=$4 TOWN_RIVER_PORT_REACH=$5 \
+    cargo test --release -p cartalith-godot --lib harbour_front_audit -- --ignored --nocapture --test-threads 1 > $EV/$1.txt 2>&1
+  echo "$1 exit $?"
+}
+run before_384 384 288 0 0
+run after_384 384 288 1 1
+run hf_only_384 384 288 1 0
+run reach_only_384 384 288 0 1
+run before_2048 2048 1311 0 0
+run after_2048 2048 1311 1 1
+echo ALLDONE

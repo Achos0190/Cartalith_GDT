@@ -4378,6 +4378,32 @@ pub fn civ_settle_on_river(
 /// 2 048.
 pub const SHORE_NUDGE_KM: f64 = 4.0;
 
+/// How far, in km, the ocean may lie from a town for [`civ_is_coastal`] to
+/// call it a port candidate in [`place_settlements_on_rivers`] when its
+/// `port_reach` switch is on (owner Ruling FK item 2, 2026-11-16: *"port
+/// reach shrinks to about 4 km, so only towns that can reach the shore are
+/// port candidates"*). The owner's figure, and the same 4 km as
+/// [`SHORE_NUDGE_KM`] on purpose: a candidate the nudge cannot bring to a
+/// sea box within its reach is not a port. In whole cells it is
+/// `round(4 / cell_km)`, at least one: 2 cells (4.17 km) at 384 cells over
+/// 800 km, 10 cells (3.91 km) at 2 048. Off, the reference's
+/// `max(6, floor(gw / 60))` cells (about 12.5 km at 384, 13.3 km at 2 048;
+/// Rulings N and AR) stands.
+pub const PORT_REACH_KM: f64 = 4.0;
+
+/// [`civ_is_coastal`]'s radius, in cells, for [`place_settlements_on_rivers`]:
+/// the reference's `max(6, floor(gw / 60))` with `port_reach` off, and
+/// [`PORT_REACH_KM`] rounded to whole cells of `cell_km` (at least one) with it
+/// on (Ruling FK item 2). Must never return less than one cell: a zero radius
+/// would badge only a town standing in the ocean.
+pub fn civ_port_radius_cells(gw: usize, cell_km: f64, port_reach: bool) -> isize {
+    if port_reach {
+        ((PORT_REACH_KM / cell_km.max(1e-6)).round() as isize).max(1)
+    } else {
+        ((gw as f64 / 60.0) as isize).max(6)
+    }
+}
+
 /// Moves a port candidate at `(x, y)` (a town [`civ_is_coastal`] badges, ocean
 /// within its radius) whose own town box holds no sea onto the nearest cell
 /// whose box does, or `None` when it stays (Ruling FI items 1 and 3, owner
@@ -6187,7 +6213,7 @@ pub fn place_settlements_with_counts(
 ) -> Vec<SettlementPlacement> {
     place_settlements_on_rivers(
         seeds, suit, field, wb, lake_fill, gw, gh, sea, world, faction_count, flood, flow, flow_thresh, map_width_km, want_counts,
-        None, false,
+        None, false, false,
     )
 }
 
@@ -6220,7 +6246,14 @@ pub struct RiverOn<'a> {
 /// can), under the same dry-land, landmass and spacing tests. A town the radius
 /// test does not badge is never moved by it.
 ///
-/// `None` and `false` are [`place_settlements_with_counts`] by control flow:
+/// `port_reach` is Ruling FK item 2 (`civ.port_reach`, owner 2026-11-16): the
+/// radius [`civ_is_coastal`] badges a port candidate within is
+/// [`PORT_REACH_KM`] (about 4 km) instead of the reference's
+/// `max(6, floor(gw / 60))` cells (about 12.5 km at 384), through
+/// [`civ_port_radius_cells`]. It decides the badge everywhere this function
+/// takes it, so it also decides which towns the shore nudge may move.
+///
+/// `None`, `false` and `false` are [`place_settlements_with_counts`] by control flow:
 /// the reference boundary (`DECISIONS.md` section 7p) and every golden-parity
 /// caller.
 #[allow(clippy::too_many_arguments)]
@@ -6242,6 +6275,7 @@ pub fn place_settlements_on_rivers(
     want_counts: Option<[usize; 5]>,
     river: Option<RiverOn<'_>>,
     shore: bool,
+    port_reach: bool,
 ) -> Vec<SettlementPlacement> {
     let max_places = match want_counts {
         Some(w) => w.iter().sum(),
@@ -6290,8 +6324,9 @@ pub fn place_settlements_on_rivers(
 
     let (faction_of, capital_of) = assign_landmass_factions(&candidates, faction_count);
 
-    let coast_r: isize = ((gw as f64 / 60.0) as isize).max(6);
     let cell_km = (map_width_km / gw as f64).max(1e-6);
+    // Ruling FK item 2 (`port_reach`): about 4 km; off, the reference's radius.
+    let coast_r: isize = civ_port_radius_cells(gw, cell_km, port_reach);
     // `_umSiteProfile(pl).coastDistKm` (reference line 25574's `seaNear`
     // gate) is urban-morphology apparatus this port hasn't built; the same
     // "how far is the real ocean, in km" scalar is already available from
@@ -23912,7 +23947,7 @@ mod tests {
             on[y * gw + 13] = true;
         }
         let place = |river: Option<RiverOn<'_>>| {
-            place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None, river, false)
+            place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None, river, false, false)
         };
         let off = place(None);
         assert_eq!((off[0].x, off[0].y), (10, 10), "premise: suitability put it at (10, 10)");
@@ -23946,7 +23981,7 @@ mod tests {
         suit[20 * gw + 40] = 0.85;
         let seeds = vec![SettlementSeed { x: 15, y: 20, score: 0.9 }, SettlementSeed { x: 40, y: 20, score: 0.85 }];
         let (sea, km) = (0.42, 51.2);
-        let place = |shore: bool| place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore);
+        let place = |shore: bool| place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore, false);
         let box_sea = |x: usize, y: usize| urban_adapter::um_box_has_sea(&field, &wb, gw, gh, sea, km, x as f64, y as f64);
         assert!(box_sea(10, 20) && !box_sea(11, 20), "premise: only x = 10 has sea in the box");
         let off = place(false);
@@ -23961,7 +23996,7 @@ mod tests {
         // sees "sea", but the radius test does not badge the town, so it is no
         // port candidate and stays.
         let wb0 = vec![0u8; n];
-        let basin = place_settlements_on_rivers(&seeds, &suit, &field, &wb0, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, true);
+        let basin = place_settlements_on_rivers(&seeds, &suit, &field, &wb0, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, true, false);
         assert_eq!((basin[0].x, basin[0].coastal), (15, false), "not a port candidate: not moved");
         // The badge is re-taken where the town lands: ocean (`wb` 1) only at x < 2, and a low basin the
         // water-body pass did not call ocean (`wb` 0) east of x = 12. The town at x = 7 is a port
@@ -23972,12 +24007,58 @@ mod tests {
         let mut suit2 = vec![0.5f32; n];
         suit2[20 * gw + 7] = 0.9;
         let seeds2 = vec![SettlementSeed { x: 7, y: 20, score: 0.9 }];
-        let place2 = |shore: bool| place_settlements_on_rivers(&seeds2, &suit2, &field2, &wb2, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore);
+        let place2 = |shore: bool| place_settlements_on_rivers(&seeds2, &suit2, &field2, &wb2, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, shore, false);
         let off2 = place2(false);
         assert_eq!((off2[0].x, off2[0].coastal), (7, true), "premise: a port candidate at x = 7");
         let on2 = place2(true);
         assert_eq!(on2[0].x, 11, "moved to the nearest sea box, on the basin");
         assert!(!on2[0].coastal, "no ocean in the radius where it now stands: no badge");
+    }
+
+    #[test]
+    fn port_reach_badges_only_towns_within_about_4_km_of_the_ocean() {
+        // Protects Ruling FK item 2 (owner 2026-11-16, `civ.port_reach`) in
+        // placement, on the shore-nudge fixture above: ocean west of x = 10 on
+        // 0.8 km cells, sea in the town box only at x = 10. A town at x = 13 is
+        // 4 cells (3.2 km) from the ocean, one at x = 15 is 6 cells (4.8 km).
+        // Off, the reference's 6-cell radius badges both and the shore nudge
+        // moves both towards the sea; on, the radius is 5 cells (4 km), so the
+        // town at x = 15 is no port candidate and stays inland unbadged, while
+        // the one at x = 13 is still nudged to the shore (x = 10) and badged.
+        // MUTATION: ignoring `port_reach` (the reference radius), or a radius
+        // of 6 cells for 4 km, fails the x = 15 bar; a radius under 4 cells
+        // fails the x = 13 bar.
+        let (gw, gh) = (64usize, 40usize);
+        let n = gw * gh;
+        let field: Vec<f32> = (0..n).map(|i| if i % gw < 10 { 0.2 } else { 0.6 }).collect();
+        let wb: Vec<u8> = (0..n).map(|i| u8::from(i % gw < 10)).collect();
+        let lake_fill = vec![0.0f32; n];
+        let zeros = vec![0.0f32; n];
+        let mut suit = vec![0.5f32; n];
+        suit[10 * gw + 13] = 0.9;
+        suit[30 * gw + 15] = 0.85;
+        let seeds = vec![SettlementSeed { x: 13, y: 10, score: 0.9 }, SettlementSeed { x: 15, y: 30, score: 0.85 }];
+        let (sea, km) = (0.42, 51.2);
+        let place = |reach: bool| place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, sea, false, 1, &zeros, &zeros, 1.0, km, None, None, true, reach);
+        let off = place(false);
+        assert_eq!((off[0].x, off[0].coastal, off[1].x, off[1].coastal), (10, true, 10, true), "premise: off, both are port candidates and both reach the shore");
+        let on = place(true);
+        assert_eq!((on[0].x, on[0].y, on[0].coastal), (10, 10, true), "3.2 km from the ocean: still a port candidate, nudged to the shore");
+        assert_eq!((on[1].x, on[1].y, on[1].coastal), (15, 30, false), "4.8 km from the ocean: past about 4 km, no port and not moved");
+    }
+
+    #[test]
+    fn port_radius_cells_is_about_4_km_on_and_the_reference_off() {
+        // Protects `civ_port_radius_cells` (Ruling FK item 2): literals at the
+        // census grids (800 km over 384 and 2 048 cells), the reference's
+        // `max(6, floor(gw / 60))` with the switch off, and the one-cell floor
+        // on a coarse grid. MUTATION: `floor` for `round` gives 1 at 384;
+        // dropping the floor gives 0 at 100 km a cell.
+        assert_eq!(civ_port_radius_cells(384, 800.0 / 384.0, true), 2);
+        assert_eq!(civ_port_radius_cells(2048, 800.0 / 2048.0, true), 10);
+        assert_eq!(civ_port_radius_cells(384, 800.0 / 384.0, false), 6);
+        assert_eq!(civ_port_radius_cells(2048, 800.0 / 2048.0, false), 34);
+        assert_eq!(civ_port_radius_cells(64, 100.0, true), 1);
     }
 
     #[test]

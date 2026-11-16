@@ -132,6 +132,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("urban_riverbank", "On: river towns build to the bank, quays and houses on the water; big ones bridge and grow both banks (current). Off: one bank, set back. Read when drawn."),
     ("urban_street_village", "On: villages are rows of houses along their roads, the green at the landing or crossroads (current). Off: villages grow as small towns. Read when drawn."),
     ("urban_market_scale", "On: a town's market square, or a village green, is sized with its population (current). Off: one square size for every place. Read when drawn."),
+    ("urban_harbour_front", "On: harbour towns are built to their water and their river runs on to the sea (current). Off: centred on the map pin. Read when drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
@@ -255,6 +256,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
     ("civ.port_shore", "On: a coastal town whose town map has no sea moves up to 4 km to the shore and becomes a harbour (current). Off: it stays put, as older worlds did."),
     ("civ.map_crossings", "On: roads pay a ford or bridge wherever they cross a river the map draws (current). Off: only bigger rivers cost to cross, as older worlds did."),
+    ("civ.port_reach", "On: a town is a port candidate only with the sea within about 4 km (current). Off: up to about 12.5 km, as older worlds did."),
     ("civ.base_ag_tech", "Raise: every faction starts with more advanced farming, 0 hoe to 5 industrial. Lower: simpler farming. Applies to a newly generated world."),
 ];
 
@@ -291,7 +293,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }

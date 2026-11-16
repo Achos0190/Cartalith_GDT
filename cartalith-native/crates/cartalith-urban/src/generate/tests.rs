@@ -293,6 +293,9 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         riverbank: false,
         // Nor a population-scaled square (change 6): the reference's one size.
         market_scale: false,
+        // Nor a harbour front (Ruling FK item 1): the market at the box centre.
+        harbour_front: false,
+        water_to_sea: None,
     }
 }
 

@@ -2267,6 +2267,7 @@ fn box_water(river: bool, sea_frac: f64) -> UmWater {
         },
         mostly_water: false,
         sea_frac,
+        to_sea: None,
     }
 }
 
@@ -2419,4 +2420,164 @@ fn box_sea_test_matches_the_layouts_own_sea_share() {
     assert!(!has(20.0, 30.0), "a dry inland box");
     assert!(has(10.0, 60.0), "a box in open sea");
     assert!(!has(31.5, 60.0), "a box over a lake is not sea");
+}
+
+/// A fine-grained copy of the fixture's world for Ruling FK's river mouth:
+/// the same 64 x 64 field (sea from row 48, so the bilinear coast crosses at
+/// y = 47.68) on a 12.8 km map, so a cell is 200 m and the 1.7 x 1.25 km town
+/// box spans 8.5 x 6.25 cells. `polys` are traced in the producer's frame.
+fn mouth_world<'a>(f: &'a Fixture, order: &'a [i16], polys: &'a [Vec<(f64, f64)>]) -> UrbanWorld<'a> {
+    UrbanWorld { order: Some(order), river_polys: polys, map_width_km: 12.8, ..f.world() }
+}
+
+/// The fixture's stem as a river reaching row 45: three cells (about 540 m)
+/// short of the coast, the way a coarse trace ends at the last land cell.
+fn mouth_stem() -> Vec<(f64, f64)> {
+    (30..=45).map(|y| traced(20, y)).collect()
+}
+
+/// Protects Ruling FK item 1's river half (`um_water_ctx_with`, `river_to_sea`):
+/// a town at the river's last cell (20, 45), whose box holds sea at its south
+/// edge (local y over 1 161 m, 7 % of the box), gets its river carried on to the
+/// sea with `to_sea`: the path ends inside the sea, the new points run south
+/// from the old end (within 4 m of x = 850: the target is the nearest sea
+/// cell's centre, x = 847), and the stamped band follows it (the mask is wet at
+/// (850, 1 000) on, dry off). Off, the path ends at the box centre, the
+/// reference (`um_water_ctx`). MUTATION: skipping the extension, aiming at
+/// the farthest sea cell, or stopping at the sea's edge (no cell beyond)
+/// fails a bar.
+#[test]
+fn a_river_ending_in_a_seaside_box_is_carried_to_the_sea() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![mouth_stem()];
+    let w = mouth_world(&f, &order, &polys);
+    let off = um_water_ctx(&w, 20.0, 45.0).expect("a river town");
+    let off_path = off.ctx.river_path.as_ref().expect("the stem");
+    let end = *off_path.last().unwrap();
+    assert!((end.x - 850.0).abs() < 1e-9 && (end.y - 625.0).abs() < 1e-9, "premise: off, the river ends at the box centre: {end:?}");
+    assert!(off.sea_frac > BOX_SEA_FRAC, "premise: the box holds sea ({})", off.sea_frac);
+    let on = um_water_ctx_with(&w, 20.0, 45.0, true).expect("a river town");
+    assert_eq!(on.ctx.river_path, off.ctx.river_path, "the traced context is unchanged");
+    let sea = on.to_sea.as_ref().expect("the river carried on, as a second context");
+    let path = sea.river_path.as_ref().expect("the stem");
+    assert_eq!(&path[..off_path.len()], &off_path[..], "the traced river is kept as it was");
+    let last = *path.last().unwrap();
+    assert!(last.y > 1161.0 + 22.0 && last.y < 1250.0 + 30.0, "the river runs into the sea: {last:?}");
+    assert!(path[off_path.len()..].iter().all(|p| (p.x - 850.0).abs() < 4.0), "straight south to the nearest sea");
+    let cell = |c: &WaterCtx, x: f64, y: f64| c.mask[(y / c.cell_m).floor() as usize * c.mw + (x / c.cell_m).floor() as usize];
+    assert_eq!((cell(&off.ctx, 850.0, 1000.0), cell(sea, 850.0, 1000.0)), (0, 1), "the band is stamped along the new reach");
+    assert_eq!(sea.open_water, off.ctx.open_water, "open water is the world's, unchanged");
+    assert!(um_water_ctx_with(&w, 20.0, 45.0, false).is_some_and(|u| u.to_sea.is_none()), "off: no second context");
+}
+
+/// Protects the junction half (`river_downstream`): a stem that stops on a
+/// trunk (the trunk along row 45 passes through the stem's last cell) is
+/// carried down the trunk, eastward to the edge of the search radius (6.375
+/// cells, so cells 21..26), and not to the sea from there, since the radius
+/// cut the trunk rather than the trunk ending; a trunk that ends one cell on,
+/// at (21, 45), inside the box, is followed to its end and carried from there
+/// to the sea; a higher tributary cell beside that end is not taken for a
+/// trunk. MUTATION: no trunk walk (the path ends at the junction), carrying a
+/// cut trunk to the sea, or dropping the height test fails a bar.
+#[test]
+fn a_river_that_stops_on_a_trunk_follows_it_downstream() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let joined = vec![mouth_stem(), (10..=30).map(|x| traced(x, 45)).collect()];
+    let w = mouth_world(&f, &order, &joined);
+    let path = |w: &UrbanWorld, on: bool| um_water_ctx_with(w, 20.0, 45.0, on).and_then(|u| u.to_sea.and_then(|c| c.river_path).or(u.ctx.river_path)).expect("a river");
+    let (off, on) = (path(&w, false), path(&w, true));
+    assert_eq!(&on[..off.len()], &off[..], "the stem as traced");
+    let tail: Vec<Vec2> = on[off.len()..].to_vec();
+    assert_eq!(tail.len(), 6, "the trunk's cells 21..26 inside the radius: {tail:?}");
+    assert!(tail.iter().all(|p| (p.y - 625.0).abs() < 1e-9), "along the trunk's row, not to the sea");
+    assert!((tail[5].x - (850.0 + 6.0 * 200.0)).abs() < 1e-6, "{:?}", tail[5]);
+    // A trunk ending at (21, 45): followed to its end, then to the sea.
+    let short = vec![mouth_stem(), (10..=21).map(|x| traced(x, 45)).collect()];
+    let ws = mouth_world(&f, &order, &short);
+    let p = path(&ws, true);
+    assert!((p[off.len()].x - 1050.0).abs() < 1e-6 && (p[off.len()].y - 625.0).abs() < 1e-6, "the trunk's last cell: {:?}", p[off.len()]);
+    assert!(p.last().is_some_and(|e| e.y > 1161.0), "then on to the sea: {:?}", p.last());
+    // A parallel tributary whose cell (22, 44) is beside the trunk's end but
+    // higher (one row north) is no trunk for it: the river goes on to the sea
+    // from (21, 45), not up that tributary.
+    let beside = vec![mouth_stem(), (10..=21).map(|x| traced(x, 45)).collect(), vec![traced(22, 40), traced(22, 42), traced(22, 44), traced(23, 44)]];
+    let wb = mouth_world(&f, &order, &beside);
+    let q = path(&wb, true);
+    assert!(q[off.len() + 1].y > 625.0, "south to the sea, not north up the tributary: {:?}", &q[off.len()..]);
+}
+
+/// Protects the cut-trunk refusal (`um_water_ctx_with`'s `at_end`): on a
+/// finer map (25 km over 64 cells, 390.6 m a cell, so the 1 275 m search
+/// radius is 3.26 cells and the box's half-diagonal 2.70) a stem stopping on a
+/// trunk that runs west is followed to (18, 45), the last trunk point inside
+/// the radius, which stands inside the box (local (69, 98)); the trunk runs on
+/// past the radius, so the river is not carried from there to the sea, though
+/// the box holds sea. MUTATION: dropping `at_end` carries it to the sea.
+#[test]
+fn a_trunk_cut_by_the_search_radius_is_not_carried_to_the_sea() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![mouth_stem(), (10..=20).rev().map(|x| traced(x, 45)).collect()];
+    let w = UrbanWorld { order: Some(&order), river_polys: &polys, map_width_km: 25.0, ..f.world() };
+    let u = um_water_ctx_with(&w, 20.0, 46.35, true).expect("a river town");
+    assert!(u.sea_frac > BOX_SEA_FRAC, "premise: the box holds sea ({})", u.sea_frac);
+    let p = u.to_sea.and_then(|c| c.river_path).expect("the trunk followed, as a second context");
+    let last = *p.last().unwrap();
+    assert!((last.x - 69.0).abs() < 1.0 && (last.y - 98.0).abs() < 1.0, "ends where the radius cut the trunk: {last:?}");
+}
+
+/// Protects `river_to_sea`'s refusals: a box with only a sliver of sea (2 %
+/// or less, `BOX_SEA_FRAC`), a lake nearer than the sea (the river feeds the
+/// lake), and an end outside the box each leave the path as traced.
+/// MUTATION: dropping the sea share, the lake test or the in-box test fails
+/// its bar.
+#[test]
+fn a_river_is_not_carried_on_at_a_sliver_a_lake_or_outside_the_box() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let len = |w: &UrbanWorld, x: f64, y: f64, on: bool| um_water_ctx_with(w, x, y, on).and_then(|u| u.to_sea.and_then(|c| c.river_path).or(u.ctx.river_path).map(|p| p.len()));
+    // A sliver: the box's south edge reaches 9 m past the coast.
+    let polys = vec![mouth_stem()];
+    let w = mouth_world(&f, &order, &polys);
+    let sliver = um_water_ctx(&w, 20.0, 44.6).expect("a river town");
+    assert!(sliver.sea_frac > 0.0 && sliver.sea_frac <= BOX_SEA_FRAC, "premise: a sliver ({})", sliver.sea_frac);
+    assert_eq!(len(&w, 20.0, 44.6, true), len(&w, 20.0, 44.6, false), "a sliver of sea: not carried on");
+    assert!(len(&w, 20.0, 45.0, true) > len(&w, 20.0, 45.0, false), "control: the same river is carried on at (20, 45)");
+    // A lake cell south of the end, nearer than the sea.
+    let mut fl = Fixture::new();
+    fl.water_bodies[46 * GW + 20] = 2;
+    let wl = mouth_world(&fl, &order, &polys);
+    assert_eq!(len(&wl, 20.0, 45.0, true), len(&wl, 20.0, 45.0, false), "a lake nearer than the sea: not carried on");
+    // An end outside the box (local x -50): unchanged.
+    let mut p = vec![Vec2::new(400.0, 600.0), Vec2::new(-50.0, 600.0)];
+    let to_grid = |lx: f64, ly: f64| (20.0 + (lx - 850.0) / 200.0, 45.0 + (ly - 625.0) / 200.0);
+    river_to_sea(&w, &to_grid, &mut p);
+    assert_eq!(p.len(), 2, "an end outside the box: not carried on");
+}
+
+/// Protects the adapter's harbour-front flag (Ruling FK item 1): carried to
+/// the layout only for a box that holds sea, so an inland river town's market
+/// stays where the reference puts it; and the layout of the river-mouth town
+/// moves its market off the pin toward the sea, onto dry land, while the pin
+/// stays at the box centre and the river reaches the sea. MUTATION: setting
+/// the flag regardless of the sea, or dropping it in `run_layout`, fails a bar.
+#[test]
+fn the_harbour_front_reaches_only_seaside_boxes_and_moves_the_market_to_the_water() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![mouth_stem()];
+    let w = mouth_world(&f, &order, &polys);
+    let o = PlaceOverrides { harbour_front: true, riverbank: true, ..Default::default() };
+    let inland = um_place_context_with(&w, &settlement(20, 36, 3_000), &[], &o);
+    assert!(inland.water.is_some() && !inland.harbour_front, "an inland river town: no harbour front");
+    let ctx = um_place_context_with(&w, &settlement(20, 45, 3_000), &[], &o);
+    assert!(ctx.harbour_front, "a seaside box: the harbour front");
+    let l = run_layout(&ctx, None).expect("a layout");
+    assert_eq!(l.pin, Vec2::new(850.0, 625.0), "the pin is the box centre");
+    assert!(l.market.y > 625.0 + 300.0, "the market moved south toward the sea: {:?}", l.market);
+    assert!(l.river.last().is_some_and(|e| e.y > 1161.0), "the layout's river reaches the sea");
+    let off = run_layout(&um_place_context_with(&w, &settlement(20, 45, 3_000), &[], &PlaceOverrides { riverbank: true, ..Default::default() }), None).expect("a layout");
+    assert_eq!(off.pin, off.market, "off: the pin is the market (the reference)");
 }

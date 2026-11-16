@@ -739,7 +739,7 @@ fn the_far_bank_pass_is_capped_and_grows_only_the_far_bank() {
 #[test]
 fn second_pass_asks_for_the_shortfall_and_the_village_refit() {
     use super::{RiverbankPass, second_pass};
-    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First);
+    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First, false);
     assert!(first.both_banks && first.riverbank && first.riverbank_pass == Some(RiverbankPass::First));
     let with = |pop: f64, target: f64| {
         let mut t = first.clone();
@@ -770,7 +770,7 @@ fn second_pass_asks_for_the_shortfall_and_the_village_refit() {
 #[test]
 fn growing_the_far_bank_does_not_shrink_the_market_bank() {
     use super::RiverbankPass;
-    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First);
+    let first = crate::generate::generate_pass(4242, &opts(true, true), RiverbankPass::First, false);
     let both = generate(4242, &opts(true, true));
     assert!(matches!(both.riverbank_pass, Some(RiverbankPass::FarBank { .. })), "{:?}", both.riverbank_pass);
     let market_north = north(first.anchors.market);
@@ -793,7 +793,7 @@ fn growing_the_far_bank_does_not_shrink_the_market_bank() {
 #[test]
 fn a_village_is_refit_by_its_street_scale_and_trimmed_only_as_a_last_resort() {
     use std::cell::RefCell;
-    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First, false);
     let mk = |pop: f64| {
         let mut t = base.clone();
         t.pop = pop;
@@ -870,7 +870,7 @@ fn a_riverbank_square_stands_by_its_market_on_its_bank() {
 #[test]
 fn a_village_refit_follows_the_secant_to_its_aim() {
     use std::cell::RefCell;
-    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First, false);
     let mk = |pop: f64| {
         let mut t = base.clone();
         t.pop = pop;
@@ -895,7 +895,7 @@ fn a_village_refit_follows_the_secant_to_its_aim() {
 #[test]
 fn an_unfittable_village_trims_the_layout_nearest_the_cap() {
     use std::cell::RefCell;
-    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First);
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) }, super::RiverbankPass::First, false);
     let mk = |pop: f64| {
         let mut t = base.clone();
         t.pop = pop;
@@ -1025,7 +1025,7 @@ fn a_street_village_keeps_its_market_road() {
 #[test]
 fn a_short_street_village_is_given_more_lanes() {
     use std::cell::RefCell;
-    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), street_village: true, ..opts(false, true) }, super::RiverbankPass::First);
+    let base = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), street_village: true, ..opts(false, true) }, super::RiverbankPass::First, false);
     assert!(base.street_village && base.riverbank_pass == Some(super::RiverbankPass::First));
     let mk = |pop: f64| {
         let mut t = base.clone();

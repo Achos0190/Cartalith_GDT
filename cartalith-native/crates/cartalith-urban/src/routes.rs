@@ -333,11 +333,44 @@ pub fn build_primaries(_seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph
 /// This function is therefore pure geometry over the host's own roads: no RNG,
 /// no cost raster, no terrain.
 pub fn build_primaries_from_paths(
+    seed: u32,
+    site: &Site,
+    anchors: &Anchors,
+    g: &mut Graph,
+    paths: &[Vec<Vec2>],
+) -> Vec<Route> {
+    build_primaries_from_paths_at(seed, site, anchors, g, paths, anchors.market)
+}
+
+/// [`build_primaries_from_paths`] with the host's offsets measured from
+/// `origin` instead of from the market. **Not the reference** -- Ruling FK
+/// item 1 (2026-11-16): where the harbour front moved a town's market off the
+/// map pin (`crate::generate::Town::pin`), the host's roads, which are offsets
+/// from the pin, are laid from the pin so they stay on the map's roads.
+///
+/// With `origin` the market this is the reference, byte for byte: each road's
+/// inner end is anchored on the market. With another origin the market no
+/// longer stands at the roads' common end, and the straight join the reference
+/// draws from the market to that end can run along or across the river or sea
+/// between them, where `remove_water_crossings` cuts it and the prune then
+/// keeps one piece only (a street village kept its market's piece and lost
+/// every road: 912345 221:102 in this change's first frames). So each road is
+/// joined to the market at its nearest point that is dry and reached by a dry
+/// straight line ([`dry_join`]); the stretch between the road's inner end and
+/// that point is left to the map, which draws it anyway. A road with no such
+/// point (it lies across a river from the market) is joined as the reference
+/// joins it, at its inner end, so it crosses where the reference's would, and
+/// the water-crossing sweep treats it as it treats the reference's: a road
+/// left unjoined became its own component, which the street village's prune
+/// then dropped with every house on it (483920 #5 at 384 x 288, 166 of 400
+/// housed).
+pub fn build_primaries_from_paths_at(
     _seed: u32,
     site: &Site,
     anchors: &Anchors,
     g: &mut Graph,
     paths: &[Vec<Vec2>],
+    origin: Vec2,
 ) -> Vec<Route> {
     let m = anchors.market;
     let mut routes: Vec<Route> = Vec::new();
@@ -350,7 +383,7 @@ pub fn build_primaries_from_paths(
         }
         let mut pts: Vec<Vec2> = Vec::new();
         for o in path {
-            let q = Vec2::new(m.x + o.x, m.y + o.y);
+            let q = Vec2::new(origin.x + o.x, origin.y + o.y);
             if in_box(q) {
                 pts.push(q);
             } else {
@@ -360,7 +393,18 @@ pub fn build_primaries_from_paths(
         if pts.len() < 2 {
             continue;
         }
-        if pts[0].dist(m) > 1.0 {
+        if origin != m
+            && let Some(k) = dry_join(site, m, &pts)
+        {
+            // Ruling FK item 1: join at the nearest dry point (see the doc).
+            pts.drain(..k);
+            if pts.len() < 2 && pts[0].dist(m) <= 1.0 {
+                continue;
+            }
+            if pts[0].dist(m) > 1.0 {
+                pts.insert(0, Vec2::new(m.x, m.y));
+            }
+        } else if pts[0].dist(m) > 1.0 {
             // anchor the inner end on the market
             pts.insert(0, Vec2::new(m.x, m.y));
         }
@@ -377,4 +421,26 @@ pub fn build_primaries_from_paths(
         routes.push(Route { pts: sm, i: None });
     }
     routes
+}
+
+/// **Not the reference** -- Ruling FK item 1: the index of the point of road
+/// `pts` nearest the market `m` that is itself dry and that a straight line
+/// from `m` reaches without touching water, or `None`. Water is
+/// [`Site::is_water`] at nine interior samples of the line (the samples
+/// `crate::cleanup::remove_water_crossings` tests a street with), so a join
+/// this accepts is one that sweep keeps. Ties go to the earlier point (the
+/// nearer the road's inner end). For [`build_primaries_from_paths_at`] only.
+pub fn dry_join(site: &Site, m: Vec2, pts: &[Vec2]) -> Option<usize> {
+    let mut best: Option<(f64, usize)> = None;
+    for (k, &p) in pts.iter().enumerate() {
+        let d = p.dist(m);
+        if best.is_some_and(|(bd, _)| d >= bd) || site.is_water(p) {
+            continue;
+        }
+        if (1..10).any(|i| site.is_water(m.lerp(p, i as f64 / 10.0))) {
+            continue;
+        }
+        best = Some((d, k));
+    }
+    best.map(|(_, k)| k)
 }

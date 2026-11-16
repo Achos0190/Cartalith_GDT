@@ -23,7 +23,7 @@
 //! - `drawn`: where the town layer draws that same river, against where the
 //!   map draws it. Each vertex of the layout's own river polyline is carried
 //!   back to grid units through `map_overlay.gd`'s `_draw_urban_layouts`
-//!   transform (`s.x + 0.5 + (local - market) * grid_per_meter`, orient 0
+//!   transform (`s.x + 0.5 + (local - pin) * grid_per_meter`, orient 0
 //!   because a real-water site is never rotated) and its distance to the
 //!   traced polyline is taken; the median over vertices is printed, in cells.
 //!   Zero means the town's river lies on the map's river.
@@ -76,6 +76,13 @@
 //! (`cartalith_civ::civ_crossing_charge_map`: free and priced) and the drawn
 //! road length. Numbers in `docs/evidence/fi-ports-shore-2026-11-16/`.
 //!
+//! **`harbour_front_audit`** (2026-11-16, owner Ruling FK) lays every town out
+//! as the app does and counts ports, sea lanes, harbours over one street
+//! (`HARBOUR_REACH_M`) from their water, river-mouth towns whose layout river
+//! stops short, buildings in water and the wall measures; `TOWN_RIVER_HF=0|1`
+//! and `TOWN_RIVER_PORT_REACH=0|1` give each switch's "before". Numbers in
+//! `docs/evidence/fk-harbour-front-2026-11-16/`.
+//!
 //! **`town_housing_audit`** (2026-11-15, the FH-R2 building-count drop) lays
 //! every town out with `urban_riverbank` off and on and reports buildings,
 //! housed population against `pop_target` and buildings in water; see its
@@ -117,6 +124,11 @@ fn generate_world(
     }
     if let Ok(v) = std::env::var("TOWN_RIVER_MAP_CROSSINGS") {
         p.civ.map_crossings = v != "0";
+    }
+    // Ruling FK item 2 (2026-11-16): `TOWN_RIVER_PORT_REACH=0` badges port
+    // candidates within the reference's radius (about 12.5 km): the "before".
+    if let Ok(v) = std::env::var("TOWN_RIVER_PORT_REACH") {
+        p.civ.port_reach = v != "0";
     }
     match flip {
         1 => {
@@ -327,7 +339,7 @@ fn town_river_census() {
             }
             let world = line_dist(marker, pl);
             let Some(l) = run_layout(&ctx, None) else { continue };
-            let to_grid = |v: Vec2| (marker.0 + (v.x - l.market.x) * gpm, marker.1 + (v.y - l.market.y) * gpm);
+            let to_grid = |v: Vec2| (marker.0 + (v.x - l.pin.x) * gpm, marker.1 + (v.y - l.pin.y) * gpm);
             let real = ctx.water.as_ref().is_some_and(|w| w.ctx.has_real_river_path());
             let mut dv: Vec<f64> =
                 if real { l.river.iter().filter_map(|&v| line_dist(to_grid(v), pl)).collect() } else { Vec::new() };
@@ -412,7 +424,7 @@ fn write_dump(
     gpm: f64,
 ) {
     let marker = (px + 0.5, py + 0.5);
-    let to_local = |g: (f64, f64)| (l.market.x + (g.0 - marker.0) / gpm, l.market.y + (g.1 - marker.1) / gpm);
+    let to_local = |g: (f64, f64)| (l.pin.x + (g.0 - marker.0) / gpm, l.pin.y + (g.1 - marker.1) / gpm);
     let pts = |v: &[(f64, f64)]| -> String {
         let s: Vec<String> = v.iter().map(|p| format!("[{:.1},{:.1}]", p.0, p.1)).collect();
         format!("[{}]", s.join(","))
@@ -800,7 +812,7 @@ fn town_placement_audit() {
             }
             let mut crossing_off = Vec::new();
             if let Some(l) = layout.as_ref() {
-                let to_grid = |v: Vec2| (m.0 + (v.x - l.market.x) * gpm, m.1 + (v.y - l.market.y) * gpm);
+                let to_grid = |v: Vec2| (m.0 + (v.x - l.pin.x) * gpm, m.1 + (v.y - l.pin.y) * gpm);
                 let mut pts: Vec<Vec2> = l.bridges.as_ref().map(|b| b.iter().map(|b| b.pt).collect()).unwrap_or_default();
                 if let Some(f) = l.ford.as_ref() {
                     pts.push(f.pt);
@@ -2212,4 +2224,263 @@ fn both_banks_audit() {
         over(2.0)
     );
     println!("  buildings in water: river channel {wet_ch}, sea or lake cell {wet_open}, water_poly {wet_poly}; within half river_w of a coast's shoreline polyline (not water) {wet_shore}");
+}
+
+/// How far from its water, metres, a harbour's nearest building may stand and
+/// still count as built to it in [`harbour_front_audit`]: **one street**, the
+/// quay, between the houses and the drawn water: the layout's own line
+/// (`cartalith_urban::generate::HARBOUR_REACH_M`, 23 m, whose doc gives the
+/// arithmetic), so the census and the layout cannot disagree about it.
+const HARBOUR_STREET_GAP_M: f64 = cartalith_civ::urban_adapter::HARBOUR_REACH_M;
+
+/// **The harbour-front audit** (owner Ruling FK, 2026-11-16: *"harbour towns
+/// lay out to their water"* and *"port reach shrinks to about 4 km"*). Every
+/// settlement of each seed laid out as the app lays it out (`params::defaults`:
+/// the wall hug, the riverbank geometry, street villages and the square scale
+/// as the app sets them), with `urban_harbour_front` from `params::defaults`
+/// unless `TOWN_RIVER_HF=0|1` overrides it, and `civ.port_reach` unless
+/// `TOWN_RIVER_PORT_REACH=0|1` does ([`generate_world`]). It prints, per seed
+/// and pooled:
+///
+/// - ports (the harbour badge) and sea lanes;
+/// - harbours (badged, with sea in the box) whose nearest building, vertex or
+///   edge midpoint, stands more than [`HARBOUR_STREET_GAP_M`] from the box's
+///   open water (`WaterCtx::open_water`, the raster the City Viewer draws as
+///   the town's sea), with the spread of that gap; target 0. Then the same for
+///   the town's **body** only (buildings whose centroid is within `max_rf` of
+///   the market, `cartalith_urban::generate::town_reaches_water`'s test): the
+///   reference's quay houses stand at the shore however far inland the town
+///   is, so the first count alone missed a wall 650 m from its sea;
+/// - river-mouth towns: laid out `river`/`riverthrough` with sea in the box and
+///   the layout river's downstream end (its last point: the trace runs
+///   downstream and the layout keeps the order) inside the box; of them, those
+///   whose river fails to reach the water (that end more than half the river's
+///   width plus half a cell from open water), with the ones ending on a trunk
+///   (`um_river_ends_on_trunk`, the adapter's own rule: the trunk carries the
+///   river on) counted apart; target 0;
+/// - river towns off their river (the placement audit's
+///   `river_town_off_river`: the proxy calls it a river town and the map's
+///   river runs farther than 625 m from the marker);
+/// - buildings in water ([`wet_buildings`]; must be 0);
+/// - walled towns of `PLAZA_MARKET_POP` and up: wall length over hull length
+///   ([`wall_tautness`]); walled towns whose square (else market point) stands
+///   outside the wall by more than [`BANK_STREET_W`]; and wall rings with a
+///   sample (every 4 m) in an open-water cell;
+/// - harbour markets the switch moved, and how far (market to `pin`).
+///
+/// `TOWN_RIVER_LIST=1` prints a row per harbour and river-mouth town. A
+/// measurement, not a gate: the gates are `cartalith-urban`'s
+/// `harbour_front` tests and `cartalith-civ`'s `river_to_sea` and port-reach
+/// tests. Numbers quoted in `STATUS.md` are in
+/// `docs/evidence/fk-harbour-front-2026-11-16/`.
+#[test]
+#[ignore = "measurement; see the doc comment"]
+fn harbour_front_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    // Pooled: ports, lanes, harbours judged, harbours over the gap, river-mouth
+    // towns, failing, at a junction, river towns, off their river, buildings in
+    // water, walled, square outside, ring in water, markets moved.
+    let mut tot = [0usize; 15];
+    let (mut gaps, mut hull, mut hull_h, mut moved): (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut body_gaps: Vec<f64> = Vec::new();
+    let mut hf_on = None;
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, true);
+        let hf = std::env::var("TOWN_RIVER_HF").map_or(p.urban_harbour_front, |v| v != "0");
+        hf_on = Some((hf, p.civ.port_reach));
+        let gpm = gw as f64 / (p.map_width_km * 1000.0);
+        let cell_m = 1.0 / gpm;
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
+        };
+        let mut c = [0usize; 15];
+        c[0] = civ.settlements.iter().filter(|s| s.placement.coastal).count();
+        c[1] = civ.sea_routes.len();
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let (x, y) = (s.placement.x, s.placement.y);
+            let m = (x as f64 + 0.5, y as f64 + 0.5);
+            // Off their river: the placement audit's own test.
+            let proxy = cartalith_civ::urban_adapter::um_site_kind_from_terrain(&uw, x as f64, y as f64);
+            if proxy == "river" || proxy == "riverthrough" {
+                c[7] += 1;
+                let mut river_m = f64::INFINITY;
+                for pl in &river_polys {
+                    if pl.len() == 1 {
+                        river_m = river_m.min(((pl[0].0 - m.0).powi(2) + (pl[0].1 - m.1).powi(2)).sqrt() * cell_m);
+                    }
+                    for w in pl.windows(2) {
+                        river_m = river_m.min(seg_dist(m, w[0], w[1]) * cell_m);
+                    }
+                }
+                c[8] += usize::from(river_m > cartalith_civ::urban_adapter::SITE_HM / 2.0);
+            }
+            let o = PlaceOverrides {
+                faith: civ.town_faith(s),
+                wall_hug: p.urban_wall_hug,
+                riverbank: p.urban_riverbank,
+                street_village: street_village(&p),
+                market_scale: market_scale(&p),
+                harbour_front: hf,
+                ..Default::default()
+            };
+            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+            let Some(l) = run_layout(&ctx, None) else { continue };
+            let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            c[9] += wet_buildings(&l, open);
+            let sea_box = cartalith_civ::urban_adapter::um_box_has_sea(&ws.field, &civ.water_bodies, gw, gh, ws.sea_level, p.map_width_km, x as f64, y as f64);
+            let mut row = String::new();
+            let shift = l.market.dist(l.pin);
+            if shift > 0.0 {
+                c[13] += 1;
+                moved.push(shift);
+                row += &format!(" market moved {shift:.0} m");
+            }
+            // Harbours: the nearest building to the open water.
+            if s.placement.coastal && sea_box && let Some(o) = open {
+                let mut best = f64::INFINITY;
+                for b in &l.buildings {
+                    let n = b.poly.len();
+                    for k in 0..n {
+                        let (a, e) = (b.poly[k], b.poly[(k + 1) % n]);
+                        for q in [(a.x, a.y), ((a.x + e.x) / 2.0, (a.y + e.y) / 2.0)] {
+                            if let Some(d) = mask_dist(o, q, 90) {
+                                best = best.min(d);
+                            }
+                        }
+                    }
+                }
+                // The town's body: buildings within `max_rf` of the market (the
+                // growth radius; the quay's own houses can stand at the shore
+                // with the town far inland), as `town_reaches_water` reads it.
+                let mut body = f64::INFINITY;
+                for b in l.buildings.iter().filter(|b| cartalith_civ::urban_adapter::poly_centroid(&b.poly).dist(l.market) <= l.max_rf) {
+                    for v in &b.poly {
+                        if let Some(d) = mask_dist(o, (v.x, v.y), 90) {
+                            body = body.min(d);
+                        }
+                    }
+                }
+                if best.is_finite() {
+                    c[2] += 1;
+                    gaps.push(best);
+                    c[3] += usize::from(best > HARBOUR_STREET_GAP_M);
+                    c[14] += usize::from(!(body <= HARBOUR_STREET_GAP_M));
+                    body_gaps.push(body.min(9999.0));
+                    row += &format!(" harbour: nearest building {best:.0} m from its water (town body {body:.0} m), housed {:.0} of {:.0}", l.pop, l.pop_target);
+                } else {
+                    row += " harbour: no building or no water raster";
+                }
+            }
+            // River-mouth towns: the layout river's downstream end in the box.
+            let river_kind = l.site_kind == "river" || l.site_kind == "riverthrough";
+            if river_kind && sea_box && l.river.len() >= 2 && let Some(o) = open {
+                let end = *l.river.last().unwrap();
+                if end.x >= 0.0 && end.y >= 0.0 && end.x <= l.wm && end.y <= l.hm {
+                    c[4] += 1;
+                    let d = mask_dist(o, (end.x, end.y), 90).unwrap_or(f64::INFINITY);
+                    let reaches = d <= l.river_w / 2.0 + o.3 / 2.0;
+                    // The end in the world's cell frame: a real-water box is
+                    // sampled round its centre, which is the settlement's cell
+                    // (`um_water_ctx`), whatever the drawn anchor.
+                    let g = (x as f64 + (end.x - l.wm / 2.0) * gpm, y as f64 + (end.y - l.hm / 2.0) * gpm);
+                    let junction = cartalith_civ::urban_adapter::um_river_ends_on_trunk(&uw, g);
+                    if !reaches {
+                        if junction { c[6] += 1 } else { c[5] += 1 }
+                    }
+                    row += &format!(" river-mouth: end {d:.0} m from open water{}", if reaches { "" } else if junction { " (FAILS, at a junction)" } else { " (FAILS)" });
+                }
+            }
+            // The wall against the town and its water.
+            if let Some(ring) = l.wall.ring.as_ref().filter(|r| r.len() >= 3 && !l.buildings.is_empty()) {
+                let rg: Vec<(f64, f64)> = ring.iter().map(|v| (v.x, v.y)).collect();
+                c[10] += 1;
+                let mk = l.plaza.as_ref().map_or(l.market, |z| z.center);
+                let ring_d = (0..rg.len()).map(|k| seg_dist((mk.x, mk.y), rg[k], rg[(k + 1) % rg.len()])).fold(f64::INFINITY, f64::min);
+                let out = !in_poly((mk.x, mk.y), &rg) && ring_d > BANK_STREET_W;
+                c[11] += usize::from(out);
+                let wet = open.is_some_and(|o| {
+                    (0..rg.len()).any(|k| {
+                        let (a, b) = (rg[k], rg[(k + 1) % rg.len()]);
+                        let n = ((b.0 - a.0).hypot(b.1 - a.1) / 4.0).ceil().max(1.0) as usize;
+                        (0..=n).any(|t| {
+                            let f = t as f64 / n as f64;
+                            mask_dist(o, (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f), 0) == Some(0.0)
+                        })
+                    })
+                });
+                c[12] += usize::from(wet);
+                if l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
+                    let (h, _) = wall_tautness(&rg);
+                    hull.push(h);
+                    if sea_box {
+                        hull_h.push(h);
+                    }
+                    row += &format!(" wall/hull {h:.3}");
+                }
+                if out {
+                    row += " square OUTSIDE the wall";
+                }
+                if wet {
+                    row += " wall IN WATER";
+                }
+            }
+            // `TOWN_RIVER_PLOT=<dir>`: one JSON per harbour or river-mouth town
+            // (buildings, edges by class, river, ring, market, pin and the
+            // open-water raster), in box metres, for a quick plan plot.
+            if let Ok(dir) = std::env::var("TOWN_RIVER_PLOT")
+                && (s.placement.coastal || row.contains("river-mouth"))
+            {
+                let pts = |v: &[Vec2]| v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",");
+                let ow = open.map_or(String::new(), |o| o.0.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(","));
+                let json = format!(
+                    "{{\"seed\":{seed},\"i\":{i},\"x\":{x},\"y\":{y},\"kind\":\"{}\",\"market\":[{:.1},{:.1}],\"pin\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"mw\":{},\"mh\":{},\"cell\":{},\"open\":[{ow}],\"row\":\"{}\"}}",
+                    l.site_kind, l.market.x, l.market.y, l.pin.x, l.pin.y, l.river_w, pts(&l.river),
+                    l.wall.ring.as_deref().map_or(String::new(), pts),
+                    l.buildings.iter().map(|b| format!("[{}]", pts(&b.poly))).collect::<Vec<_>>().join(","),
+                    l.edges.iter().map(|e| format!("[\"{}\",{:.1},{:.1},{:.1},{:.1},{:.1}]", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y)).collect::<Vec<_>>().join(","),
+                    open.map_or(0, |o| o.1), open.map_or(0, |o| o.2), open.map_or(0.0, |o| o.3), row.replace('"', "'")
+                );
+                let _ = std::fs::write(format!("{dir}/{seed}_{gw}_{i}_hf{}.json", u8::from(hf)), json);
+            }
+            if list && (s.placement.coastal || row.contains("river-mouth")) {
+                println!("  #{i:3} ({x:4},{y:4}) {} {} pop_target {:.0} buildings {}{row}", if civ.village_tids.contains(&s.tid) { "village" } else { "town   " }, l.site_kind, l.pop_target, l.buildings.len());
+            }
+        }
+        println!(
+            "seed {seed} at {gw}x{gh}, urban_harbour_front {hf}, civ.port_reach {}: ports {}, sea lanes {}; harbours over {HARBOUR_STREET_GAP_M} m from their water {} of {}; river-mouth towns {}, river not reaching the water {} (+{} at a junction); river towns off their river {} of {}; buildings in water {}; walled {}, square outside {}, wall in water {}; markets moved {}",
+            p.civ.port_reach, c[0], c[1], c[3], c[2], c[4], c[5], c[6], c[8], c[7], c[9], c[10], c[11], c[12], c[13]
+        );
+        println!("  harbours whose town body (buildings within max_rf of the market) stands over {HARBOUR_STREET_GAP_M} m from its water: {} of {}", c[14], c[2]);
+        for k in 0..15 {
+            tot[k] += c[k];
+        }
+    }
+    println!(
+        "all seeds at {gw}, (urban_harbour_front, civ.port_reach) {hf_on:?}: ports {}, sea lanes {}; harbours over {HARBOUR_STREET_GAP_M} m from their water {} of {}; river-mouth towns {}, river not reaching the water {} (+{} at a junction); river towns off their river {} of {}; buildings in water {}; walled {}, square outside {}, wall in water {}; markets moved {}",
+        tot[0], tot[1], tot[3], tot[2], tot[4], tot[5], tot[6], tot[8], tot[7], tot[9], tot[10], tot[11], tot[12], tot[13]
+    );
+    println!("  harbour gap to its water, m: {}", spread(&mut gaps));
+    println!("  harbours whose town body stands over {HARBOUR_STREET_GAP_M} m from its water: {} of {}; body gap, m: {}", tot[14], tot[2], spread(&mut body_gaps));
+    println!("  wall/hull, walled towns of PLAZA_MARKET_POP and up: {}; of them with sea in the box: {}", spread2(&mut hull), spread2(&mut hull_h));
+    println!("  market moved, m: {}", spread(&mut moved));
 }

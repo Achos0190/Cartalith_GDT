@@ -1,0 +1,43 @@
+Ruling FK mutants (mut.py.txt: exact literal replace, occurs once, restored in finally, file hashes checked after every run).
+Verdicts from the final runs (mut.log, mut2.log, mut3.log and the M17/M23 rerun after their covering tests were added):
+M1 front: always move KILLED
+M2 one distance for both kinds KILLED
+M3 market to the water point KILLED
+M4 always re-lay SURVIVED
+M32 carried river alone is no change KILLED
+M33 no housing guard SURVIVED
+M34 second layout from water not to_sea KILLED
+M35 ring: no road-reach preference SURVIVED
+M5 reach < not <= KILLED
+M7 first pass moves too KILLED
+M8 body: every building SURVIVED
+M9 pin follows market KILLED
+M11 street to the water itself KILLED
+M12 street not tested dry KILLED
+M13 no street fallback KILLED
+M14 roads from the market KILLED
+M15 join: no line test KILLED
+M16 join: no point test KILLED
+M6 no midpoints KILLED
+M10 no harbour street KILLED
+M18 no river to sea KILLED
+M19 no sea share test KILLED
+M20 no lake test KILLED
+M21 no in-box test KILLED
+M22 no cell beyond KILLED
+M24 no trunk walk KILLED
+M25 no at_end KILLED
+M26 flag regardless of sea KILLED
+M27 run_layout drops the flag KILLED
+M28 placement ignores port_reach KILLED
+M29 floor for round KILLED
+M30 no one-cell floor KILLED
+M31 godot passes false KILLED
+M17 no dry join KILLED (after the_moved_market_joins_a_road_by_a_dry_line gained its laid-road bar)
+M23 junction: no height test KILLED (after a_river_that_stops_on_a_trunk_follows_it_downstream gained its tributary case)
+(M6 and M10 first SURVIVED; their tests were corrected (a lake-cell midpoint case; the harbour street's run toward the water) and both are KILLED above.)
+
+Survivors, not killed:
+  M4 always re-lay (front = true), M33 no housing guard: masked on the fixtures by each other (a re-laid city that houses under 90 % is refused, and no fixture has a harbour-front layout that is kept although it houses under 90 %); the guard's effect is measured only in the census (483920 #5, 246371 180:140).
+  M8 body = every building: no synthetic fixture has quay houses at the shore with the town inland (483920 359:258 in the app world is the measured case).
+  M35 market ring without the road-reach preference: no fixture puts the moved market across a river from its roads.

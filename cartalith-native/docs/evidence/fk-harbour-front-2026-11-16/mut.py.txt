@@ -1,0 +1,79 @@
+"""Ruling FK mutation harness: exact literal replace (must occur exactly once), run the named tests,
+KILLED if they fail, SURVIVED if they pass, BUILD_ERROR if the crate does not compile; every file restored
+in a finally and checked against its pre-run hash."""
+import hashlib, os, subprocess, sys
+ROOT = 'C:/cw/rulingfk/cartalith-native/crates/'
+U, C, G = ROOT + 'cartalith-urban/src/', ROOT + 'cartalith-civ/src/', ROOT + 'cartalith-godot/src/'
+M = [
+ # (id, file, old, new, crate, test filter)
+ ('M1 front: always move', U+'generate.rs', 'if d <= front {\n        return None;\n    }', 'if d < 0.0 {\n        return None;\n    }', 'cartalith-urban', 'harbour_front'),
+ ('M2 one distance for both kinds', U+'generate.rs', 'let front = if site.kind == "river" { HARBOUR_FRONT_RIVER_M } else { HARBOUR_FRONT_M };', 'let front = HARBOUR_FRONT_M;', 'cartalith-urban', 'harbour_front'),
+ ('M3 market to the water point', U+'generate.rs', 'Some((q + (mc - q).norm() * front, q))', 'Some((q, q))', 'cartalith-urban', 'harbour_front'),
+ ('M4 always re-lay', U+'generate.rs', 'let front = !town_reaches_water(&town, w, HARBOUR_REACH_M);', 'let front = true;', 'cartalith-urban', 'harbour_front'),
+ ('M32 carried river alone is no change', U+'generate.rs', 'let changed = to_sea.is_some() || second.pin != second.anchors.market;', 'let changed = second.pin != second.anchors.market;', 'cartalith-urban', 'harbour_front'),
+ ('M33 no housing guard', U+'generate.rs', 'if changed && second.pop >= keep {', 'if changed {', 'cartalith-urban', 'harbour_front'),
+ ('M34 second layout from water not to_sea', U+'generate.rs', 'Some(ws) => generate_laid(seed, &GenOpts { water: Some(ws.clone()), water_to_sea: None, ..opts.clone() }, f),', 'Some(_) => generate_laid(seed, opts, f),', 'cartalith-urban', 'harbour_front'),
+ ('M35 ring: no road-reach preference', U+'generate.rs', 'let best = if pin.is_some() { ring(&joined).or_else(|| if wet { ring(&|_| true) } else { None }) } else { ring(&|_| true) };', 'let best = ring(&|_| true);', 'cartalith-urban', 'harbour_front'),
+ ('M5 reach < not <=', U+'generate.rs', 'if q.dist(p) <= reach {', 'if q.dist(p) < reach {', 'cartalith-urban', 'harbour_front'),
+ ('M6 no midpoints', U+'generate.rs', '(0..n).any(|k| near(b.poly[k]) || near(b.poly[k].lerp(b.poly[(k + 1) % n], 0.5)))', '(0..n).any(|k| near(b.poly[k]))', 'cartalith-urban', 'harbour_front'),
+ ('M7 first pass moves too', U+'generate.rs', '        if opts.harbour_front\n            && front\n', '        if opts.harbour_front\n', 'cartalith-urban', 'harbour_front'),
+ ('M8 body: every building', U+'generate.rs', '.filter(|b| poly_centroid(&b.poly).dist(t.anchors.market) <= t.max_rf)', '', 'cartalith-urban', 'harbour_front'),
+ ('M9 pin follows market', U+'generate.rs', '            pin = Some(mc);\n', '', 'cartalith-urban', 'harbour_front'),
+ ('M10 no harbour street', U+'generate.rs', '            harbour_street(&site, &mut g, anchors.market, water);\n', '', 'cartalith-urban', 'harbour_front'),
+ ('M11 street to the water itself', U+'generate.rs', '(d > HARBOUR_STREET_INSET_M + 1.0).then(|| m + (p - m).norm() * (d - HARBOUR_STREET_INSET_M))', '(d > HARBOUR_STREET_INSET_M + 1.0).then(|| p)', 'cartalith-urban', 'harbour_front'),
+ ('M12 street not tested dry', U+'generate.rs', 'let mut end = end_of(q).filter(|&e| dry(e));', 'let mut end = end_of(q);', 'cartalith-urban', 'harbour_front'),
+ ('M13 no street fallback', U+'generate.rs', '    if end.is_none()\n        && let Some(w) = site.water_ctx()', '    if end.is_none() && false\n        && let Some(w) = site.water_ctx()', 'cartalith-urban', 'harbour_front'),
+ ('M14 roads from the market', U+'routes.rs', 'let q = Vec2::new(origin.x + o.x, origin.y + o.y);', 'let q = Vec2::new(m.x + o.x, m.y + o.y);', 'cartalith-urban', 'harbour_front'),
+ ('M15 join: no line test', U+'routes.rs', '        if (1..10).any(|i| site.is_water(m.lerp(p, i as f64 / 10.0))) {\n            continue;\n        }\n', '', 'cartalith-urban', 'harbour_front'),
+ ('M16 join: no point test', U+'routes.rs', 'if best.is_some_and(|(bd, _)| d >= bd) || site.is_water(p) {', 'if best.is_some_and(|(bd, _)| d >= bd) {', 'cartalith-urban', 'harbour_front'),
+ ('M17 no dry join', U+'routes.rs', '        if origin != m\n            && let Some(k)', '        if false\n            && let Some(k)', 'cartalith-urban', 'harbour_front'),
+ ('M18 no river to sea', C+'urban_adapter.rs', '                            river_to_sea(w, &local_to_grid, &mut ext);', '', 'cartalith-civ', 'urban_adapter'),
+ ('M19 no sea share test', C+'urban_adapter.rs', 'if sea_cells as f64 / (mw * mh) as f64 <= BOX_SEA_FRAC || nearest_open', 'if nearest_open', 'cartalith-civ', 'urban_adapter'),
+ ('M20 no lake test', C+'urban_adapter.rs', ' || nearest_open < d {', ' {', 'cartalith-civ', 'urban_adapter'),
+ ('M21 no in-box test', C+'urban_adapter.rs', '    if end.x < 0.0 || end.y < 0.0 || end.x > wm || end.y > hm {\n        return;\n    }\n    let cell_m = CTX_CELL_M;', '    let cell_m = CTX_CELL_M;', 'cartalith-civ', 'urban_adapter'),
+ ('M22 no cell beyond', C+'urban_adapter.rs', '    path.push(Vec2::new(target.x + dx * cell_m, target.y + dy * cell_m));\n', '', 'cartalith-civ', 'urban_adapter'),
+ ('M23 junction: no height test', C+'urban_adapter.rs', ' && height(c) <= h_end {', ' {', 'cartalith-civ', 'urban_adapter'),
+ ('M24 no trunk walk', C+'urban_adapter.rs', '    for _ in 0..RIVER_DOWNSTREAM_HOPS {', '    for _ in 0..0 {', 'cartalith-civ', 'urban_adapter'),
+ ('M25 no at_end', C+'urban_adapter.rs', 'if at_end && junction_trunk(w, &chain, (ex, ey)).is_none() {', 'if junction_trunk(w, &chain, (ex, ey)).is_none() {', 'cartalith-civ', 'urban_adapter'),
+ ('M26 flag regardless of sea', C+'urban_adapter.rs', 'let harbour_front = o.harbour_front && water.as_ref().is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);', 'let harbour_front = o.harbour_front;', 'cartalith-civ', 'urban_adapter'),
+ ('M27 run_layout drops the flag', C+'urban_adapter.rs', '        harbour_front: ctx.harbour_front,', '        harbour_front: false,', 'cartalith-civ', 'urban_adapter'),
+ ('M28 placement ignores port_reach', C+'lib.rs', 'let coast_r: isize = civ_port_radius_cells(gw, cell_km, port_reach);', 'let coast_r: isize = civ_port_radius_cells(gw, cell_km, false);', 'cartalith-civ', 'port_r'),
+ ('M29 floor for round', C+'lib.rs', '((PORT_REACH_KM / cell_km.max(1e-6)).round() as isize).max(1)', '((PORT_REACH_KM / cell_km.max(1e-6)).floor() as isize).max(1)', 'cartalith-civ', 'port_r'),
+ ('M30 no one-cell floor', C+'lib.rs', '((PORT_REACH_KM / cell_km.max(1e-6)).round() as isize).max(1)', '((PORT_REACH_KM / cell_km.max(1e-6)).round() as isize)', 'cartalith-civ', 'port_r'),
+ ('M31 godot passes false', G+'lib.rs', '                // Ruling FK item 2: port candidates within about 4 km of the ocean.\n                opts.port_reach,', '                // Ruling FK item 2: port candidates within about 4 km of the ocean.\n                false,', 'cartalith-godot', 'ports_are_only_towns_within'),
+]
+sel = sys.argv[1:]
+def h(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+files = sorted({m[1] for m in M})
+before = {f: h(f) for f in files}
+res = []
+env = dict(os.environ, CARGO_TARGET_DIR='C:/cw/rulingfk_target')
+for mid, f, old, new, crate, filt in M:
+    if sel and not any(mid.startswith(s + ' ') for s in sel):
+        continue
+    raw = open(f, 'rb').read()
+    txt = raw.decode('utf-8')
+    crlf = '\r\n' in txt
+    t = txt.replace('\r\n', '\n')
+    n = t.count(old)
+    assert n == 1, (mid, n)
+    try:
+        m2 = t.replace(old, new)
+        if crlf: m2 = m2.replace('\n', '\r\n')
+        open(f, 'wb').write(m2.encode('utf-8'))
+        r = subprocess.run(['cargo', 'test', '-p', crate, '--lib', filt], cwd='C:/cw/rulingfk/cartalith-native', env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        out = r.stdout + r.stderr
+        if 'could not compile' in out or 'error[' in out:
+            v = 'BUILD_ERROR'
+        elif r.returncode != 0:
+            v = 'KILLED'
+        else:
+            v = 'SURVIVED'
+        fails = [l for l in out.splitlines() if l.startswith('test ') and 'FAILED' in l]
+        res.append((mid, v, fails[:3]))
+        print(mid, v, fails[:3], flush=True)
+    finally:
+        open(f, 'wb').write(raw)
+for f in files:
+    assert h(f) == before[f], ('NOT RESTORED', f)
+print('restored, hashes match')

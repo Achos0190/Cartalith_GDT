@@ -1,0 +1,8 @@
+#!/bin/bash
+# withlock.sh <script>: waits for C:/cw/.win_lock, runs <script>, and removes the lock ONLY if this run created it.
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 10; done
+echo "rulingfk agent (Ruling FK frames), started $(date)" > C:/cw/.win_lock/owner.txt
+bash "$1"
+rc=$?
+grep -q "rulingfk agent" C:/cw/.win_lock/owner.txt 2>/dev/null && rm -rf C:/cw/.win_lock
+exit $rc

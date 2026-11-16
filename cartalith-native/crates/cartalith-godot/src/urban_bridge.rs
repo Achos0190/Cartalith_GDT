@@ -112,9 +112,12 @@ fn empty_resource_potentials() -> ResourcePotentials {
 /// One `UrbanLayout` as the Dictionary GDScript draws from.
 ///
 /// Points are in the layout's own local box metres (`0..wm`, `0..hm`), not
-/// grid coordinates — `market` is the anchor a renderer puts on the
+/// grid coordinates — `pin` is the anchor a renderer puts on the
 /// settlement's real map position, and `orient` the rotation it applies about
-/// that anchor, exactly as `_umDrawLayout` does.
+/// that anchor, exactly as `_umDrawLayout` does with the market. `pin` is the
+/// market itself except where Ruling FK's harbour front moved the market toward
+/// the sea (`cartalith_urban::Town::pin`), so with that switch off it is
+/// `_umDrawLayout`'s anchor exactly.
 #[allow(clippy::too_many_lines)]
 fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     let pt = |p: UVec2| Vector2::new(p.x as f32, p.y as f32);
@@ -150,6 +153,11 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         "wm" => l.wm,
         "hm" => l.hm,
         "market" => pt(l.market),
+        // Ruling FK item 1: the layout point the settlement's map position
+        // falls on. The market, except where `urban_harbour_front` moved the
+        // market toward the sea (then the box centre); the map and the City
+        // Viewer anchor the layout here, so its water overlays the map's.
+        "pin" => pt(l.pin),
         "market_prov" => l.market_prov,
         "site_kind" => l.site_kind.as_str(),
         "orient" => l.orient,
@@ -804,6 +812,9 @@ impl WorldGen {
                 // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
                 // the town. Read live, like the three above.
                 market_scale: self.params.urban_market_scale,
+                // Ruling FK item 1: a harbour town lays out to its water. Read
+                // live, like the four above.
+                harbour_front: self.params.urban_harbour_front,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

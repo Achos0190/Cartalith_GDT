@@ -93,9 +93,9 @@ use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
 use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, fine_river_path, lay_town_bridge};
 use crate::rng::fnv1a;
-use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
+use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, build_primaries_from_paths_at, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
-use crate::site::{Economy, SiteOpts, TerrainCtx, WaterCtx, build_site};
+use crate::site::{Economy, Site, SiteOpts, TerrainCtx, WaterCtx, build_site};
 use crate::wallhug::hug_wall;
 use crate::wallside::build_wall_lots;
 use crate::water::{
@@ -107,6 +107,9 @@ use std::f64::consts::PI;
 /// Unit tests and the whole-subsystem golden (`generate/tests/golden.rs`).
 #[cfg(test)]
 mod tests;
+/// Ruling FK item 1's gate: the harbour front (`GenOpts::harbour_front`).
+#[cfg(test)]
+mod harbour_front_tests;
 
 /// `UME.SITE_WM` — the site box width in metres (`const Wm=1700` at line 30969).
 pub const SITE_WM: f64 = 1700.0;
@@ -212,6 +215,152 @@ pub struct GenOpts {
     /// reference, byte for byte, so every JS-captured golden and every other
     /// `GenOpts` literal is unmoved by control flow.
     pub market_scale: bool,
+    /// **Not the reference** -- Ruling FK item 1 (owner, 2026-11-16: *"the
+    /// town layout grows toward its sea (quay, harbour district) ... so no
+    /// harbour stands inland of its own water"*): on a real-water site the
+    /// market, which the reference pins at the box centre, moves toward the
+    /// nearest open water when it stands farther from it than the reference's
+    /// own market-to-harbour distance ([`harbour_front_market`]), and the
+    /// host's real roads stay where the map draws them
+    /// ([`build_primaries_from_paths_at`](crate::routes::build_primaries_from_paths_at)).
+    /// The host sets it only for a town whose box holds sea. `false` is the
+    /// reference, byte for byte, so every JS-captured golden and every other
+    /// `GenOpts` literal is unmoved by control flow.
+    pub harbour_front: bool,
+    /// **Not the reference** -- Ruling FK item 1: the host's water with the
+    /// town's river carried on to its sea (`cartalith_civ`'s
+    /// `UmWater::to_sea`), which [`generate`]'s second layout is laid out
+    /// from in place of [`Self::water`]. Read only with
+    /// [`Self::harbour_front`]; `None` is the river as traced.
+    pub water_to_sea: Option<WaterCtx>,
+}
+
+/// The reference's market-to-harbour distance on a sea site, metres:
+/// `placeAnchors` (`crate::routes::place_anchors`) scores a market candidate
+/// by `|d - 100|` from the harbour point (`|d - 120|` on a `river` site, see
+/// [`HARBOUR_FRONT_RIVER_M`]), so this is where the reference itself puts a
+/// harbour town's market before the real-water branch pins it at the box
+/// centre. [`harbour_front_market`] moves a market no closer to its water
+/// than this.
+pub const HARBOUR_FRONT_M: f64 = 100.0;
+/// The same for a `river` site: `placeAnchors`' `|d - 120|`.
+pub const HARBOUR_FRONT_RIVER_M: f64 = 120.0;
+
+/// **Not the reference** -- Ruling FK item 1 (owner, 2026-11-16): where a
+/// harbour town's market goes when the box centre `mc` stands inland of its
+/// water, or `None` when it stays.
+///
+/// The nearest open-water cell of the host's raster (`WaterCtx::open_water`:
+/// sea and lakes, before the river band is stamped, so a river is never
+/// "the water" here) is found by the distance from `mc` to the cell's square
+/// (ties: the first cell in row order). When that distance is more than the
+/// reference's market-to-harbour distance ([`HARBOUR_FRONT_M`], or
+/// [`HARBOUR_FRONT_RIVER_M`] on a `river` site), the market moves along the
+/// straight line from `mc` toward that point until it stands exactly that far
+/// from it. The line is dry: no open-water cell is nearer to `mc` than the
+/// point it aims at. A market already that close, a site with no
+/// open-water raster (or one of the wrong size) or with no open water at all
+/// stays (`None`). The caller's ring search still moves a market that lands
+/// in a channel onto the bank.
+///
+/// Why the reference's distance: `placeAnchors` sets a harbour town's market
+/// about 100 m from its harbour point, and the reference's real-water branch
+/// (v0.98, `generate`) overrode that with the box centre only so the market
+/// would land on the map pin, which left a town 400-650 m inland of a sea at
+/// the box's edge (`cfa1cf0d`'s frames). The map pin is kept by reporting it
+/// separately ([`Town::pin`]), not by holding the market on it.
+///
+/// Must never return a point farther from the water than `mc`, nor move a
+/// market that is already within the distance.
+pub fn harbour_front_market(site: &Site, mc: Vec2) -> Option<Vec2> {
+    harbour_front(site, mc).map(|(m, _)| m)
+}
+
+/// [`harbour_front_market`]'s market, with the water point it aims at (the
+/// nearest point of the nearest open-water cell), for [`harbour_street`].
+fn harbour_front(site: &Site, mc: Vec2) -> Option<(Vec2, Vec2)> {
+    let w = site.water_ctx()?;
+    let open = w.open_water.as_deref().filter(|o| o.len() == w.mw * w.mh)?;
+    let c = w.cell_m;
+    let mut best: Option<(f64, Vec2)> = None;
+    for j in 0..w.mh {
+        for i in 0..w.mw {
+            if open[j * w.mw + i] == 0 {
+                continue;
+            }
+            let (x0, y0) = (i as f64 * c, j as f64 * c);
+            let q = Vec2::new(mc.x.clamp(x0, x0 + c), mc.y.clamp(y0, y0 + c));
+            let d = q.dist(mc);
+            if best.is_none_or(|(bd, _)| d < bd) {
+                best = Some((d, q));
+            }
+        }
+    }
+    let (d, q) = best?;
+    let front = if site.kind == "river" { HARBOUR_FRONT_RIVER_M } else { HARBOUR_FRONT_M };
+    if d <= front {
+        return None;
+    }
+    Some((q + (mc - q).norm() * front, q))
+}
+
+/// How far short of the open water's edge, metres, [`harbour_street`] stops:
+/// the harbour's own quay inset on a coast (`crate::water::build_harbour`'s
+/// 5 m), so the street meets the quay line rather than running into the sea.
+pub const HARBOUR_STREET_INSET_M: f64 = 5.0;
+/// The harbour street's width, metres: `crate::water::build_harbour`'s back
+/// street and stubs (4 m), the harbour's own lesser streets.
+pub const HARBOUR_STREET_W: f64 = 4.0;
+/// Provenance of [`harbour_street`]'s street.
+pub const HARBOUR_STREET_PROV: &str = "Harbour street: from the market down to the water's edge, so the town's streets reach its sea (Ruling FK item 1).";
+
+/// **Not the reference** -- Ruling FK item 1 (owner, 2026-11-16: *"a quay or
+/// harbour district on the shore, its streets reaching the water"*): a street
+/// from a harbour-front market `m` straight down to its open water, stopping
+/// [`HARBOUR_STREET_INSET_M`] short of the water's edge, laid before the town
+/// grows so the town grows along it (and a street village lines it with
+/// houses) to the water. Returns the street's water end, or `None`.
+///
+/// It aims at `q`, the water point the market was moved toward
+/// ([`harbour_front`]), when the line there is dry ([`Site::is_water`] at
+/// eleven samples, the test the water-crossing sweep reads); otherwise at the
+/// next nearest point of an open-water cell (`WaterCtx::open_water`) that a
+/// dry line reaches, no farther than twice `q`'s distance: beside a river
+/// mouth the straight line to the sea can run along the channel. Ties go to
+/// the first cell in row order.
+pub fn harbour_street(site: &Site, g: &mut Graph, m: Vec2, q: Vec2) -> Option<Vec2> {
+    let end_of = |p: Vec2| {
+        let d = m.dist(p);
+        (d > HARBOUR_STREET_INSET_M + 1.0).then(|| m + (p - m).norm() * (d - HARBOUR_STREET_INSET_M))
+    };
+    let dry = |e: Vec2| (0..=10).all(|i| !site.is_water(m.lerp(e, i as f64 / 10.0)));
+    let mut end = end_of(q).filter(|&e| dry(e));
+    if end.is_none()
+        && let Some(w) = site.water_ctx()
+        && let Some(open) = w.open_water.as_deref().filter(|o| o.len() == w.mw * w.mh)
+    {
+        let (c, reach) = (w.cell_m, 2.0 * m.dist(q));
+        let mut cands: Vec<(f64, Vec2)> = Vec::new();
+        for j in 0..w.mh {
+            for i in 0..w.mw {
+                if open[j * w.mw + i] == 0 {
+                    continue;
+                }
+                let (x0, y0) = (i as f64 * c, j as f64 * c);
+                let p = Vec2::new(m.x.clamp(x0, x0 + c), m.y.clamp(y0, y0 + c));
+                let d = p.dist(m);
+                if d <= reach {
+                    cands.push((d, p));
+                }
+            }
+        }
+        // Stable: equal distances keep row order.
+        cands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        end = cands.iter().filter_map(|&(_, p)| end_of(p)).find(|&e| dry(e));
+    }
+    let end = end?;
+    g.add_street(m.x, m.y, end.x, end.y, "street", HARBOUR_STREET_W, 0, HARBOUR_STREET_PROV);
+    Some(end)
 }
 
 // ------------------------------------------------------------------- output --
@@ -365,6 +514,14 @@ pub struct Town {
     /// village ([`crate::village`], Ruling FE item 2): `GenOpts::street_village`
     /// on, under `PLAZA_MARKET_POP`, the organic plan. `false` with it off.
     pub street_village: bool,
+    /// **Not the reference** -- where the settlement's map position falls in
+    /// this layout's box: the point a renderer anchors onto the settlement's
+    /// cell. [`Self::anchors`]' market, as in the reference (whose
+    /// `_umDrawLayout` anchors on the market), except where Ruling FK's harbour
+    /// front ([`GenOpts::harbour_front`], [`harbour_front_market`]) moved the
+    /// market toward the sea: then the box centre, which is where the host
+    /// sampled the map, so the layout's water still lies on the map's.
+    pub pin: Vec2,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -399,21 +556,157 @@ fn or_str<'a>(s: Option<&'a str>, d: &'a str) -> &'a str {
 /// (the far bank after the epochs, or a village's street budget, which
 /// `crate::riverbank::fit_village` searches over a few layouts). With the
 /// switch off the first layout is returned as it stands: the reference.
+///
+///
+/// **Not the reference, with `harbour_front` on only** (Ruling FK item 1,
+/// owner 2026-11-16): the town is laid out a second time when its body does
+/// not come within [`HARBOUR_REACH_M`] of its open water
+/// ([`town_reaches_water`]), with its market moved to the water
+/// ([`harbour_front_market`]), or when the host carried its river on to the
+/// sea ([`GenOpts::water_to_sea`]), from that river (and, where the market
+/// move with it costs the town its houses, from that river alone); and a
+/// second layout is returned when it changed something (the market moved, or
+/// the river) and houses at least [`HARBOUR_HOUSING_KEEP`] of the first
+/// layout's people or of its target, whichever is less. A town whose body already reaches its
+/// water keeps its market where the reference puts it (a large town that
+/// fills its box to the shore is not shrunk by a market pulled toward a strip
+/// of sea at its edge), and a second layout that would cost the town its
+/// houses (a hamlet pressed against a river mouth running out of frontage, a
+/// river carried across the middle of a town) is not kept. With the switch
+/// off, the first layout: the reference.
 pub fn generate(seed: u32, opts: &GenOpts) -> Town {
-    let first = generate_pass(seed, opts, RiverbankPass::First);
+    let town = generate_laid(seed, opts, false);
+    let Some(w) = opts.water.as_ref().filter(|_| opts.harbour_front) else {
+        return town;
+    };
+    let front = !town_reaches_water(&town, w, HARBOUR_REACH_M);
+    let to_sea = opts.water_to_sea.as_ref();
+    if !front && to_sea.is_none() {
+        return town;
+    }
+    let keep = HARBOUR_HOUSING_KEEP * town.pop.min(town.pop_target);
+    // The market at the water with the river carried on, then (where the
+    // first costs the town its houses) the river carried on alone.
+    let tries: &[bool] = if front && to_sea.is_some() { &[true, false] } else { &[front] };
+    for &f in tries {
+        let second = match to_sea {
+            Some(ws) => generate_laid(seed, &GenOpts { water: Some(ws.clone()), water_to_sea: None, ..opts.clone() }, f),
+            None => generate_laid(seed, opts, f),
+        };
+        let changed = to_sea.is_some() || second.pin != second.anchors.market;
+        if changed && second.pop >= keep {
+            return second;
+        }
+    }
+    town
+}
+
+/// [`generate`]'s layouts for one market placement: the first layout, then
+/// the riverbank second pass where `crate::riverbank::second_pass` asks for
+/// one. `front` is whether the harbour front may move the market
+/// ([`GenOpts::harbour_front`] must be on too).
+fn generate_laid(seed: u32, opts: &GenOpts, front: bool) -> Town {
+    let first = generate_pass(seed, opts, RiverbankPass::First, front);
     match crate::riverbank::second_pass(&first) {
         Some(RiverbankPass::Village { .. }) => crate::riverbank::fit_village(first, |street_scale, trim| {
-            generate_pass(seed, opts, RiverbankPass::Village { street_scale, trim })
+            generate_pass(seed, opts, RiverbankPass::Village { street_scale, trim }, front)
         }),
-        Some(pass) => generate_pass(seed, opts, pass),
+        Some(pass) => generate_pass(seed, opts, pass, front),
         None => first,
     }
 }
 
+/// **Not the reference** -- Ruling FK item 1: whether a market at `q` can be
+/// joined by a dry line to one of the host's roads (`paths`, offsets from the
+/// map pin `origin`, laid as [`build_primaries_from_paths_at`] lays them:
+/// their points inside the box), by [`crate::routes::dry_join`]. `true` with
+/// no roads at all (nothing to join). For the market ring search in
+/// `generate_pass` only.
+fn harbour_market_reaches_a_road(site: &Site, q: Vec2, origin: Vec2, paths: &[Vec<Vec2>]) -> bool {
+    let in_box = |p: Vec2| p.x >= -6.0 && p.x <= site.wm + 6.0 && p.y >= -6.0 && p.y <= site.hm + 6.0;
+    let roads: Vec<Vec<Vec2>> = paths
+        .iter()
+        .map(|path| path.iter().map(|o| Vec2::new(origin.x + o.x, origin.y + o.y)).take_while(|&p| in_box(p)).collect::<Vec<_>>())
+        .filter(|pts| pts.len() >= 2)
+        .collect();
+    roads.is_empty() || roads.iter().any(|pts| crate::routes::dry_join(site, q, pts).is_some())
+}
+
+/// The share of the first layout's housed people (`Town::pop`), or of its
+/// target (`Town::pop_target`) where that is less, a harbour-front layout must
+/// house to replace it in [`generate`]. **A labelled judgement**: moving a
+/// town to its water must not cost it a tenth of the houses it needs. On the
+/// census (`town_river_census.rs::harbour_front_audit`, 384 x 288) one hamlet
+/// pressed between a river mouth and the sea housed 166 of its 400 people from
+/// the water against 369 where it stood, and a town of 7 904 housed 11 430
+/// from the water against 13 369 (both over its target).
+pub const HARBOUR_HOUSING_KEEP: f64 = 0.9;
+
+/// How near its open water, metres, a harbour town's nearest house must stand
+/// for [`generate`] to call the town built to its water (Ruling FK item 1):
+/// **one street**, the quay, between the houses and the drawn water. A
+/// labelled judgement from the harbour's own geometry
+/// ([`crate::water::build_harbour`]): its shoreline is the land cells beside
+/// the 22 m water raster, at their centres, so half a cell (11 m) from the
+/// drawn water's edge; the quay is laid 5 m inland of that line and is 7 m
+/// wide, so the lots behind it begin 11 + 5 + 7 = 23 m from the water. The
+/// census (`town_river_census.rs::harbour_front_audit`) counts harbours over
+/// this line.
+pub const HARBOUR_REACH_M: f64 = 23.0;
+
+/// Whether the town's **body** reaches its water: [`houses_reach_water`] over
+/// the buildings whose centroid stands within [`Town::max_rf`] (the radius the
+/// growth front stops at) of the market. Not every building: the reference's
+/// harbour lays its quay and lots at the shore however far the town is, so a
+/// handful of quay houses 650 m from the walls answered "yes" for a town whose
+/// wall stood that far inland of its sea (483920 359:258 in `cfa1cf0d`'s and
+/// this change's frames).
+pub fn town_reaches_water(t: &Town, w: &WaterCtx, reach: f64) -> bool {
+    let body: Vec<crate::districts::Building> =
+        t.buildings.iter().filter(|b| poly_centroid(&b.poly).dist(t.anchors.market) <= t.max_rf).cloned().collect();
+    houses_reach_water(&body, w, reach)
+}
+
+/// Whether any building of `buildings` has a vertex or an edge midpoint
+/// within `reach` metres of an open-water cell of `w` (`WaterCtx::open_water`,
+/// sea and lakes; distance to the cell's square, so 0 inside it). `false`
+/// without the raster, with one of the wrong size, or with no building. For
+/// [`generate`]'s harbour-front test; reads nothing else.
+pub fn houses_reach_water(buildings: &[crate::districts::Building], w: &WaterCtx, reach: f64) -> bool {
+    let Some(open) = w.open_water.as_deref().filter(|o| o.len() == w.mw * w.mh) else {
+        return false;
+    };
+    let c = w.cell_m;
+    let r = (reach / c).ceil() as i64 + 1;
+    let near = |p: Vec2| {
+        let (ci, cj) = ((p.x / c).floor() as i64, (p.y / c).floor() as i64);
+        for j in (cj - r).max(0)..=(cj + r).min(w.mh as i64 - 1) {
+            for i in (ci - r).max(0)..=(ci + r).min(w.mw as i64 - 1) {
+                if open[j as usize * w.mw + i as usize] == 0 {
+                    continue;
+                }
+                let (x0, y0) = (i as f64 * c, j as f64 * c);
+                let q = Vec2::new(p.x.clamp(x0, x0 + c), p.y.clamp(y0, y0 + c));
+                if q.dist(p) <= reach {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    buildings.iter().any(|b| {
+        let n = b.poly.len();
+        (0..n).any(|k| near(b.poly[k]) || near(b.poly[k].lerp(b.poly[(k + 1) % n], 0.5)))
+    })
+}
+
 /// One layout of [`generate`], under one [`RiverbankPass`] (`First` is the
 /// reference's whole `generate()` when `urban_riverbank` is off).
+///
+/// `front` lets Ruling FK's harbour front move the market (see [`generate`]);
+/// `false` is the reference's market.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> Town {
+pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, front: bool) -> Town {
     let profile: CultureProfile = resolve_profile(or_str(opts.culture.as_deref(), ""));
     let rules = resolve_rules(opts.rules.as_ref());
     let terrain_aware = opts.terrain_aware;
@@ -497,26 +790,55 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
     // outward ring by ring if the centre lands in the channel, since a
     // settlement sits on the bank rather than in it. Rings ascend, so the first
     // land found is the nearest.
+    // **Not the reference** (Ruling FK item 1, `GenOpts::harbour_front`): a
+    // harbour town's market moves from the box centre toward its water when it
+    // stands inland of it ([`harbour_front_market`]); `pin` then keeps the box
+    // centre, the map position, for the renderer and the host's roads. `None`
+    // with the switch off: the reference, by control flow.
+    let mut pin: Option<Vec2> = None;
+    // The water point the market was moved toward, for `harbour_street`.
+    let mut front_water: Option<Vec2> = None;
     if opts.water.is_some() {
         let mut mc = Vec2::new(wm / 2.0, hm / 2.0);
-        if site.is_water(mc) {
-            let mut best: Option<Vec2> = None;
-            let max_r = js_max(wm, hm) * 0.5;
-            let mut rr = 30.0;
-            while rr <= max_r && best.is_none() {
-                for a in 0..24 {
-                    let ang = a as f64 / 24.0 * PI * 2.0;
-                    let q = Vec2::new(mc.x + js_cos(ang) * rr, mc.y + js_sin(ang) * rr);
-                    if q.x < 25.0 || q.y < 25.0 || q.x > wm - 25.0 || q.y > hm - 25.0 {
-                        continue;
+        if opts.harbour_front
+            && front
+            && let Some((q, water)) = harbour_front(&site, mc)
+        {
+            pin = Some(mc);
+            mc = q;
+            front_water = Some(water);
+        }
+        // **Not the reference** (Ruling FK item 1): a market the harbour front
+        // moved goes, when it landed in a channel or across a river from the
+        // host's roads, to the nearest dry ring point a dry line joins to one
+        // of those roads (`harbour_market_reaches_a_road`), so it lands on the
+        // bank the roads are on; with none such, a dry market stays and a wet
+        // one takes the reference's first dry point. Off (`pin` `None`): the
+        // reference's test and search, by control flow.
+        let joined = |q: Vec2| pin.is_none_or(|origin| harbour_market_reaches_a_road(&site, q, origin, &opts.primary_paths));
+        if site.is_water(mc) || !joined(mc) {
+            let ring = |accept: &dyn Fn(Vec2) -> bool| {
+                let mut best: Option<Vec2> = None;
+                let max_r = js_max(wm, hm) * 0.5;
+                let mut rr = 30.0;
+                while rr <= max_r && best.is_none() {
+                    for a in 0..24 {
+                        let ang = a as f64 / 24.0 * PI * 2.0;
+                        let q = Vec2::new(mc.x + js_cos(ang) * rr, mc.y + js_sin(ang) * rr);
+                        if q.x < 25.0 || q.y < 25.0 || q.x > wm - 25.0 || q.y > hm - 25.0 {
+                            continue;
+                        }
+                        if !site.is_water(q) && accept(q) {
+                            best = Some(q);
+                            break;
+                        }
                     }
-                    if !site.is_water(q) {
-                        best = Some(q);
-                        break;
-                    }
+                    rr += 30.0;
                 }
-                rr += 30.0;
-            }
+                best
+            };
+            let wet = site.is_water(mc);
+            let best = if pin.is_some() { ring(&joined).or_else(|| if wet { ring(&|_| true) } else { None }) } else { ring(&|_| true) };
             if let Some(b) = best {
                 mc = b;
             }
@@ -571,7 +893,17 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         // v0.97: grow around the host's real roads when supplied, else
         // synthesise primaries from `routeEnds`. Both returns are discarded.
         if !opts.primary_paths.is_empty() {
-            build_primaries_from_paths(seed, &site, &anchors, &mut g, &opts.primary_paths);
+            // The host's roads are offsets from the map pin: from the market in
+            // the reference, from the box centre where Ruling FK's harbour
+            // front moved the market off it (`pin`), so they stay on the map's.
+            match pin {
+                Some(origin) => {
+                    build_primaries_from_paths_at(seed, &site, &anchors, &mut g, &opts.primary_paths, origin);
+                }
+                None => {
+                    build_primaries_from_paths(seed, &site, &anchors, &mut g, &opts.primary_paths);
+                }
+            }
         } else {
             build_primaries(seed, &site, &anchors, &mut g);
         }
@@ -582,6 +914,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         // the square sized from the town (organic plan only; this branch).
         plaza = crate::plaza::build_plaza_with(seed, &site, &anchors, &mut g, pop_target, street_village, opts.market_scale);
         harbour_outcome = build_harbour(seed, &site, &anchors, &mut g, Some(&harbour_opts));
+        // **Not the reference** (Ruling FK item 1): a harbour-front market's
+        // street down to the water, before the town grows, so it grows to the
+        // water. `None` with the switch off or the market unmoved.
+        if let Some(water) = front_water {
+            harbour_street(&site, &mut g, anchors.market, water);
+        }
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
         }
@@ -1057,6 +1395,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         Crossings::Ford(f) => (None, Some(f)),
         Crossings::None => (None, None),
     };
+    // `Town::pin`: the market, unless the harbour front moved it.
+    let pin = pin.unwrap_or(anchors.market);
 
     Town {
         seed,
@@ -1115,6 +1455,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass) -> T
         riverbank_pass: (riverbank || street_village).then_some(pass),
         street_village,
         embankment,
+        pin,
         pop,
         metrics,
         through: site.through,

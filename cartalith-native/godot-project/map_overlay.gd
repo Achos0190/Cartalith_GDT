@@ -9806,8 +9806,12 @@ func _draw_urban_layouts(rect: Rect2) -> void:
 		## the market anchor, rotated by the layout's terrain orientation, then
 		## scaled into grid units and projected like any other map point — so
 		## the market lands exactly on the settlement's real position and an
-		## injected real road overlays the map road it came from.
-		var anchor: Vector2 = layout.get("market", Vector2.ZERO)
+		## injected real road overlays the map road it came from. `pin` is that
+		## anchor (Ruling FK item 1): the market itself, except where the
+		## harbour front moved a harbour town's market toward its sea, when it
+		## is the box centre the town was sampled round; a layout from an older
+		## build without the key falls back to the market, the reference's anchor.
+		var anchor: Vector2 = layout.get("pin", layout.get("market", Vector2.ZERO))
 		var rot: float = float(layout.get("orient", 0.0))
 		var cth := cos(rot)
 		var sth := sin(rot)

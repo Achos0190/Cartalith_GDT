@@ -1,0 +1,11 @@
+#!/bin/bash
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+cd C:/cw/rulingfk/cartalith-native/godot-project
+declare -A ON=( [483920]="359:258,154:136,154:26,147:63,360:212,152:18" [912345]="141:161,221:102,304:82,249:138" [246371]="314:122,141:209,96:92,180:140,323:93,317:110" )
+declare -A OFF=( [483920]="359:258,154:136,154:26,147:63,360:212,152:18" [912345]="141:161,221:102,304:82,249:138" [246371]="314:122,141:209,96:92,180:140,323:93,317:110" )
+for seed in 483920 912345 246371; do
+  APPDATA=C:/cw/rulingfk_appdata timeout 2400 "$GODOT" --path . --resolution 1600x1000 _fk_probe.tscn -- --out C:/cw/rulingfk_scratch/frames4 --seed $seed --fk 1 --cells ${ON[$seed]} --zoom 16 --zoom2 128 --tag fk1 > C:/cw/rulingfk_scratch/frames2_${seed}_1.txt 2>&1
+  echo "$seed 1 exit $?"
+  APPDATA=C:/cw/rulingfk_appdata timeout 2400 "$GODOT" --path . --resolution 1600x1000 _fk_probe.tscn -- --out C:/cw/rulingfk_scratch/frames4 --seed $seed --fk 0 --cells ${OFF[$seed]} --zoom 16 --zoom2 128 --tag fk0 > C:/cw/rulingfk_scratch/frames2_${seed}_0.txt 2>&1
+  echo "$seed 0 exit $?"
+done

@@ -1054,6 +1054,19 @@ pub struct CivParams {
     /// **`false` here, `true` in the shipped app**, the same §7p split. A save
     /// without the key loads it off.
     pub map_crossings: bool,
+    /// Owner Ruling FK item 2 (2026-11-16, `LARGE_ITEM_RULINGS.md`): a town is
+    /// a port candidate (`civ_is_coastal`'s badge, which the shore nudge and
+    /// `harbour_box` then read) only with the ocean within about 4 km
+    /// (`cartalith_civ::PORT_REACH_KM`, `civ_port_radius_cells`) instead of the
+    /// reference's `max(6, floor(gw / 60))` cells, about 12.5 km at 384 x 288
+    /// (Rulings N and AR), so only towns that can reach the shore are port
+    /// candidates. Its own switch rather than `port_shore`'s, which moves towns:
+    /// this decides which towns are candidates.
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the
+    /// `DECISIONS.md` §7p split: the reference badges on its own radius. A save
+    /// without the key loads it off.
+    pub port_reach: bool,
     /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
     /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
     /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
@@ -1265,6 +1278,27 @@ pub struct WorldParams {
     /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the squares it
     /// was saved with.
     pub urban_market_scale: bool,
+    /// **Harbour towns lay out to their water** (owner Ruling FK item 1,
+    /// 2026-11-16: *"the town layout grows toward its sea (quay, harbour
+    /// district) and a river-mouth town's river runs through the town to the
+    /// sea, so no harbour stands inland of its own water"*). For a town whose
+    /// own box holds sea (`cartalith_civ::urban_adapter::um_box_has_sea`'s
+    /// test): its market, which the reference pins at the box centre, moves
+    /// toward the nearest open water to the reference's own market-to-harbour
+    /// distance (`cartalith_urban::generate::harbour_front_market`), the real
+    /// roads stay where the map draws them, and the layout reports where the
+    /// map pin falls (`cartalith_urban::Town::pin`); and a river whose
+    /// downstream end stops inside such a box is carried on to the sea
+    /// (`cartalith_civ::urban_adapter::um_water_ctx_with`). Every harbour town,
+    /// river or not, so it is its own switch rather than `urban_riverbank`'s.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p): the
+    /// urban goldens pin the reference's layouts. Read fresh each time a layout
+    /// is asked for (never stored), so it moves no generated field and needs no
+    /// regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the towns it was
+    /// saved with.
+    pub urban_harbour_front: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1497,6 +1531,8 @@ impl WorldParams {
             // Off: the reference's one square size. On at the app boundary
             // (change 6) -- see the field's own doc comment.
             urban_market_scale: false,
+            // Ruling FK item 1: the reference pins the market at the box centre.
+            urban_harbour_front: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,
@@ -1665,6 +1701,8 @@ impl WorldParams {
                 port_shore: false,
                 // Ruling FI item 2: the reference charges a crossing only above the flow threshold.
                 map_crossings: false,
+                // Ruling FK item 2: the reference badges ports within its own radius.
+                port_reach: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
             },

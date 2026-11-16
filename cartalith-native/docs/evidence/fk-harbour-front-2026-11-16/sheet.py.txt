@@ -1,0 +1,30 @@
+"""sheet.py <frames dir> <seed> <x> <y> <out>: before | after rows (map x16, map x128, City Viewer fitted, City Viewer x0.25)."""
+import sys
+from PIL import Image, ImageDraw
+d, seed, x, y, out = sys.argv[1:6]
+rows = [("map x16", "map_{t}_%s_%s_%s_x16.png"), ("map x128 (town plan on the map)", "map_{t}_%s_%s_%s_x128.png"),
+        ("City Viewer, fitted", "viewer_{t}_%s_%s_%s.png"), ("City Viewer x0.25", "viewerz_{t}_%s_%s_%s.png")]
+W = 600
+cells = []
+for label, pat in rows:
+    pair = []
+    for t in ("fk0", "fk1"):
+        p = f"{d}/" + (pat % (seed, x, y)).format(t=t)
+        try:
+            im = Image.open(p).convert("RGB")
+        except FileNotFoundError:
+            im = Image.new("RGB", (W, 400), (60, 0, 0))
+        im = im.resize((W, int(im.height * W / im.width)))
+        dr = ImageDraw.Draw(im)
+        txt = f"{'before (FK off)' if t == 'fk0' else 'after (FK on)'} {seed} {x}_{y} {label}"
+        dr.rectangle([0, 0, 8 * len(txt) + 8, 16], fill=(0, 0, 0))
+        dr.text((4, 2), txt, fill=(255, 255, 255))
+        pair.append(im)
+    cells.append(pair)
+H = sum(max(a.height, b.height) for a, b in cells) + 8 * len(cells)
+sheet = Image.new("RGB", (2 * W + 10, H), (40, 40, 40))
+yy = 0
+for a, b in cells:
+    sheet.paste(a, (0, yy)); sheet.paste(b, (W + 10, yy)); yy += max(a.height, b.height) + 8
+sheet.save(out)
+print(out, sheet.size)

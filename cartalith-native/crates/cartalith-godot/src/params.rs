@@ -204,6 +204,11 @@ pub fn defaults() -> WorldParams {
     // square every urban golden pins (`DECISIONS.md` section 7p). See
     // `WorldParams::urban_market_scale`.
     p.urban_market_scale = true;
+    // Ruling FK item 1 (owner 2026-11-16): a harbour town lays out to its
+    // water. Off in `WorldParams::defaults`, the reference's box-centre market
+    // every urban golden pins (`DECISIONS.md` section 7p). See
+    // `WorldParams::urban_harbour_front`.
+    p.urban_harbour_front = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -355,6 +360,10 @@ pub fn defaults() -> WorldParams {
     // draws is charged as a ford or bridge. Off in `WorldParams::defaults`
     // (section 7p). See `CivParams::map_crossings`.
     p.civ.map_crossings = true;
+    // Ruling FK item 2 (owner 2026-11-16): ports only within about 4 km of the
+    // ocean. Off in `WorldParams::defaults` (section 7p). See
+    // `CivParams::port_reach`.
+    p.civ.port_reach = true;
     p
 }
 
@@ -449,6 +458,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_market_scale", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Market square sized with the town", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_market_scale), set_fn: |p, v| p.urban_market_scale = v != 0.0 },
+    // Ruling FK item 1 (owner 2026-11-16): harbour towns lay out to their
+    // water. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control (the reference pins every real-water town's market at
+    // its box centre). A save without the key loads OFF
+    // (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for, so it
+    // invalidates nothing and `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_harbour_front", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Harbour towns built to their water", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_harbour_front), set_fn: |p, v| p.urban_harbour_front = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1029,6 +1047,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.map_crossings", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Roads pay to cross every drawn river", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.map_crossings), set_fn: |p, v| p.civ.map_crossings = v != 0.0 },
+    // Ruling FK item 2 (owner 2026-11-16): a port candidate within about 4 km of
+    // the ocean. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control. A save without the key loads OFF. Read by
+    // `compute_civilisation`'s placement.
+    ParamSpec { key: "civ.port_reach", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Ports only within about 4 km of the sea", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.port_reach), set_fn: |p, v| p.civ.port_reach = v != 0.0 },
     // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
     // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
     // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
@@ -1141,6 +1166,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_street_village", ""),
     // Port-only (change 6); the reference's market square is one size.
     ("urban_market_scale", ""),
+    // Port-only (Ruling FK item 1); the reference pins a real-water town's
+    // market at its box centre.
+    ("urban_harbour_front", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1330,6 +1358,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // charges a crossing below the flow threshold.
     ("civ.port_shore", ""),
     ("civ.map_crossings", ""),
+    // Ruling FK item 2: no reference control; the reference badges ports within
+    // its own radius.
+    ("civ.port_reach", ""),
     ("civ.base_ag_tech", ""),
 ];
 
@@ -1486,6 +1517,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // The market square sized with the town (change 6, 2026-11-15): every
     // save without the key drew the reference's one-size square.
     ("urban_market_scale", Value::Bool(false)),
+    // Harbour towns laid out to their water (Ruling FK item 1, 2026-11-16):
+    // every save without the key drew its harbour towns round a box-centre market.
+    ("urban_harbour_front", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),
@@ -1571,6 +1605,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // without the shore nudge and priced roads with the reference's flow gate.
     ("civ.port_shore", Value::Bool(false)),
     ("civ.map_crossings", Value::Bool(false)),
+    // Ruling FK item 2 (2026-11-16): every save without the key badged its
+    // port candidates within the reference's radius.
+    ("civ.port_reach", Value::Bool(false)),
 ];
 
 /// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its
