@@ -3848,3 +3848,7 @@ After `cfa1cf0d` (Ruling FI: ports 5 to 10, sea lanes 1 to 5; five river-mouth t
 ## Ruling FM: Ruling D superseded (owner, 2026-11-16)
 
 The docs audit (`DOCS_AUDIT_2026-11-16.md`) found Ruling D's (2026-09-07) per-stage *Run stage NN* tablet button was never built (`TABLET_UI_SPEC.md` had claimed it). Owner: **superseded** -- the later shell rulings (DT, DY, EG) reshaped the tablet and phone shells, and the pipeline is run from Generate.
+
+## Ruling FN: river towns may stretch along their river (owner, 2026-11-16)
+
+The town-leftovers batch (`0e4af349`) found the judgement's 15 % riverside bar geometrically out of reach for a compact town: one row of houses on the water is about 580 houses (about 6.4 km of bank) for a town of 20 000, while the town box holds at most about 3.4 km of bank. Its growth prototype (demand read 1.6x nearer along the river) moved nothing and was removed. Owner choice among (a) drop the bar and judge by frames, (b) lower it to about 5 %, (c) let towns stretch along rivers: **(c)**. Large river towns may grow elongated along their river beyond today's square town box, where the terrain allows. New worlds only (a §7p switch, OFF on load when the key is absent); judged in the City Viewer first, with the 15 % bar measured on the bank actually built.
