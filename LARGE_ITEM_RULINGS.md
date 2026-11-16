@@ -3852,3 +3852,12 @@ The docs audit (`DOCS_AUDIT_2026-11-16.md`) found Ruling D's (2026-09-07) per-st
 ## Ruling FN: river towns may stretch along their river (owner, 2026-11-16)
 
 The town-leftovers batch (`0e4af349`) found the judgement's 15 % riverside bar geometrically out of reach for a compact town: one row of houses on the water is about 580 houses (about 6.4 km of bank) for a town of 20 000, while the town box holds at most about 3.4 km of bank. Its growth prototype (demand read 1.6x nearer along the river) moved nothing and was removed. Owner choice among (a) drop the bar and judge by frames, (b) lower it to about 5 %, (c) let towns stretch along rivers: **(c)**. Large river towns may grow elongated along their river beyond today's square town box, where the terrain allows. New worlds only (a §7p switch, OFF on load when the key is absent); judged in the City Viewer first, with the 15 % bar measured on the bank actually built.
+
+## Ruling FO: the desktop shell leftovers' five questions (owner, 2026-11-16)
+
+From `7c865fb4`/`12cb6983` (PC-4, PC-6; `STATUS.md`):
+1. **Founding year: add it.** Settlements gain a founding-year field in the engine (a §7p generation change, new worlds only; absent on load = unknown, never a plausible year), shown on Inspect's AT YEAR line.
+2. **One route name everywhere: "Route N" from 1.**
+3. **Picking a conflict always moves the year to its start**, as built.
+4. **The planner window's minimum width is accepted** as it is.
+5. **The tablet's collapsed year strip grows to 44 px and gains the slider.**
