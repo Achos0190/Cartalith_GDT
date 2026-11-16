@@ -263,7 +263,7 @@ func _run() -> void:
 		_dump("RT_route")
 		var rname := String(bridge.route_get(route_idx).get("name", ""))
 		if rname.is_empty():
-			rname = "Journey %d" % (route_idx + 1)
+			rname = "Route %d" % (route_idx + 1)
 		var open_row := _row("Open “%s” in Journey Planner" % rname)
 		var del_row := _row("Delete “%s”" % rname)
 		_ok_true("RT Open in Journey Planner row is drawn", open_row != null)

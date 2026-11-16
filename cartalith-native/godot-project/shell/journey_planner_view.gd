@@ -1,6 +1,9 @@
 extends Control
 class_name JourneyPlannerView
 
+## The one route name (Ruling FO item 2): "Route N" from 1, a typed name wins.
+const RouteName := preload("res://shell/route_name.gd")
+
 ## The Journey Planner as an in-shell tool takeover -- `JOURNEY_PLANNER_SPEC.md`'s
 ## direction 1a (distance spine), replacing the old `journey_planner_window.gd`
 ## (`extends AcceptDialog`, deleted this pass).
@@ -1308,9 +1311,9 @@ func _refresh_route_choice() -> void:
 		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		## A restored journey can carry route -1 (no committed route index this
-		## session); "Route #-1" read as a real index (audit B15 nit).
+		## session); a "Route 0" read as a real index (audit B15 nit).
 		var route_i := int(j.get("route", 0))
-		var route_txt := ("Route #%d" % route_i) if route_i >= 0 else "Its saved route"
+		var route_txt := RouteName.default_name(route_i) if route_i >= 0 else "Its saved route"
 		open_btn.tooltip_text = ("%s + this party form. Saved with the project and listed here again on File ▸ Open project." % route_txt) + (
 			" Restored from a project saved before the full plan was kept: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were not saved with it and start at their defaults." if bool(j.get("restored", false)) else "")
 		open_btn.pressed.connect(func(): _load_journey(i))
@@ -1332,7 +1335,7 @@ func _refresh_route_choice() -> void:
 		var km := float(r.get("km", 0.0))
 		var mode := String(r.get("mode", "?"))
 		var unreach := int(r.get("unreachable_legs", 0))
-		var label_text := "Route #%d — %s (%s)" % [i, DccUnits.format_thousands(km), mode]
+		var label_text := "%s — %s (%s)" % [RouteName.display(r, i), DccUnits.format_thousands(km), mode]
 		if unreach > 0:
 			label_text += "  [%d unreachable]" % unreach
 		labels.append(label_text)
@@ -3922,7 +3925,7 @@ func _tool_options_build(row: HBoxContainer) -> void:
 	var count := bridge.route_count()
 	var labels: Array = []
 	for i in count:
-		labels.append("Route #%d" % i)
+		labels.append(RouteName.display(bridge.route_get(i), i))
 	if labels.is_empty():
 		labels.append("(no committed route)")
 	DccWidgets.choice(row, "journey", labels, maxi(0, _route_index),

@@ -36,7 +36,7 @@ Verdicts: **DONE**, **PARTLY** (what is missing is named), **OPEN**, **SUPERSEDE
 |---|---|---|---|---|
 | PC-1 One selection | DONE | `DccApp.select()`, `selection`, `select_back/forward`, `current_faction()` in `app.gd`; the bar's grep `right_dock_ctrl.on_settlement_selected(` returns 0 | `5ea29148` 2026-11-07 | desktop probe only |
 | PC-2 One year | DONE | `DccShell.tl_set_year(year, exact)` in `dcc_shell.gd`; `civ_goto_year(` is called only there (grep) | `bec4f064` 2026-11-07 | desktop only |
-| PC-3 Strip at program scope | DONE | `app.gd::_on_workspace_changed` shows the strip in all three domains; `tl_filter`, `tl_record_year`, `tl_go_recorded`. **Update 2026-11-16:** the collapsed line's slider (`TimelineCollapsedSlider`, desktop only) and one undo step for + Record year (`year_record_history.gd`) are built | `55312a12` 2026-11-08 (`ae60ed86` conflict row) | desktop only |
+| PC-3 Strip at program scope | DONE | `app.gd::_on_workspace_changed` shows the strip in all three domains; `tl_filter`, `tl_record_year`, `tl_go_recorded`. **Update 2026-11-16:** the collapsed line's slider (`TimelineCollapsedSlider`, desktop; the tablet's too since Ruling FO item 5) and one undo step for + Record year (`year_record_history.gd`) are built | `55312a12` 2026-11-08 (`ae60ed86` conflict row) | no |
 | PC-4 Context panel: header, pin, Inspect | DONE | `right_dock.gd` (`RightDock`, `show_subject`, `on_selection`); pin and FOLLOWING/PINNED. **Update 2026-11-16:** Inspect's edit mode (`_build_settlement_edit_rows`), roads (`roads_section`) and F7 (`DccApp.conflict_goto_start`) are built; the founding year is not (no engine field, owner question) | `2f2af9e9` 2026-11-08 | desktop only |
 | PC-5 Note tab | DONE | `shell/context_note.gd`; the vault window's one editor; `_context_tab_ready()` in `menus.gd`; private line live 2026-11-14 | `1d0bc3e9` 2026-11-08 | desktop/tablet windowed |
 | PC-6 Ask tab | **DONE except the file slot (2026-11-16)** | `RightDock.show_tab()`, `LlmAssistantWindow.present_in()`, `shown_block` (Rust `cartalith_llm::prompt`). **Built 2026-11-16** (`_subject_note`, `_toggle_note_chip`, `_SUBJECT_TASKS`, `_mentions_in`, `_follow_citation`, `DccApp.ask_about`, `ContextBroker.ask_rows`, `conv_save` + `ConvSaveCard`, `conversation_document`); **still missing: the world-file slot's registration in `cartalith_io::DOCUMENT_SLOTS` (Rust)**, so the document is built but written nowhere yet | `1f526394` 2026-11-08 | desktop only |
@@ -83,8 +83,8 @@ and undo, PC-10's module Pop out, PC-5's Note Pop out and note citations.
 | VE-8 Phone keyboard row, Open ›, Done | **PARTLY** | built (keyboard row, `Open ›`, Done, long-press variants); **the bar (row above the keyboard on the 6T, both orientations) was never run on glass** | `d91f9a5e` 2026-11-08 | **no** |
 | VE-9 Landmark notes, notes scope in Find, private badge, caps | DONE | `PlaceSearch._add_landmarks`, `vault_privacy.gd`, `_sync_private_notice`; caps routed to `LIST_CAP` (the bar's `grep 2000` was closed 2026-11-13) | `923cb657` 2026-11-08, `df36f8d1` 2026-11-09 | no |
 
-Leftovers: VE-7 pictures by bare name, Android pictures, the browse preview's embeds, a drawn chronos track (M);
-VE-5 end-of-Preview copy (S; the tablet form built 2026-11-16); VE-6 a fuller template chooser (S); probes that call the 17 new
+Leftovers: VE-7 pictures by bare name, Android pictures, a drawn chronos track (M; the browse preview's embeds built 2026-11-16);
+VE-5 end-of-Preview copy (built 2026-11-16, with the tablet form); VE-6 a fuller template chooser (S); probes that call the 17 new
 `vault_*` functions (S); the 6T rows for VE-0, VE-4 (SAF) and VE-8 (S, owner-run, needs `adb run-as` or a connected
 folder, which `vault_connect_saf` does not yet give).
 
@@ -163,15 +163,15 @@ claim is false (S); Android folder import on glass (S, device).
 
 | Plan | Done / partly / open / superseded | Open items (size) |
 |---|---|---|
-| PC shell | 11 / 0 / 0 / 0 (2026-11-16) | the world-file slot's Rust registration (**S**); owner decisions, not built: founding year, route name M2, planner window floor, tablet collapsed slider |
+| PC shell | 11 / 0 / 0 / 0 (2026-11-16) | the world-file slot's Rust registration (**S**); the founding year (Ruling FO item 1, a Rust change). Built 2026-11-16 by Ruling FO: the one route name (M2) and the tablet's collapsed slider; the planner window floor was accepted |
 | Mobile shell | 8 / 2 / 1 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run); MS-3 node chips + tool palette atop the domain sheet and MAP's own tool domain (**S-M**, NOT built 2026-11-16: the proposal gives only a sentence, "the node's chips, the domain's tool palette, then every category", and the dock's accordion headers already are the chips; what is undecided is whether a second chip strip duplicates them, and which tools the palette holds per domain, the rail having tools on desktop only; an owner design call); MS-1 B7/B9/B10 device and probe rows (**S**); delete the unreachable `QuickBarPhoneList` sheet (**S**); MS-5 card `param` rows, only if the owner wants them (**S**) |
-| Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); VE-7 pictures by bare name, Android pictures, browse embeds, drawn chronos track (**M**); VE-5 end-of-Preview copy, 17-function probes (**S**) |
+| Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); VE-7 pictures by bare name and Android pictures (the Rust provider; **M**), drawn chronos track (**M**); 17-function probes (**S**). Built 2026-11-16: VE-5's end-of-Preview copy and the browse preview's embeds |
 | Custom quick bar | 7 / 1 / 0 / 1 | CQ-5 Pad pass (**S**, owner-run); CQ-6 long-press reorder and 6T bars (**S**); CQ-8's three deferrals, each needing an owner answer (**M**); ring parts overhanging a dock panel not clickable, phone tool cell 3.5-5 px high (**S**) |
 | Story menus | 7 / 0 / 0 / 0 | nothing scheduled; §8 later rows unscheduled by Ruling EA item 7 (each **M**, blocked on a ruling) |
 | Map context | 6 / 1 / 0 / 0 | CM-4 device check of the pen barrel button and haptics (**S**, owner-run); F5's tablet edge sliders and further ring customisation (**M**, unscheduled) |
 | Asset pack tools | 10 / 0 / 0 / 0 | the five small leftovers above (**S** each), Android folder import on glass (**S**, device) |
 
-**By size.** Genuinely unbuilt design work: about **3 M** items (VE-7 edges,
+**By size.** Genuinely unbuilt design work: about **3 M** items (VE-7's remaining edges,
 CQ-8 deferrals, F5 sliders) plus MS-3's S-M. **Device-bound work** (owner on the 6T or Pad, no code): MS-10, CQ-5, CM-4,
 VE-0/4/8, AP-8, MS-1 B7. Everything else is S.
 
@@ -202,3 +202,4 @@ This audit is a dated cut; these landed or were ruled after it and contradict ro
   chips); **built 2026-11-16** (see the next entry).
 - **CQ-8**'s three deferrals "each needing an owner answer": answered by Ruling FL item 2 (all three wanted) and **built the same day**.
 - **MS-3** (Ruling FL item 1) **built 2026-11-16**: the phone domain sheet's tool palette (`DccApp._sync_phone_tool_palette`, from the one `_domain_tools` registry; no node chips). The MS-3 row, the Mobile shell row and the CQ-8 rows above read as written; `STATUS.md`, "Ruling FL items 1 and 2 built", is the answer.
+- **Ruling FO items 2 and 5, VE-5's end-of-Preview copy and VE-7's browse-preview embeds** **built 2026-11-16**: the PC shell row's route name (M2) and tablet slider, the Vault editor row's copy and browse embeds. The rows above read as written; `STATUS.md`, "Ruling FO items 2 and 5", is the answer. VE-7's other edges (bare-name and Android pictures) need the Rust provider and stay open.

@@ -3793,7 +3793,9 @@ var _tl_min_label: Label
 ## The `YEAR TL_YEAR_MAX` range literal at the end of the track.
 var _tl_max_label: Label
 var _tl_end_hint: Label                   ## `step back or drag to resume`, row 1, end of track only.
-## PC-3 leftover: the collapsed line's year slider, or null (expanded, tablet, phone).
+## The tablet's collapsed strip target height in px (Ruling FO item 5; the 44 px touch floor). The bar is this plus its 1 px rule.
+const TABLET_STRIP_TARGET := 44
+## PC-3 leftover: the collapsed line's year slider, or null (expanded, phone).
 var _tl_collapsed_slider: HSlider
 var _tl_collapsed_dot: Label              ## Board B's `·`; hidden with the word it separates.
 ## True between a press on the scrub track and the release that ends it. Drives
@@ -3889,7 +3891,10 @@ func _build_timeline_collapsed() -> void:
 	## The phone strip is a different composition (`_fill_phone_timeline_row()`,
 	## measured 65 px) and §3.7 does not describe it -- it restores the expanded
 	## box for itself rather than being folded in here.
-	set_timeline_metrics(0, DccTheme.role_px("h_status") - 2)
+	## Ruling FO item 5 (2026-11-16): the TABLET's collapsed strip is 44 px of touch target (`TABLET_STRIP_TARGET`) under
+	## its 1 px top rule, so 45 px of bar, and carries the same year slider as the desktop. `h_status` (34 touch)
+	## was under the 44 px floor, which is why the slider was desktop-only until now.
+	set_timeline_metrics(0, TABLET_STRIP_TARGET + 1 if DccTheme.is_tablet() else DccTheme.role_px("h_status") - 2)
 	var hit := Button.new()
 	hit.flat = false
 	hit.focus_mode = Control.FOCUS_NONE
@@ -3941,20 +3946,20 @@ func _build_timeline_collapsed() -> void:
 	## **The collapsed line's slider (PC-3 leftover, `PC_SHELL_PROPOSAL.md` 3.2 "Collapsed", CV-24), right-aligned, with a clear margin before the expand word.** One year
 	## slider across the strip's range, so the year moves without expanding. It writes through the one writer
 	## (`tl_set_year`) and is repainted by `_repaint_timeline()` (`set_value_no_signal`), so it never fires its
-	## own change. **Desktop only, a stated departure**: the touch strip is `h_status` 34 px high, under the
-	## 44 px floor a thumb needs, and one tap on the strip expands to the full track, so the tablet and phone
-	## keep the shipped composition. It is RIGHT-aligned (after the spacer) with a clear 64 px margin before the
+	## own change. **Desktop and tablet** (Ruling FO item 5 lifted the old desktop-only
+	## departure by making the tablet's strip `TABLET_STRIP_TARGET` px high); the phone has its own strip. It is RIGHT-aligned (after the spacer) with a clear 64 px margin before the
 	## expand word, for two measured reasons: left of the spacer it moved sideways whenever the year or state words
 	## changed width, so a drag lost the slider under the pointer (the strip rebuilt as an expand); and at the very end it
 	## took the press `_pc3strip_probe` makes at 95 percent of the strip's width, which must expand it (the whole strip
 	## is one button). The slider takes presses itself (it is a child of that button, and a press on it must not expand
 	## the strip); the margin is a spacer that hands its press to the button beneath.
-	if not DccTheme.is_tablet():
+	if true:
 		var cs := HSlider.new()
 		cs.name = "TimelineCollapsedSlider"
 		cs.step = 1
-		cs.custom_minimum_size = Vector2(180, 0)
-		cs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		## Tablet: wide enough for a thumb and the full 44 px of the strip's target, so the slider itself meets the floor.
+		cs.custom_minimum_size = Vector2(300, TABLET_STRIP_TARGET) if DccTheme.is_tablet() else Vector2(180, 0)
+		cs.size_flags_vertical = Control.SIZE_FILL if DccTheme.is_tablet() else Control.SIZE_SHRINK_CENTER
 		cs.focus_mode = Control.FOCUS_NONE
 		cs.mouse_filter = Control.MOUSE_FILTER_STOP
 		cs.tooltip_text = "Move the year cursor without expanding the strip. Drag, or press to jump."

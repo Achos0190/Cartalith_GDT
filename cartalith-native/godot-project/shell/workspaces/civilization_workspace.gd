@@ -1,6 +1,9 @@
 extends Workspace
 class_name CivilizationWorkspace
 
+## The one route name (Ruling FO item 2): "Route N" from 1, a typed name wins.
+const RouteName := preload("res://shell/route_name.gd")
+
 ## CIVIL domain (§3): settlements, population, economy, politics, culture,
 ## and (§4.5.3) the Settlement and Territory tools.
 ##
@@ -878,10 +881,8 @@ func context_actions(req: Dictionary) -> Array:
 		## `route_set_name` is called (`infrastructure_workspace.gd`'s own
 		## `_manual_route_row` placeholder text) -- so `.get()`'s own default
 		## never fires; the blank has to be caught explicitly, the same
-		## "Journey %d" fallback that dock row already shows.
-		var rname := String(r.get("name", ""))
-		if rname.is_empty():
-			rname = "Journey %d" % (route_hit + 1)
+		## "Route N" fallback that dock row already shows.
+		var rname := RouteName.display(r, route_hit)
 		rows.append({"id": "civ.route_open_planner", "label": "Open “%s” in Journey Planner" % rname,
 			"section": "object", "enabled": true,
 			"callable": func() -> void: app.open_journey_planner_with_route(route_hit)})

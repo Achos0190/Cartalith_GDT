@@ -2703,6 +2703,13 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	ed.chronos_source = func(t: String) -> Dictionary: return bridge.vault_note_chronos(t)
 	ed.task_toggler = func(t: String, line: int) -> Dictionary: return bridge.vault_toggle_task(t, line)
 	ed.chronos_year_requested.connect(_on_chronos_year)
+	## VE-5: the copy of the note's links at the end of Preview (`VAULT_EDITOR_PROPOSAL.md` s.3.2), for every place the side
+	## panel is NOT beside the note: a narrow window (the panel is below the editor), the phone (the panel is a sheet), the
+	## docked Note tab (no panel at all) and a wide window whose panel the person hid. The panel's own lists, the same calls.
+	var beside := host is HBoxContainer
+	ed.footer_source = func() -> Dictionary: return _preview_footer(beside)
+	ed.footer_open_requested.connect(_on_footer_open)
+	ed.footer_link_requested.connect(func(src: String): _on_footer_link(src, ed))
 	ed.suggest_source = func(mode: String, note: String, query: String, limit: int) -> Array:
 		return _suggest_rows(mode, note, query, limit)
 	## VE-3: the colouring's links and the footer's counts come from the crate through the bridge, so
@@ -2754,6 +2761,41 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 		ed.set_status("editing…", false)
 	elif _saved_stamp != "":
 		ed.set_status("saved · %s" % _saved_stamp, false)
+
+
+## What the copy at the end of Preview lists (`MarkdownEditor.footer_source`): `{}` while the side panel is beside the note and
+## visible (it already shows the list), else the open note's backlinks and unlinked mentions from the crate, as the panel's
+## Links tab reads them. `built` false is "unknown, not zero", never an empty list.
+func _preview_footer(beside: bool) -> Dictionary:
+	if beside and _side_panel != null and is_instance_valid(_side_panel) and _side_panel.visible:
+		return {}
+	if _browse_path.is_empty():
+		return {}
+	var stats: Dictionary = bridge.vault_backlink_stats()
+	if not bool(stats.get("built", false)):
+		return {"built": false}
+	return {"built": true, "back": bridge.vault_file_backlinks(_browse_path),
+		"mentions": bridge.vault_file_mentions(_browse_path, SidePanel.MENTION_MAX)}
+
+
+## A row of that copy was pressed: open the note at the line of its first link (a backlink) or mention. The line comes from
+## the panel's own finders when there is a panel; the docked tab (none) opens at the top.
+func _on_footer_open(kind: String, rel: String) -> void:
+	var line := 0
+	if _side_panel != null and is_instance_valid(_side_panel):
+		line = _side_panel.backlink_line(rel, _browse_path) if kind == "backlink" else _side_panel.mention_line(rel)
+	_open_linked(rel, line)
+
+
+## **Link** in that copy: the panel's one guarded write (`link_mention`), then Preview is drawn again so the note moves from
+## the mentions to the backlinks. Needs the panel (it owns that code); the docked tab, which has none, says so.
+func _on_footer_link(src: String, ed) -> void:
+	if _side_panel == null or not is_instance_valid(_side_panel):
+		app.set_status("hint", "Open this note in the vault window to link a mention (the docked tab has no link tools).", "text_ghost")
+		return
+	_side_panel.link_mention(src)
+	if is_instance_valid(ed):
+		ed.refresh_preview()
 
 
 ## Builds the side panel into `host` beside / below `ed` and the header button that shows it (VE-5).
@@ -4246,14 +4288,34 @@ func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 		## Links (VE-1): classed by kind and followable, like the editor's Preview.
 		var from_rel := _pick_file
 		body.meta_underlined = false
-		body.text = MdEditor.to_bbcode(MdEditor.strip_frontmatter(String(read.get("text", ""))), "", "",
-			func(t: String) -> Dictionary: return _link_kind(from_rel, t))
+		## VE-7's edge, the browse preview's embeds: the same crate-decided hooks the editor's Preview renders under (a note embed
+		## through `vault_embed_open`, a picture through `_embed_image`), so a note opened to be READ draws what its Write/Preview
+		## draws. An embed starts collapsed; a click on one toggles it here (`open_keys`, this pane's own) and redraws.
+		var note_text := MdEditor.strip_frontmatter(String(read.get("text", "")))
+		var open_keys := {}
+		var last_keys: Array = []
+		var link_cls := func(t: String) -> Dictionary: return _link_kind(from_rel, t)
+		var redraw := func() -> void:
+			body.text = MdEditor.to_bbcode(note_text, "", "", link_cls, {
+				"open": open_keys, "stack": [from_rel],
+				"embed": func(inner: String, stack: Array) -> Dictionary:
+					var origin := String(stack.back()) if not stack.is_empty() else from_rel
+					return bridge.vault_embed_open(origin, inner, PackedStringArray(stack)),
+				"image": func(r: Dictionary) -> Dictionary: return _embed_image(r)})
+			last_keys.assign(MdEditor.embed_keys)
+		redraw.call()
 		body.meta_clicked.connect(func(meta: Variant):
 			var m := str(meta)
 			if m.begins_with("wiki:"):
 				_follow_link(from_rel, m.substr(5), body)
 			elif m.begins_with("ext:"):
-				_open_external(m.substr(4)))
+				_open_external(m.substr(4))
+			elif m.begins_with("embed:"):
+				var n := int(m.substr(6))
+				if n >= 0 and n < last_keys.size():
+					var key := String(last_keys[n])
+					open_keys[key] = not bool(open_keys.get(key, false))
+					redraw.call())
 		g.add_child(body)
 
 

@@ -9,7 +9,7 @@ extends "res://_pcl_base.gd"
 ##      a REAL Ctrl+Z removes exactly that year and the Edit menu's Undo label named it before; a REAL Ctrl+Shift+Z records it
 ##      again; a second Ctrl+Z removes it; with the year then removed by hand a third Ctrl+Z says it was already gone and does
 ##      not touch other years. Recording an already-recorded year makes NO step.
-##   D. TABLET (`--force-touch`): no collapsed slider (a stated departure: the touch strip is 34 px high).
+##   D. TABLET (`--force-touch`): the collapsed strip is 45 px (44 target + 1 rule, Ruling FO item 5) and has the slider.
 ## Mutants: SLIDER_NO_WRITE (`tl_set_year` removed from the slider's handler), SLIDER_RANGE (max_value from min), UNDO_NOT_REMOVED
 ## (`civ_remove_year` -> `civ_add_year` in `year_record_history.gd::undo`), UNDO_NO_STEP (`note_recorded` call removed),
 ## UNDO_NEW_ONLY (the `was_new` test dropped).
@@ -21,11 +21,11 @@ func _leg_slider() -> void:
 	_app._fill_timeline_strip()
 	await _settle(6)
 	var sl := _app.timeline_row.find_child("TimelineCollapsedSlider", true, false) as HSlider
-	if tablet:
-		_ok(sl == null, "D. the tablet's collapsed strip has no slider (a stated departure)")
-		await _shot("collapsed")
-		return
-	_ok(sl != null, "the desktop's collapsed strip has the slider")
+	_ok(sl != null, "the collapsed strip has the slider (%s)" % ("tablet, Ruling FO item 5" if tablet else "desktop"))
+	if tablet and sl != null:
+		var bar_h: float = _app.timeline_bar.size.y
+		_ok(is_equal_approx(bar_h, 45.0), "D. the tablet's collapsed strip is 44 px of target under its 1 px rule (bar %.1f)" % bar_h)
+		_ok(sl.size.y >= 44.0 and sl.size.y <= 44.5, "D. the tablet's slider is 44 px tall (%.1f)" % sl.size.y)
 	if sl == null:
 		return
 	var rng: Dictionary = _app.tl_range()

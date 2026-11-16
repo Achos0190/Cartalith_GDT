@@ -1,6 +1,9 @@
 extends Workspace
 class_name InfrastructureWorkspace
 
+## The one route name (Ruling FO item 2): "Route N" from 1, a typed name wins.
+const RouteName := preload("res://shell/route_name.gd")
+
 ## Roads, rivers, ports, trade, logistics, and the Way/Route drawing tools
 ## (§4.5.4) -- formerly the standalone INFRA rail domain (§3).
 ##
@@ -862,8 +865,8 @@ func _commit_route() -> int:
 		_refresh_manual_routes()
 		var r := bridge.route_get(idx)
 		app.set_status("hint",
-			"Route #%d committed -- %s, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [
-				idx, DccUnits.format(float(r.get("km", 0.0)))],
+			"%s committed -- %s, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [
+				RouteName.default_name(idx), DccUnits.format(float(r.get("km", 0.0)))],
 			"text_ghost")
 	if _active_infra_tool == "route":
 		_tool_options_route()
@@ -1529,9 +1532,7 @@ func _teaser_note(text: String) -> void:
 ## call `_fill_logistics()` below and `Data ▸ Journey planner… ⇧J`
 ## (`menus.gd`) already make -- not a second way to open the same window.
 func _routes_teaser_row(parent: Control, i: int, r: Dictionary, settlements: Array) -> void:
-	var name := String(r.get("name", ""))
-	if name.is_empty():
-		name = "Journey %d" % (i + 1)
+	var name := RouteName.display(r, i)
 	var label_text := "➔ %s" % name
 	var pts: PackedVector2Array = r.get("points", PackedVector2Array())
 	if pts.size() > 0:
@@ -1696,11 +1697,11 @@ func _manual_route_row(i: int, r: Dictionary) -> void:
 	## `_settlement_name_field` records).
 	var name_edit := LineEdit.new()
 	name_edit.text = String(r.get("name", ""))
-	name_edit.placeholder_text = "Journey %d" % (i + 1)
+	name_edit.placeholder_text = RouteName.default_name(i)
 	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_edit.custom_minimum_size.x = 90
 	## Writes the engine's `route_set_name`.
-	name_edit.tooltip_text = "Rename this route. Blank restores the \"Journey %d\" fallback -- that label is computed here, never stored, so it follows the row after a delete renumbers it." % (i + 1)
+	name_edit.tooltip_text = "Rename this route. Blank restores the \"%s\" fallback -- that label is computed here, never stored, so it follows the row after a delete renumbers it." % RouteName.default_name(i)
 	DccWidgets.well(name_edit, 6, 2)
 	name_edit.text_changed.connect(func(t: String): bridge.route_set_name(i, t))
 	row.add_child(name_edit)
@@ -1746,7 +1747,7 @@ func _delete_route(index: int) -> void:
 	_refresh_map_routes()
 	app.viewport.overlay.set_selected_manual_route(_selected_route)
 	_refresh_manual_routes()
-	app.set_status("hint", "Route #%d deleted -- later routes renumbered." % index, "text_ghost")
+	app.set_status("hint", "%s deleted -- later routes renumbered." % RouteName.default_name(index), "text_ghost")
 
 
 ## The reference's two whole-network road operations, **both wired

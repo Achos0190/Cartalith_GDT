@@ -157,6 +157,12 @@ signal external_link_followed(url: String)
 ## A chronos row in Preview was clicked (VE-7): the host moves Cartalith's year to `year` through the shell's one
 ## writer (`tl_set_year`, PC-2), which clamps it to the world's range (PC-3). The editor moves nothing itself.
 signal chronos_year_requested(year: int)
+## A row of the copy at the end of Preview was pressed (VE-5, `VAULT_EDITOR_PROPOSAL.md` s.3.2: "the same list at the end
+## of Preview"): `kind` is "backlink" or "mention", `rel` the other note. The host opens it at the right line.
+signal footer_open_requested(kind: String, rel: String)
+## The **Link** beside an unlinked mention in that copy was pressed: the host links the first mention in `rel` through the
+## side panel's own guarded write (one implementation, `vault_side_panel.gd::link_mention`) and re-renders Preview.
+signal footer_link_requested(rel: String)
 ## The Back button was pressed (VE-1): return to the note the last followed link came from.
 signal back_requested
 ## The phone's keyboard row appeared (`on`) or went (VE-8). The row is pinned to the bottom of the window, which is
@@ -266,6 +272,15 @@ const Highlighter := preload("res://shell/markdown_highlighter.gd")
 ## scale below `FS_MODAL_TITLE` (16) and `FS_HERO` (26); these sit on that
 ## ladder: H1 at the modal title's 16 + 4, H2 at 16, H3 at 14.
 const HEADING_PX := {1: 20, 2: 16, 3: 14, 4: 13, 5: 12, 6: 12}
+
+## VE-5: what the copy at the end of Preview lists, asked fresh at every render. Returns `{}` for "no copy" (the side panel is
+## beside the note and shows it, or there is no vault), else `{"built": bool, "back": [{rel, count}], "mentions": [{rel,
+## excerpt}]}`. The editor holds no vault knowledge; the host answers from the same crate calls as the panel's Links tab.
+var footer_source: Callable = Callable()
+## The rows the last render drew, by the `foot:<n>` / `footl:<n>` meta number: `[kind, rel]`.
+var _footer_rows: Array = []
+## Rows drawn per list in that copy (a labelled judgement: the same cap as the panel's mention list).
+const FOOTER_MAX := 40
 
 ## The Write-mode `TextEdit`; `is_dirty` compares its text with `_saved_text`.
 var text_edit: TextEdit
@@ -738,7 +753,55 @@ func _render_hooks() -> Dictionary:
 func _render_text() -> String:
 	var t := to_bbcode(text_edit.text, "", "", link_info, _render_hooks())
 	_last_embed_keys = embed_keys.duplicate()
-	return t
+	return t + _footer_bbcode()
+
+
+## VE-5: the backlinks and unlinked mentions as BBCode at the end of Preview, or "" when the host says there is none to
+## show. Every name goes through `_esc`; a row's meta is its number in `_footer_rows`, never the path itself (a path may
+## hold `]` or `:`). Not part of `to_bbcode`, which stays a pure function of the note's own text.
+func _footer_bbcode() -> String:
+	_footer_rows = []
+	if not footer_source.is_valid():
+		return ""
+	var d: Dictionary = footer_source.call()
+	if d.is_empty():
+		return ""
+	var ac := DccTheme.c("accent").to_html(false)
+	var out := "
+
+[b]LINKS TO THIS NOTE[/b]
+"
+	if not bool(d.get("built", false)):
+		return out + "The link index has not been built, so backlinks and mentions are unknown (not zero).
+"
+	var back: Array = d.get("back", [])
+	out += "
+[b]Backlinks  %d[/b]
+" % back.size()
+	if back.is_empty():
+		out += "No note links here yet.
+"
+	for i in mini(back.size(), FOOTER_MAX):
+		var b: Dictionary = back[i]
+		var n := int(b.get("count", 1))
+		out += "[color=#%s][u][url=foot:%d]%s[/url][/u][/color]%s
+" % [ac, _footer_rows.size(), _esc(String(b.get("rel", ""))), ("  x%d" % n) if n > 1 else ""]
+		_footer_rows.append(["backlink", String(b.get("rel", ""))])
+	var ms: Array = d.get("mentions", [])
+	out += "
+[b]Unlinked mentions  %d[/b]
+" % ms.size()
+	if ms.is_empty():
+		out += "No other note names this one without linking it.
+"
+	for i in mini(ms.size(), FOOTER_MAX):
+		var m: Dictionary = ms[i]
+		var rel := String(m.get("rel", ""))
+		out += "[color=#%s][u][url=foot:%d]%s[/url][/u]  [u][url=footl:%d]Link[/url][/u][/color]
+%s
+" % [ac, _footer_rows.size(), _esc(rel), _footer_rows.size(), _esc(String(m.get("excerpt", "")))]
+		_footer_rows.append(["mention", rel])
+	return out
 
 
 ## Split's Preview follows the source a moment after typing stops.
@@ -1581,6 +1644,14 @@ func _on_meta_clicked(meta: Variant) -> void:
 			var key := String(_last_embed_keys[n])
 			_embeds_open[key] = not bool(_embeds_open.get(key, false))
 			_render_preview()
+	elif m.begins_with("footl:"):
+		var fl := int(m.substr(6))
+		if fl >= 0 and fl < _footer_rows.size():
+			footer_link_requested.emit(String((_footer_rows[fl] as Array)[1]))
+	elif m.begins_with("foot:"):
+		var fo := int(m.substr(5))
+		if fo >= 0 and fo < _footer_rows.size():
+			footer_open_requested.emit(String((_footer_rows[fo] as Array)[0]), String((_footer_rows[fo] as Array)[1]))
 	elif m.begins_with("wiki:"):
 		link_followed.emit(m.substr(5))
 	elif m.begins_with("ext:"):
