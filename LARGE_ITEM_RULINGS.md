@@ -3868,3 +3868,7 @@ Owner: *"under assets we should maybe create a category for the pins. So a user 
 1. **Each added icon is a new placeable kind** in CARTO's pin palette, under a *Custom* category, with a user-chosen name and category colour. (Overriding a built-in kind's icon was not chosen.)
 2. **Custom pins travel in asset packs**, so they can be shared and imported with other art (`ASSET_PACK_TOOLS_PROPOSAL.md`'s pack format).
 3. **They live in the user's asset library, usable in every world**; a world saves which custom pins it uses (kind id, name, colour and the icon itself or its pack reference) so it still opens and draws correctly on another device or without the library.
+
+## Ruling FQ: ship the river stretch, riverside bar about 5 % (owner, 2026-11-16)
+
+Of Ruling FN's three options after the prototype (`496c7a2d`, `urban_river_stretch`, off at both boundaries): **(a)**. Fix the rows that got worse first: 483920 #12's walled empty 35.5 ha at 384 with its square outside the wall, 246371 #2 at 2 048 housed 54 %, 483920 #1 and #4 at 2 048 at 72-73 % housed, 246371 #15's wall/hull 1.08 -> 1.22, the extra unbuilt walled patch, and the town pin box and town-layer culling margin in `map_overlay.gd`, which still assume the 1.7 km box. Then turn the switch on in `params::defaults` (the normal §7p shape: still OFF in `WorldParams::defaults` and on load when absent). The judgement's riverside bar becomes **about 5 %** of houses within two street widths of the bank for towns of 1 500 and up, replacing 15 %.
