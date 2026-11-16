@@ -3876,3 +3876,7 @@ Of Ruling FN's three options after the prototype (`496c7a2d`, `urban_river_stret
 ## Ruling FR: the whole asset library persists per device (owner, 2026-11-16)
 
 The custom-pins build (`782a5e85`) found the asset library is a session store: imported art is not kept across restarts, and opening a world replaced it with a pixel-less record (fixed for pins only, through `user://custom_pins.zip`). Owner: **persist the whole library** the same way -- everything imported stays across restarts and world openings, stored per device; worlds keep saving what they use.
+
+## Ruling FS: accept the river stretch at 4.1 / 3.7 % and ship it after the water defect (owner, 2026-11-17)
+
+After `872fe397` (every worse row fixed; riverside 4.1 % at 384 and 3.7 % at 2 048, short of Ruling FQ's ~5 %), owner: **(a)** -- accept the measured share and turn `urban_river_stretch` on in `params::defaults` once the 246371 #11 defect (the stretched 2.1 km box loses the open water and harbour quays) is diagnosed and fixed. The judgement's riverside bar is recorded as the measured 4.1 / 3.7 %, a floor for later changes.
