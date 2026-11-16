@@ -20,6 +20,19 @@ extends Node
 ##   B5b two noted pins that clash are BOTH shown (the always-keep set is never thinned by its own members)
 ##   B4b with the zoom law off, 2x still shows more pins (the cache key carries the zoom itself)
 ##   B6  a hidden pin is not picked at its own head; the same point picks it once it is shown (positive control)
+##
+## 2026-11-16: the Circles style and the export (the leftovers of CL-12 and `92a63f48`), each against `_brute`, an O(n^2) restatement
+## of the walk with LITERAL constants (1.5 / 1.2 for pins, 1.15 for discs), so a constant moved in the overlay shows here:
+##   C1  Circles at the fit zoom thins: fewer shown marks than with the rule off, and the set equals `_brute`
+##   C2  no two shown Circles marks (landmark rings and settlement discs) overlap (worst overlap 0)
+##   C3  the Circles hidden set is identical under a 1 px and a 37,53 px pan
+##   C4  a selected / noted landmark is shown in Circles; a capital settlement is shown
+##   C5  a hidden Circles landmark and a hidden Circles settlement are not picked or listed by `hits_at`; the settlement plan draws
+##       every hidden settlement as the faction dot and every shown one as a disc
+##   C6  switching Pins -> Circles -> Pins moves the set (the cache key carries the style) and the Pins set is the same again
+##   X1  an export copy (2048 px of the fit view, every pin kind on) thins: fewer shown pins than with the rule off, and the sets equal `_brute`
+##   X2  no two shown export pins overlap (heads, and no tip on a head); X3 the set does not move under a pan of the rect
+##   X4  the export's settlement plan draws every hidden settlement as a dot; X5 the Circles export obeys the same bars
 
 const SHOWN_MAX := {"phone": 160, "tablet": 160, "desktop": 160}
 const VIEW_MAX := {"phone": 60, "tablet": 150, "desktop": 150}
@@ -161,6 +174,299 @@ func _clashers(ov, i: int, pool: Array, rect: Rect2) -> Array:
 	return out
 
 
+## Everything the walk draws as a mark at `rect`: `[{"kind": "lm"|"st", "i": index, "tip": Vector2, "head": Vector2, "r": float,
+## "forced": bool}]` for each generated landmark and each settlement NOT thinned by the rule (`hidden_lm`, `hidden_st` are the sets to
+## skip). `circles` picks the disc footprint (head = tip) or the pin's (head above the tip). Geometry only, on the canonical rect.
+func _marks(ov, rect: Rect2, circles: bool, hidden_lm: Dictionary, hidden_st: Dictionary) -> Array:
+	var canon := Rect2(Vector2.ZERO, rect.size)
+	var town_shown: bool = ov._town_layer_zoom_reached(rect)
+	var members: Dictionary = ov._town_pin_membership()["lm"]
+	var out: Array = []
+	if ov._landmarks_visible:
+		for i in ov._landmarks.size():
+			var lm: Dictionary = ov._landmarks[i]
+			if not ov._landmark_shown(lm) or (not town_shown and members.has(i)) or hidden_lm.has(i):
+				continue
+			var r: float = ov._landmark_radius(lm) if circles else ov._landmark_pin_r(lm)
+			var tip: Vector2 = ov._cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)
+			var head := tip if circles else tip + Vector2(0.0, -ov.PinMarker.STEM_RATIO * r)
+			out.append({"kind": "lm", "i": i, "tip": tip, "head": head, "r": r,
+				"forced": i == ov._lm_pinned or ov.landmark_has_note(i)})
+	if ov._show_settlements:
+		for i in ov._settlements.size():
+			var st: Dictionary = ov._settlements[i]
+			if ov._hidden_settlement_kinds.has(st["kind"]) or ov._settlement_hidden(st) \
+					or ov._tl_ghost_tids.has(int(st.get("tid", 0))) or hidden_st.has(i):
+				continue
+			if circles and ov._settlement_below_lod(String(st["kind"])):
+				continue
+			var r2: float = ov._settlement_pin_radius(String(st["kind"]), canon) if circles else ov._settlement_head_r(String(st["kind"]), canon)
+			var tip2: Vector2 = ov._cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon)
+			var dk: String = ov._settle_display_kind(st)
+			out.append({"kind": "st", "i": i, "tip": tip2, "head": tip2 if circles else tip2 + Vector2(0.0, -ov.PinMarker.STEM_RATIO * r2),
+				"r": r2, "forced": i == ov._settle_pinned or dk == "capital" or dk == "metropolis"})
+	return out
+
+
+## True when marks `a` and `b` conflict by the rule's LITERAL constants (not the overlay's).
+func _conflict(a: Dictionary, b: Dictionary, circles: bool) -> bool:
+	var ra: float = a["r"]
+	var rb: float = b["r"]
+	if circles:
+		return (a["head"] as Vector2).distance_to(b["head"]) < 1.15 * (ra + rb)
+	return (a["head"] as Vector2).distance_to(b["head"]) < 1.5 * (ra + rb) \
+		or (a["tip"] as Vector2).distance_to(b["head"]) < 1.2 * rb or (b["tip"] as Vector2).distance_to(a["head"]) < 1.2 * ra
+
+
+## The independent walk: the overlay's own ranked order (`_declutter_order`, asserted elsewhere by B7), then a plain O(n^2) keep-unless
+## -clash loop over `_marks`. Returns `{"lm": {index: true}, "st": {index: true}}` of the marks it thins.
+func _brute(ov, rect: Rect2, circles: bool) -> Dictionary:
+	var all := _marks(ov, rect, circles, {}, {})
+	var by_id := {}
+	for m in all:
+		by_id[(3000000 + int(m["i"])) if m["kind"] == "st" else int(m["i"])] = m
+	var kept: Array = []
+	var res := {"lm": {}, "st": {}}
+	for id in ov._declutter_order():
+		if not by_id.has(int(id)):
+			continue
+		var m: Dictionary = by_id[int(id)]
+		var clash := false
+		for k in kept:
+			if _conflict(m, k, circles):
+				clash = true
+				break
+		if clash and not bool(m["forced"]):
+			(res["st"] if m["kind"] == "st" else res["lm"])[int(m["i"])] = true
+		else:
+			kept.append(m)
+	return res
+
+
+## Worst overlap (1 - distance / radii sum, clamped at 0; pins also count a tip inside another head as overlap 1) among the SHOWN marks.
+func _worst(ov, rect: Rect2, circles: bool) -> float:
+	var shown := _marks(ov, rect, circles, ov._declutter_set(rect), ov._declutter_hidden_settlements(rect))
+	var worst := 0.0
+	for a in shown.size():
+		for b in range(a + 1, shown.size()):
+			var ma: Dictionary = shown[a]
+			var mb: Dictionary = shown[b]
+			var rr: float = float(ma["r"]) + float(mb["r"])
+			worst = maxf(worst, 1.0 - (ma["head"] as Vector2).distance_to(mb["head"]) / rr)
+			if not circles:
+				if (ma["tip"] as Vector2).distance_to(mb["head"]) < float(mb["r"]) or (mb["tip"] as Vector2).distance_to(ma["head"]) < float(ma["r"]):
+					worst = maxf(worst, 1.0)
+	return worst
+
+
+func _count_shown(ov, rect: Rect2, circles: bool) -> Array:
+	var shown := _marks(ov, rect, circles, ov._declutter_set(rect), ov._declutter_hidden_settlements(rect))
+	var lm := 0
+	for m in shown:
+		if m["kind"] == "lm":
+			lm += 1
+	return [lm, shown.size() - lm]
+
+
+## Every settlement the plan would draw: `{index: dot?}` from the real planner, so "hidden means the faction dot" is read from what
+## the draw pass is told, not from the predicate.
+func _plan_dots(ov, rect: Rect2) -> Dictionary:
+	var interior: Rect2 = ov._interior_rect(rect)
+	var plan: Dictionary = ov._settlement_plan_begin(rect, [])
+	var steps: int = ov.SETTLE_PLAN_CHUNKS
+	for st in range(0, steps):
+		ov._settlement_plan_step(plan, rect, interior, st, steps)
+	var out := {}
+	for e in plan["entries"]:
+		out[int(e["i"])] = bool(e["dot"])
+	return out
+
+
+func _sorted_keys(d: Dictionary) -> Array:
+	var k: Array = d.keys()
+	k.sort()
+	return k
+
+
+## The Circles leg. `before` = the rule off: print the baseline numbers and the frame only.
+func _circles_leg(ov, host, before: bool) -> void:
+	DccSettings.set_marker_style("circles")
+	host.reset_view()
+	await _frames(8)
+	var rect: Rect2 = ov.displayed_rect()
+	var n := _count_shown(ov, rect, true)
+	_p("DECL %s circles shown_landmarks=%d shown_settlements=%d worst_overlap=%.4f declutter=%s" % [_form, n[0], n[1], _worst(ov, rect, true), str(not before)])
+	await _shot("circles_fit.png")
+	if before:
+		return
+	## baseline with the rule off, same view
+	ov.declutter_enabled = false
+	var base := _count_shown(ov, rect, true)
+	var base_worst := _worst(ov, rect, true)
+	ov.declutter_enabled = true
+	_p("DECL %s circles_baseline landmarks=%d settlements=%d worst_overlap=%.4f" % [_form, base[0], base[1], base_worst])
+	_ok("C1 Circles baseline overlaps (%.3f) so there is something to thin" % base_worst, base_worst > 0.0)
+	_ok("C1 Circles shows fewer marks than with the rule off (%d+%d < %d+%d)" % [n[0], n[1], base[0], base[1]], n[0] + n[1] < base[0] + base[1])
+	_ok("C1 Circles map is not blanked (%d landmarks, %d settlements)" % [n[0], n[1]], n[0] >= 8 and n[1] >= 1)
+	var br := _brute(ov, rect, true)
+	var ho: Dictionary = ov._declutter_set(rect)
+	var hs: Dictionary = ov._declutter_hidden_settlements(rect)
+	_ok("C1 landmark set equals the independent walk (%d hidden vs %d)" % [ho.size(), (br["lm"] as Dictionary).size()], _sorted_keys(ho) == _sorted_keys(br["lm"]))
+	_ok("C1 settlement set equals the independent walk (%d hidden vs %d)" % [hs.size(), (br["st"] as Dictionary).size()], _sorted_keys(hs) == _sorted_keys(br["st"]))
+	var w := _worst(ov, rect, true)
+	_ok("C2 no two shown Circles marks overlap (worst %.4f)" % w, w <= 0.0)
+	var h1 := _sorted_keys(ov._declutter_set(Rect2(rect.position + Vector2(1.0, 0.0), rect.size)))
+	var h2 := _sorted_keys(ov._declutter_set(Rect2(rect.position + Vector2(-37.0, 53.0), rect.size)))
+	_ok("C3 Circles hidden set identical under 1 px and 37,53 px pans", h1 == _sorted_keys(ho) and h2 == _sorted_keys(ho))
+	## C4: forced marks
+	var hid: Array = _sorted_keys(ho)
+	_ok("C4 some Circles landmark is hidden (%d)" % hid.size(), hid.size() >= 2)
+	if hid.size() >= 2:
+		var sel: int = hid[0]
+		ov.set_selected_landmark(sel)
+		_ok("C4 a selected Circles landmark is shown", not ov._lm_hidden(sel, rect))
+		ov.set_selected_landmark(-1)
+		_ok("C4 and hidden again once deselected", ov._lm_hidden(sel, rect))
+		var ids: Array = []
+		for k in ov._landmarks.size():
+			ids.append(1000 + k)
+		var noted: int = hid[1]
+		ov.set_pin_note_source(func() -> Dictionary:
+			return {"linked": {"landmark:%d" % (1000 + noted): true}, "landmark_ids": ids})
+		ov.invalidate_pin_notes()
+		await _frames(2)
+		_ok("C4 a noted Circles landmark is shown", not ov._lm_hidden(noted, rect), "has_note=%s town=%s dc=%s" % [str(ov.landmark_has_note(noted)), str(ov._lm_town_hidden(noted, rect)), str(ov._lm_declutter_hidden(noted, rect))])
+		ov.set_pin_note_source(func() -> Dictionary:
+			return {"linked": {}, "landmark_ids": ids})
+		ov.invalidate_pin_notes()
+		await _frames(2)
+		_ok("C4 and hidden again once the note is gone", ov._lm_hidden(noted, rect))
+		## C5: a hidden landmark is not picked at its ring centre; a shown one is (positive control)
+		var interior := Rect2(Vector2(-1e6, -1e6), Vector2(2e6, 2e6))
+		var tip: Vector2 = ov._cell_to_screen(Vector2(float(ov._landmarks[sel]["x"]), float(ov._landmarks[sel]["y"])), rect)
+		var got: Array = ov._hit_test_landmark(tip, interior, rect)
+		_ok("C5 hidden Circles landmark %d is not picked at its centre (got %d)" % [sel, int(got[0])], int(got[0]) != sel)
+		var leak := false
+		for h in ov.hits_at(tip):
+			if String(h.get("kind", "")) == "landmark" and int(h.get("id", -1)) == sel:
+				leak = true
+		_ok("C5 hits_at does not list the hidden Circles landmark", not leak)
+		ov.set_selected_landmark(sel)
+		var got2: Array = ov._hit_test_landmark(tip, interior, rect)
+		_ok("C5 control: once selected the same point picks it (got %d)" % int(got2[0]), int(got2[0]) == sel)
+		ov.set_selected_landmark(-1)
+	## C4 capital, C5 settlements
+	var cap_ok := true
+	var ncap := 0
+	for i in ov._settlements.size():
+		if ov._settle_display_kind(ov._settlements[i]) == "capital":
+			ncap += 1
+			if hs.has(i):
+				cap_ok = false
+	_ok("C4 every capital settlement is shown in Circles (%d capitals)" % ncap, ncap > 0 and cap_ok)
+	var dots := _plan_dots(ov, rect)
+	var dot_bad := 0
+	var disc_bad := 0
+	for i in hs.keys():
+		if dots.has(i) and not bool(dots[i]):
+			dot_bad += 1
+		if not dots.has(i):
+			dot_bad += 1
+	for i in dots.keys():
+		if not hs.has(i) and bool(dots[i]) and not ov._settlement_below_lod(String(ov._settlements[i]["kind"])):
+			disc_bad += 1
+	_ok("C5 the plan draws all %d thinned settlements as dots (%d not)" % [hs.size(), dot_bad], dot_bad == 0 and (hs.size() > 0 or _form != "desktop"))   ## the touch forms' 19 disc settlements clear each other at the fit zoom: nothing to thin there
+	_ok("C5 and no shown settlement disc as a dot (%d)" % disc_bad, disc_bad == 0)
+	var interior2 := Rect2(Vector2(-1e6, -1e6), Vector2(2e6, 2e6))
+	if hs.size() > 0:
+		var si: int = int(_sorted_keys(hs)[0])
+		var sp: Vector2 = ov._cell_to_screen(Vector2(float(ov._settlements[si]["x"]), float(ov._settlements[si]["y"])), rect)
+		_ok("C5 a thinned Circles settlement is not picked at its centre (got %d)" % int(ov._hit_test_settlement(sp, interior2, rect)), int(ov._hit_test_settlement(sp, interior2, rect)) != si)
+		var sleak := false
+		for h in ov.hits_at(sp):
+			if String(h.get("kind", "")) == "settlement" and int(h.get("id", -1)) == si:
+				sleak = true
+		_ok("C5 hits_at does not list the thinned Circles settlement", not sleak)
+	## C6: the style is part of the cache key
+	var circ_hidden := _sorted_keys(ov._declutter_set(rect))
+	DccSettings.set_marker_style("pins")
+	await _frames(2)
+	var pins_hidden := _sorted_keys(ov._declutter_set(rect))
+	var pins_brute := _sorted_keys(_brute(ov, rect, false)["lm"])
+	_ok("C6 the Pins set differs from the Circles set (%d vs %d) and equals its own walk" % [pins_hidden.size(), circ_hidden.size()], pins_hidden != circ_hidden and pins_hidden == pins_brute)
+	DccSettings.set_marker_style("circles")
+	await _frames(2)
+	_ok("C6 and back to Circles gives the Circles set again", _sorted_keys(ov._declutter_set(rect)) == circ_hidden)
+
+
+## The export leg: an export copy of the fit view at `px` wide, under the current marker style. Saves the overlay over grey as
+## `<tag>_<form>_export_<style>.png` when `--out` is given.
+func _export_leg(ov, host, before: bool, style: String, px: int) -> void:
+	DccSettings.set_marker_style(style)
+	var circles := style == "circles"
+	host.reset_view()
+	await _frames(8)
+	var py := int(round(px * 0.75))
+	var eo := ExportOverlay.new()
+	add_child(eo)
+	var err := eo.setup(ov, px, py, {"icons": true, "labels": false, "ways": false, "settlement_tier": "all"})
+	_ok("X0 the export copy builds (%s)" % err, err == "")
+	if err != "":
+		eo.queue_free()
+		return
+	var cp = eo.overlay
+	await _frames(3)
+	var rect: Rect2 = cp.displayed_rect()
+	var n := _count_shown(cp, rect, circles)
+	_p("DECL %s export_%s px=%d landmarks=%d/%d settlements=%d/%d worst_overlap=%.4f declutter=%s" % [_form, style, px, n[0],
+		cp._landmarks.size(), n[1], cp._settlements.size(), _worst(cp, rect, circles), str(not before)])
+	var data: PackedByteArray = await eo.render_tile(0, 0, px, py, 4096)
+	if _out != "" and data.size() == px * py * 4:
+		var img := Image.create_from_data(px, py, false, Image.FORMAT_RGBA8, data)
+		var bg := Image.create(px, py, false, Image.FORMAT_RGBA8)
+		bg.fill(Color(0.55, 0.58, 0.55))
+		for yy in py:
+			for xx in px:
+				var c := img.get_pixel(xx, yy)
+				if c.a > 0.0:
+					## premultiplied readback: out = src + dst * (1 - a)
+					var d := bg.get_pixel(xx, yy)
+					bg.set_pixel(xx, yy, Color(c.r + d.r * (1.0 - c.a), c.g + d.g * (1.0 - c.a), c.b + d.b * (1.0 - c.a), 1.0))
+		bg.save_png(_out.path_join("%s_%s_export_%s.png" % [_tag, _form, style]))
+		_p("shot %s_%s_export_%s.png" % [_tag, _form, style])
+	if not before:
+		cp.declutter_enabled = false
+		var base := _count_shown(cp, rect, circles)
+		cp.declutter_enabled = true
+		_p("DECL %s export_%s_baseline landmarks=%d settlements=%d" % [_form, style, base[0], base[1]])
+		_ok("X1 [%s] the export thins (%d+%d < %d+%d)" % [style, n[0], n[1], base[0], base[1]], n[0] + n[1] < base[0] + base[1])
+		_ok("X1 [%s] the export is not blanked (%d landmarks, %d settlements)" % [style, n[0], n[1]], n[0] >= 8 and n[1] >= 1)
+		var br := _brute(cp, rect, circles)
+		_ok("X1 [%s] landmark set equals the independent walk" % style, _sorted_keys(cp._declutter_set(rect)) == _sorted_keys(br["lm"]))
+		_ok("X1 [%s] settlement set equals the independent walk" % style, _sorted_keys(cp._declutter_hidden_settlements(rect)) == _sorted_keys(br["st"]))
+		var w := _worst(cp, rect, circles)
+		_ok("X2 [%s] no two shown export marks overlap (worst %.4f)" % [style, w], w <= 0.0)
+		var ho := _sorted_keys(cp._declutter_set(rect))
+		_ok("X3 [%s] the export set is the same under a pan of the rect" % style,
+			_sorted_keys(cp._declutter_set(Rect2(rect.position + Vector2(311.0, -97.0), rect.size))) == ho)
+		var hs: Dictionary = cp._declutter_hidden_settlements(rect)
+		var dots := _plan_dots(cp, rect)
+		var bad := 0
+		var interior_x: Rect2 = cp._interior_rect(rect)
+		for i in hs.keys():
+			var spos: Vector2 = cp._cell_to_screen(Vector2(float(cp._settlements[i]["x"]), float(cp._settlements[i]["y"])), rect)
+			## a settlement off the plate has no entry at all (the planner's own interior cull); every other thinned one is a dot
+			if (dots.has(i) and not bool(dots[i])) or (not dots.has(i) and interior_x.has_point(spos)):
+				bad += 1
+		_ok("X4 [%s] the export draws all %d thinned settlements as dots (%d not)" % [style, hs.size(), bad], bad == 0 and hs.size() > 0)
+		## export scale: the walk's radii are OUTPUT pixels: a landmark head is the unfloored class radius times the gain
+		var lm0: Dictionary = cp._landmarks[0]
+		var want: float = cp._landmark_radius(lm0)
+		_ok("X6 [%s] an export landmark head takes no screen floor (%.2f)" % [style, cp._landmark_pin_r(lm0)], is_equal_approx(cp._landmark_pin_r(lm0), want))
+	eo.queue_free()
+	await _frames(2)
+
+
 func _ready() -> void:
 	var vp_size := Vector2i(1600, 900)
 	var args := OS.get_cmdline_user_args()
@@ -247,6 +553,11 @@ func _ready() -> void:
 		await _frames(10)
 		await _shot("x4.png")
 		_p("DECL %s shown_x4=%d" % [_form, _shown(ov, ov.displayed_rect()).size()])
+		host.reset_view()
+		await _frames(6)
+		await _circles_leg(ov, host, true)
+		await _export_leg(ov, host, true, "pins", 2048)
+		await _export_leg(ov, host, true, "circles", 2048)
 		get_tree().quit(0)
 		return
 	_ok("landmarks exist (%d)" % n_all, n_all > 40)
@@ -421,5 +732,10 @@ func _ready() -> void:
 	var r4: Rect2 = ov.displayed_rect()
 	_p("DECL %s shown_x4=%d" % [_form, _shown(ov, r4).size()])
 	await _shot("x4.png")
+	host.reset_view()
+	await _frames(6)
+	await _circles_leg(ov, host, false)
+	await _export_leg(ov, host, false, "pins", 2048)
+	await _export_leg(ov, host, false, "circles", 2048)
 	_p("== done: %d failed ==" % _fails)
 	get_tree().quit(1 if _fails > 0 else 0)

@@ -251,17 +251,15 @@ func _ready() -> void:
 	## C2
 	var rc: Rect2 = ov.displayed_rect()
 	_ok("C2 Circles: pins are off", not ov._settle_pins_on())
-	var any_hidden := false
-	for k in ov._settlements.size():
-		if ov._settlement_declutter_hidden(k, rc):
-			any_hidden = true
-	_ok("C2 Circles: no settlement is declutter-hidden", not any_hidden)
+	## 2026-11-16: the Circles style joined the declutter rule (its disc footprint; `_declutter_probe` C1-C6), so a disc may be
+	## thinned to the faction dot. What stays true here is that the rule is active and a settlement drawn as a disc picks as one.
+	_ok("C2 Circles: the declutter rule applies to discs (a thinned disc is the dot)", ov._declutter_active())
 	_ok("C2 Circles: no settlement tilts", (ov._fan(rc)["s_a"] as Dictionary).is_empty())
 	var ic: Rect2 = ov._interior_rect(rc)
 	var disc_ok := 0
 	var disc_n := 0
 	for k in ov._settlements.size():
-		if not _drawn(ov, k, rc, ic) or ov._settlement_below_lod(String(ov._settlements[k]["kind"])):
+		if not _drawn(ov, k, rc, ic) or ov._settlement_below_lod(String(ov._settlements[k]["kind"])) or ov._settlement_declutter_hidden(k, rc):
 			continue
 		var s: Dictionary = ov._settlements[k]
 		var ps: Vector2 = ov._cell_to_screen(Vector2(s["x"], s["y"]), rc)

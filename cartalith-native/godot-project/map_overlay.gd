@@ -5800,7 +5800,7 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 		## replaced by the pin; the only dot left is the stand-in for a pin the declutter rule thinned (a faction dot
 		## that keeps the road endpoint anchored, never picked). The Circles style keeps the reference's own LOD dot.
 		var pins := _settle_pins_on()
-		if pins and _settlement_declutter_hidden(i, rect):
+		if _settlement_declutter_hidden(i, rect):
 			entries.append({"i": i, "pos": pos, "dot": true})
 			continue
 		# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
@@ -6770,11 +6770,20 @@ func _near_a_town(p: Vector2, grid: Dictionary, bsz: float, rad: float) -> bool:
 ## pickable and do not tilt a neighbour** (`_lm_hidden` is the one test draw, hit test, `hits_at` and `_fan` ask). Zooming in
 ## shrinks the head in plane units, so the conflicts thin out and the lower-ranked pins come back; zooming out drops them.
 ##
-## Not applied: the Circles marker style (small rings were never the swamp), an export (`_export_mode`, which draws the whole
-## map once at its own magnification), user-placed POIs (always shown, Ruling EW item 4, subject to Ruling FC only), and the
-## City Viewer (its pins are the town's own). Never writes generation data.
+## **Exports and Circles (2026-11-16, the leftovers of CL-12 and `92a63f48`).** An export applies the same rule at its own
+## output scale: the export copy is laid out at the export's pixel size, so every radius and every distance the walk reads is
+## already in OUTPUT pixels (landmark heads carry `_sym_gain` and take no floor, settlement heads take the tier size), and the
+## image keeps what a screen of that size would. The Circles style walks the same ranked order with each mark's DISC footprint
+## (the ring's `_landmark_radius`, a settlement disc's `_settlement_pin_radius`; head = tip, no stem), and a clash is two discs
+## closer than `DECLUTTER_DISC_SPACING` x the radii sum. A thinned Circles settlement falls back to the faction dot, as a pin
+## does. Not applied: user-placed POIs (always shown, Ruling EW item 4, subject to Ruling FC only) and the City Viewer (its pins
+## are the town's own). Never writes generation data.
 const DECLUTTER_CLASS_RANK := {"continental": 3, "regional": 2, "cultural": 1, "local": 0}
 const DECLUTTER_SPACING := 1.5
+## The same rule's spacing for Circles discs: two discs conflict when their centres are closer than this times the radii sum.
+## 1.15 leaves a clear gap of 15 percent of the radii sum, so two kept discs never touch (labelled judgement; a disc has no
+## stem to clear, so it needs less air than a pin head's 1.5).
+const DECLUTTER_DISC_SPACING := 1.15
 ## Ruling FF item 1: a settlement tier's place on the declutter rank scale it shares with `DECLUTTER_CLASS_RANK` (0 local to 3
 ## continental). Labelled judgement of the owner's rule ("settlements rank above minor landmarks, capitals and cities highest"):
 ## capital and metropolis 6 and city 5 above every landmark class; town 3 level with continental (population breaks the tie);
@@ -6818,16 +6827,21 @@ func set_selected_settlement(i: int) -> void:
 	_settle_pinned = i
 	queue_redraw()
 
-## True when the declutter rule applies at all: the pins style and a live view (not an export). Ruling FF item 1 made it
-## cover the settlement pins too, so it no longer needs the landmark layer on: each walk below skips what is not drawn.
+## True when the declutter rule applies at all: every marker style, a live view or an export (2026-11-16 lifted both
+## exclusions; the walk reads the style and the export's own sizes). Ruling FF item 1 made it cover the settlement pins too,
+## so it no longer needs the landmark layer on: each walk below skips what is not drawn.
 func _declutter_active() -> bool:
-	return declutter_enabled and not _export_mode and not DccSettings.markers_are_circles()
+	return declutter_enabled
 
 ## The view signature the decluttered set depends on (used in `_fan`'s cache key and this rule's own).
 func _declutter_sig(rect: Rect2) -> Array:
 	if not _declutter_active():
 		return [false]
-	return [true, rect.size, _camera_zoom, _fan_rev, _landmarks.size(), _hidden_landmark_kinds.hash(), _pin_notes_rev,
+	## Read the linked notes first: the always-keep set depends on them and `_pin_notes_rev` only moves when they are read.
+	## The Pins draw reads them per pin, so a note change used to reach the key there; the Circles ring never asks, so
+	## without this a note linked or removed in Circles left the cached set stale (found by `_declutter_probe` C4).
+	_ensure_pin_notes()
+	return [true, DccSettings.markers_are_circles(), _export_mode, _sym_gain, rect.size, _camera_zoom, _fan_rev, _landmarks.size(), _hidden_landmark_kinds.hash(), _pin_notes_rev,
 		_lm_pinned, _pin_unit(), _landmark_zoom_k(), _landmarks_visible, _show_settlements, _hidden_settlement_kinds.hash(),
 		_settlements.size(), _settle_pinned, _town_layer_zoom_reached(rect)]
 
@@ -6888,14 +6902,16 @@ func _declutter_set(rect: Rect2) -> Dictionary:
 	var canon := Rect2(Vector2.ZERO, rect.size)
 	var town_shown := bool(sig[sig.size() - 1])
 	var members: Dictionary = _town_pin_membership()["lm"]
+	var circles := DccSettings.markers_are_circles()
+	var spacing := DECLUTTER_DISC_SPACING if circles else DECLUTTER_SPACING
 	var rmax := 0.0
 	if _landmarks_visible:
 		for i in _landmarks.size():
-			rmax = maxf(rmax, _landmark_pin_r(_landmarks[i]))
+			rmax = maxf(rmax, _landmark_radius(_landmarks[i]) if circles else _landmark_pin_r(_landmarks[i]))
 	if _show_settlements:
 		for kd: String in SETTLEMENT_CLASS:
-			rmax = maxf(rmax, _settlement_head_r(kd, canon))
-	var bsz := maxf(0.001, rmax * (DECLUTTER_SPACING * 2.0 + 0.5))
+			rmax = maxf(rmax, _settlement_pin_radius(kd, canon) if circles else _settlement_head_r(kd, canon))
+	var bsz := maxf(0.001, rmax * (spacing * 2.0 + 0.5))
 	var grid := {}   ## Vector2i bucket -> Array of [tip, head, r] kept pins
 	for id in order:
 		var is_s: bool = id >= _DC_SETTLE_BASE
@@ -6910,25 +6926,30 @@ func _declutter_set(rect: Rect2) -> Dictionary:
 				continue   ## not drawn as a pin anyway; it takes no room
 			var dk := _settle_display_kind(st)
 			forced = i == _settle_pinned or dk == "capital" or dk == "metropolis"
-			r = _settlement_head_r(String(st["kind"]), canon)
+			if circles:
+				if _settlement_below_lod(String(st["kind"])):
+					continue   ## already the faction dot at this zoom: it takes no room and is not ours to thin
+				r = _settlement_pin_radius(String(st["kind"]), canon)
+			else:
+				r = _settlement_head_r(String(st["kind"]), canon)
 			tip = _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon)
 		else:
 			var lm: Dictionary = _landmarks[i]
 			if not _landmark_shown(lm) or (not town_shown and members.has(i)):
 				continue   ## not drawn anyway; it takes no room and is not ours to hide
 			forced = i == _lm_pinned or landmark_has_note(i)
-			r = _landmark_pin_r(lm)
+			r = _landmark_radius(lm) if circles else _landmark_pin_r(lm)
 			tip = _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)
-		var head := tip + Vector2(0.0, -PinMarker.STEM_RATIO * r)
+		var head := tip if circles else tip + Vector2(0.0, -PinMarker.STEM_RATIO * r)
 		var k := Vector2i(floori(tip.x / bsz), floori(tip.y / bsz))
 		var clash := false
 		for dx in range(-1, 2):
 			for dy in range(-1, 2):
 				for o in grid.get(Vector2i(k.x + dx, k.y + dy), []):
 					var orr: float = o[2]
-					if head.distance_to(o[1]) < DECLUTTER_SPACING * (r + orr) \
-							or tip.distance_to(o[1]) < DECLUTTER_TIP_CLEAR * orr \
-							or (o[0] as Vector2).distance_to(head) < DECLUTTER_TIP_CLEAR * r:
+					if head.distance_to(o[1]) < spacing * (r + orr) \
+							or (not circles and (tip.distance_to(o[1]) < DECLUTTER_TIP_CLEAR * orr \
+							or (o[0] as Vector2).distance_to(head) < DECLUTTER_TIP_CLEAR * r)):
 						clash = true
 						break
 				if clash:
@@ -6953,7 +6974,7 @@ func _declutter_hidden_settlements(rect: Rect2) -> Dictionary:
 	_declutter_set(rect)
 	return _dc_hidden_s
 
-## True when the declutter rule thins settlement `i` at this view (always false in the Circles style and in an export).
+## True when the declutter rule thins settlement `i` at this view (a pin, or a Circles disc, drawn as the faction dot).
 func _settlement_declutter_hidden(i: int, rect: Rect2) -> bool:
 	return _declutter_active() and _declutter_hidden_settlements(rect).has(i)
 
@@ -8611,6 +8632,8 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 				closest = i
 				closest_dist = pd
 			continue
+		if _settlement_declutter_hidden(i, rect):
+			continue   ## a thinned Circles disc is drawn as the dot, which is not picked
 		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)
 		if d <= radius and d < closest_dist:
@@ -8843,7 +8866,7 @@ func hits_at(mouse: Vector2) -> Array:
 		if _settle_pins_on():
 			if _settlement_pin_hit(i, s, pos, mouse, rect) < INF:   ## Ruling FF: the drawn pin's footprint
 				hits.append(_hit("settlement", i, s.get("name"), d))
-		elif d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
+		elif d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD and not _settlement_declutter_hidden(i, rect):
 			hits.append(_hit("settlement", i, s.get("name"), d))
 	if _landmarks_visible:
 		## Same refusals and the same pin footprint as `_hit_test_landmark` (CL-2).
