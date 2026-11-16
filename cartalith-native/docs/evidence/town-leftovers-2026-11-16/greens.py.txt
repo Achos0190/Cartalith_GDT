@@ -1,0 +1,16 @@
+import re, sys
+seeds = [483920, 912345, 246371]
+si = -1; last = 10**9
+out = []
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.match(r"\s*(?:test \S+ \.\.\. )?\s*#\s*(\d+)\s+(\S+) target\s+(\d+)", line)
+    if not m: continue
+    i = int(m.group(1))
+    if i <= last and i == 0 or i < last: si += 1 if i < last else 0
+    last = i
+    g = re.search(r"green (\d+) m", line)
+    if g and int(g.group(1)) > 60:
+        far = re.search(r"far bank (\d+) %", line); cr = re.search(r"crossing (\w+)", line)
+        out.append((seeds[si], i, m.group(2), int(g.group(1)), far.group(1) if far else "-", cr.group(1) if cr else "-", re.search(r"housed\s+([\d.]+)", line).group(1)))
+for o in out: print(*o)
+print(len(out))

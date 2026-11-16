@@ -2222,3 +2222,40 @@ fn two_river_crossings_merge_into_one_water_gate_only_inside_40_metres() {
     assert!((two[0].dist(two[1]) - 40.5).abs() < 1e-9);
     assert_eq!(gates(39.5).len(), 1, "39.5 m apart: one");
 }
+
+/// Protects `town_bank`'s riverbank branch (2026-11-16, the wall over the
+/// river): on a site with the riverbank geometry every bank point stands on
+/// the market's bank (`Site::bank_side`), where the reference's per-vertex
+/// test flips. The fixture is a staircased river running straight at the
+/// market (vertices alternating 10 m either side of x = 850, every 40 m, from
+/// y = 1 250 up to y = 690; the market at (850, 400) on its extension): there
+/// `nl . (market - v)` is +-10 m by vertex, so the reference's offsets
+/// alternate banks (the positive control, the same river on a site without
+/// the riverbank geometry), which is the wall's teeth over the water.
+#[test]
+fn a_riverbank_town_bank_stays_on_the_market_bank() {
+    let path: Vec<Vec2> = (0..15).map(|k| Vec2::new(if k % 2 == 0 { 840.0 } else { 860.0 }, 1250.0 - 40.0 * k as f64)).collect();
+    let (mw, mh, cell) = (77usize, 57usize, 22.0);
+    let w = WaterCtx {
+        mask: vec![0u8; mw * mh],
+        dt: vec![10.0; mw * mh],
+        mw,
+        mh,
+        cell_m: cell,
+        river_path: Some(path.clone()),
+        river_width_m: Some(24.0),
+        river_order: 2.0,
+        sea_lake_cells: 0.0,
+        open_water: Some(vec![0u8; mw * mh]),
+    };
+    let anchors = Anchors { market: Vec2::new(850.0, 400.0), prov: "fixture" };
+    let plain = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w.clone()), ..Default::default() });
+    let mut bank = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+    assert!(bank.use_riverbank(), "premise: the fixture takes the riverbank geometry");
+    assert_eq!(bank.river.len(), path.len(), "premise: the staircase is the site's river as given");
+    let side = bank.bank_side(anchors.market);
+    let pts = town_bank(&bank, &anchors);
+    assert!(pts.iter().all(|p| bank.bank_side(*p) == side), "a riverbank bank point on the other bank");
+    let flips = town_bank(&plain, &anchors).iter().filter(|p| bank.bank_side(**p) != side).count();
+    assert!(flips >= 5, "premise: the reference's offsets alternate banks here ({flips} on the other bank)");
+}

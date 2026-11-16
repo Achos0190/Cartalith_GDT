@@ -343,21 +343,43 @@ pub fn corner_cut(ring: &[Vec2], min_ang: f64, passes: i32) -> Vec<Vec2> {
 /// **`rk` is recomputed from `site.kind` here, not read from the site.** A real
 /// site with a river centreline and `kind === 'coast'` is river-*like* to
 /// `buildSite` and a coast to this function; reproduced rather than unified.
+///
+/// **Not the reference, on a riverbank site only** (`Site::riverbank`, the
+/// `urban_riverbank` switch; 2026-11-16, `OUTSTANDING_WORK.md`'s town
+/// judgement row (d) and Ruling FK's left item (iii)): on a channel the side
+/// is the market's **bank** ([`Site::bank_side`], the test the wall's own land
+/// classification `is_land` uses), not the side the market lies on from each
+/// vertex. The reference's per-vertex test (`nl . (market - v) < 0`) is a
+/// coin toss wherever the river runs toward the market, since there the
+/// normal is nearly perpendicular to `market - v`: on a staircased map river
+/// it flipped from vertex to vertex, so the bank walk crossed the channel
+/// every few tens of metres and the wall drew teeth over the water (seed
+/// 246371 #15 at 2 048 x 1 311: 13 crossings, wall over hull 1.19). Must never
+/// change a site without the riverbank geometry (every urban golden).
 pub fn town_bank(site: &Site, anchors: &Anchors) -> Vec<Vec2> {
     let line = &site.river;
     let mut out = Vec::with_capacity(line.len());
     let rk = site.kind == "river" || site.kind == "riverthrough";
     let real_coast = !rk && site.uses_real_water;
+    // Read only on a riverbank site (see the doc comment).
+    let mkt_bank = if rk && site.riverbank() { site.bank_side(anchors.market) } else { 1.0 };
     for i in 0..line.len() {
         let a = line[i.saturating_sub(1)];
         let b = line[(i + 1).min(line.len() - 1)];
         let d = (b - a).norm();
         let mut nl = d.rot90();
         if rk {
-            if nl.dot(anchors.market - line[i]) < 0.0 {
+            let off = site.river_w / 2.0 + 5.0;
+            if site.riverbank() {
+                // The market's bank, by the side test the wall's own land
+                // classification uses (see the doc comment).
+                if site.bank_side(line[i] + nl * off) != mkt_bank {
+                    nl = nl * -1.0;
+                }
+            } else if nl.dot(anchors.market - line[i]) < 0.0 {
                 nl = nl * -1.0; // toward the town bank
             }
-            out.push(line[i] + nl * (site.river_w / 2.0 + 5.0));
+            out.push(line[i] + nl * off);
         } else if real_coast {
             if nl.dot(anchors.market - line[i]) < 0.0 {
                 nl = nl * -1.0; // toward the land (market) side

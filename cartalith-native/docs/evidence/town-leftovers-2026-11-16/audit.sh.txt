@@ -1,0 +1,15 @@
+#!/bin/bash
+# audit.sh <exe> <outdir> [sizes]: the four town audits at 384 and 2048, seeds 483920 912345 246371, villages on, app defaults.
+set -u
+EXE=$1; OUT=$2; mkdir -p $OUT
+cd C:/cw/townleft/cartalith-native/crates/cartalith-godot
+for sz in ${3:-384:288 2048:1311}; do
+  gw=${sz%%:*}; gh=${sz##*:}
+  for a in both_banks_audit town_housing_audit riverbank_gap_audit harbour_front_audit; do
+    env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 ${EXTRA_ENV:-} \
+      $EXE $a --ignored --nocapture --test-threads 1 > $OUT/${a}_$gw.txt 2>&1 &
+  done
+  wait
+  echo "$gw done"
+done
+echo ALLDONE

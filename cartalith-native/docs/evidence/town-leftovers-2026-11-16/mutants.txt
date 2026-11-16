@@ -1,0 +1,35 @@
+Mutants of the 2026-11-16 town leftovers (mutants.py.txt: exact replace, occurs-once assert, restored in finally, sha256 checked;
+cargo test --release -p cartalith-urban --lib per mutant). site::tests::golden_build_site fails on origin/main in release (a NaN
+sign bit, not this change) and is not counted as a kill. 23 mutants: 21 killed, 2 survived.
+
+First pass (indices 0-10, mutants2.txt), then 3 and 11-22 after the CRLF fix and the golden_build_site rule, then
+12, 13, 17, 19, 20, 21 again after fixtures were added for them:
+ 0 village.rs KILLED village::landing_tests::a_village_market_goes_to_the_bank_its_road_is_on,village::landing_tests::only_the_road_near_the_market_counts | 'if other <= own {' -> 'if other < own {'
+ 1 village.rs KILLED village::landing_tests::only_the_road_near_the_market_counts | 'if mid.dist(m) > reach || wet(mid) || !abeam(site, mid) {' -> 'if wet(mid) || !abeam(site, mid) {'
+ 2 village.rs KILLED village::landing_tests::a_village_market_goes_to_the_bank_its_road_is_on | 'if wet(q) || site.bank_side(q) == mkt_side || !abeam(site, q) {' -> 'if wet(q) || !abeam(site, q) {'
+ 4 village.rs KILLED village::landing_tests::only_the_road_near_the_market_counts | 'pub const ROAD_BANK_REACH_RF: f64 = 1.0;' -> 'pub const ROAD_BANK_REACH_RF: f64 = 2.0;'
+ 5 village.rs KILLED village::landing_tests::the_landing_takes_a_village_down_to_its_river_and_no_closer | 'pub const LANDING_M: f64 = 32.0;' -> 'pub const LANDING_M: f64 = 40.0;'
+ 6 village.rs KILLED village::landing_tests::the_landing_takes_a_village_down_to_its_river_and_no_closer | 'if d <= stand {' -> 'if d < stand {'
+ 7 village.rs KILLED village::landing_tests::the_landing_takes_a_village_down_to_its_river_and_no_closer,village::landing_tests::a_street_village_inland_of_its_river_is_laid_out_at_the_landing | 'let stand = site.river_w / 2.0 + LANDING_M;' -> 'let stand = LANDING_M;'
+ 8 village.rs KILLED village::landing_tests::a_road_along_the_bank_has_tofts_on_its_river_side | 'return (t - 1.0).max(0.0);' -> 'return t;'
+ 9 village.rs KILLED village::landing_tests::a_road_along_the_bank_has_tofts_on_its_river_side | 'pub const TOFT_BANK_CLEAR_M: f64 = 1.0;' -> 'pub const TOFT_BANK_CLEAR_M: f64 = 0.0;'
+10 village.rs KILLED village::landing_tests::a_road_along_the_bank_has_tofts_on_its_river_side | 'let bank_cut = site.riverbank()' -> 'let bank_cut = false && site.riverbank()'
+14 fortify.rs KILLED fortify::tests::a_riverbank_town_bank_stays_on_the_market_bank | 'if site.bank_side(line[i] + nl * off) != mkt_bank {' -> 'if nl.dot(anchors.market - line[i]) < 0.0 {'
+15 plaza.rs KILLED plaza::tests::a_village_green_too_far_at_its_drawn_size_is_laid_smaller_near_the_market | 'pub const GREEN_SHRINK: [f64; 2] = [0.85, 0.67];' -> 'pub const GREEN_SHRINK: [f64; 2] = [1.0, 1.0];'
+16 plaza.rs KILLED plaza::tests::a_village_green_too_far_at_its_drawn_size_is_laid_smaller_near_the_market | 'if near {' -> 'if true {'
+18 plaza.rs KILLED plaza::tests::a_village_green_too_far_at_its_drawn_size_is_laid_smaller_near_the_market | 'pub const GREEN_NEAR_M: f64 = 60.0;' -> 'pub const GREEN_NEAR_M: f64 = 80.0;'
+22 village.rs KILLED village::landing_tests::there_is_no_other_bank_beyond_the_river_end | 'best.1 == 0.0' -> 'true'
+11 generate.rs KILLED village::landing_tests::a_street_village_inland_of_its_river_is_laid_out_at_the_landing | '} else if street_village\r\n            && site.riverbank()' -> '} else if false && street_village\r\n            && '
+12 generate.rs KILLED village::landing_tests::the_map_pin_survives_both_moves | 'if street_village\r\n            && front_water.is_none()' -> 'if false && street_village\r\n            && front_w'
+13 generate.rs KILLED village::landing_tests::the_map_pin_survives_both_moves | 'pin.get_or_insert(mc);' -> 'pin = Some(mc);'
+17 plaza.rs KILLED plaza::tests::a_village_green_no_size_brings_near_keeps_its_drawn_size | 'first.get_or_insert((d, m, lt, wt));' -> 'first = Some((d, m, lt, wt));'
+19 village.rs SURVIVED | 'if !abeam(site, m) {' -> 'if false {'
+20 village.rs KILLED village::landing_tests::each_abeam_guard_holds_on_its_own | 'if wet(q) || site.bank_side(q) == mkt_side || !abeam(site, q) {' -> 'if wet(q) || site.bank_side(q) == mkt_side {'
+21 village.rs KILLED village::landing_tests::each_abeam_guard_holds_on_its_own | 'if mid.dist(m) > reach || wet(mid) || !abeam(site, mid) {' -> 'if mid.dist(m) > reach || wet(mid) {'
+
+Survivors:
+ 3  road_bank_market's join test (dry_join to a far-bank road point): on a one-channel site every dry far-bank point is
+    joined to a far-bank road point by a dry straight line (the only water is the channel it is already across), so no
+    single-river fixture reaches it; it matters at a confluence or a lake. Kept as a guard.
+ 19 road_bank_market's market-abeam guard: on the fixture the road and ring-point guards return the same None (no far-bank
+    road or ring point abeam within reach of a market beyond the river's end); not separated by a fixture.

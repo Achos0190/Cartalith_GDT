@@ -150,6 +150,9 @@ pub fn plat_tofts(
     // toft on them is a house on the quay or on the water. Elsewhere a `quay`
     // is a harbour's, and the reference's village never fronted it.
     let waterside = |c: &str| c == "quay" || c == crate::riverbank::BANK_CLASS;
+    // Riverside tofts cut back at the bank ([`bank_behind`]): a riverbank
+    // site with a river line only, where the channel is exactly known.
+    let bank_cut = site.riverbank() && (site.kind == "river" || site.kind == "riverthrough") && site.river.len() >= 2;
     for e in g.edges.iter().filter(|e| e.alive && (site.riverbank() || !waterside(e.cls))) {
         let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
         let len = a.dist(b);
@@ -175,6 +178,11 @@ pub fn plat_tofts(
                     .into_iter()
                     .map(|f| street_behind(g, e.id, f, nn, TOFT_DEPTH_M + 8.0).unwrap_or(TOFT_DEPTH_M).min(TOFT_DEPTH_M))
                     .fold(f64::INFINITY, f64::min);
+                // A road along the bank (riverbank river sites): the toft on
+                // its river side is cut back at the water ([`bank_behind`]),
+                // so the village fronts its river instead of leaving the strip
+                // between the road and the water empty.
+                let depth = if bank_cut { [f0, f1].into_iter().map(|f| bank_behind(site, f, nn, depth)).fold(depth, f64::min) } else { depth };
                 if depth < TOFT_MIN_DEPTH_M {
                     continue;
                 }
@@ -221,6 +229,222 @@ pub fn plat_tofts(
         out.push(p);
     }
     out
+}
+
+/// How far from the channel's edge a street village's market point stands
+/// after [`landing_market`] moved it to its river, metres. **A labelled
+/// judgement**: a toft's depth ([`TOFT_DEPTH_M`]) and a verge, so the green
+/// (a road-side square about 26-40 m deep, `plaza::build_plaza_with`) and the
+/// first tofts reach down to the water, the judgement's *"green where the road
+/// meets the water"*.
+pub const LANDING_M: f64 = 32.0;
+
+/// **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 5's *"no river
+/// town with every house over two widths away"*, for street villages; rides
+/// `urban_street_village`): where a street village's market point goes when
+/// the box centre stands inland of the village's river, or `None` when it
+/// stays.
+///
+/// **Why.** The real-water market is pinned at the box centre, and on a fine
+/// grid (2 048 cells across 800 km, 390 m a cell) a village the siting proxy
+/// calls a river village can have its centre 200-500 m from the river in its
+/// own 1.7 km box: its tofts, taken nearest the market first, then never come
+/// near the water (census at 2 048, 2026-11-16: 80 river villages with every
+/// house over two street widths from the bank, median 290 m).
+///
+/// **What.** The nearest point of the river's centreline (`site.river`) is
+/// found; when `m`'s distance from the channel's edge (that distance less half
+/// `river_w`) is more than [`LANDING_M`], the market moves straight toward
+/// that point until it stands [`LANDING_M`] from the edge, on its own bank.
+/// The caller's ring search then sets it on dry ground a dry line joins to a
+/// road, as it does for Ruling FK's harbour front. Never closer than
+/// [`LANDING_M`]; `None` without a river line or when already that close.
+/// Draws nothing. **Must never** move a market across the river (the line
+/// runs toward the nearest centreline point, so it stops on `m`'s side) or
+/// further from the river than it was.
+pub fn landing_market(site: &Site, m: Vec2) -> Option<Vec2> {
+    if site.river.len() < 2 {
+        return None;
+    }
+    let mut best: Option<(f64, Vec2)> = None;
+    for w in site.river.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let ab = b - a;
+        let l2 = ab.dot(ab);
+        let t = if l2 > 0.0 { ((m - a).dot(ab) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        let q = a + ab * t;
+        let d = q.dist(m);
+        if best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, q));
+        }
+    }
+    let (d, q) = best?;
+    let stand = site.river_w / 2.0 + LANDING_M;
+    if d <= stand {
+        return None;
+    }
+    Some(q + (m - q).norm() * stand)
+}
+
+/// How far from the market point the host's roads are weighed by
+/// [`road_bank_market`], as a multiple of `generate`'s `max_rf` (about 200 m
+/// for 400 people). **A labelled judgement**: the urbanisation front itself,
+/// the ground the village's first houses take ([`plat_tofts`] goes nearest
+/// the market first), so a long road on the far side of the box does not
+/// outvote the road the village actually stands on.
+pub const ROAD_BANK_REACH_RF: f64 = 1.0;
+
+/// **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 2's green bar,
+/// the leftover of Ruling FE item 2; rides `urban_street_village`): where a
+/// street village's market point goes when the box centre stands across the
+/// river from its roads.
+///
+/// **Why.** The real-water market is pinned at the box centre (v0.98), and a
+/// river village's map cell can put the centre on the bank across the bridge
+/// from the road the village lines: the market point was then the road's end
+/// over the river, its houses all on the other bank, and the green at the
+/// bridge's far foot 60-120 m from it (census at 384, 2026-11-15: about a
+/// quarter of villages missed the judgement's 60 m bar this way; seed 912345
+/// #136 and 246371 #44 at 384 x 288 are the plain cases). Or, with no road on
+/// its bank at all, the village barely grew (246371 #157: 31 of 400).
+///
+/// **What.** The host's roads (`paths`, offsets from `origin`, the map pin:
+/// the market as the reference placed it; their points inside the box, as
+/// `crate::routes::build_primaries_from_paths` lays them) are measured within
+/// [`ROAD_BANK_REACH_RF`]` * max_rf` of `m`, segment by segment on the bank
+/// of each segment's midpoint, channel segments left out. When the other
+/// bank holds more road there than the market's own, the market goes to the
+/// nearest ring point (every 30 m out, 24 bearings, the reference's own
+/// channel-nudge search) on that bank that is dry, clear of the channel and
+/// joined by a dry straight line to one of the roads
+/// (`crate::routes::dry_join`), so it lands at the road's landing on the
+/// village's side. `None` (the market stays) on a site with no river line,
+/// where the market's bank holds as much road as the other, or where no such
+/// point is found within the reach. Draws nothing.
+///
+/// **Must never** move a market onto the water or into the channel, onto the
+/// bank holding less road, or for a town (`generate_pass` calls it only for a
+/// street village on a real-water river site).
+pub fn road_bank_market(site: &Site, m: Vec2, origin: Vec2, paths: &[Vec<Vec2>], max_rf: f64) -> Option<Vec2> {
+    if site.river.len() < 2 {
+        return None;
+    }
+    // Across the river only where the river runs past: beyond either end of
+    // the line "the other bank" is the side of its extension, not water to
+    // cross (seed 483920 #105 and #193 in the app's world at 384 x 288,
+    // 2026-11-16: a market moved round a river's end, its green 197 m off and
+    // a hamlet housing 10 of 400).
+    if !abeam(site, m) {
+        return None;
+    }
+    let reach = ROAD_BANK_REACH_RF * max_rf;
+    let in_box = |p: Vec2| p.x >= -6.0 && p.x <= site.wm + 6.0 && p.y >= -6.0 && p.y <= site.hm + 6.0;
+    let wet = |p: Vec2| site.is_water(p) || site.river_dist(p) < site.river_w / 2.0 + 1.0;
+    let mkt_side = site.bank_side(m);
+    let roads: Vec<Vec<Vec2>> = paths
+        .iter()
+        .map(|path| path.iter().map(|o| Vec2::new(origin.x + o.x, origin.y + o.y)).take_while(|&p| in_box(p)).collect::<Vec<_>>())
+        .filter(|pts| pts.len() >= 2)
+        .collect();
+    let (mut own, mut other) = (0.0, 0.0);
+    for w in roads.iter().flat_map(|pts| pts.windows(2)) {
+        let mid = w[0].lerp(w[1], 0.5);
+        if mid.dist(m) > reach || wet(mid) || !abeam(site, mid) {
+            continue;
+        }
+        if site.bank_side(mid) == mkt_side {
+            own += w[0].dist(w[1]);
+        } else {
+            other += w[0].dist(w[1]);
+        }
+    }
+    if other <= own {
+        return None;
+    }
+    // The roads' dry points on the other bank, for the join test.
+    let far_roads: Vec<Vec<Vec2>> =
+        roads.iter().map(|pts| pts.iter().copied().filter(|&p| !wet(p) && site.bank_side(p) != mkt_side).collect::<Vec<_>>()).filter(|p| !p.is_empty()).collect();
+    let mut rr = 30.0;
+    while rr <= reach {
+        for a in 0..24 {
+            let ang = a as f64 / 24.0 * std::f64::consts::PI * 2.0;
+            let q = Vec2::new(m.x + crate::geom::js_cos(ang) * rr, m.y + crate::geom::js_sin(ang) * rr);
+            if q.x < 25.0 || q.y < 25.0 || q.x > site.wm - 25.0 || q.y > site.hm - 25.0 {
+                continue;
+            }
+            if wet(q) || site.bank_side(q) == mkt_side || !abeam(site, q) {
+                continue;
+            }
+            if far_roads.iter().any(|pts| crate::routes::dry_join(site, q, pts).is_some()) {
+                return Some(q);
+            }
+        }
+        rr += 30.0;
+    }
+    None
+}
+
+/// How far a riverside toft's back stays from the channel's edge, metres
+/// ([`bank_behind`]). **A labelled judgement**: a metre, so the plot ends at
+/// the water's edge (a house with its yard to the river, Ruling EZ item 1:
+/// *"Riverside houses are fine"*) and clears `blocks::lot_is_wet`'s own
+/// margin on a river site (half the width plus a metre), which [`accepts`]
+/// applies to every toft.
+pub const TOFT_BANK_CLEAR_M: f64 = 1.0;
+
+/// **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 5's *"no river
+/// town with every house over two widths away"*, for street villages; rides
+/// `urban_street_village`): the depth a toft fronting at `o` and running
+/// along `dir` may keep before it reaches [`TOFT_BANK_CLEAR_M`] off the
+/// channel or open water, at most `depth`; `depth` itself where the water is
+/// further. Stepped a metre at a time: the last whole metre still clear, so
+/// the back line stands at least [`TOFT_BANK_CLEAR_M`] off the edge. Why: a village whose road runs along
+/// its bank had every toft on the road's land side, since the full-depth toft
+/// on the river side stood in the water and was refused (census at 384 and
+/// 2 048, 2026-11-15: 6 and 77 river villages with every house over two
+/// street widths from the bank). Must never return more than `depth`.
+fn bank_behind(site: &Site, o: Vec2, dir: Vec2, depth: f64) -> f64 {
+    let clear = site.river_w / 2.0 + TOFT_BANK_CLEAR_M;
+    let mut t = 0.0;
+    while t <= depth {
+        let p = o + dir * t;
+        if site.is_water(p) || site.river_dist(p) < clear {
+            // The last step that was still clear (0 when the front itself is
+            // not, which `plat_tofts`' depth floor then refuses).
+            return (t - 1.0).max(0.0);
+        }
+        t += 1.0;
+    }
+    depth
+}
+
+/// Whether `p` stands abeam of the site's river line: its nearest point on
+/// the line is not one of the line's two ends (a projection past the first
+/// segment's start or the last one's end). Where it is an end, `p` lies
+/// beyond the river and [`Site::bank_side`] reads the side of the line's
+/// extension, not a bank. For [`road_bank_market`]; `false` with fewer than
+/// two points.
+fn abeam(site: &Site, p: Vec2) -> bool {
+    let r = &site.river;
+    if r.len() < 2 {
+        return false;
+    }
+    let mut best = (f64::INFINITY, 0.0);
+    let last = r.len() - 2;
+    for (k, w) in r.windows(2).enumerate() {
+        let ab = w[1] - w[0];
+        let l2 = ab.dot(ab);
+        let t = if l2 > 0.0 { (p - w[0]).dot(ab) / l2 } else { 0.0 };
+        let q = w[0] + ab * t.clamp(0.0, 1.0);
+        let d = q.dist(p);
+        if d < best.0 {
+            // How far past an end of the whole line the projection falls
+            // (0 when it falls on the line).
+            let past = if k == 0 && t < 0.0 { -t } else if k == last && t > 1.0 { t - 1.0 } else { 0.0 };
+            best = (d, past);
+        }
+    }
+    best.1 == 0.0
 }
 
 /// Distance along `dir` from `o` to the first live street other than `own`
@@ -326,3 +550,8 @@ fn accepts(g: &Graph, site: &Site, greens: &[&[Vec2]], taken: &[(Vec<Vec2>, [f64
 /// Unit tests; see its own module doc.
 #[cfg(test)]
 mod tests;
+
+/// The road-bank market, the landing and the riverside toft cut (2026-11-16,
+/// the town leftovers); see its own module doc.
+#[cfg(test)]
+mod landing_tests;

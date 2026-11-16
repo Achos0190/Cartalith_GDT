@@ -204,6 +204,11 @@ pub struct GenOpts {
     /// [`crate::plaza::PLAZA_MARKET_POP`] on the organic plan is laid out as a
     /// street village ([`crate::village`]): no 1 600 m street floor, lanes only
     /// by the roads, the green at the market point and tofts lining the roads.
+    /// On a riverbank river site (2026-11-16, the town leftovers) its market
+    /// also goes down to its river ([`crate::village::landing_market`]) or
+    /// across it to the bank its roads are on
+    /// ([`crate::village::road_bank_market`]), and a road along the bank is
+    /// lined on its river side too (`crate::village::plat_tofts`).
     /// `false` is the reference, byte for byte, so every JS-captured golden and
     /// every other `GenOpts` literal is unmoved by control flow.
     pub street_village: bool,
@@ -521,6 +526,11 @@ pub struct Town {
     /// front ([`GenOpts::harbour_front`], [`harbour_front_market`]) moved the
     /// market toward the sea: then the box centre, which is where the host
     /// sampled the map, so the layout's water still lies on the map's.
+    /// And where a street village's market went down to its river
+    /// ([`crate::village::landing_market`]) or across it to its roads' bank
+    /// ([`crate::village::road_bank_market`]; both `GenOpts::street_village`):
+    /// then the market the reference placed, so the village is anchored on
+    /// the map exactly as before.
     pub pin: Vec2,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
@@ -807,10 +817,25 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             pin = Some(mc);
             mc = q;
             front_water = Some(water);
+        } else if street_village
+            && site.riverbank()
+            && (site.kind == "river" || site.kind == "riverthrough")
+            && let Some(q) = crate::village::landing_market(&site, mc)
+        {
+            // **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 5's
+            // "no river town with every house over two widths away"; rides
+            // `urban_street_village`, `crate::village::landing_market`): a
+            // street village whose box centre stands inland of its river
+            // takes its market down to the landing. `pin` keeps the box
+            // centre, and the ring search below sets the market on dry ground
+            // joined to a road, as for the harbour front.
+            pin = Some(mc);
+            mc = q;
         }
-        // **Not the reference** (Ruling FK item 1): a market the harbour front
-        // moved goes, when it landed in a channel or across a river from the
-        // host's roads, to the nearest dry ring point a dry line joins to one
+        // **Not the reference** (Ruling FK item 1; and a street village's
+        // landing, `crate::village::landing_market`): a market the harbour
+        // front or the landing moved goes, when it landed in a channel or
+        // across a river from the host's roads, to the nearest dry ring point a dry line joins to one
         // of those roads (`harbour_market_reaches_a_road`), so it lands on the
         // bank the roads are on; with none such, a dry market stays and a wet
         // one takes the reference's first dry point. Off (`pin` `None`): the
@@ -842,6 +867,24 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             if let Some(b) = best {
                 mc = b;
             }
+        }
+        // **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 2's
+        // green bar; rides `urban_street_village`,
+        // `crate::village::road_bank_market`): a street village whose market
+        // point stands across the river from its roads takes its market on
+        // the roads' bank, at their landing. `pin` keeps the reference's
+        // market (the map position, and the origin of the host's roads), so
+        // the town sits on the map exactly where it did; after the landing
+        // move above it is already set. Not where the harbour front moved
+        // the market.
+        if street_village
+            && front_water.is_none()
+            && site.riverbank()
+            && (site.kind == "river" || site.kind == "riverthrough")
+            && let Some(q) = crate::village::road_bank_market(&site, mc, pin.unwrap_or(mc), &opts.primary_paths, max_rf)
+        {
+            pin.get_or_insert(mc);
+            mc = q;
         }
         anchors.market = mc;
     }
@@ -1395,7 +1438,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         Crossings::Ford(f) => (None, Some(f)),
         Crossings::None => (None, None),
     };
-    // `Town::pin`: the market, unless the harbour front moved it.
+    // `Town::pin`: the market, unless the harbour front or a street
+    // village's landing or road-bank move (`crate::village`) moved it.
     let pin = pin.unwrap_or(anchors.market);
 
     Town {

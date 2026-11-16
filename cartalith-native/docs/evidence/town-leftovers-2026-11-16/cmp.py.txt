@@ -1,0 +1,20 @@
+import json, math, sys, os
+B, A = sys.argv[1], sys.argv[2]
+def segd(p,a,b):
+    ax,ay=a;bx,by=b;px,py=p;dx,dy=bx-ax,by-ay;L=dx*dx+dy*dy
+    t=0 if L==0 else max(0,min(1,((px-ax)*dx+(py-ay)*dy)/L)); return math.hypot(px-ax-t*dx,py-ay-t*dy)
+def info(d):
+    R=d['river']; w=d['river_w']
+    gap=float('inf')
+    if len(R)>=2:
+        for b in d['buildings']:
+            for v in b: gap=min(gap, min(segd(v,R[k],R[k+1]) for k in range(len(R)-1))-w/2)
+    pz=d['plaza']; g = math.dist(d['market'], [sum(p[0] for p in pz)/len(pz), sum(p[1] for p in pz)/len(pz)]) if len(pz)>=3 else -1
+    return gap, g, len(d['buildings']), d['pop'], d['target'], len(d['ring'])
+for f in sorted(os.listdir(A), key=lambda s:int(s.split('_')[2].split('.')[0])):
+    if not os.path.exists(os.path.join(B,f)): continue
+    a=json.load(open(os.path.join(A,f))); b=json.load(open(os.path.join(B,f)))
+    ia, ib = info(a), info(b)
+    mv = math.dist(a['market'], b['market'])
+    if mv>1 or abs(ia[2]-ib[2])>0 or ia[5]!=ib[5]:
+        print(f.split('_')[2][:-5], f"tgt {ia[4]:.0f} mkt_moved {mv:.0f} gap {ib[0]:.0f}->{ia[0]:.0f} green {ib[1]:.0f}->{ia[1]:.0f} pop {ib[3]:.0f}->{ia[3]:.0f} ring {ib[5]}->{ia[5]}")

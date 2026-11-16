@@ -165,6 +165,31 @@ pub const GREEN_RIVER_CLEAR_M: f64 = 4.0;
 /// **A labelled judgement**: half the 6-7 m primary's width, so the corner is
 /// on the carriageway of a road that runs on straight past the edge's end.
 pub const ROAD_ON_M: f64 = 3.0;
+/// How near the market point a street village's green should stand, metres
+/// (centre to point): `TOWN_GENERATOR_JUDGEMENT.md` change 2's own bar (*"green
+/// within 60 m of the market point"*), which Ruling FE item 2 adopted as the
+/// design (*"green at the landing"*). [`build_plaza_with`] shrinks a green
+/// that cannot stand this near at its drawn size ([`GREEN_SHRINK`]).
+pub const GREEN_NEAR_M: f64 = 60.0;
+/// The smaller sizes a street village's green tries, as fractions of its
+/// drawn size, in order, when the drawn size cannot stand within
+/// [`GREEN_NEAR_M`] of the market point (2026-11-16). **A labelled
+/// judgement**: down to two-thirds, about 37-53 m by 17-27 m (0.06-0.14 ha),
+/// still a green a village gathers on; a village whose market point is at the
+/// water's edge on a road that bends away (seed 483920 #140 and #207 at
+/// 384 x 288, a 78 m green 82 m off) fits the smaller one by the landing.
+pub const GREEN_SHRINK: [f64; 2] = [0.85, 0.67];
+
+/// The centre of the green [`build_plaza_with`] would lay on a street of
+/// direction `dir` with its road side's middle at `mid`, `l` long and `wd`
+/// deep, widened away from the river as `build_plaza_with` widens it. Draws
+/// nothing; must agree with the quad `build_plaza_with` builds.
+fn green_centre(site: &Site, dir: Vec2, mid: Vec2, l: f64, wd: f64) -> Vec2 {
+    let nl = dir.rot90();
+    let side = if site.river_dist(mid + nl * 20.0) > site.river_dist(mid + nl * -20.0) { 1.0 } else { -1.0 };
+    let (p1, p2) = (mid + dir * (-l / 2.0), mid + dir * (l / 2.0));
+    poly_centroid(&[p1, p2, p2 + nl * (side * wd), p1 + nl * (side * wd)])
+}
 
 /// [`riverbank_square`]'s search on any site (2026-11-15, Ruling FE item 2's
 /// street village, `crate::village`): the square nearest the market point on
@@ -182,7 +207,9 @@ pub fn square_near_market(site: &Site, anchors: &Anchors, g: &Graph, l: f64, wd:
 /// whose market point is the end of its road across the river from its
 /// houses (the real-water market is pinned at the box centre, 2026-11-15,
 /// seed 246371 #104 at 384) has its green at the bridge's other foot, not
-/// 300 m up the road. Draws nothing.
+/// 300 m up the road. Since 2026-11-16 such a market is usually moved to its
+/// roads' bank first (`crate::village::road_bank_market`), so this fallback
+/// is left for markets abeam of no road. Draws nothing.
 ///
 /// `village` (a street village's green, Ruling FE item 2) relaxes two tests
 /// written for a town's square: the road-side corners need only be dry and on
@@ -432,14 +459,27 @@ pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph
     // (`crate::village::plat_tofts`), which is what the recorded attempt above
     // lacked: it moved the green alone and the old growth followed it.
     if green_at_market && pop < PLAZA_MARKET_POP {
-        for &t in &tries {
+        // 2026-11-16 (the town leftovers): the reference's green first; where
+        // it can stand no nearer the market point than `GREEN_NEAR_M`, the
+        // smaller sizes of `GREEN_SHRINK` in turn, taking the first that can;
+        // if none can, the reference's size where it fitted.
+        let mut first: Option<(Vec2, Vec2, f64, f64)> = None;
+        for &t in tries.iter().chain(GREEN_SHRINK.iter()) {
             let (lt, wt) = (l0 * t, wd0 * t);
             if let Some((d, m)) = square_near(site, anchors, g, lt, wt, GREEN_RIVER_CLEAR_M, true, true)
                 .or_else(|| square_near(site, anchors, g, lt, wt, GREEN_RIVER_CLEAR_M, false, true))
             {
-                (dir, mid, l, wd, placed) = (d, m, lt, wt, true);
-                break;
+                let near = green_centre(site, d, m, lt, wt).dist(anchors.market) <= GREEN_NEAR_M;
+                if near {
+                    (dir, mid, l, wd, placed) = (d, m, lt, wt, true);
+                    first = None;
+                    break;
+                }
+                first.get_or_insert((d, m, lt, wt));
             }
+        }
+        if let Some((d, m, lt, wt)) = first {
+            (dir, mid, l, wd, placed) = (d, m, lt, wt, true);
         }
     }
     // Change 6: a scaled chartered town's square that neither search above

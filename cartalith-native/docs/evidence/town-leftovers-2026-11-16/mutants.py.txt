@@ -1,0 +1,54 @@
+"""mutants.py: exact-literal mutants of the 2026-11-16 town leftovers, each run against `cargo test --release -p cartalith-urban --lib`.
+Exact replace, occurs-exactly-once assert, BUILD_ERROR kept apart from SURVIVED, the file restored in a finally and its hash checked."""
+import subprocess, hashlib, os, sys
+ROOT = r"C:/cw/townleft/cartalith-native"
+SRC = ROOT + "/crates/cartalith-urban/src/"
+ENV = dict(os.environ, CARGO_TARGET_DIR=r"C:/cw/townleft_mut_target")
+M = [
+ ("village.rs", "    if other <= own {", "    if other < own {"),
+ ("village.rs", "        if mid.dist(m) > reach || wet(mid) || !abeam(site, mid) {", "        if wet(mid) || !abeam(site, mid) {"),
+ ("village.rs", "            if wet(q) || site.bank_side(q) == mkt_side || !abeam(site, q) {", "            if wet(q) || !abeam(site, q) {"),
+ ("village.rs", "            if far_roads.iter().any(|pts| crate::routes::dry_join(site, q, pts).is_some()) {", "            if true {"),
+ ("village.rs", "pub const ROAD_BANK_REACH_RF: f64 = 1.0;", "pub const ROAD_BANK_REACH_RF: f64 = 2.0;"),
+ ("village.rs", "pub const LANDING_M: f64 = 32.0;", "pub const LANDING_M: f64 = 40.0;"),
+ ("village.rs", "    if d <= stand {", "    if d < stand {"),
+ ("village.rs", "    let stand = site.river_w / 2.0 + LANDING_M;", "    let stand = LANDING_M;"),
+ ("village.rs", "            return (t - 1.0).max(0.0);", "            return t;"),
+ ("village.rs", "pub const TOFT_BANK_CLEAR_M: f64 = 1.0;", "pub const TOFT_BANK_CLEAR_M: f64 = 0.0;"),
+ ("village.rs", "    let bank_cut = site.riverbank()", "    let bank_cut = false && site.riverbank()"),
+ ("generate.rs", "        } else if street_village\r\n            && site.riverbank()", "        } else if false && street_village\r\n            && site.riverbank()"),
+ ("generate.rs", "        if street_village\r\n            && front_water.is_none()", "        if false && street_village\r\n            && front_water.is_none()"),
+ ("generate.rs", "            pin.get_or_insert(mc);", "            pin = Some(mc);"),
+ ("fortify.rs", "                if site.bank_side(line[i] + nl * off) != mkt_bank {", "                if nl.dot(anchors.market - line[i]) < 0.0 {"),
+ ("plaza.rs", "pub const GREEN_SHRINK: [f64; 2] = [0.85, 0.67];", "pub const GREEN_SHRINK: [f64; 2] = [1.0, 1.0];"),
+ ("plaza.rs", "                if near {", "                if true {"),
+ ("plaza.rs", "                first.get_or_insert((d, m, lt, wt));", "                first = Some((d, m, lt, wt));"),
+ ("plaza.rs", "pub const GREEN_NEAR_M: f64 = 60.0;", "pub const GREEN_NEAR_M: f64 = 80.0;"),
+ ("village.rs", "    if !abeam(site, m) {", "    if false {"),
+ ("village.rs", "            if wet(q) || site.bank_side(q) == mkt_side || !abeam(site, q) {", "            if wet(q) || site.bank_side(q) == mkt_side {"),
+ ("village.rs", "        if mid.dist(m) > reach || wet(mid) || !abeam(site, mid) {", "        if mid.dist(m) > reach || wet(mid) {"),
+ ("village.rs", "    best.1 == 0.0", "    true"),
+]
+sel = [int(a) for a in sys.argv[1:]] or range(len(M))
+for k in sel:
+    f, old, new = M[k]
+    p = SRC + f
+    orig = open(p, "rb").read()
+    h = hashlib.sha256(orig).hexdigest()
+    s = orig.decode("utf-8")
+    assert s.count(old) == 1, (k, f, s.count(old))
+    try:
+        open(p, "wb").write(s.replace(old, new).encode("utf-8"))
+        r = subprocess.run(["cargo", "test", "--release", "-p", "cartalith-urban", "--lib"], cwd=ROOT, env=ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out = r.stdout + r.stderr
+        if "error[" in out or "could not compile" in out and "test result" not in out:
+            v = "BUILD_ERROR"
+        elif r.returncode == 0 or all(n == "site::tests::golden_build_site" for n in (l.split()[1] for l in out.splitlines() if l.startswith("test ") and l.endswith("FAILED"))):
+            # golden_build_site fails on origin/main in release (a NaN sign bit), so it alone is no kill.
+            v = "SURVIVED"
+        else:
+            v = "KILLED " + ",".join(n for n in (l.split()[1] for l in out.splitlines() if l.startswith("test ") and l.endswith("FAILED")) if n != "site::tests::golden_build_site")[:300]
+    finally:
+        open(p, "wb").write(orig)
+        assert hashlib.sha256(open(p, "rb").read()).hexdigest() == h
+    print(f"{k:2d} {f} {v} | {old.strip()[:70]!r} -> {new.strip()[:50]!r}", flush=True)

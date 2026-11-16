@@ -1,0 +1,13 @@
+import re, sys
+seeds = [483920, 912345, 246371]
+si = -1; last = 10**9
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.match(r"\s*(?:test \S+ \.\.\. )?\s*#\s*(\d+)\s+(\S+) target\s+(\d+)", line)
+    if not m: continue
+    i = int(m.group(1))
+    if i < last: si += 1
+    last = i
+    n = re.search(r"nearest ([\d.]+) m", line)
+    if n and float(n.group(1)) > 10.8:
+        g = re.search(r"green (\d+) m", line)
+        print(seeds[si], i, m.group(2), m.group(3), "nearest", n.group(1), "green", g.group(1) if g else "-", re.search(r"housed\s+([\d.]+)", line).group(1), re.search(r"@\(\d+,\d+\)", line).group(0))

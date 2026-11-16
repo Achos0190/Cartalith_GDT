@@ -1,0 +1,94 @@
+Town leftovers (OUTSTANDING_WORK.md, the town judgement row's open items (a), (d), (g), (h) and Ruling FK's left
+item (iii)), measured 2026-11-16.
+Before = origin/main 66845e56. After = this commit. Census: cartalith-godot town_river_census (both_banks_audit,
+town_housing_audit, riverbank_gap_audit, harbour_front_audit), seeds 483920, 912345, 246371, 800 km, villages on
+(TOWN_RIVER_VILLAGES=1), release test binary, one thread per audit (audit.sh.txt), at 384 x 288 and 2048 x 1311.
+Full outputs: before/ and after/. Note: both_banks_audit, town_housing_audit and riverbank_gap_audit lay towns out
+without urban_harbour_front (their PlaceOverrides predate Ruling FK); harbour_front_audit lays them out as the app
+does. Neither was changed here, so before and after are comparable within each audit.
+
+What changed (all on existing switches; no new switch, no JS golden reads any of them, fh_r2/g1 lay towns out with
+every switch off, so neither baseline moves):
+ 1. village::road_bank_market (rides urban_street_village): a street village whose market point stands across the
+    river from its roads (more of the host's road within max_rf on the other bank, abeam of the river) takes its
+    market at the roads' landing on their bank; Town::pin keeps the reference's market, so the map position and the
+    host's roads are unchanged (routes::build_primaries_from_paths_at joins the roads to the moved market).
+    village::abeam: never round a river's end (first shell frames moved 483920 #105 and #193 round the end of a
+    river, a green 197 m off; fixed, re-shot).
+ 2. village::landing_market (rides urban_street_village): a street village whose box centre stands more than
+    LANDING_M (32 m) from its river's channel edge takes its market down to that distance, then the reference's ring
+    search sets it on dry ground joined to a road (FK's harbour-front path). plat_tofts' bank cut (bank_behind):
+    a road along the bank is lined on its river side with tofts cut back a metre short of the water.
+    plaza::build_plaza_with: a village green that can stand no nearer the market point than GREEN_NEAR_M (60 m) at
+    its drawn size tries 0.85 and 0.67 of it (GREEN_SHRINK), else keeps its drawn size where it fitted.
+ 3. River growth (a §7p prototype switch, urban_river_growth: growth::river_demand, the demand distance read
+    RIVER_STRETCH 1.6 times nearer along the river): built, measured, NOT KEPT, removed. At 384 with it on against
+    off: houses within two street widths of the bank (towns of 1 500 and up) 2.5 % -> 2.5 %, wall / hull p90
+    1.12 -> 1.15 (max 1.19 -> 1.24), housed p90 145 -> 151 %; plans/rgpair_4.png (483920 #4, off | on): the town
+    stretches along its river and houses 707 fewer people (18 938 -> 18 231). Arithmetic: a 20 000 town
+    has about 3 850 houses; 15 % within 10.8 m of the bank is about 580 houses, about 6.4 km of single-row
+    frontage, against at most 2 x 1.7 km of bank inside the box. The 15 % bar cannot be met by one row along the
+    water for the large towns that dominate the pooled share.
+ 4. fortify::town_bank on a riverbank site (rides urban_riverbank): the bank walk takes the market's bank
+    (Site::bank_side) at every centreline vertex; the reference's per-vertex test (nl . (market - v) < 0) flips on a
+    staircased river running toward the market, so the walk crossed the channel every few tens of metres (246371
+    #15 at 2048: 14 crossings of its own river, wall / hull 1.19). A shore pull for walls over the SEA
+    (wallhug::pull_off_open_water) was also built and measured: wall rings in open water 3 -> 3 (384) and
+    1 -> 1 (2048), and it walled a 2.47 ha empty field in 246371 #0 at 2048 (plans/pp_246371_0.png: before | with
+    the pull): removed, not shipped.
+
+Results, pooled over the three seeds, before -> after (bar from TOWN_GENERATOR_JUDGEMENT.md):
+                                                     384 x 288                 2048 x 1311
+ green within 60 m of the market point (bar 90 %)    493 -> 629 of 662 (95.0 %)  591 -> 676 of 684 (98.8 %)   MET
+ villages under 80 % of target                       104 -> 49                 53 -> 20
+ village housed median                               100 -> 100                100 -> 100
+ river villages, every house > 2 street widths       4 -> 1                    81 -> 23                     NOT 0
+   (all river-kind layouts; towns of 1 500 and up)   0 -> 0                    2 -> 2
+ houses within 2 widths of the bank, towns >= 1500   2.6 -> 2.5 %              2.5 -> 2.5 %   (bar 15 %, MISSED; item 3)
+ built reach fronted (bar 70 %)                      66.8 -> 66.4 %            63.1 -> 63.9 %  (with a riverside street 76.6 / 72.6 %)
+ wall / hull length, walled towns >= 1500: median    1.04 -> 1.03              1.03 -> 1.02
+                                         p90         1.12 -> 1.12              1.19 -> 1.16   (bar 1.15, MISSED by 0.01)
+                                         max         1.19 -> 1.19              1.25 -> 1.23
+ walls crossing their own river                      14 -> 10                  13 -> 9
+   of which round an empty far bank                  6 -> 2                    4 -> 1
+ wall rings with a sample in open water (FK audit)   3 -> 3                    1 -> 1          (NOT FIXED)
+ unbuilt patch inside a wall over 1 ha               1 -> 1                    0 -> 0
+ squares outside the wall (both_banks / FK audit)    4 -> 5 / 2 -> 3           2 -> 2 / 2 -> 2  (WORSE at 384, below)
+ village lots with no building (bar 5 %)             4.3 -> 4.3 %              3.8 -> 4.4 %
+ village green over 4 % of settled area (bar: none) 167 -> 135 of 662          185 -> 181 of 684   (still MISSED)
+ buildings in water (river channel)                  0 -> 0                    1 -> 0
+ harbours over 23 m from their water                 1 of 10 -> 1 of 10        1 of 9 -> 1 of 9
+ town_housing_audit, riverbank on, under 80 %        106 -> 51                 57 -> 24
+ riverbank_gap: built-to-bank over the widest street 197 of 678 -> 161 of 685  277 of 679 -> 202 of 688
+
+Worse, and why:
+ - 384: one more walled settlement with its square outside the wall (both_banks 4 -> 5, FK audit 2 -> 3): 246371 #18,
+   a 530-person village whose layout now grows a palisade (it housed under target before and had none) with its
+   green 54 m off by the landing, outside the circuit. Not fixed.
+ - 2048: village lots with no building 3.8 -> 4.4 % (bar 5 % still met).
+ - "markets moved" in harbour_front_audit 12 -> 174 (384) and 20 -> 207 (2048): the village moves, by design (the
+   audit counts any market off its pin).
+ - Shell world, seed 483920 at 384 (shell_world_483920_changed.txt, cmp.py.txt over the app's own layouts from
+   _viewerframe_probe.gd --dump, before = the base worktree's DLL): greens within 60 m 172 -> 206 of 218 villages,
+   under 80 % 26 -> 13; worse rows: #132 (green 81 -> 151 m), #193 (unchanged hamlet of 94, not fixed).
+
+Frames (frames/pair_483920_<id>.png, the City Viewer's opening frame, _viewerframe_probe.gd windowed under the
+window lock, shots.sh.txt; before = a worktree of origin/main with its own debug DLL, after = this tree), each
+looked at:
+ #1 (town 2 165): before, a wall loop out over the river and an empty quarter; after, a one-bank wall along the
+    river and a full town. Better.
+ #23 (city 7 086): the town grew a second lobe east of the river bend; its wall follows the river edge; the east
+    lobe walls an open area (not over the 1 ha patch bar in the census). Mixed.
+ #35: the village now lines the river bank in two parts joined by a long road; before, a tidy street at 244 of
+    400. Mixed (housed 244 -> 400).
+ #64, #125: unchanged in look.
+ #67, #98, #137, #207: street villages laid along their river with the green at the landing (before: an orphaned
+    green across the river, or a cluster with the green 85-145 m off). Better.
+ #78: the green moved from the middle of the street to the landing. Better.
+ #105: identical (after the river-end rule).
+ #132: the market moved 30 m onto the landing at a confluence; the green stays up the road (151 m). Worse on the
+    bar, not silly to look at.
+ #193: identical; still a hamlet of 94 (not fixed).
+
+Mutants: mutants.py.txt (exact replace, restored in finally, hashed), results in mutants.txt: 23 run, 21 killed, 2 survived
+(reasons there).

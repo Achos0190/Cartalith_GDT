@@ -1,0 +1,8 @@
+#!/bin/bash
+# dump.sh <worktree> <outdir> <seed> <ids>: headless dump of the app's layouts for the given ids (scratch APPDATA).
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+mkdir -p C:/cw/townleft_appdata
+cd $1/cartalith-native/godot-project
+[ -d .godot ] || APPDATA=C:/cw/townleft_appdata timeout 900 "$GODOT" --headless --path . --import > $2.import.log 2>&1
+APPDATA=C:/cw/townleft_appdata timeout 2400 "$GODOT" --headless --path . _viewerframe_probe.tscn -- --seed $3 --grid 384x288 --dump $2 --ids $4 > $2.log 2>&1
+echo "exit $?"

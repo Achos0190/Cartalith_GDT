@@ -1,0 +1,10 @@
+#!/bin/bash
+# shots.sh: City Viewer opening frames, before (base worktree) and after (this worktree), seed 483920 at 384x288. Windowed, under the window lock.
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+IDS=1,23,35,64,67,78,98,105,125,132,137,193,207
+for side in base:C:/cw/townleft_base after:C:/cw/townleft; do
+  name=${side%%:*}; wt=${side#*:}
+  cd $wt/cartalith-native/godot-project
+  APPDATA=C:/cw/townleft_appdata timeout 1800 "$GODOT" --path . --resolution 1600x1000 _viewerframe_probe.tscn -- --seed 483920 --grid 384x288 --shots C:/cw/townleft_scratch/shots_$name --ids $IDS > C:/cw/townleft_scratch/shots_$name.log 2>&1
+  echo "$name exit $?"
+done

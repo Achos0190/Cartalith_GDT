@@ -735,3 +735,59 @@ fn the_square_tries_shrink_by_fifteen_percent_to_the_reference() {
     assert_eq!(super::scale_tries(1.0), vec![1.0]);
     assert_eq!(super::scale_tries(0.7), vec![0.7]);
 }
+
+/// Protects the street village's green shrink (2026-11-16, `GREEN_SHRINK`,
+/// `GREEN_NEAR_M`): on a road that leaves the market east for 30 m and then
+/// turns south, a green drawn too long for the 30 m leg stands on the south
+/// leg, and for the seeds where that puts its centre more than 60 m from the
+/// market point, `build_plaza_with` lays a smaller green (at most the drawn
+/// length times 0.85) within 60 m. Draws are the reference's, so which seeds
+/// need it is found by laying the drawn size first; at least one must.
+#[test]
+fn a_village_green_too_far_at_its_drawn_size_is_laid_smaller_near_the_market() {
+    use super::{GREEN_RIVER_CLEAR_M, build_plaza_with, green_centre, square_near};
+    let mut site = crate::site::build_site(7, 1700.0, 1250.0, "landlocked", crate::site::SiteOpts::default());
+    site.river.clear();
+    let anchors = Anchors { market: Vec2::new(850.0, 625.0), prov: "fixture" };
+    let road = || {
+        let mut g = Graph::new();
+        g.add_street(850.0, 625.0, 880.0, 625.0, "primary", 6.0, 0, "test road");
+        g.add_street(880.0, 625.0, 880.0, 1100.0, "primary", 6.0, 0, "test road");
+        g
+    };
+    let mut exercised = 0;
+    for seed in 1..40u32 {
+        let mut r = stream(seed, "plaza");
+        let (l0, wd0) = (r.range(55.0, 80.0), r.range(26.0, 40.0));
+        let g0 = road();
+        let (d, m) = square_near(&site, &anchors, &g0, l0, wd0, GREEN_RIVER_CLEAR_M, true, true).expect("the drawn green fits somewhere");
+        if green_centre(&site, d, m, l0, wd0).dist(anchors.market) <= 60.0 {
+            continue;
+        }
+        exercised += 1;
+        let mut g = road();
+        let z = build_plaza_with(seed, &site, &anchors, &mut g, 400.0, true, false).expect("a green");
+        assert!(z.center.dist(anchors.market) <= 60.0, "seed {seed}: green {:.0} m off", z.center.dist(anchors.market));
+        assert!(z.poly[0].dist(z.poly[1]) <= 0.85 * l0 + 1e-9, "seed {seed}: not shrunk");
+    }
+    assert!(exercised > 0, "premise: some drawn green stands over 60 m off on this road");
+}
+
+/// Protects the green shrink's fallback (`first`, literal): on a road that
+/// starts 100 m from the market point no size of green can stand within
+/// 60 m, so the green keeps its drawn length (not the smallest size tried).
+#[test]
+fn a_village_green_no_size_brings_near_keeps_its_drawn_size() {
+    let mut site = crate::site::build_site(7, 1700.0, 1250.0, "landlocked", crate::site::SiteOpts::default());
+    site.river.clear();
+    let anchors = Anchors { market: Vec2::new(850.0, 625.0), prov: "fixture" };
+    for seed in 1..6u32 {
+        let mut r = stream(seed, "plaza");
+        let l0 = r.range(55.0, 80.0);
+        let mut g = Graph::new();
+        g.add_street(850.0, 725.0, 850.0, 1100.0, "primary", 6.0, 0, "test road");
+        let z = super::build_plaza_with(seed, &site, &anchors, &mut g, 400.0, true, false).expect("a green");
+        assert!(z.center.dist(anchors.market) > 60.0, "premise: seed {seed}'s green cannot come near");
+        assert!((z.poly[0].dist(z.poly[1]) - l0).abs() < 1e-6, "seed {seed}: green {:.2} m long, drawn {l0:.2}", z.poly[0].dist(z.poly[1]));
+    }
+}
