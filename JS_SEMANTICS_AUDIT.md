@@ -197,6 +197,8 @@ That expectation is the only one this audit changed, and the replacement is
 V8's own output. `golden_parity_geojson.rs` itself passes **unmodified**, which
 is the proof that the bug was invisible to it.
 
+*Note, 2026-11-16 (docs audit): no test of that name exists today; it went when the copies were folded into `cartalith-jsmath` (`c3faa6b8`). The `toFixed` port is now covered by `cartalith-jsmath`'s `the_two_to_fixed_ports_agree_with_each_other_everywhere` and `non_finite_to_fixed_and_the_odd_floor_rounding_the_sweep_found_untested`, and by `cartalith-civ`'s `m6_js_fixed_matches_tofixed_on_real_ties_and_on_near_ties`; whether the 32 V8 cases survived the move was not checked here.*
+
 Test added: `js_to_fixed_matches_v8_on_every_rounding_branch` — 32 cases
 covering first-dropped-digit `<5`, `=5` with a tail, exact tie, `>5`, full
 carry, both signs, `d = 0..3`, and the `cell_km` values a non-power-of-two map

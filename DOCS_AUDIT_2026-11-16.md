@@ -160,3 +160,124 @@ after landing are C18).
 | V18 | `menus.gd` | 4 rows are always disabled (*Print sheet (PDF)…*, *VTT battle map…*, *Anti-aliasing · anisotropy*, *3D viewport defaults*); the other 33 `_todo` calls are fallbacks for an older native library or an empty state | verified; listed in `CODEBASE_INVENTORY.md` section 7 |
 | N7 | `UNWIRED_FUNCTIONS.md`, `GUI_GAP_REGISTER.md`, `DCC_CONTROL_INDEX.md` | none lists *Print sheet (PDF)…* or *VTT battle map…*; both are routed only through `STORY_MENUS_PROPOSAL.md` section 8 and `OUTSTANDING_WORK.md` ("Story menus: the proposal's §8 later rows", unscheduled by Ruling EA item 7) | left: routed and owned; the registers are dated cuts |
 | C26 | `TABLET_UI_SPEC.md` | "**`Run stage NN` — Ruling D.** ... The button is drawn, runs the whole pipeline, and says so in its tooltip." | no such control exists (`git log -S 'Run stage'` over `shell/` finds only comments; `world_workspace.gd` explains each stage row regenerates on release) | dated correction; Ruling D routed in `OUTSTANDING_WORK.md` section 3.1 as an owner call (build or record as superseded) |
+
+## Phase 4: the whole record, since the start of the project
+
+The owner widened the scope twice (*"I want every crate, gui, piece of code and functionality indexed and checked
+against the documentation"*, then *"Not just since 12-11. Since the start of the project."*). This phase checks every
+ruling, every `OUTSTANDING_WORK.md` row (open or struck), every `STATUS.md` entry and the reference documents against
+the code as it stands today, so that a claim made true once and later broken or removed is caught.
+
+### Method, and what it can and cannot see
+
+1. **Symbol regression sweep.** Every backticked code-like token (a file name, or an identifier with an underscore of 6+
+   characters or a CamelCase name) in `STATUS.md`, `OUTSTANDING_WORK.md`, `LARGE_ITEM_RULINGS.md`, `DECISIONS.md`,
+   `GENERATION_PARAMETERS.md`, `SAVEFILE_COMPAT.md`, `ARCHITECTURE.md`, `README.md` and `JS_SEMANTICS_AUDIT.md`:
+   **11 476** distinct tokens, each looked up in a token index of every `.rs`, `.gd`, `.wgsl`, `.gdshader`, `.tscn`,
+   `.cfg`, `.toml`, `.kt`, `.json` and script file under `cartalith-native` (evidence folders excluded) and in the file
+   names there. **10 716 resolve today.** The 760 that do not were triaged by script (identifiers in the reference
+   HTML; probe short names whose `_<name>_probe.gd` exists; lines that themselves say *removed*, *renamed*,
+   *replaced*, *superseded* and the like; struck rows), leaving **240** to read by hand, all of which were read. For each
+   the last commit that touched the name in code was found with `git log -S` (appendix A). This sweep sees a named
+   symbol vanish; it cannot see a symbol that still exists but no longer does what the prose says. That needs the
+   reading of method 3.
+2. **Ruling coverage.** All **168** lettered rulings (A to FL; 73 dated September, 54 October, 41 November) were
+   counted against `STATUS.md`, `OUTSTANDING_WORK.md`, `DECISIONS.md`, the other root documents and the code. 158 are
+   cited by `STATUS.md` or by a code comment. The other **10** were read one by one (below). The unlettered owner
+   rulings of 2026-08-31 to 2026-09-06 (the eighteen Large rows, the numbered rulings 1-26) are cited by number in
+   their own rows and were checked only where those rows came up in method 3.
+3. **Reading.** The open rows of `OUTSTANDING_WORK.md` sections 1 to 4 were listed and every one whose text claims
+   *not built*, *not started*, *nothing is built* or *never built* was checked at its symbol; rows whose title says
+   CLOSED but which sit in a numbered section were found by the same listing.
+
+### Rulings with no `STATUS.md` or code citation (all ten read)
+
+| Ruling | Subject | Verdict at the code |
+|---|---|---|
+| B (2026-09-07) | the selected Preferences chip keeps Medium and gains the accent | **built**: `DccTheme.FONT_MONO_MED` / `mono(..., medium = true)`, the lit segment's accent wash in `dcc_widgets.gd` |
+| C (2026-09-07) | the invisible OFF track is a canvas defect | needs no build (a canvas ruling); `OUTSTANDING_WORK.md` closed its row 2026-10-11 |
+| **D (2026-09-07)** | `Run stage NN` drawn on the tablet, wired to a full run | **neither built nor routed** (C26); now an owner call in section 3.1 |
+| S (2026-09-21) | woodland as a spatial area | declined by the ruling itself |
+| X (2026-09-21) | tiles stay in the export menu | **built**: `menus.gd`'s EXPORT `Maps (image · tiles)` |
+| AK (2026-09-23) | the general tool row moves to an always-visible top bar | **built**: `app.gd` `tool_palette_bar`, `_install_tool_palette_bar()` |
+| BG (2026-09-27) | landslip and pinnacle landforms | **routed, not built**: `OUTSTANDING_WORK.md` section 2.13 ("Landslip and pinnacle landforms"); no `landslip` symbol in the crates |
+| BQ (2026-09-28) | v2.72 and v2.73 do not exist | a record, no build |
+| EP (2026-11-11) | the custom LLM is Qwen3.5-4B, after the rest of Cartalith | routed and deferred ("A Cartalith-specific small LLM") |
+| FL (2026-11-16) | MS-3 tool palette, CQ-8's extras, the serial floor | routed (Phase 1, C2, C12, C13, C21) |
+
+### Era by era
+
+**August (the port's first weeks, to 2026-08-31).** Symbol sweep: 6 unresolved tokens in `STATUS.md`, 1 in
+`OUTSTANDING_WORK.md`, 2 in `JS_SEMANTICS_AUDIT.md`; all are probes or examples deleted on purpose (`_peakaudit_*.rs`,
+`_phonepaint_probe.tscn`, both described as deleted where they are cited) except one: `JS_SEMANTICS_AUDIT.md` names a
+test, `js_to_fixed_matches_v8_on_every_rounding_branch`, that went when the helpers were folded into `cartalith-jsmath`
+(`c3faa6b8`). **C27**: dated note naming the tests that cover `toFixed` today. No August ruling is lettered.
+
+**September.** Rulings A to BU (73). Symbol sweep: 39 unresolved in `STATUS.md`, 16 in `OUTSTANDING_WORK.md`, 9 in
+the rulings, 3 in `DECISIONS.md`, 2 in `GENERATION_PARAMETERS.md`; read one by one, nearly all are probes deleted with
+their surface (MS-4, `9bae6952` 2026-11-08), mutant labels, census-script internals or external names
+(`VK_ERROR_DEVICE_LOST`, `OnGodotMainLoopStarted`). Real findings:
+- **C26** Ruling D (above).
+- **C28** `GENERATION_PARAMETERS.md`'s `use_gpu` row still described the September GPU path (the shell turns it on at
+  boot; seven GPU stages). Since Ruling EY the touch forms boot with it off, and since Ruling EZ item 3 only
+  `GPU_PATH_KERNELS` (`plate_assignment`, `base_field_blur`) run on the GPU. Dated correction in the row.
+- **C29** `STATUS.md`'s GPU layer integration table (GLI-1 to GLI-POOL, September) reads as if every kernel were
+  still wired; GLI-P2 says the civ affordance kernels are "wired in `compute_civilisation` under `use_gpu`", and no
+  `cartalith-godot` source calls them since `e4183543`. Dated correction above the table's total.
+- **C30** `OUTSTANDING_WORK.md`'s DS-13 row cites `ToolFan.pill_reserve()`, gone with the pill (`c302a4ed`). Note added.
+- **N8** `LARGE_ITEM_RULINGS.md` cites two test names that no longer exist
+  (`build_water_bodies_largest_below_sea_component_is_ocean`, Ruling Q; `settlement_and_poi_are_not_named_by_the_unused_warning`,
+  Ruling W). Rulings are a dated record and were not edited; the tests were renamed or folded later (appendix A).
+
+**October.** Rulings BV to DW (54). Symbol sweep: 42 unresolved in `STATUS.md`, 9 in `OUTSTANDING_WORK.md`, 1 in
+the rulings, 1 in `DECISIONS.md`, 1 in `SAVEFILE_COMPAT.md`; read one by one, they are mutant and probe-leg labels,
+temporary accessors the entries themselves call scratch, and private helpers renamed since. Real findings:
+- **C31** `OUTSTANDING_WORK.md`'s mountain relief row: `km_relief_taper` (cause 2, built 2026-10-17) is gone,
+  replaced by Ruling FG's local-relief amplitude (`a673a1df`); and "Ridged orogen detail is still not built" was
+  written before H1/H2 landed (`782ec8c7`, 2026-10-19). Dated notes on both.
+
+**November.** Rulings DX to FL (41). Symbol sweep: 105 unresolved in `STATUS.md`, almost all mutant labels and probe
+leg names in the 11-14..16 entries; 2 in `OUTSTANDING_WORK.md`. Real findings are Phase 1's C1-C23, plus:
+- **C32** two rows whose titles say **CLOSED 2026-11-12** (the journey departure date, SP-2's residual; the saved
+  journey's per-leg override fingerprints) still sat in section 2.3; moved verbatim to a new "Archive sweep 32".
+- **C33** `OUTSTANDING_WORK.md`'s "the tablet still shows the PC layout" row listed as open the 320 landscape dock,
+  the palette tokens and `scrPlanner`, all built or closed 2026-11-15 (`6cf7a27e`, `cc0e83b2`); dated note.
+
+### `CLAUDE.md` routing table, checked whole (not edited)
+
+Every document the table names exists (the three that are not at the root are in `reference/`, `cartalith-native/docs/`
+or `design/`). Stale rows, adding to Phase 1's L1-L14:
+
+| # | Row | What is stale |
+|---|---|---|
+| L15 | `cartalith-native/drafts/` | names `mobile-shell/` and `pc-shell/`; a third set, `stylus-input/` (four drafts, a README and `check_symbols.sh`), is not mentioned |
+| L16 | `MOBILE_SHELL_MS1_SPEC.md` | "is applied by the code only below aspect 0.6": a status claim, false since Ruling EG's 900 dp line was built (`STATUS.md`, "Ruling EM" and the MS-1 entries) |
+| L17 | (absent rows) | `CODEBASE_INVENTORY.md` and `DOCS_AUDIT_2026-11-16.md`, both new today |
+
+## Counts (all phases)
+
+- **Verified correct:** 18 claim groups (V1-V18); 10 716 of 11 476 code tokens the nine tracked documents name resolve
+  in today's tree, and of the 760 that do not, 520 were explained by script and the other 240 read by hand (appendix A);
+  165 of 168 lettered rulings built, routed, declined or record-only (D is the exception, now routed; FL and EP are
+  routed and unbuilt); 137 of 137 parameters documented; 48 of 48 archive entries named in code.
+- **Corrected:** **33** (C1-C33) in 17 documents: `OUTSTANDING_WORK.md`, `cartalith-native/docs/STATUS.md`,
+  `PERFORMANCE_BENCHMARKS.md`, `WORLD_SCALE_TERRAIN_PLAN.md`, `GUI_PLANS_AUDIT_2026-11-16.md`,
+  `CUSTOM_QUICK_BAR_SCOPE.md`, `CITY_MAP_LOOK_SCOPE.md`, `CODEBASE_REFACTOR_PROPOSAL.md`, `RIVER_REALISM_SCOPE.md`,
+  `DECISIONS.md`, `ARCHITECTURE.md`, `README.md`, `TABLET_UI_SPEC.md`, `GENERATION_PARAMETERS.md`,
+  `JS_SEMANTICS_AUDIT.md`, plus the two new files.
+- **Found, not changed:** **8** (N1-N8): document placement, code comments and dead code (reported, not code-edited),
+  and ruling-record test names.
+- **Still open, correctly routed:** Ruling FL items 1-2; Ruling D (new owner call); FK leftovers (i)-(v); FI (iii),
+  (v); FF (iii)-(v); FE items 3 and 4; FH's save prompt and disk cap behind the ZR decision; BG landslips; EP; the
+  `ac1_static_sources` test; the Pad's `RAYON_NUM_THREADS=1` column; everything else in `OUTSTANDING_WORK.md` sections
+  1-4 that this audit did not contradict.
+- **Stale `CLAUDE.md` rows:** **3 wrong** (L1 `CITY_MAP_LOOK_SCOPE.md`, L15 `cartalith-native/drafts/`, L16
+  `MOBILE_SHELL_MS1_SPEC.md`) and **15 missing** (L2-L14, L17).
+
+### Limits
+
+The symbol sweep proves a name exists, not that it still does what the prose says; that was checked only by reading
+(method 3, every phase-1 row, and the rows the sweep flagged). `STATUS.md`'s 9 900 lines were swept for names and
+read where flagged, not entry by entry. The GUI plans' 56 DONE verdicts and the unlettered August/early-September
+rulings were taken from their own audits and rows rather than re-opened one by one.
+
