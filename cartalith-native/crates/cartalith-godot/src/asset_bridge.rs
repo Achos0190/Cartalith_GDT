@@ -39,8 +39,9 @@ use cartalith_assets::{
     SeamlessOutcome, Severity, diff_libraries, list_folder, make_seamless, plan_folder_import, plan_merge, refine,
     seam_score, PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive,
     check_png_header, compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
-    read_pack_entries_limited, BakeFilter, render_item_with, sheet_base_name, slice_sheet,
+    read_pack_entries_limited, BakeFilter, render_item_with, sheet_base_name, slice_sheet, RawPin,
 };
+use cartalith_assets::pins::{PINS_SET, PIN_DEFAULT_COLOUR, clean_pin_name, is_pin_colour};
 
 use cartalith_assets::lineart::{LineArtOptions, LineArtResult, convert_line_art, working_image};
 
@@ -367,6 +368,83 @@ pub struct RefineOutcome {
     pub harmonised: Option<refine::Harmonised>,
 }
 
+/// One pin of the library as the shell's palette needs it (Ruling FP): see [`AssetLibrarySession::pin_catalog`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinEntry {
+    /// The library slot's uid (`custom:pins/<slot id>`), the handle the Pins category edits by.
+    pub uid: String,
+    /// The kind id the engine stores on a placed pin (`cartalith_civ::poi::is_custom_kind_id`).
+    pub kind: String,
+    /// The slot's id (a slug of the name).
+    pub slot_id: String,
+    /// The user's name.
+    pub name: String,
+    /// `#rrggbb`, lower case; the default grey when the slot has none.
+    pub color: String,
+    /// The normalised icon, a 128 x 128 PNG.
+    pub png: Vec<u8>,
+}
+
+/// The side of a pin icon, in pixels. Equal to the shell's `PinMarker.ICON_H` (128), which the drawing code divides by.
+pub const PIN_ICON_PX: u32 = 128;
+
+/// The picture a pin is drawn with: the image's opaque bounds (the slicer's transparent-edge trim), scaled so the longer
+/// side is [`PIN_ICON_PX`], centred horizontally and **bottom-aligned** on a 128 x 128 canvas, because the shell draws every
+/// pin picture with its bottom-centre pixel at the pin's point (the contract the built-in sets follow).
+///
+/// **Idempotent**: normalising its own output returns it byte for byte (the trim finds the same bounds, the scale is 1, and
+/// the placement is the same), which is what lets a pack carry the normalised icon and re-import to the same kind id.
+/// `Err` for a fully transparent image (nothing to draw).
+pub fn normalise_pin_icon(img: &DecodedImage) -> Result<DecodedImage, String> {
+    let t = cartalith_assets::slicer::trim_transparent_edges(img);
+    let opaque = t.rgba.chunks_exact(4).any(|p| p[3] > cartalith_assets::slicer::BLANK_ALPHA_THRESHOLD);
+    if !opaque {
+        return Err("the picture is fully transparent".to_string());
+    }
+    let size = PIN_ICON_PX;
+    let base = f64::from(size) / f64::from(t.w.max(t.h));
+    let (dw, dh) = (((f64::from(t.w) * base).round() as u32).max(1), ((f64::from(t.h) * base).round() as u32).max(1));
+    let body = if (dw, dh) == (t.w, t.h) {
+        t
+    } else {
+        // `render_item` at scale 1 with no pan fits the longer side to `size`, centred; the crop below takes the scaled body
+        // back out so the bottom alignment is one explicit copy, not a pan that depends on rounding.
+        let r = cartalith_assets::render_item(&t, &ItemTransform::default(), size, false);
+        let (x0, y0) = ((size - dw) / 2, (size - dh) / 2);
+        let mut rgba = Vec::with_capacity((dw * dh * 4) as usize);
+        for y in y0..y0 + dh {
+            let row = ((y * size + x0) * 4) as usize;
+            rgba.extend_from_slice(&r.rgba[row..row + (dw * 4) as usize]);
+        }
+        DecodedImage { w: dw, h: dh, rgba }
+    };
+    let mut canvas = vec![0u8; (size * size * 4) as usize];
+    let (x0, y0) = ((size - body.w) / 2, size - body.h);
+    for y in 0..body.h {
+        let src = (y * body.w * 4) as usize;
+        let dst = (((y0 + y) * size + x0) * 4) as usize;
+        canvas[dst..dst + (body.w * 4) as usize].copy_from_slice(&body.rgba[src..src + (body.w * 4) as usize]);
+    }
+    Ok(DecodedImage { w: size, h: size, rgba: canvas })
+}
+
+/// The kind id of a pin: `custom-<slug>-<8 hex>`, the slug the slot id cut to 32 characters (`pin` when it slugs to
+/// nothing), the hex the low 32 bits of FNV-1a over name, colour and icon bytes (each followed by a zero byte). Content
+/// addressing is the design: two different pictures, names or colours never share an id, so a world's saved copy of a pin
+/// can never be confused with a later, edited one.
+pub fn pin_kind_id(slot_id: &str, name: &str, color: &str, png: &[u8]) -> String {
+    let mut slug: String = slot_id.chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_').take(32).collect();
+    if slug.is_empty() {
+        slug = "pin".to_string();
+    }
+    let mut buf = Vec::with_capacity(name.len() + color.len() + png.len() + 3);
+    for part in [name.as_bytes(), color.as_bytes(), png] {
+        buf.extend_from_slice(part);
+        buf.push(0);
+    }
+    format!("custom-{slug}-{:08x}", fnv1a64(&buf) & 0xffff_ffff)
+}
+
 /// FNV-1a, 64-bit (the published offset basis and prime), for *Tint*'s seed.
 /// Not a content hash of record (that is [`item_hash`]); only a stable way to
 /// turn a string into a seed.
@@ -605,7 +683,9 @@ impl AssetLibrarySession {
                     .find(|slot| &slot.id == id)
                     .map(|slot| slot.uid.clone())
                     .unwrap_or_default(),
-                SlotTarget::Custom { id, set } => scratch.add_custom_slot(id, Some(set)).uid.clone(),
+                // A pin's slot is named by the pin's own name (Ruling FP), the one place a custom slot's display name
+                // is not its manifest id: the id is a slug, the name is what the user typed.
+                SlotTarget::Custom { id, set } => scratch.add_custom_slot(s.pin.as_ref().map_or(id.as_str(), |p| p.name.as_str()), Some(set)).uid.clone(),
             })
             .collect();
 
@@ -700,7 +780,7 @@ impl AssetLibrarySession {
                 };
                 // Create a custom slot only now that something lands in it.
                 let target_uid = match &slot.target {
-                    SlotTarget::Custom { id, set } => self.add_custom_slot(id, Some(set)),
+                    SlotTarget::Custom { id, set } => self.add_custom_slot(slot.pin.as_ref().map_or(id.as_str(), |p| p.name.as_str()), Some(set)),
                     SlotTarget::Frozen { .. } => uid.clone(),
                 };
                 let first_write = cleared.insert(target_uid.clone());
@@ -732,6 +812,10 @@ impl AssetLibrarySession {
                         && (meta.license.trim().is_empty() || is_conflict)
                     {
                         meta.license = lic.to_string();
+                    }
+                    // Ruling FP: a pin arrives with its colour (validated by the planner, never repaired).
+                    if let Some(pin) = &slot.pin {
+                        meta.color = pin.color.clone();
                     }
                     // Tags (a folder's Dungeondraft tag file): added, never
                     // duplicated, never removing a tag the slot had.
@@ -789,6 +873,7 @@ impl AssetLibrarySession {
                     target: s.target.clone(),
                     paths: s.paths.clone(),
                     note: s.note.clone(),
+                    pin: None,
                 })
                 .collect(),
         };
@@ -1608,6 +1693,135 @@ impl AssetLibrarySession {
         deleted
     }
 
+    // -- Custom pins (Ruling FP) ------------------------------------------------
+
+    /// Every pin of the library: each slot of the reserved custom set [`PINS_SET`] holding at least one picture, in add
+    /// order. The icon is the slot's first item, normalised ([`normalise_pin_icon`]); the kind id is minted from the slot id,
+    /// the name, the colour and that icon ([`pin_kind_id`]), so **editing any of the four gives a new id** and a pin already
+    /// placed in a world keeps the copy that world saved. A slot whose first picture cannot be normalised (fully transparent)
+    /// is left out: a pin with no visible icon is not offered.
+    pub fn pin_catalog(&self) -> Vec<PinEntry> {
+        let mut out = Vec::new();
+        for slot in self.db.slots_in_family(Family::Custom) {
+            if slot.set.as_deref() != Some(PINS_SET) {
+                continue;
+            }
+            let Some(img) = self.image(&slot.uid, 0) else { continue };
+            let Ok(norm) = normalise_pin_icon(img) else { continue };
+            let Ok(png) = encode_png(&norm) else { continue };
+            let color = if is_pin_colour(&slot.meta.color) { slot.meta.color.to_ascii_lowercase() } else { PIN_DEFAULT_COLOUR.to_string() };
+            out.push(PinEntry {
+                uid: slot.uid.clone(),
+                kind: pin_kind_id(&slot.id, &slot.name, &color, &png),
+                slot_id: slot.id.clone(),
+                name: slot.name.clone(),
+                color,
+                png,
+            });
+        }
+        out
+    }
+
+    /// Adds a pin: a new slot named `name` in [`PINS_SET`], colour `color`, holding the decoded `bytes` (a PNG). `Err` in
+    /// words for a name that is empty after trimming, a colour that is not `#rrggbb`, a name whose slug is already a pin
+    /// (nothing is overwritten), a PNG that does not decode, or one that is fully transparent. Nothing is created on `Err`.
+    pub fn pin_add(&mut self, name: &str, color: &str, bytes: &[u8]) -> Result<String, String> {
+        let name = clean_pin_name(name).ok_or("a pin needs a name")?;
+        if !is_pin_colour(color) {
+            return Err("the colour must be #rrggbb".to_string());
+        }
+        let (decoded, report) = decode_png_managed(bytes).map_err(|e| format!("not a readable PNG ({e})"))?;
+        normalise_pin_icon(&decoded)?;
+        let want = cartalith_assets::slug_id(&name);
+        if self.db.slots_in_family(Family::Custom).iter().any(|s| s.set.as_deref() == Some(PINS_SET) && s.id == want) {
+            return Err(format!("a pin named \"{name}\" already exists"));
+        }
+        let uid = self.add_custom_slot(&name, Some(PINS_SET));
+        let hash = self.insert_decoded(&uid, format!("{want}.png"), decoded)?;
+        self.note_colour(hash, &report);
+        if let Some(m) = self.db.slot_meta_mut(&uid) {
+            m.color = color.to_ascii_lowercase();
+        }
+        Ok(uid)
+    }
+
+    /// Renames and recolours the pin `uid` (a slot of [`PINS_SET`]). Returns the pin's uid, which **changes with the name**
+    /// (it is the slug), keeping the pixel store in step. `Err` for an unknown or non-pin uid, a bad name or colour, or a
+    /// name whose slug another pin already holds (the rename is refused, as `AssetDB::rename_custom_slot` does).
+    pub fn pin_update(&mut self, uid: &str, name: &str, color: &str) -> Result<String, String> {
+        let Some(slot) = self.db.get(uid) else { return Err(format!("no such pin: {uid}")) };
+        if slot.family != Family::Custom || slot.set.as_deref() != Some(PINS_SET) {
+            return Err(format!("{uid} is not a pin"));
+        }
+        let name = clean_pin_name(name).ok_or("a pin needs a name")?;
+        if !is_pin_colour(color) {
+            return Err("the colour must be #rrggbb".to_string());
+        }
+        let nuid = self.db.rename_custom_slot(uid, &name);
+        if nuid == uid && cartalith_assets::slug_id(&name) != self.db.get(uid).map(|s| s.id.clone()).unwrap_or_default() {
+            return Err(format!("a pin named \"{name}\" already exists"));
+        }
+        if nuid != uid
+            && let Some(v) = self.images.remove(uid)
+        {
+            self.images.insert(nuid.clone(), v);
+        }
+        if let Some(m) = self.db.slot_meta_mut(&nuid) {
+            m.color = color.to_ascii_lowercase();
+        }
+        Ok(nuid)
+    }
+
+    /// The library's pins as `(name, colour, normalised PNG)`, in add order: what survives a world opening (which replaces the
+    /// library with the archive's pixel-less record, `asset_library_restore_document`) and what the per-install store keeps.
+    pub fn pin_snapshot(&self) -> Vec<(String, String, Vec<u8>)> {
+        self.pin_catalog().into_iter().map(|e| (e.name, e.color, e.png)).collect()
+    }
+
+    /// Puts `pins` (a [`pin_snapshot`](Self::pin_snapshot)) back: a pin whose slot is missing is added; one whose slot exists
+    /// **empty** (a world's record names the slot but carries no pixels) is filled and given the snapshot's colour; one whose
+    /// slot already holds a picture is left as it is. Never renames or removes anything. Returns how many pins the library
+    /// holds afterwards.
+    pub fn pin_restore(&mut self, pins: &[(String, String, Vec<u8>)]) -> usize {
+        for (name, color, png) in pins {
+            let slug = cartalith_assets::slug_id(name);
+            let uid = self
+                .db
+                .slots_in_family(Family::Custom)
+                .iter()
+                .find(|s| s.set.as_deref() == Some(PINS_SET) && s.id == slug)
+                .map(|s| s.uid.clone());
+            match uid {
+                Some(uid) if self.db.items(&uid).is_empty() => {
+                    if let Ok((decoded, _)) = decode_png_managed(png)
+                        && self.insert_decoded(&uid, format!("{slug}.png"), decoded).is_ok()
+                        && let Some(m) = self.db.slot_meta_mut(&uid)
+                    {
+                        m.color = color.clone();
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    let _ = self.pin_add(name, color, png);
+                }
+            }
+        }
+        self.pin_catalog().len()
+    }
+
+    /// The per-install store: the pins alone, as an ordinary asset-pack zip (so the file is shareable), or `None` when the
+    /// library holds no pin. Built through a scratch library so nothing else in this one can leak into it.
+    pub fn pins_store_bytes(&self) -> Option<Vec<u8>> {
+        let snap = self.pin_snapshot();
+        if snap.is_empty() {
+            return None;
+        }
+        let mut tmp = AssetLibrarySession::new();
+        tmp.pin_restore(&snap);
+        tmp.db.pack.name = "Cartalith custom pins".to_string();
+        tmp.export_pack_bytes().ok().map(|(_, b)| b)
+    }
+
     // -- Export / apply ------------------------------------------------------
 
     /// `PackManifestBuilder.build()` + `zipStore`: bake every stored item at
@@ -1650,6 +1864,22 @@ impl AssetLibrarySession {
             }
             let family = slot.family;
             let set_id = slot.set_id.clone().unwrap_or_default();
+            // Ruling FP: a pin travels as its normalised icon (so the id minted from it survives the round trip, which a
+            // 256-pixel centred bake of it would not) plus its name and colour in the manifest's `pins` section.
+            if family == Family::Custom && slot.set.as_deref() == Some(PINS_SET) {
+                let Some(first) = self.image(&uid, 0) else { continue };
+                let Ok(norm) = normalise_pin_icon(first) else { continue };
+                let png = encode_png(&norm).map_err(|e| e.to_string())?;
+                let path = family.asset_path(&slot.id, &set_id, 0);
+                images.insert(path.clone(), png);
+                if manifest.custom.get(PINS_SET).is_none() {
+                    manifest.custom.insert(PINS_SET.to_string(), Default::default());
+                }
+                manifest.custom.get_mut(PINS_SET).expect("just inserted").insert(slot.id.clone(), vec![path]);
+                let color = if is_pin_colour(&slot.meta.color) { slot.meta.color.to_ascii_lowercase() } else { PIN_DEFAULT_COLOUR.to_string() };
+                manifest.pins.insert(slot.id.clone(), RawPin { name: slot.name.clone(), color });
+                continue;
+            }
             let mut paths = Vec::new();
             for (i, item) in items.iter().enumerate() {
                 let Some(pixels) = self.image(&uid, i) else { continue };
@@ -2978,3 +3208,8 @@ mod tests {
 #[cfg(test)]
 #[path = "asset_bridge_ap89_tests.rs"]
 mod ap89_tests;
+
+/// Ruling FP (custom pins) session tests, kept in their own file.
+#[cfg(test)]
+#[path = "asset_bridge_pins_tests.rs"]
+mod pins_tests;

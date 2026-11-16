@@ -3671,7 +3671,7 @@ impl WorldGen {
 
         // Ruling EW item 4 (CL-11): the user-placed points of interest, only when one exists or one ever did
         // (`poi_bridge::pois_to_doc`), so a save from a world that never had one is unchanged.
-        if let Some(doc) = poi_bridge::pois_to_doc(&self.pois, self.poi_next_id) {
+        if let Some(doc) = poi_bridge::pois_to_doc(&self.pois, self.poi_next_id, &self.custom_pins) {
             insert_doc(&mut documents, SLOT_POIS, &doc);
         }
 
@@ -4083,7 +4083,7 @@ impl WorldGen {
             self.landmark_kind_overrides = doc
                 .kind_overrides
                 .into_iter()
-                .filter(|(_, v)| cartalith_civ::poi::is_valid_kind_name(v.trim()))
+                .filter(|(_, v)| cartalith_civ::poi::is_valid_kind_name(v.trim()) && !cartalith_civ::poi::is_custom_kind_id(v.trim()))
                 .collect();
             // Owner ruling 10. `load_save` a few dozen lines above called
             // `LandmarkStore::invalidate()`, and its comment gives the reason:
@@ -4205,8 +4205,16 @@ impl WorldGen {
                     doc.pois.len()
                 ));
             }
+            if got.dropped_pins > 0 {
+                restore_warnings.push(format!(
+                    "{SLOT_POIS}: {} of {} custom pin icons could not be read; their points are kept and draw as a missing-icon marker",
+                    got.dropped_pins,
+                    doc.custom_pins.len()
+                ));
+            }
             self.pois = got.pois;
             self.poi_next_id = got.next_id;
+            self.custom_pins = got.custom_pins;
             restored.push("pois");
         }
 
@@ -5354,11 +5362,16 @@ impl WorldGen {
         // is about to clear. `AssetDB::clear` alone would leave the session's
         // parallel image store holding variants for items that no longer
         // exist.
+        // Ruling FP: the user's pins are the library's one part that is the *user's*, not the world's, so they outlive a world
+        // opening: snapshotted before the clear and put back after (a pin's slot the record names empty is filled, one it does not
+        // name is added). Everything else is restored exactly as before.
+        let keep_pins = self.asset_library.pin_snapshot();
         self.asset_library.clear();
         let items = self
             .asset_library
             .db
             .apply_library_file_with_items(&file, &std::collections::HashMap::new());
+        self.asset_library.pin_restore(&keep_pins);
         let mut out = vdict! { "ok" => true, "error" => "" };
         out.set("slots", file.slots.len() as i64);
         out.set("items", items as i64);

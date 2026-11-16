@@ -7513,6 +7513,11 @@ struct WorldGen {
     /// The id the next POI gets at least (`cartalith_civ::poi::issue_id`). **Only grows**, is not part of any undo snapshot
     /// and is saved, so a retired id (a deleted or undone POI) is never reissued to a different POI.
     poi_next_id: u32,
+    /// Ruling FP: the custom pins this world's pins use (kind id, name, colour, icon), registered by the shell when one is
+    /// placed (`poi_register_custom_pin`) and saved inside `annotations/pois.json` so the world draws on another device or
+    /// without the library. **Not part of any undo snapshot** (an entry is content-addressed, so a stale one is harmless);
+    /// pruned to the ids a pin still uses when saved. Cleared with `pois`.
+    custom_pins: Vec<cartalith_civ::poi::CustomPin>,
 
     /// `STORY_PLANNING_SCOPE.md` SP-4: every drawn conflict. Emptied with
     /// the world (`absorb`, `load_save`, a recentre); anchors detached when
@@ -7892,6 +7897,7 @@ impl IRefCounted for WorldGen {
             landmark_kind_overrides: std::collections::BTreeMap::new(),
             pois: Vec::new(),
             poi_next_id: 1,
+            custom_pins: Vec::new(),
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
@@ -8322,6 +8328,7 @@ impl WorldGen {
         // Ruling EW item 4 (CL-11): a new world has none of the previous world's user-placed points of interest.
         self.pois.clear();
         self.poi_next_id = 1;
+        self.custom_pins.clear();
         self.civ_tools = None;
         self.paint = None;
         self.labels = None;
@@ -11005,6 +11012,7 @@ impl WorldGen {
         // `annotations/pois.json`.
         self.pois.clear();
         self.poi_next_id = 1;
+        self.custom_pins.clear();
         // Same restriction as `civ` above, for the same reason: a loaded
         // save has no `territory` for `civ_tools_bridge::CivTools::
         // territory_base` to be a snapshot OF (`project_open` builds one
@@ -25343,6 +25351,65 @@ impl WorldGen {
         vdict! { "ok" => true, "uid" => uid.as_str() }
     }
 
+    /// The library's pins (Ruling FP), in add order: `[{uid, kind, slot_id, name, color, png}]`. `kind` is the id a placed
+    /// pin stores (content-addressed: editing the name, colour or picture gives a new one), `png` the normalised 128 x 128
+    /// icon as a `PackedByteArray`. Empty when the library holds no pin. Read at the palette's build, never cached across an
+    /// edit.
+    #[func]
+    fn as_pin_catalog(&self) -> Array<VarDictionary> {
+        self.asset_library
+            .pin_catalog()
+            .into_iter()
+            .map(|e| {
+                let mut d = VarDictionary::new();
+                d.set("uid", e.uid.as_str());
+                d.set("kind", e.kind.as_str());
+                d.set("slot_id", e.slot_id.as_str());
+                d.set("name", e.name.as_str());
+                d.set("color", e.color.as_str());
+                d.set("png", &PackedByteArray::from(e.png.as_slice()));
+                d
+            })
+            .collect()
+    }
+
+    /// The per-install store of the library's pins (Ruling FP item 3): an asset-pack zip holding only the pins, or an **empty**
+    /// array when the library has none. The shell writes it to the user directory when the pins change.
+    #[func]
+    fn as_pins_store_bytes(&self) -> PackedByteArray {
+        self.asset_library.pins_store_bytes().map(|b| PackedByteArray::from(b.as_slice())).unwrap_or_default()
+    }
+
+    /// Reads a store written by `as_pins_store_bytes` into the library (a pin already there is kept): the pins the library holds
+    /// afterwards. `-1` for bytes that are not a readable pack. Does not touch the world (the shell calls it at start).
+    #[func]
+    fn as_pins_store_load(&mut self, bytes: PackedByteArray) -> i64 {
+        match self.asset_library.import_pack(bytes.as_slice(), "custom pins", asset_bridge::PackImportMode::KeepExisting) {
+            Ok(_) => self.asset_library.pin_catalog().len() as i64,
+            Err(_) => -1,
+        }
+    }
+
+    /// Adds a pin to the library: `{ok: true, uid}` or `{ok: false, error}` (a bad name, colour or picture, or a name already
+    /// taken; nothing is created on an error). `bytes` is a PNG; the shell turns an SVG into one first.
+    #[func]
+    fn as_pin_add(&mut self, name: GString, color: GString, bytes: PackedByteArray) -> VarDictionary {
+        match self.asset_library.pin_add(&name.to_string(), &color.to_string(), bytes.as_slice()) {
+            Ok(uid) => vdict! { "ok" => true, "uid" => uid.as_str() },
+            Err(e) => vdict! { "ok" => false, "error" => e.as_str() },
+        }
+    }
+
+    /// Renames and recolours pin `uid`: `{ok: true, uid}` (the uid follows the name) or `{ok: false, error}`. The picture is
+    /// replaced through the ordinary item import on the slot; pins already placed in a world keep their saved copy.
+    #[func]
+    fn as_pin_update(&mut self, uid: GString, name: GString, color: GString) -> VarDictionary {
+        match self.asset_library.pin_update(&uid.to_string(), &name.to_string(), &color.to_string()) {
+            Ok(nuid) => vdict! { "ok" => true, "uid" => nuid.as_str() },
+            Err(e) => vdict! { "ok" => false, "error" => e.as_str() },
+        }
+    }
+
     /// Every slot in `family_key`'s registry, in the same order
     /// `AssetDB::slots_in_family` returns (frozen vocabulary order for the
     /// seven closed families, add order for `"custom"`, which starts empty
@@ -25405,6 +25472,7 @@ impl WorldGen {
             "meta_source" => slot.meta.source.as_str(),
             "meta_notes" => slot.meta.notes.as_str(),
             "meta_version" => slot.meta.version.as_str(),
+            "meta_color" => slot.meta.color.as_str(),
         }
     }
 
@@ -28628,7 +28696,9 @@ impl WorldGen {
         if kind.is_empty() {
             return self.landmark_kind_overrides.remove(&key).is_some();
         }
-        if !cartalith_civ::poi::is_valid_kind_name(&kind) {
+        // Ruling FP: a custom pin is a user pin's kind only. A landmark override is saved in `landmarks/kinds.json`, which carries no
+        // picture, so a custom id here would be a kind the world cannot draw on another device.
+        if !cartalith_civ::poi::is_valid_kind_name(&kind) || cartalith_civ::poi::is_custom_kind_id(&kind) {
             return false;
         }
         self.landmark_kind_overrides.insert(key, kind);

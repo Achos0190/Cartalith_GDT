@@ -346,6 +346,7 @@ var _render: RenderWorkspace
 const ColourPaintTool := preload("res://shell/colour_paint_tool.gd")
 ## Ruling FD: the pin palette the Pins tool shows in the right dock (`build_pin_palette`).
 const PinPaletteScript := preload("res://shell/pin_palette.gd")
+const PinMarkerScript := preload("res://shell/pin_marker.gd")
 ## The landmark filter body shared with the Layers popover; see `_build_landmark_filter`.
 const LandmarkFilterPanel := preload("res://shell/landmark_filter_panel.gd")
 ## The live tool (see `ColourPaintTool`); `null` until `_build` runs.
@@ -1319,6 +1320,7 @@ func _on_any_tool_armed(id: String) -> void:
 				app.right_dock_ctrl.show_anno()
 		"poi":
 			## Ruling FD: the options row names the tool; the palette is the dock's section (`RightDock.TOOL_PINS`).
+			reload_pin_catalog()
 			app.set_tool_options(_build_poi_tool_options_row)
 			app.right_dock_ctrl.show_pins()
 			## PP-6: on the phone the sheet's body follows the tool (the palette replaces the domain's dock categories).
@@ -2244,6 +2246,7 @@ func _build_poi_tool_options_row(row: HBoxContainer) -> void:
 ## Builds the palette into `parent` (the right dock's Pins section). Called by `RightDock._build_pins` on every dock rebuild;
 ## the palette reads and writes `_pin_state` in place so nothing is lost.
 func build_pin_palette(parent: Control) -> void:
+	reload_pin_catalog()
 	var pal := PinPaletteScript.new()
 	pal.setup(app, _pin_state)
 	pal.kind_picked.connect(_on_pin_kind_picked)
@@ -2254,6 +2257,34 @@ func build_pin_palette(parent: Control) -> void:
 		if _pin_palette == pal:
 			_pin_palette = null)
 	parent.add_child(pal)
+
+## Ruling FP: re-reads the asset library's pins into the palette's catalog (`PinPalette.load_catalog`) and, when the palette is
+## on screen, rebuilds its grid and recents. Called at every dock build, on arming the Pins tool, and by the asset library window
+## after a pin is added, edited or removed, so the palette never shows a pin the library no longer holds.
+func reload_pin_catalog() -> void:
+	if bridge != null:
+		PinPaletteScript.load_catalog(bridge.as_pin_catalog())
+	_refresh_pin_palette()
+
+## Ruling FP: makes sure the open world holds the picture of custom pin `kind` before a pin of it is placed or re-kinded, so the
+## world saves the icon. Takes it from the library (`as_pin_catalog`); a kind the world already holds needs nothing; a kind in
+## neither is refused (`false`, with a status line) and **never falls back to another pin**. Syncs the map's registry so the pin
+## draws at once.
+func ensure_custom_pin(kind: String) -> bool:
+	if not PinMarkerScript.is_custom(kind):
+		return true
+	for c in bridge.poi_custom_pins():
+		if String((c as Dictionary).get("id", "")) == kind:
+			return true
+	for e in bridge.as_pin_catalog():
+		var d: Dictionary = e
+		if String(d.get("kind", "")) == kind:
+			if bridge.poi_register_custom_pin(kind, String(d["name"]), String(d["color"]), d["png"]):
+				PinMarkerScript.sync_world_pins(bridge.poi_custom_pins())
+				return true
+			break
+	app.set_status("hint", "That custom pin is not in the asset library or in this world, so it cannot be placed.", "accent")
+	return false
 
 ## The tool strip's recents (`tool_strip.gd`, phone): the same pick as a tile in the palette.
 func pin_pick_kind(kind: String) -> void:
@@ -2278,6 +2309,9 @@ func _on_pin_kind_picked(kind: String) -> void:
 	var ci := int(_pin_state["change_idx"])
 	if ci >= 0:
 		var nm := String(bridge.poi_get(ci).get("name", ""))
+		if not ensure_custom_pin(kind):
+			_end_pin_change()
+			return
 		if bridge.poi_set_kind(ci, kind):
 			app.viewport.refresh_annotations()
 			app.set_status("hint", "Changed the kind of %s to %s · Edit > Undo puts it back" % [nm if nm != "" else "the pin", PinPaletteScript.label_for(kind)], "text_ghost")
@@ -2431,6 +2465,8 @@ func drop_pin(gx: float, gy: float, kind_override: String = "") -> int:
 		app.set_status("hint", "Pick a pin in the dock first, then click the map.", "accent")
 		return -1
 	var free := String(_pin_state["free_label"]) if kind_override == "" else ""
+	if free == "" and not ensure_custom_pin(kind):
+		return -1
 	var idx: int
 	if free != "":
 		idx = bridge.poi_add_free(gx, gy, kind, free, "")

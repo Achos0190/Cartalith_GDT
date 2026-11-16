@@ -186,6 +186,11 @@ const FAMILIES: Array[Dictionary] = [
 			"shoal", "whirlpool"]},
 	{"key": "custom", "code": "CU", "title": "Custom icons", "group": "Custom",
 		"anchor": "center", "texture": false, "size": 256, "custom": true, "slots": []},
+	## Ruling FP: the user's own map pins. **Not a ninth engine family**: it is the open Custom family's reserved set `Pins`
+	## (`cartalith_assets::pins::PINS_SET`), shown as its own category so a pin has a name and a colour and appears in the pin
+	## palette's Custom category. `_family_slots` splits the one engine list in two, so no icon shows in both.
+	{"key": "pins", "code": "PN", "title": "Pins", "group": "Custom",
+		"anchor": "bottom", "texture": false, "size": 128, "custom": true, "slots": []},
 ]
 
 ## Rail section order. Every `FAMILIES[*].group` must appear here, or
@@ -259,7 +264,7 @@ const SZ_SWATCH := 20
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
 ## Backed by `cartalith-assets::slots`/`library` and `AssetDB::slots_in_family`;
 ## the eight-vs-24 count is recorded in `ASSET_LIBRARY_SCOPE.md` §1.
-const FAMILIES_NOTE := "Nine families, including Sea marks. Capacity and fill counts shown here are both real."
+const FAMILIES_NOTE := "Nine families, including Sea marks, and the Pins category (the Custom set Pins, Ruling FP). Capacity and fill counts shown here are both real."
 
 ## **One string for both compositions, and it lists exactly what
 ## `_slot_matches()` looks at.** The two wells carried different placeholders
@@ -901,6 +906,13 @@ var _validate_btn: Button
 ## Footer chip: Clear library… (destructive; confirmation is in `_on_clear_library()`).
 var _clear_btn: Button
 var _batch_buttons: Dictionary = {}   ## "tag"/"collect"/"rename"/"duplicate"/"delete" -> Button
+## Ruling FP: the grid band's "Add pin…" (visible only in the Pins category) and the inspector's Pin section (name, colour,
+## Apply; visible only for a slot of the Pins set).
+var _add_pin_btn: Button
+var _insp_pin_box: VBoxContainer
+var _insp_pin_name: LineEdit
+var _insp_pin_color: ColorPickerButton
+var _insp_pin_apply: Button
 ## Pack-metadata `name` field. Rewritten by `_refresh_pack_status()` only when it does
 ## not have focus, so typing is never clobbered.
 var _pack_name_field: LineEdit
@@ -1361,6 +1373,24 @@ func _family_by_key(key: String) -> Dictionary:
 		if String(f["key"]) == key:
 			return f
 	return {}
+
+## The reserved custom set a pin lives in (`cartalith_assets::pins::PINS_SET`).
+const PINS_SET := "Pins"
+
+## `as_family_slots(key)` for the rail, the grid and the totals, with Ruling FP's split: `pins` is the Custom family's `Pins`
+## set, `custom` is everything else in it, every other key is the engine's list unchanged.
+func _family_slots(key: String) -> Array:
+	return family_slots_of(_bridge, key)
+
+## `_family_slots` for a caller that has no window (the Assets menu's family counts): one definition of the split.
+static func family_slots_of(bridge, key: String) -> Array:
+	if key != "pins" and key != "custom":
+		return bridge.as_family_slots(key)
+	var out: Array = []
+	for s in bridge.as_family_slots("custom"):
+		if (String((s as Dictionary).get("set", "")) == PINS_SET) == (key == "pins"):
+			out.append(s)
+	return out
 
 ## The canvas's own placement: the window occupies everything below the app
 ## menu bar, which is what "map hidden while open" means in a shell that has no
@@ -1846,7 +1876,7 @@ func _refresh_rail_counts() -> void:
 		var parts: Dictionary = _rail_buttons.get(key, {})
 		if parts.is_empty():
 			continue
-		var slots: Array = _bridge.as_family_slots(key)
+		var slots: Array = _family_slots(key)
 		var filled := 0
 		for s in slots:
 			if bool(s.get("filled", false)):
@@ -1871,6 +1901,10 @@ func _refresh_rail_counts() -> void:
 	## loop above just to save it.
 	var unassigned := _refresh_unassigned_count()
 	_refresh_pinned_counts()   ## AP-9
+	## Ruling FP: this runs after every import, batch edit, pack import and clear, so the pin palette's Custom category is
+	## re-read here and never shows a pin the library no longer holds.
+	if _host != null and _host.has_method("notify_pins_changed"):
+		_host.notify_pins_changed()
 	if _status_pack != null:
 		var info: Dictionary = _bridge.as_pack_info()
 		var pack_name := String(info.get("name", ""))
@@ -2379,6 +2413,106 @@ func _on_import_image(replace_first: bool = false) -> void:
 			else:
 				_host.set_status("hint", "import failed — %s" % String(result.get("error", "unknown error")), "warn"))
 
+## Ruling FP: "Add pin…". Picks a PNG or SVG, asks for a name (defaulting to the file's) and a colour, and adds it to the library's
+## Pins category (`as_pin_add`). An SVG is rasterised here (Godot's own SVG loader, at 256 px on the longer side, never over 1024)
+## and handed over as a PNG: the engine reads PNG only, and says so for anything else.
+func _on_add_pin() -> void:
+	DccBrowseDialog.choose_file(self, "Add a pin", PackedStringArray(["png", "svg"]), _picker_start_dir(),
+		"a PNG or SVG becomes a new pin in the Custom category",
+		func(path: String):
+			var png := pin_png_from_file(path)
+			if png.is_empty():
+				_host.set_status("hint", "could not read %s as a PNG or SVG picture" % path.get_file(), "warn")
+				return
+			var default_name := path.get_file().get_basename().replace("_", " ").replace("-", " ").strip_edges()
+			prompt_pin("Add a pin", default_name, Color.html("#c0a040"), func(pin_name: String, color: Color):
+				add_pin_from_png(pin_name, color, png)))
+
+## The picture bytes of `path` as a PNG: a PNG is read as it is, an SVG is rasterised, anything else (or a file that will not
+## load) is an empty array. A pure helper, so the probes feed it a file.
+static func pin_png_from_file(path: String) -> PackedByteArray:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.is_empty():
+		return PackedByteArray()
+	if path.get_extension().to_lower() != "svg":
+		return bytes
+	var img := Image.new()
+	if img.load_svg_from_buffer(bytes, 1.0) != OK or img.is_empty():
+		return PackedByteArray()
+	var longest := maxi(img.get_width(), img.get_height())
+	var want := 256.0 / float(longest)
+	if longest > 1024:
+		want = 1024.0 / float(longest)
+	if absf(want - 1.0) > 0.01:
+		var sharp := Image.new()
+		if sharp.load_svg_from_buffer(bytes, want) == OK and not sharp.is_empty():
+			img = sharp
+	return img.save_png_to_buffer()
+
+## The add-or-edit card: a name field and a colour button; `on_ok(name, colour)` runs on OK with a non-empty name.
+func prompt_pin(card_title: String, default_name: String, default_colour: Color, on_ok: Callable) -> void:
+	var card := DccWidgets.modal_card(self, card_title, DccWidgets.MODAL_CONFIRM, 360)
+	DccWidgets.modal_prose(card["body"], "Name the pin and choose its colour (its frame in the pin palette).")
+	var le := LineEdit.new()
+	le.name = "PinNameField"
+	le.text = default_name
+	le.max_length = 40
+	le.select_all_on_focus = true
+	DccWidgets.well(le)
+	card["body"].add_child(le)
+	var cp := ColorPickerButton.new()
+	cp.name = "PinColourField"
+	cp.color = default_colour
+	cp.edit_alpha = false
+	cp.custom_minimum_size = Vector2(120, 30)
+	card["body"].add_child(cp)
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"safe": {"text": "Add pin", "on": func():
+			var t := le.text.strip_edges()
+			if t != "":
+				on_ok.call(t, cp.color)},
+	})
+	le.text_submitted.connect(func(_t: String):
+		var d: Callable = card["dialog"].get_meta("dcc_modal_default", Callable())
+		if d.is_valid():
+			d.call())
+	DccWidgets.modal_present(card, _host)
+	le.grab_focus.call_deferred()
+
+## Adds the pin and shows it: the one path the card and the probes share. Reports the engine's reason on a refusal.
+func add_pin_from_png(pin_name: String, color: Color, png: PackedByteArray) -> Dictionary:
+	var r: Dictionary = _bridge.as_pin_add(pin_name, "#" + color.to_html(false), png)
+	if bool(r.get("ok", false)):
+		_dirty = true
+		_focused_uid = String(r["uid"])
+		_host.set_status("hint", "added the pin \"%s\" · it is in the pin palette's Custom category" % pin_name, "accent")
+		_select_family("pins")
+		_focused_uid = String(r["uid"])
+		_refresh_grid()
+		_refresh_inspector()
+		_refresh_rail_counts()
+		_refresh_status_line()
+	else:
+		_host.set_status("hint", "could not add the pin — %s" % String(r.get("error", "unknown error")), "warn")
+	return r
+
+## Ruling FP: the inspector's Apply. Renames and recolours the focused pin; its uid follows the name.
+func _on_pin_apply() -> void:
+	if _focused_uid == "":
+		return
+	var r: Dictionary = _bridge.as_pin_update(_focused_uid, _insp_pin_name.text, "#" + _insp_pin_color.color.to_html(false))
+	if bool(r.get("ok", false)):
+		_dirty = true
+		_focused_uid = String(r["uid"])
+		_host.set_status("hint", "pin updated · pins already placed keep their saved copy", "accent")
+		_refresh_grid()
+		_refresh_inspector()
+		_refresh_rail_counts()
+		_refresh_status_line()
+	else:
+		_host.set_status("hint", "could not update the pin — %s" % String(r.get("error", "unknown error")), "warn")
+
 ## AS-07: the Scale slider / Pan X / Pan Y spinboxes writing live, straight
 ## through `as_set_item_transform`. Only the preview repaints here -- the
 ## reference's own `alScale.oninput` repaints its canvas (`this.paint()`) and
@@ -2486,6 +2620,10 @@ func _build_slot_grid() -> Control:
 	_batch_buttons["rename"] = _text_button(verbs, "Rename…", func(): _on_batch_rename())
 	_batch_buttons["duplicate"] = _text_button(verbs, "Duplicate", func(): _on_batch_duplicate())
 	_batch_buttons["delete"] = _text_button(verbs, "Delete", func(): _on_batch_delete())
+	_add_pin_btn = _text_button(verbs, "Add pin…", func(): _on_add_pin())
+	_add_pin_btn.name = "AddPin"
+	_add_pin_btn.tooltip_text = "Import a PNG or SVG as a new map pin: it joins the pin palette's Custom category in every world."
+	_add_pin_btn.visible = false
 	_refresh_batch_buttons()
 
 	var scroll := ScrollContainer.new()
@@ -2725,6 +2863,9 @@ func _refresh_grid() -> void:
 		_grid.remove_child(c)
 		c.queue_free()
 	_cells.clear()
+	if _add_pin_btn != null:
+		## Ruling FP: the Pins category's own verb; a collection, Favourites or Unassigned view has no category to add into.
+		_add_pin_btn.visible = _current_family == "pins" and not _current_unassigned and _current_collection == "" and _current_pinned == ""
 
 	if _current_unassigned:
 		_refresh_grid_unassigned()
@@ -2746,7 +2887,7 @@ func _refresh_grid() -> void:
 
 	# AS-08: real per-slot fill state from the live session, keyed by uid.
 	_slot_state.clear()
-	var server_slots: Array = _bridge.as_family_slots(_current_family)
+	var server_slots: Array = _family_slots(_current_family)
 	for s in server_slots:
 		_slot_state[String(s["uid"])] = s
 
@@ -3322,6 +3463,31 @@ func _build_inspector() -> Control:
 	rows.add_theme_constant_override("separation", 9)
 	rows_pad.add_child(rows)
 
+	## Ruling FP: a pin's name and colour. Built hidden; `_refresh_inspector` shows it for a slot of the Pins set. The picture is
+	## replaced with the ordinary Replace…, and a pin already placed in a world keeps the copy that world saved.
+	_insp_pin_box = VBoxContainer.new()
+	_insp_pin_box.name = "PinSection"
+	_insp_pin_box.add_theme_constant_override("separation", 9)
+	_insp_pin_box.visible = false
+	rows.add_child(_insp_pin_box)
+	var pin_name_row := _insp_row(_insp_pin_box, "Pin name")
+	_insp_pin_name = LineEdit.new()
+	_insp_pin_name.name = "PinName"
+	_insp_pin_name.max_length = 40
+	_insp_pin_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(_insp_pin_name)
+	pin_name_row.add_child(_insp_pin_name)
+	var pin_color_row := _insp_row(_insp_pin_box, "Colour")
+	_insp_pin_color = ColorPickerButton.new()
+	_insp_pin_color.name = "PinColour"
+	_insp_pin_color.edit_alpha = false
+	_insp_pin_color.custom_minimum_size = Vector2(88, 28)
+	_insp_pin_color.tooltip_text = "The pin's category colour: its frame in the palette, and its disc in the Circles marker style."
+	pin_color_row.add_child(_insp_pin_color)
+	_insp_pin_apply = _text_button(_insp_pin_box, "Apply name and colour", func(): _on_pin_apply())
+	_insp_pin_apply.name = "PinApply"
+	_insp_pin_apply.tooltip_text = "Pins already placed in a world keep the name, colour and picture that world saved; new pins use these."
+
 	## Reference bounds (`#alScale`, line 27277): 5..600 -> 0.05x..6.00x.
 	var scale_row := _insp_row(rows, "Scale")
 	_insp_scale = HSlider.new()
@@ -3604,6 +3770,14 @@ func _refresh_inspector() -> void:
 	var item_count := int(summary.get("item_count", 0))
 	_insp_head.text = "%s · %s" % [code, slot_name.to_upper()]
 	_preview_index = clampi(_preview_index, 0, maxi(item_count - 1, 0))
+	## Ruling FP: the Pin section for a slot of the Pins set.
+	var is_pin := fam_key == "custom" and String(summary.get("set", "")) == PINS_SET
+	_insp_pin_box.visible = is_pin
+	if is_pin:
+		_insp_pin_name.text = slot_name
+		var mc := String(summary.get("meta_color", ""))
+		_insp_pin_color.color = Color.html(mc) if mc != "" else Color.html("#8a8f98")
+		_insp_pin_apply.disabled = item_count == 0
 
 	# -- preview + file readout ----------------------------------------------
 	_insp_preview.bg_mode = _preview_bg
@@ -4026,7 +4200,7 @@ func _library_totals() -> Dictionary:
 	var slots := 0
 	for fam in FAMILIES:
 		var key := String(fam["key"])
-		var fam_slots: Array = _bridge.as_family_slots(key)
+		var fam_slots: Array = _family_slots(key)
 		for s in fam_slots:
 			if bool(s.get("filled", false)):
 				filled += 1
@@ -5109,6 +5283,9 @@ func _set_fill(overwrite: bool) -> void:
 func _open_slicer() -> void:
 	if not visible:
 		_popup_full()
+	## Ruling FP: opened from the Pins category, a slice into custom icons lands in the Pins set (so every cell is a pin).
+	if _current_family == "pins" and _slicer_set != null and _slicer_set.text == "Default":
+		_slicer_set.text = PINS_SET
 	_refresh_slicer_target_controls()
 	if DccWidgets.phone_present(_slicer, _host):
 		_host.phone_fit(_slicer, 1.0)   ## PH-12; idempotent, so only new rows pay.
@@ -5382,7 +5559,9 @@ func _on_slice() -> void:
 	opts["target"] = key
 	match key:
 		"family":
-			opts["family"] = String(FAMILIES[_slice_family_index]["key"])
+			## Ruling FP: the Pins category is the Custom family's reserved set, so as a slice's family it is Custom.
+			var fk := String(FAMILIES[_slice_family_index]["key"])
+			opts["family"] = "custom" if fk == "pins" else fk
 			opts["overwrite"] = _slice_overwrite
 		"slot":
 			if _focused_uid == "":

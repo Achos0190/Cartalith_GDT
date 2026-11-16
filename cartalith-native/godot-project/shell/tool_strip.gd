@@ -355,6 +355,7 @@ func _fill_pin_recents(id: String) -> void:
 		_recents_row.remove_child(c)
 		c.queue_free()
 	var rec: Array = DccSettings.pin_recents() if id == "poi" else []
+	rec = rec.filter(func(k) -> bool: return PinPalette.recent_shows(String(k)))   ## Ruling FP: no blank tile for a custom pin with no picture
 	var armed := String(app.pin_armed_kind()) if id == "poi" else ""
 	var d: int = app.phone_tap(DccTheme.PHONE_TAP_MIN)
 	if not rec.is_empty():

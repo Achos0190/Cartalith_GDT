@@ -4951,6 +4951,58 @@ func poi_add(gx: float, gy: float, kind: String, name: String) -> int:
 	_annotations_edited()
 	return idx
 
+## Ruling FP: registers a custom pin with the open world (`WorldGen.poi_register_custom_pin`) so the world can save its icon.
+## `true` when the id is registered with exactly these contents; `false` for a refused entry or while generating. Does not mark the
+## world dirty (the placement that follows does).
+func poi_register_custom_pin(id: String, pin_name: String, color: String, png: PackedByteArray) -> bool:
+	if generating or not _has("poi_register_custom_pin"):
+		return false
+	return world_gen.poi_register_custom_pin(id, pin_name, color, png)
+
+## Ruling FP: the open world's custom pins, `[{id, name, color, png}]`; `[]` for none, while generating or without the binding.
+func poi_custom_pins() -> Array:
+	if generating or not _has("poi_custom_pins"):
+		return []
+	return world_gen.poi_custom_pins()
+
+## Ruling FP: the asset library's pins, `[{uid, kind, slot_id, name, color, png}]` (`WorldGen.as_pin_catalog`); `[]` for none.
+func as_pin_catalog() -> Array:
+	if generating or not _has("as_pin_catalog"):
+		return []
+	return world_gen.as_pin_catalog()
+
+## Ruling FP item 3: the library's pins as one asset-pack zip for the per-install store (`user://custom_pins.zip`), empty when the
+## library holds none. Not a world edit: it never marks the world dirty.
+func as_pins_store_bytes() -> PackedByteArray:
+	if generating or not _has("as_pins_store_bytes"):
+		return PackedByteArray()
+	return world_gen.as_pins_store_bytes()
+
+## Ruling FP item 3: reads a store written by `as_pins_store_bytes` into the library; the pins the library holds afterwards, `-1` for
+## unreadable bytes or without the binding. Not a world edit.
+func as_pins_store_load(bytes: PackedByteArray) -> int:
+	if generating or not _has("as_pins_store_load"):
+		return -1
+	return world_gen.as_pins_store_load(bytes)
+
+## Ruling FP: adds a pin to the library from a PNG's bytes: `{ok, uid}` or `{ok: false, error}`.
+func as_pin_add(pin_name: String, color: String, bytes: PackedByteArray) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_pin_add"):
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
+	mark_world_dirty()
+	return world_gen.as_pin_add(pin_name, color, bytes)
+
+## Ruling FP: renames and recolours a library pin: `{ok, uid}` (the uid follows the name) or `{ok: false, error}`.
+func as_pin_update(uid: String, pin_name: String, color: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_pin_update"):
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
+	mark_world_dirty()
+	return world_gen.as_pin_update(uid, pin_name, color)
+
 ## POI `index` as `{id, x, y, kind, kind_label}` plus `name` and `free_label` when it has them; `{}` for an index the store does not hold.
 func poi_get(index: int) -> Dictionary:
 	if generating or not _has("poi_get"):

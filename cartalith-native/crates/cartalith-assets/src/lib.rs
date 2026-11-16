@@ -143,6 +143,7 @@ pub mod pack_diff;
 #[cfg(feature = "zip")]
 pub mod pack_import;
 pub mod pack_report;
+pub mod pins;
 pub mod placement;
 pub mod raster;
 pub mod refine;
@@ -168,7 +169,7 @@ pub use raster::{
 };
 pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,
-    Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
+    Structures, RawPin, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
 pub use near_dupes::{MAX_HAMMING, MAX_MEAN_DELTA, NearEntry, NearHash, near_duplicate_groups, near_hash};
 pub use ordered_map::OrderedMap;

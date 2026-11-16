@@ -686,6 +686,49 @@ func pin_pick_kind(kind: String) -> void:
 			ws.pin_pick_kind(kind)
 			return
 
+## Ruling FP: the asset library's pins changed (added, edited, removed, imported, cleared): the CARTO workspace re-reads them into
+## the pin palette.
+func notify_pins_changed() -> void:
+	_save_pin_store()
+	for ws in _workspaces:
+		if ws.has_method("reload_pin_catalog"):
+			ws.reload_pin_catalog()
+			return
+
+## Ruling FP item 3: where the library's pins are kept per install, so they outlive the session (the library itself is a session
+## store whose images no world archive carries). An ordinary asset-pack zip holding only the pins.
+const PIN_STORE_PATH := "user://custom_pins.zip"
+## Change detection for `_save_pin_store`: the hash of the bytes last read from or written to the store.
+var _pin_store_sig := 0
+
+## Reads the store into the library at start. A missing or unreadable file is no pins, never an error dialog.
+func _load_pin_store() -> void:
+	if not FileAccess.file_exists(PIN_STORE_PATH):
+		return
+	var bytes := FileAccess.get_file_as_bytes(PIN_STORE_PATH)
+	if bridge.as_pins_store_load(bytes) < 0:
+		push_warning("Cartalith: the saved custom pins (%s) could not be read and were left alone." % PIN_STORE_PATH)
+		return
+	_pin_store_sig = hash(bytes)
+
+## Writes the library's pins to the store when they changed since the last read or write; removes the file when the library holds
+## none (a user who deleted their last pin does not get it back at the next start).
+func _save_pin_store() -> void:
+	var bytes: PackedByteArray = bridge.as_pins_store_bytes()
+	var sig := hash(bytes) if not bytes.is_empty() else 0
+	if sig == _pin_store_sig:
+		return
+	if bytes.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PIN_STORE_PATH))
+	else:
+		var f := FileAccess.open(PIN_STORE_PATH, FileAccess.WRITE)
+		if f == null:
+			push_warning("Cartalith: the custom pins could not be saved to %s." % PIN_STORE_PATH)
+			return
+		f.store_buffer(bytes)
+		f.close()
+	_pin_store_sig = sig
+
 ## The armed pin name the CARTO workspace holds, or `""` (nothing armed, or a free-text label).
 func pin_armed_kind() -> String:
 	for ws in _workspaces:
@@ -1777,6 +1820,7 @@ func _ready() -> void:
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
 	add_child(bridge)
+	_load_pin_store()
 
 	## `GUI_GAP_REGISTER.md` **RF-04**, and it is a signal-ORDER bug rather than
 	## a missing connection -- the first of those this register has had.

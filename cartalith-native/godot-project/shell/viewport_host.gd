@@ -92,6 +92,7 @@ const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## `class_name` so this file parses in a tree whose `.godot` class cache
 ## predates 3D-1 (a new `class_name` registers only on an import pass).
 const View3DScene := preload("res://shell/view3d.gd")
+const PinMarker := preload("res://shell/pin_marker.gd")
 ## AP-3's switch, as the app sets it (Ruling CQ Q2, owner, 2026-10-18: draw
 ## settlement, POI, sea-mark and custom pack art on the map "behind a switch,
 ## on in the app"). `map_overlay.gd`'s own default is off; this line is the
@@ -3241,6 +3242,9 @@ func refresh_annotations() -> void:
 	## faction's colour can change while a label is being dragged.
 	overlay.set_manual_icons(_bridge.icon_list())
 	## Ruling EW item 4 (CL-11): the user-placed points of interest, a fourth annotation store pushed the same way.
+	## Ruling FP: the open world's own custom pins (its saved copies) first, so a point of a custom kind draws its picture, or the
+	## missing marker when this world has none, in the same pass that hands the overlay the points.
+	PinMarker.sync_world_pins(_bridge.poi_custom_pins())
 	overlay.set_pois(_bridge.poi_list())
 	## Generated landmarks (`LANDMARK_GENERATION_SCOPE.md`). Guarded on the
 	## method rather than assumed: the landmark bridge is newer than this call

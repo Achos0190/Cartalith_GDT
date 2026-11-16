@@ -2637,7 +2637,7 @@ func _refresh_family_counts(pm: PopupMenu, keys: Array[String]) -> void:
 		var fam := _family_by_key(key)
 		if fam.is_empty():
 			continue
-		var slots: Array = _bridge.as_family_slots(key)
+		var slots: Array = AssetLibraryWindow.family_slots_of(_bridge, key)   ## Ruling FP: Pins is a set of Custom
 		var filled := 0
 		for slot in slots:
 			if bool((slot as Dictionary).get("filled", false)):

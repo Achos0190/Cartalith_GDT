@@ -172,12 +172,116 @@ pub const FREE_MARKS: [&str; 2] = ["other", "notice"];
 /// Whether `name` is one of [`KIND_NAMES`] **or a legacy [`PoiKind::key`]** (`shop` has no icon file of its own, the
 /// shell draws it as `market`, but a saved `shop` must keep loading). Exact, case-sensitive: `Tavern` is not `tavern`.
 pub fn is_valid_kind_name(name: &str) -> bool {
-    KIND_NAMES.contains(&name) || PoiKind::from_key(name).is_some()
+    KIND_NAMES.contains(&name) || PoiKind::from_key(name).is_some() || is_custom_kind_id(name)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Custom pins (Ruling FP, `PIN_PALETTE_SCOPE.md` "Custom pins"): the user's own icons as placeable kinds.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The prefix every custom kind id carries. **A hyphen never occurs in a built-in kind name** (all are `[a-z_]`), so a custom
+/// id can never equal a built-in or a legacy key; a test walks both lists to keep that true.
+pub const CUSTOM_KIND_PREFIX: &str = "custom-";
+
+/// The longest custom pin name kept, in characters (a labelled judgement: the card and palette tooltip are one line).
+pub const CUSTOM_NAME_MAX: usize = 40;
+
+/// Whether `id` has the shape of a custom kind id: `custom-<slug>-<8 lower-case hex>`, the slug 1 to 32 characters of
+/// `[a-z0-9_]`. **Shape only**: whether this world has a picture for it is [`CustomPin`]'s registry's business, and a
+/// well-formed id with no picture is *kept* (drawn as the missing-icon marker), never turned into a built-in.
+pub fn is_custom_kind_id(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix(CUSTOM_KIND_PREFIX) else { return false };
+    let Some((slug, hash)) = rest.rsplit_once('-') else { return false };
+    (1..=32).contains(&slug.len())
+        && slug.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        && hash.len() == 8
+        && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether `c` is a colour the pin can carry: `#rrggbb`, lower- or upper-case hex. Anything else is refused, not repaired.
+pub fn is_pin_colour(c: &str) -> bool {
+    c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// One custom pin a world uses: the kind id (content-addressed by the library, so an edited pin is a *new* id and a placed
+/// pin keeps the picture it was placed with), the user's name and colour, and the icon as PNG bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomPin {
+    /// A [`is_custom_kind_id`] id.
+    pub id: String,
+    /// The user's name for the pin (at most [`CUSTOM_NAME_MAX`] characters, never empty).
+    pub name: String,
+    /// `#rrggbb` ([`is_pin_colour`]).
+    pub color: String,
+    /// The icon, a PNG (the shell draws it with its bottom-centre at the pin's point).
+    pub png: Vec<u8>,
+}
+
+/// The longest icon a world keeps, in bytes: 128 x 128 RGBA PNGs are a few tens of kilobytes, so 256 KiB is generous and a
+/// hostile save cannot make the project archive large through this slot (a labelled judgement).
+pub const CUSTOM_PNG_MAX: usize = 256 * 1024;
+
+/// Standard base64 (RFC 4648, padded). The world saves a custom pin's icon in `annotations/pois.json`, a JSON document, and
+/// no base64 crate is in this workspace's tree; this is the 30 lines it would have cost to add one, tested both ways.
+pub fn b64_encode(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// The inverse of [`b64_encode`]; `None` for anything that is not canonical padded base64 (a wrong length, a stray byte).
+pub fn b64_decode(text: &str) -> Option<Vec<u8>> {
+    let b = text.as_bytes();
+    if b.len() % 4 != 0 {
+        return None;
+    }
+    let val = |c: u8| -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some(u32::from(c - b'A')),
+            b'a'..=b'z' => Some(u32::from(c - b'a') + 26),
+            b'0'..=b'9' => Some(u32::from(c - b'0') + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out = Vec::with_capacity(b.len() / 4 * 3);
+    for (i, q) in b.chunks(4).enumerate() {
+        let last = i == b.len() / 4 - 1;
+        let pad = q.iter().rev().take_while(|&&c| c == b'=').count();
+        if pad > 2 || (pad > 0 && !last) {
+            return None;
+        }
+        let mut n = 0u32;
+        for (k, &c) in q.iter().enumerate() {
+            n = (n << 6) | if k >= 4 - pad { if c == b'=' { 0 } else { return None } } else { val(c)? };
+        }
+        out.push((n >> 16) as u8);
+        if pad < 2 {
+            out.push((n >> 8) as u8);
+        }
+        if pad < 1 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
 }
 
 /// The words for a kind name: the legacy [`PoiKind::label`] for the thirteen ("Tavern", "Inn"), else the name with `_`
 /// turned to spaces and its first letter capitalised ("Mountain pass"). Never invents: an empty name gives an empty string.
 pub fn kind_label_for(name: &str) -> String {
+    if is_custom_kind_id(name) {
+        // The words live in the world's own registry (`CustomPin::name`); the engine's callers that hold it pass those
+        // instead. Never derive words from the slug: it is an id, and the user's name may differ from it.
+        return "Custom pin".to_string();
+    }
     if let Some(k) = PoiKind::from_key(name) {
         return k.label().to_string();
     }
@@ -284,6 +388,41 @@ mod tests {
 
     /// Protects: names are matched exactly (no case folding, no trimming, no guessing), the words for a name, and the free
     /// label's trimming and cap.
+    /// Protects (Ruling FP): the custom id shape. Literals only: a well-formed id passes and every malformed one is refused,
+    /// and no built-in or legacy kind name is mistaken for one (the collision rule).
+    #[test]
+    fn custom_ids_have_one_shape_and_never_equal_a_builtin() {
+        for ok in ["custom-beehive-0a1b2c3d", "custom-a-00000000", "custom-my_pin_2-ffffffff"] {
+            assert!(is_custom_kind_id(ok) && is_valid_kind_name(ok), "{ok}");
+        }
+        for bad in ["custom-", "custom--0a1b2c3d", "custom-x-0A1B2C3D", "custom-x-0a1b2c3", "custom-x-0a1b2c3de", "custom-X-0a1b2c3d",
+            "Custom-x-0a1b2c3d", "custom-x y-0a1b2c3d", "custom-x-0a1b2c3g", "x-0a1b2c3d", "", &format!("custom-{}-0a1b2c3d", "a".repeat(33))] {
+            assert!(!is_custom_kind_id(bad), "{bad:?}");
+            assert!(!is_valid_kind_name(bad), "{bad:?}");
+        }
+        for k in KIND_NAMES {
+            assert!(!is_custom_kind_id(k) && !k.contains('-'), "{k}");
+        }
+        assert!(is_pin_colour("#c0a040") && is_pin_colour("#C0A040"));
+        for bad in ["c0a040", "#c0a04", "#c0a0400", "#gggggg", "", "red"] {
+            assert!(!is_pin_colour(bad), "{bad:?}");
+        }
+    }
+
+    /// Protects: the base64 helpers against the RFC 4648 vectors, and the refusals.
+    #[test]
+    fn base64_matches_the_rfc_vectors_and_refuses_noise() {
+        for (raw, enc) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foob", "Zm9vYg=="), ("fooba", "Zm9vYmE="), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(b64_encode(raw.as_bytes()), enc);
+            assert_eq!(b64_decode(enc).as_deref(), Some(raw.as_bytes()));
+        }
+        let all: Vec<u8> = (0..=255u8).collect();
+        assert_eq!(b64_decode(&b64_encode(&all)), Some(all));
+        for bad in ["Zg=", "Zg==Zg==", "Z===", "Zm9*", "Zm 9v", "=Zg="] {
+            assert_eq!(b64_decode(bad), None, "{bad:?}");
+        }
+    }
+
     #[test]
     fn kind_names_labels_and_free_labels() {
         assert!(is_valid_kind_name("mountain_pass") && is_valid_kind_name("inn") && is_valid_kind_name("notice"));

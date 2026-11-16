@@ -42,6 +42,16 @@ extends VBoxContainer
 ## at its PEEK detent, whose body is hidden there.** Tap a tile, then tap the map. Search spans every category and ignores the chip. Sizes are authored in dp here and scaled by `DccShell.phone_fit` (each fresh host is fitted by
 ## `_finish_form`, because the sheet's own walk runs only once, when the row is set).
 ##
+## ## Custom pins (Ruling FP)
+##
+## A ninth category, **Custom**, lists the pins in the user's asset library (`Assets > Asset library > Pins`): each is a kind id
+## (`custom-<slug>-<hash>`, never equal to a built-in name) with the user's name and colour and picture. The category is dynamic:
+## it exists only while the library holds a pin, so the eight-category table above, and its probe, are unchanged. The tiles
+## carry the pin's colour as their frame and the name as their tooltip. The library is read through `load_catalog` (the workspace
+## calls it with `EngineBridge.as_pin_catalog()` on every dock build); a world's own pins (its saved copies) draw from
+## `PinMarker`'s registry and are not offered here once the library no longer holds them. Change mode for a generated landmark
+## never shows the category: a landmark's display kind is one of the engine's own kinds.
+##
 ## Must never: write a world, call the engine, or keep a reference to a node of an old dock body.
 
 ## `kind_picked(kind)`: the user armed (or, in change mode, chose) a picture kind. `free_picked(mark, label)`: they armed or chose
@@ -96,6 +106,54 @@ var _phone := false
 var _touch := false
 
 
+## `{kind id: {name, color: Color, tex: ImageTexture, uid}}`: the asset library's pins as of the last `load_catalog`. Static so
+## the phone's recents row (`tool_strip.gd`) and the dock share one answer.
+static var _catalog: Dictionary = {}
+## The custom category's order (the library's add order).
+static var _catalog_order: Array = []
+
+
+## Replaces the catalog with `rows` (`EngineBridge.as_pin_catalog()`: `{uid, kind, name, color, png}`). A picture that does not
+## decode is left out, never replaced by another.
+static func load_catalog(rows: Array) -> void:
+	var cat: Dictionary = {}
+	var order: Array = []
+	for r in rows:
+		var d: Dictionary = r
+		var img := Image.new()
+		if img.load_png_from_buffer(d.get("png", PackedByteArray())) != OK or img.is_empty():
+			continue
+		var id := String(d.get("kind", ""))
+		cat[id] = {"name": String(d.get("name", "")), "color": Color.html(String(d.get("color", "#8a8f98"))),
+			"tex": ImageTexture.create_from_image(img), "uid": String(d.get("uid", ""))}
+		order.append(id)
+	_catalog = cat
+	_catalog_order = order
+
+
+## The Custom category as a table row, or `{}` when the library holds no pin.
+static func custom_category() -> Dictionary:
+	if _catalog_order.is_empty():
+		return {}
+	return {"id": "custom", "title": "Custom", "kinds": _catalog_order.duplicate()}
+
+
+## The eight categories plus Custom when the library has a pin.
+static func categories() -> Array:
+	var out: Array = CATEGORIES.duplicate()
+	var c := custom_category()
+	if not c.is_empty():
+		out.append(c)
+	return out
+
+
+## The colour a custom pin's tile is framed in: the library's, else the open world's own copy's, else the missing grey.
+static func custom_color(kind: String) -> Color:
+	if _catalog.has(kind):
+		return _catalog[kind]["color"]
+	return PinMarker.custom_info(kind).get("color", PinMarker.MISSING_COLOUR)
+
+
 ## Every pin name in the table, in category order.
 static func all_kinds() -> Array:
 	var out: Array = []
@@ -106,15 +164,26 @@ static func all_kinds() -> Array:
 
 ## The category id of `kind`, or `""` for a name the table does not hold (a legacy `shop`, or a future icon): never a guess.
 static func category_of(kind: String) -> String:
+	if PinMarker.is_custom(kind):
+		return "custom" if _catalog.has(kind) else ""
 	for c in CATEGORIES:
 		if (c["kinds"] as Array).has(kind):
 			return String(c["id"])
 	return ""
 
 
+## Whether a recents entry can be shown: every built-in name can; a custom id only when the library or the open world holds its
+## picture (a recent for a pin the user deleted, or one saved by another world, would be a blank or wrong tile). The ONE test the
+## dock's recents and the phone strip's share.
+static func recent_shows(kind: String) -> bool:
+	return not PinMarker.is_custom(kind) or tile_texture(kind) != null
+
+
 ## The words for a pin name: `mountain_pass` is "Mountain pass". The same rule as `poi::kind_label_for` for names outside the
 ## owner's twelve; the palette is the only caller that shows a name that has no card row yet.
 static func label_for(kind: String) -> String:
+	if PinMarker.is_custom(kind):
+		return String(_catalog[kind]["name"]) if _catalog.has(kind) else String(PinMarker.custom_info(kind)["name"])
 	var t := kind.replace("_", " ")
 	return t.substr(0, 1).to_upper() + t.substr(1)
 
@@ -125,7 +194,7 @@ static func label_for(kind: String) -> String:
 static func filter(query: String) -> Array:
 	var q := query.strip_edges().to_lower()
 	var out: Array = []
-	for c in CATEGORIES:
+	for c in categories():
 		if q == "":
 			out.append(c)
 			continue
@@ -150,6 +219,12 @@ static func shown_set() -> String:
 ## The picture for `kind` in the shown set, falling back to the other set when the shown one has no file of that name; null
 ## only when neither has (cannot happen for a name in the table, which the probe asserts).
 static func tile_texture(kind: String) -> Texture2D:
+	if PinMarker.is_custom(kind):
+		if _catalog.has(kind):
+			return _catalog[kind]["tex"]
+		if bool(PinMarker.custom_info(kind).get("missing", true)):
+			return null   ## neither in the library nor in this world: no picture to show, and never a built-in's
+		return PinMarker._icon_tex("custom", kind, TILE_ICON_H)
 	var s := shown_set()
 	var t := PinMarker.icon_texture(s, kind, TILE_ICON_H)
 	if t == null:
@@ -317,7 +392,10 @@ func _fill_chips() -> void:
 		c.queue_free()
 	var cur := String(_state.get("cat", "all"))
 	var defs: Array = [{"id": "all", "title": "All"}]
-	defs.append_array(CATEGORIES)
+	for c in categories():
+		if String(c["id"]) == "custom" and _changing_landmark():
+			continue   ## a landmark's display kind is one of the engine's own kinds
+		defs.append(c)
 	for d in defs:
 		var cid := String(d["id"])
 		var b := Button.new()
@@ -370,6 +448,8 @@ func _fill_recents() -> void:
 		(hdr as Control).visible = not rec.is_empty()
 	_recent_host.visible = not rec.is_empty()
 	for k in rec:
+		if not recent_shows(String(k)):
+			continue   ## a custom pin that is neither in the library nor in this world has no picture to show
 		_recent_host.add_child(_tile(String(k), "Recent_"))
 	_finish_form(_recent_host)
 
@@ -385,6 +465,8 @@ func _fill_grid() -> void:
 	var only := String(_state.get("cat", "all")) if _phone and q == "" else "all"
 	for c in filter(q):
 		var cid := String(c["id"])
+		if cid == "custom" and _changing_landmark():
+			continue
 		if only != "all" and cid != only:
 			continue
 		var is_open: bool = (q != "") or not closed.has(cid) or only != "all"
@@ -411,6 +493,12 @@ func _fill_grid() -> void:
 		for k in c["kinds"]:
 			flow.add_child(_tile(String(k), "Pin_"))
 		_grid_host.add_child(flow)
+		if cid == "custom" and is_open:
+			var manage := DccWidgets.action(_grid_host, "Add or edit pins…", func() -> void:
+				if _app != null and _app.has_method("open_asset_library"):
+					_app.open_asset_library("pins"))
+			manage.name = "CustomManage"
+			manage.tooltip_text = "Opens the asset library at Pins, where you import a PNG or SVG as a new pin."
 		head.pressed.connect(func() -> void:
 			if q != "":
 				return   # a search shows every match open; the toggle applies to the unfiltered list
@@ -445,9 +533,19 @@ func _tile(kind: String, prefix: String) -> Button:
 	b.set_meta("pin_kind", kind)
 	var armed := String(_state.get("kind", "")) == kind and String(_state.get("free_label", "")) == ""
 	var sb := DccWidgets.box("accent" if armed else "border", "accent_wash" if armed else "", 3, 3)
+	if PinMarker.is_custom(kind):
+		## The pin's own colour is its category colour: a frame (thicker while armed) over a wash of it.
+		var cc := custom_color(kind)
+		sb = StyleBoxFlat.new()
+		sb.bg_color = Color(cc.r, cc.g, cc.b, 0.30 if armed else 0.14)
+		sb.border_color = cc
+		sb.set_border_width_all(3 if armed else 2)
+		sb.set_corner_radius_all(4)
+		sb.set_content_margin_all(3)
+		b.flat = false   ## a flat button draws no stylebox, and the frame IS the pin's category colour
 	b.add_theme_stylebox_override("normal", sb)
 	b.add_theme_stylebox_override("pressed", sb)
-	b.add_theme_stylebox_override("hover", DccWidgets.box("accent", "line_soft", 3, 3))
+	b.add_theme_stylebox_override("hover", sb if PinMarker.is_custom(kind) else DccWidgets.box("accent", "line_soft", 3, 3))
 	b.pressed.connect(func() -> void: kind_picked.emit(kind))
 	## Touch only: remember when the finger went down, so the drag below can tell a long press from a scroll flick.
 	b.gui_input.connect(func(ev: InputEvent) -> void:

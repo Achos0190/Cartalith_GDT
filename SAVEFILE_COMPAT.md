@@ -2158,6 +2158,22 @@ generated reads it, and it carries no simulation meaning. Members:
   mark) or `notice` (exclamation mark) kind; a row pairing one with any other kind is unreadable and dropped. **Omitted when none.**
 - `name` — the user's text. **Omitted when the user gave none** (an empty string is not a name; an unnamed point of interest
   is shown by its kind), and a reader MUST treat an absent `name` as unnamed, never as a default word.
+- **Custom pins** (*added 2026-11-16, Ruling FP; `PIN_PALETTE_SCOPE.md` "Custom pins"*). A pin's `kind_name` may be a **custom kind id**,
+  `custom-<slug>-<8 hex>` (`<slug>` 1 to 32 of `[a-z0-9_]`; `cartalith_civ::poi::is_custom_kind_id`). **Shape only is checked on
+  read**: a hyphen never occurs in a built-in name, so a custom id can never equal one, and a well-formed id with no picture in this
+  world is **kept** and drawn as the missing-icon marker, never read as another kind. `kind` is written `"other"` beside it (as for
+  any non-legacy name), so a build from before this opens the row as the question mark. The id is content-addressed by the library
+  (a hash of the pin's slot id, name, colour and normalised icon), so an edited pin is a new id and a placed pin keeps its picture.
+- `custom_pins` (document level) — *added 2026-11-16, Ruling FP, optional.* The pictures of the custom kinds the points above use:
+  `[{"id", "name", "color", "png"}]`, `id` a custom kind id, `name` the user's name (1 to 40 characters), `color` `#rrggbb`, `png`
+  the icon as standard base64 of a PNG (at most 256 x 256 pixels and 256 KiB decoded; the library writes 128 x 128, the tip at the
+  bottom-centre pixel). **Only the ids a point still uses are written**, in registration order. **Omitted when there are none**, so a
+  world with no custom pin re-serialises byte for byte (test `a_world_without_custom_pins_writes_no_key_and_an_old_document_loads`).
+  **Reading:** a row with a bad id, name, colour, base64 or PNG, or a repeated id, is skipped and **counted and reported**
+  (§6.4a); the points that use it are kept and draw the missing-icon marker. A reader that does not know the member ignores it
+  (§6.3) and shows those points as the question mark. The world's own copy is what draws in that world, **whether or not the user's
+  asset library holds the pin** (the library is the user's, not the world's: it lives per install, and a world opened on another
+  device has none).
 - `next_id` (document level) — the lowest id the writer will issue next. A reader MUST resume from the larger of this and one
   past the largest id it read, so a deleted point of interest's id is never handed to a different one (its note link stays in the
   vault as an absent entity, §13.3.5). Absent or `0` reads as "from the start".
@@ -2170,6 +2186,8 @@ it (§6.3) and opens the project without the points of interest; this build, ope
 **Reading.** A row with an unknown `kind`, a non-finite or off-grid point, `id` `0` or a repeated `id` (the first wins) is skipped,
 **counted and reported**, and the rest of the array is kept (§6.4a). Array order is placement order (the order the program lists
 them in; an undo that restores a deleted row restores its place). The undo history is not saved (as for every annotation).
+
+Custom-pin tests (Ruling FP): `cartalith-civ` `poi.rs` `custom_ids_have_one_shape_and_never_equal_a_builtin`, `base64_matches_the_rfc_vectors_and_refuses_noise`; `cartalith-godot` `poi_bridge.rs` `custom_pins_round_trip_and_only_the_used_ones_are_saved`, `a_world_without_custom_pins_writes_no_key_and_an_old_document_loads`, `an_unreadable_icon_drops_the_picture_and_keeps_the_point`, `a_custom_pin_is_checked_not_repaired`.
 
 Tests: `cartalith-civ` `poi.rs` `kinds_round_trip_and_an_unknown_key_is_refused`, `issue_id_never_reuses_a_live_id_or_zero`, `kind_names_match_the_icon_folders`, `kind_names_labels_and_free_labels`;
 `cartalith-godot` `poi_bridge.rs` `the_member_is_omitted_until_a_poi_was_ever_placed`, `a_saved_document_round_trips_byte_for_byte`,
@@ -2266,6 +2284,16 @@ any of them; none is required to display a world.
 
 See §16.3 for what a restored sculpt draft still cannot do, and §16.5 for why
 the binary half of the asset library stayed out.
+
+**Pins in the asset library and in packs (Ruling FP, 2026-11-16).** A custom pin is a slot of the open `custom` family in the reserved set
+`Pins` (`cartalith_assets::pins::PINS_SET`), so it needs no new family and no new slot here. Two additive fields carry what an icon lacks:
+(1) `library/assets.json`'s per-slot `meta` gains an optional `color` (`#rrggbb`; **omitted when empty**, so a library with no pin
+re-serialises byte for byte; a value that is not `#rrggbb` is read as absent); (2) an exported asset pack's `pack.json` gains an optional
+top-level `pins` object, `{"<slot id>": {"name": "...", "color": "#rrggbb"}}`, keyed by the slot's id in `custom.Pins` (omitted when the
+library has no pin; a reader that does not know it ignores it, as for `seamarks`). An entry with a bad colour, an empty name or no art in
+`custom.Pins` is refused per entry (a warning; the art stays an ordinary custom icon), never repaired. The pack carries the pin's
+**normalised** icon (128 x 128, tip at the bottom-centre), so a pack round trip re-imports to the same kind id. Which worlds use which
+pins is `annotations/pois.json`'s `custom_pins` (§11.2a), not this slot: a world carries its own copies.
 
 ---
 

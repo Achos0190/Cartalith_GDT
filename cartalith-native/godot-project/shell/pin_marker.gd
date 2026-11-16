@@ -345,7 +345,7 @@ static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note:
 	tip = lifted_tip(tip, angle, lift)
 	## An icon set draws the owner's texture when `kind` has one and the file loads; otherwise it falls through to the
 	## drawn pin below (the stated fallback, and exactly what `shape()` reports for the footprint).
-	if icon_set != "" and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set):
+	if (icon_set != "" or is_custom(kind)) and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set):
 		return
 	var g := geometry(tip, r, angle)
 	var head: Vector2 = g["head"]
@@ -420,9 +420,106 @@ const KIND_ICON := {
 static var _icon_cache: Dictionary = {}
 
 
+# -- Custom pins (Ruling FP, `PIN_PALETTE_SCOPE.md` "Custom pins") ----------------------------------------------------------
+# A custom pin is a kind id `custom-<slug>-<8 hex>` (`cartalith_civ::poi::is_custom_kind_id`; a hyphen never occurs in a built-in
+# name, so it cannot collide) whose picture lives in the OPEN WORLD's own registry (`WorldGen.poi_custom_pins`, saved with the
+# world), pushed here by `sync_world_pins`. It draws in EVERY marker style that has a pin (Icons, Painted, Pins), because the
+# user's picture is the whole point; in Circles it is a disc in the user's colour holding the picture. **A custom kind whose
+# picture is not in the registry draws `missing_entry()`'s marker (a grey pin crossed out), never a built-in**: the caller of
+# `shape()` and `draw()` gets the same footprint either way.
+
+## The prefix every custom kind id carries.
+const CUSTOM_PREFIX := "custom-"
+
+## `{kind id: {name, color: Color, bytes: int, entry: Dictionary}}`: what the open world registered. `entry` has the shape
+## `_icon_entry` returns (`w`, `img`, `buckets`, `rh`, `d`).
+static var _custom: Dictionary = {}
+static var _missing = null
+
+
+## Whether `kind` is a custom kind id (shape only; whether it has a picture is `custom_info`).
+static func is_custom(kind: String) -> bool:
+	return kind.begins_with(CUSTOM_PREFIX)
+
+
+## Replaces the registry with the open world's custom pins (`[{id, name, color, png}]`, `EngineBridge.poi_custom_pins`). An
+## entry whose id and byte count are unchanged is kept (no decode); an id the world no longer holds is dropped, so a world
+## switch can never draw the previous world's picture. A PNG that will not decode is left out (the kind draws the missing
+## marker), never replaced by another picture.
+static func sync_world_pins(rows: Array) -> void:
+	var keep: Dictionary = {}
+	for r in rows:
+		var id := String((r as Dictionary).get("id", ""))
+		var png: PackedByteArray = (r as Dictionary).get("png", PackedByteArray())
+		var have: Dictionary = _custom.get(id, {})
+		if not have.is_empty() and int(have["bytes"]) == png.size():
+			keep[id] = have
+			continue
+		var img := Image.new()
+		if img.load_png_from_buffer(png) != OK or img.is_empty():
+			continue
+		img.convert(Image.FORMAT_RGBA8)
+		var m := _measure(img)
+		keep[id] = {"name": String((r as Dictionary).get("name", "")), "color": Color.html(String((r as Dictionary).get("color", "#8a8f98"))),
+			"bytes": png.size(), "entry": {"w": float(img.get_width()), "img": img, "buckets": {}, "rh": m.x, "d": m.y}}
+	_custom = keep
+
+
+## `{name, color, missing}` for a custom kind: the registered name and colour, or (`missing` true) a plain name and the grey of
+## the missing marker. `{}` for a kind that is not custom.
+static func custom_info(kind: String) -> Dictionary:
+	if not is_custom(kind):
+		return {}
+	var c: Dictionary = _custom.get(kind, {})
+	if c.is_empty():
+		return {"name": "Custom pin (icon missing)", "color": MISSING_COLOUR, "missing": true}
+	return {"name": c["name"], "color": c["color"], "missing": false}
+
+
+## The grey of the missing-icon marker (a neutral that is no category's colour).
+const MISSING_COLOUR := Color(0.54, 0.56, 0.60)
+
+
+## The entry a custom kind draws with: its registered picture, else the missing marker (a grey pin, its head crossed out).
+static func _custom_entry(kind: String):
+	var c: Dictionary = _custom.get(kind, {})
+	if not c.is_empty():
+		return c["entry"]
+	if _missing == null:
+		var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
+		var col := MISSING_COLOUR
+		for y in 128:
+			for x in 128:
+				var a := 0.0
+				var dx := float(x) - 64.0
+				var dy := float(y) - 46.0
+				var d := sqrt(dx * dx + dy * dy)
+				if d <= 40.0:
+					a = 1.0
+				elif y > 46 and y <= 127:
+					## the stem: a triangle from the head's tangents down to the tip at the bottom centre
+					var t := float(y - 46) / 81.0
+					if absf(dx) <= 40.0 * (1.0 - t) * 0.9:
+						a = 1.0
+				if a > 0.0:
+					var px := col
+					## the "no picture" glyph: a white ring with a diagonal slash across the head
+					var on_ring := absf(d - 24.0) <= 3.0
+					var on_slash := absf((dx + dy) / 1.4142) <= 3.0 and d <= 24.0
+					if on_ring or on_slash:
+						px = Color(1, 1, 1)
+					img.set_pixel(x, y, px)
+		var m := _measure(img)
+		_missing = {"w": 128.0, "img": img, "buckets": {}, "rh": m.x, "d": m.y}
+	return _missing
+
+
 ## The file name (no extension) of the icon `icon_set` has for `kind`, or `""` when the kind has none or the file will not
-## load (so `shape()` and `draw()` agree: an unloadable file is the drawn pin, never a blank).
+## load (so `shape()` and `draw()` agree: an unloadable file is the drawn pin, never a blank). **A custom kind always has its
+## own picture** (the registered one, else the missing marker): its name is the kind id itself, and `icon_set` is ignored.
 static func icon_name_for(icon_set: String, kind: String) -> String:
+	if is_custom(kind):
+		return kind
 	if not ICON_SETS.has(icon_set):
 		return ""
 	var k := kind.to_lower()
@@ -439,6 +536,8 @@ static func icon_name_for(icon_set: String, kind: String) -> String:
 ## Loads (once) one pin PNG: through `load()` (the imported texture, what an export has) and, when the project has not been
 ## imported yet (a fresh checkout or a probe), straight from the file. Null when neither works.
 static func _icon_entry(icon_set: String, name: String):
+	if icon_set == "custom":
+		return _custom_entry(name)
 	var key := "%s/%s" % [icon_set, name]
 	if _icon_cache.has(key):
 		return _icon_cache[key]
@@ -515,6 +614,8 @@ static func icon_texture(icon_set: String, name: String, want_h: float) -> Textu
 ## change how tall a marker stands; the icon's head is bigger (about 1.3 r) because the cut pins are fatter (stem ratio
 ## 1.4 to 1.9 measured per picture, against 2.1).
 static func shape(r: float, kind: String, icon_set: String = "") -> Dictionary:
+	if is_custom(kind):
+		icon_set = "custom"   ## the user's picture draws in every pin style, so its footprint is its own in every one
 	if icon_set != "":
 		var name := icon_name_for(icon_set, kind)
 		if name != "":
@@ -532,6 +633,8 @@ static func shape(r: float, kind: String, icon_set: String = "") -> Dictionary:
 ## ring, a labelled judgement.
 static func draw_icon(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, alpha: float, angle: float,
 		icon_set: String) -> bool:
+	if is_custom(kind):
+		icon_set = "custom"
 	var sh := shape(r, kind, icon_set)
 	var name := String(sh["icon"])
 	if name == "":
@@ -581,6 +684,8 @@ static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, h
 	if r <= 0.0:
 		return
 	var fill := COL_NOTE if has_note else COL_NONE
+	if is_custom(kind) and not has_note:
+		fill = custom_info(kind)["color"]   ## Ruling FP: a custom pin's disc is the user's colour (a note's orange still wins)
 	fill.a *= alpha
 	var ink := INK
 	ink.a *= alpha
@@ -588,6 +693,15 @@ static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, h
 	edge.a *= alpha
 	ci.draw_circle(centre, r, fill, true, -1.0, true)
 	ci.draw_arc(centre, r, 0.0, TAU, 28, edge, maxf(1.0, 1.3 * w * r / 9.0), true)
+	if is_custom(kind):
+		## The picture, centred in the disc (the entry's own aspect, its longer side 1.3 r). Missing marker when unregistered.
+		var e: Dictionary = _custom_entry(kind)
+		var sz := 1.3 * r
+		var tex := _icon_tex("custom", kind, sz * maxf(ci.get_screen_transform().get_scale().y if ci.is_inside_tree() else 1.0, 0.001))
+		if tex != null:
+			var wd := sz * float(e["w"]) / ICON_H
+			ci.draw_texture_rect(tex, Rect2(centre - Vector2(wd, sz) * 0.5, Vector2(wd, sz)), false, Color(1, 1, 1, alpha))
+		return
 	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
 	var s := r * 0.62
 	var lw := maxf(1.0, 1.4 * w * r / 9.0)

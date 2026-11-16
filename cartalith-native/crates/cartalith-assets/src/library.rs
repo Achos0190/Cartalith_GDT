@@ -57,6 +57,7 @@
 //! parity on that one message. See [`slot_title`].
 
 use crate::ordered_map::OrderedMap;
+use crate::pins::is_pin_colour;
 use crate::scatter::{ScatterRule, normalize_scatter_rule, scatter_rule_key};
 use crate::slots::{Family, slug_id};
 use serde::{Deserialize, Serialize};
@@ -234,6 +235,11 @@ pub struct SlotMeta {
     pub notes: String,
     pub version: String,
     pub tags: Vec<String>,
+    /// A pin's colour, `#rrggbb` (Ruling FP): meaningful only for a slot in the [`crate::PINS_SET`] custom set, empty
+    /// everywhere else. **Omitted from the saved record when empty**, so a library with no pin re-serialises byte for byte
+    /// as it did before this field existed.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub color: String,
 }
 
 /// Merge untrusted JSON onto [`SlotMeta::default`] — the reference's
@@ -266,6 +272,8 @@ fn normalize_meta(v: Option<&Value>) -> SlotMeta {
         notes: s("notes"),
         version: s("version"),
         tags,
+        // Refused, not repaired, when it is not a `#rrggbb` (the same rule as the pack's `pins` section).
+        color: Some(s("color")).filter(|c| is_pin_colour(c)).unwrap_or_default(),
     }
 }
 

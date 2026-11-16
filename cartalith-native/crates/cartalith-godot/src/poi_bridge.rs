@@ -19,7 +19,10 @@
 //! on a delete or an undo. The shell re-reads `poi_list()` after every edit.
 
 use crate::{annotation_bridge, annotation_undo::AnnoStore, WorldGen};
-use cartalith_civ::poi::{clean_free_label, is_valid_kind_name, issue_id, kind_label_for, Poi, PoiKind, FREE_MARKS};
+use cartalith_civ::poi::{
+    b64_decode, b64_encode, clean_free_label, is_custom_kind_id, is_pin_colour, is_valid_kind_name, issue_id, kind_label_for, CustomPin, Poi,
+    PoiKind, CUSTOM_NAME_MAX, CUSTOM_PNG_MAX, FREE_MARKS,
+};
 use godot::prelude::*;
 
 /// One POI as a flat `Dictionary` (shared by `poi_get` and `poi_list`): `{id, x, y, kind, kind_label}` plus `name`,
@@ -27,14 +30,21 @@ use godot::prelude::*;
 /// `free_label`, **omitted when the pin has none**. `kind` is the kind **name** (the icon's name, Ruling FD);
 /// `kind_label` is the user's free label when there is one, else the words for the kind (`kind_label_for`), so every
 /// reader that shows `kind_label` (the card, Find, the vault) shows the user's own words for a free-text kind.
-pub(crate) fn poi_dict(p: &Poi) -> VarDictionary {
+pub(crate) fn poi_dict(p: &Poi, custom: &[CustomPin]) -> VarDictionary {
     let mut d = VarDictionary::new();
     d.set("id", i64::from(p.id));
     d.set("x", p.x);
     d.set("y", p.y);
     d.set("kind", p.kind.as_str());
     if p.free_label.is_empty() {
-        d.set("kind_label", kind_label_for(&p.kind).as_str());
+        // Ruling FP: a custom kind's words are the user's name for it, from this world's registry; **absent from the registry
+        // it says so** ("Custom pin (icon missing)") rather than guessing words from the id.
+        let words = if is_custom_kind_id(&p.kind) {
+            custom.iter().find(|c| c.id == p.kind).map_or_else(|| "Custom pin (icon missing)".to_string(), |c| c.name.clone())
+        } else {
+            kind_label_for(&p.kind)
+        };
+        d.set("kind_label", words.as_str());
     } else {
         d.set("kind_label", p.free_label.as_str());
         d.set("free_label", p.free_label.as_str());
@@ -134,7 +144,7 @@ impl WorldGen {
     /// POI `index` as a `Dictionary` (see [`poi_dict`]), **empty** for an index the store does not hold.
     #[func]
     fn poi_get(&self, index: i64) -> VarDictionary {
-        usize::try_from(index).ok().and_then(|i| self.pois.get(i)).map(poi_dict).unwrap_or_default()
+        usize::try_from(index).ok().and_then(|i| self.pois.get(i)).map(|p| poi_dict(p, &self.custom_pins)).unwrap_or_default()
     }
 
     /// Every POI in store order, each [`poi_dict`] plus its `index`.
@@ -144,8 +154,47 @@ impl WorldGen {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let mut d = poi_dict(p);
+                let mut d = poi_dict(p, &self.custom_pins);
                 d.set("index", i as i64);
+                d
+            })
+            .collect()
+    }
+
+    /// Registers a custom pin with this world (Ruling FP): the shell calls it, with the library's entry, before it places or
+    /// re-kinds a pin to `id`, so the world holds the icon it will save. `true` when the id is now registered with exactly
+    /// these contents (a repeat of the same registration is a no-op that returns `true`); `false`, nothing changed, for an id
+    /// that is not a custom id, an empty or over-long name, a colour that is not `#rrggbb`, a PNG that is not a readable
+    /// PNG of at most 256 x 256 and 256 KiB, or **an id already registered with different contents** (ids are content
+    /// addresses, so that is a collision, never an update).
+    #[func]
+    fn poi_register_custom_pin(&mut self, id: GString, name: GString, color: GString, png: PackedByteArray) -> bool {
+        let pin = CustomPin { id: id.to_string(), name: name.to_string(), color: color.to_string(), png: png.to_vec() };
+        match custom_pin_checked(pin) {
+            Some(p) => match self.custom_pins.iter().find(|c| c.id == p.id) {
+                Some(have) => *have == p,
+                None => {
+                    self.custom_pins.push(p);
+                    true
+                }
+            },
+            None => false,
+        }
+    }
+
+    /// The custom pins this world holds, in registration order: `[{id, name, color, png}]` (`png` a `PackedByteArray`). The
+    /// shell reads it after a world opens and after a registration, to draw. Includes entries no pin uses yet; the save
+    /// writes only the used ones.
+    #[func]
+    fn poi_custom_pins(&self) -> Array<VarDictionary> {
+        self.custom_pins
+            .iter()
+            .map(|c| {
+                let mut d = VarDictionary::new();
+                d.set("id", c.id.as_str());
+                d.set("name", c.name.as_str());
+                d.set("color", c.color.as_str());
+                d.set("png", &PackedByteArray::from(c.png.as_slice()));
                 d
             })
             .collect()
@@ -245,7 +294,13 @@ impl WorldGen {
         d.set("ok", true);
         d.set("entity_id", i64::from(p.id));
         let name = p.name.trim();
-        let words = if p.free_label.is_empty() { kind_label_for(&p.kind) } else { p.free_label.clone() };
+        let words = if !p.free_label.is_empty() {
+            p.free_label.clone()
+        } else if is_custom_kind_id(&p.kind) {
+            self.custom_pins.iter().find(|c| c.id == p.kind).map_or_else(|| kind_label_for(&p.kind), |c| c.name.clone())
+        } else {
+            kind_label_for(&p.kind)
+        };
         let text = if name.is_empty() { format!("{} ({}, {})", words, p.x.round(), p.y.round()) } else { name.to_string() };
         d.set("label", text.as_str());
         d
@@ -269,6 +324,37 @@ pub(crate) struct PoisDoc {
     /// The points of interest, in placement order.
     #[serde(default)]
     pub pois: Vec<PoiDto>,
+    /// The custom pins the points above use (Ruling FP), each with its icon: **omitted when none**, so a world with no
+    /// custom pin re-serialises byte for byte as before and an older build reads the rest unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_pins: Vec<CustomPinDto>,
+}
+
+/// One saved custom pin (Ruling FP): the kind id, the user's name and colour, and the icon as base64 PNG, so a world opens
+/// and draws on another device or without the asset library.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CustomPinDto {
+    /// The kind id (`custom-<slug>-<hash>`).
+    #[serde(default)]
+    pub id: String,
+    /// The user's name.
+    #[serde(default)]
+    pub name: String,
+    /// `#rrggbb`.
+    #[serde(default)]
+    pub color: String,
+    /// The icon, standard base64 of a PNG.
+    #[serde(default)]
+    pub png: String,
+}
+
+/// A [`CustomPin`] that passes every rule a registered or restored one must (see `poi_register_custom_pin`), or `None`.
+/// The name is trimmed and capped; nothing else is repaired.
+pub(crate) fn custom_pin_checked(mut p: CustomPin) -> Option<CustomPin> {
+    p.name = p.name.trim().chars().take(CUSTOM_NAME_MAX).collect::<String>().trim().to_string();
+    let png_ok = p.png.len() <= CUSTOM_PNG_MAX
+        && cartalith_assets::check_png_header(&p.png, &cartalith_assets::ImportLimits::DEFAULT).is_ok_and(|(w, h)| (1..=256).contains(&w) && (1..=256).contains(&h));
+    (is_custom_kind_id(&p.id) && !p.name.is_empty() && is_pin_colour(&p.color) && png_ok).then_some(p)
 }
 
 /// One row of `annotations/pois.json`.
@@ -302,12 +388,18 @@ pub(crate) struct PoiDto {
 
 /// The document to save for `pois` and counter `next_id`, or `None` when there is nothing to say (no POI and the counter
 /// never moved), so the member is omitted and an old save is unchanged.
-pub(crate) fn pois_to_doc(pois: &[Poi], next_id: u32) -> Option<PoisDoc> {
+pub(crate) fn pois_to_doc(pois: &[Poi], next_id: u32, custom: &[CustomPin]) -> Option<PoisDoc> {
     if pois.is_empty() && next_id <= 1 {
         return None;
     }
     Some(PoisDoc {
         next_id,
+        // Only the pins a point still uses, in registration order: the registry is a cache of what the world draws.
+        custom_pins: custom
+            .iter()
+            .filter(|c| pois.iter().any(|p| p.kind == c.id))
+            .map(|c| CustomPinDto { id: c.id.clone(), name: c.name.clone(), color: c.color.clone(), png: b64_encode(&c.png) })
+            .collect(),
         pois: pois
             .iter()
             .map(|p| {
@@ -335,6 +427,12 @@ pub(crate) struct PoisRestored {
     pub next_id: u32,
     /// Rows skipped: an unknown kind, a non-finite or off-grid point, id `0`, or an id already seen (the first wins).
     pub dropped: usize,
+    /// The custom pins that resolved (Ruling FP), in saved order; a row that does not (bad id, name, colour, base64 or PNG,
+    /// or a repeated id) is counted in [`PoisRestored::dropped_pins`].
+    pub custom_pins: Vec<CustomPin>,
+    /// Saved custom-pin rows that could not be read. A point that uses such a pin is **kept** (its kind is a well-formed
+    /// custom id) and draws as the missing-icon marker; only the picture is lost.
+    pub dropped_pins: usize,
 }
 
 /// Resolves a saved document over a `gw` x `gh` grid. Never invents: a row that cannot be read is dropped and counted.
@@ -357,7 +455,17 @@ pub(crate) fn pois_from_doc(doc: &PoisDoc, gw: i32, gh: i32) -> PoisRestored {
     }
     // A saved counter lifted past the restored ids; `None` (an id of u32::MAX restored) keeps the saved counter as is.
     let next_id = issue_id(&pois, doc.next_id).unwrap_or(doc.next_id.max(1));
-    PoisRestored { pois, next_id, dropped }
+    let mut custom_pins: Vec<CustomPin> = Vec::new();
+    let mut dropped_pins = 0usize;
+    for d in &doc.custom_pins {
+        let pin = b64_decode(&d.png)
+            .and_then(|png| custom_pin_checked(CustomPin { id: d.id.clone(), name: d.name.clone(), color: d.color.clone(), png }));
+        match pin {
+            Some(p) if !custom_pins.iter().any(|c| c.id == p.id) => custom_pins.push(p),
+            _ => dropped_pins += 1,
+        }
+    }
+    PoisRestored { pois, next_id, dropped, custom_pins, dropped_pins }
 }
 
 #[cfg(test)]
@@ -376,8 +484,8 @@ mod tests {
     /// had one but deleted it still writes the counter (a retired id is never reissued after a reload).
     #[test]
     fn the_member_is_omitted_until_a_poi_was_ever_placed() {
-        assert!(pois_to_doc(&[], 1).is_none(), "a fresh world writes no pois.json");
-        let kept = pois_to_doc(&[], 4).expect("a deleted POI's counter must be saved");
+        assert!(pois_to_doc(&[], 1, &[]).is_none(), "a fresh world writes no pois.json");
+        let kept = pois_to_doc(&[], 4, &[]).expect("a deleted POI's counter must be saved");
         assert!(kept.pois.is_empty());
         assert_eq!(kept.next_id, 4);
     }
@@ -387,7 +495,7 @@ mod tests {
     #[test]
     fn a_saved_document_round_trips_byte_for_byte() {
         let pois = vec![poi(1, "tavern", "The Gilded Mug"), poi(3, "well", "")];
-        let doc = pois_to_doc(&pois, 5).unwrap();
+        let doc = pois_to_doc(&pois, 5, &[]).unwrap();
         let text = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!text.contains("\"name\": \"\""), "a blank name must be omitted: {text}");
         let back: PoisDoc = serde_json::from_str(&text).unwrap();
@@ -395,7 +503,7 @@ mod tests {
         assert_eq!(r.dropped, 0);
         assert_eq!(r.pois, pois);
         assert_eq!(r.next_id, 5, "the saved counter (ahead of the largest id 3) is kept");
-        let text2 = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
+        let text2 = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id, &[]).unwrap()).unwrap();
         assert_eq!(text, text2);
     }
 
@@ -415,6 +523,7 @@ mod tests {
                 row(1, 6.0, 6.0, "gate"),
                 row(7, 9.0, 9.0, "other"),
             ],
+            ..Default::default()
         };
         let r = pois_from_doc(&doc, 512, 512);
         assert_eq!(r.pois.iter().map(|p| p.id).collect::<Vec<_>>(), vec![1, 7]);
@@ -460,7 +569,7 @@ mod tests {
         assert_eq!(kinds, ["tavern", "shop", "other"], "an old save's PoiKind loads as its own name");
         assert!(r.pois.iter().all(|p| p.free_label.is_empty()), "an old pin has no free label");
         assert_eq!(r.next_id, 4);
-        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
+        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id, &[]).unwrap()).unwrap();
         assert_eq!(again, old, "re-saving an old document must not add a member");
     }
 
@@ -494,7 +603,7 @@ mod tests {
         assert_eq!(r.pois[0].kind, "inn");
         assert_eq!(PoiKind::from_key(&r.pois[0].kind), Some(PoiKind::Inn));
         assert_eq!(kind_label_for("inn"), "Inn");
-        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
+        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id, &[]).unwrap()).unwrap();
         assert_eq!(again, old, "an inn keeps the wire form an older build already reads");
         let hand: PoisDoc = serde_json::from_str(r#"{"next_id":2,"pois":[{"id":1,"x":1.0,"y":1.0,"kind":"inn"}]}"#).unwrap();
         assert_eq!(pois_from_doc(&hand, 512, 512).pois[0].kind, "inn", "a bare `kind: inn` is read, not refused");
@@ -507,7 +616,7 @@ mod tests {
         let mut free = poi(2, "notice", "Hive field");
         free.free_label = "Beehives".to_string();
         let pois = vec![poi(1, "waterfall", ""), free.clone(), poi(3, "well", "")];
-        let doc = pois_to_doc(&pois, 4).unwrap();
+        let doc = pois_to_doc(&pois, 4, &[]).unwrap();
         assert_eq!(doc.pois[0].kind, "other", "a pre-FD build reads a non-legacy name as the stated fallback");
         assert_eq!(doc.pois[0].kind_name, "waterfall");
         assert_eq!(doc.pois[2].kind_name, "", "a legacy kind writes no kind_name");
@@ -523,8 +632,88 @@ mod tests {
         bad.free_label = "Not a mark".into();
         let mut unknown = row(6, 5.0, 5.0, "other");
         unknown.kind_name = "brothel".into();
-        let r2 = pois_from_doc(&PoisDoc { next_id: 1, pois: vec![bad, unknown] }, 512, 512);
+        let r2 = pois_from_doc(&PoisDoc { next_id: 1, pois: vec![bad, unknown], ..Default::default() }, 512, 512);
         assert!(r2.pois.is_empty());
         assert_eq!(r2.dropped, 2);
+    }
+    /// A real `w` x `h` PNG (opaque red), through the crate's own encoder.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        cartalith_assets::encode_png(&cartalith_assets::DecodedImage::new(w, h, [200u8, 30, 30, 255].repeat((w * h) as usize)).unwrap()).unwrap()
+    }
+
+    fn pin(id: &str, name: &str) -> CustomPin {
+        CustomPin { id: id.into(), name: name.into(), color: "#c0a040".into(), png: png(8, 8) }
+    }
+
+    const ID_A: &str = "custom-beehive-0a1b2c3d";
+    const ID_B: &str = "custom-forge_2-ffffffff";
+
+    /// Protects (Ruling FP): a world's custom pins survive a real save and load with their name, colour and icon bytes; only
+    /// the pins a point still uses are written; the saved text names them; and a second save is byte-identical.
+    #[test]
+    fn custom_pins_round_trip_and_only_the_used_ones_are_saved() {
+        let pois = vec![poi(1, ID_A, "Hive one"), poi(2, "well", "")];
+        let registry = vec![pin(ID_A, "Beehive"), pin(ID_B, "Unused forge")];
+        let doc = pois_to_doc(&pois, 3, &registry).unwrap();
+        assert_eq!(doc.custom_pins.len(), 1, "the unused pin is pruned");
+        assert_eq!(doc.custom_pins[0].id, ID_A);
+        let text = serde_json::to_string_pretty(&doc).unwrap();
+        assert!(text.contains("\"custom_pins\"") && text.contains("\"#c0a040\""), "{text}");
+        let back: PoisDoc = serde_json::from_str(&text).unwrap();
+        let r = pois_from_doc(&back, 512, 512);
+        assert_eq!((r.dropped, r.dropped_pins), (0, 0));
+        assert_eq!(r.pois[0].kind, ID_A);
+        assert_eq!(r.custom_pins, vec![pin(ID_A, "Beehive")], "name, colour and the exact icon bytes");
+        assert_eq!(serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id, &r.custom_pins).unwrap()).unwrap(), text);
+    }
+
+    /// Protects: a world with no custom pin writes no `custom_pins` key (byte-identical to a save from before Ruling FP), and
+    /// a document without the key loads with an empty registry.
+    #[test]
+    fn a_world_without_custom_pins_writes_no_key_and_an_old_document_loads() {
+        let text = serde_json::to_string_pretty(&pois_to_doc(&[poi(1, "well", "")], 2, &[pin(ID_A, "x")]).unwrap()).unwrap();
+        assert!(!text.contains("custom_pins"), "{text}");
+        let old: PoisDoc = serde_json::from_str(r#"{"next_id": 2, "pois": [{"id": 1, "x": 3.0, "y": 4.0, "kind": "well"}]}"#).unwrap();
+        let r = pois_from_doc(&old, 512, 512);
+        assert!(r.custom_pins.is_empty() && r.pois.len() == 1 && r.dropped_pins == 0);
+    }
+
+    /// Protects the missing-icon rule: a point whose custom pin picture is unreadable, absent or over the cap is KEPT (its kind
+    /// is a well-formed custom id; the shell draws the missing marker), and only the picture row is dropped and counted. A
+    /// malformed id is a dropped point, never a built-in.
+    #[test]
+    fn an_unreadable_icon_drops_the_picture_and_keeps_the_point() {
+        let mut doc = pois_to_doc(&[poi(1, ID_A, ""), poi(2, ID_B, "")], 3, &[pin(ID_A, "Beehive"), pin(ID_B, "Forge")]).unwrap();
+        doc.custom_pins[0].png = "not base64!".into();
+        let huge = vec![0u8; CUSTOM_PNG_MAX + 1];
+        doc.custom_pins[1].png = b64_encode(&huge);
+        let r = pois_from_doc(&doc, 512, 512);
+        assert_eq!(r.pois.len(), 2, "both points kept");
+        assert!(r.custom_pins.is_empty());
+        assert_eq!(r.dropped_pins, 2);
+        let doc2 = PoisDoc { next_id: 2, pois: vec![row(1, 1.0, 1.0, "custom-BAD-0a1b2c3d")], ..Default::default() };
+        assert_eq!(pois_from_doc(&doc2, 512, 512).dropped, 1);
+    }
+
+    /// Protects: `custom_pin_checked`'s refusals, each on a literal, and the name cap.
+    #[test]
+    fn a_custom_pin_is_checked_not_repaired() {
+        assert!(custom_pin_checked(pin(ID_A, "  Beehive  ")).is_some_and(|p| p.name == "Beehive"));
+        assert_eq!(custom_pin_checked(pin(ID_A, &"n".repeat(60))).unwrap().name.chars().count(), 40);
+        assert!(custom_pin_checked(pin("well", "x")).is_none(), "a built-in name is not a custom id");
+        assert!(custom_pin_checked(pin(ID_A, "   ")).is_none());
+        let mut c = pin(ID_A, "x");
+        c.color = "red".into();
+        assert!(custom_pin_checked(c).is_none());
+        let mut c = pin(ID_A, "x");
+        c.png = png(300, 4);
+        assert!(custom_pin_checked(c).is_none(), "over 256 px wide");
+        let mut c = pin(ID_A, "x");
+        c.png = b"GIF89a".to_vec();
+        assert!(custom_pin_checked(c).is_none(), "not a PNG");
+        assert_eq!(cartalith_assets::pins::PIN_NAME_MAX, CUSTOM_NAME_MAX, "the two crates' name caps agree");
+        for good in ["#000000", "#FfFfFf"] {
+            assert_eq!(cartalith_assets::pins::is_pin_colour(good), is_pin_colour(good));
+        }
     }
 }

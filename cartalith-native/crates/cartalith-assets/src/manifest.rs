@@ -124,6 +124,18 @@ impl RawStructures {
     }
 }
 
+/// One entry of a manifest's `pins` section (Ruling FP): the display name and colour of a custom pin whose icon is the
+/// slot of the same id in `custom.Pins` (see [`crate::pins`]). Unvalidated as authored; [`parse_pack_manifest`] checks it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawPin {
+    /// The pin's name (the slot's display name on import).
+    #[serde(default)]
+    pub name: String,
+    /// `#rrggbb`.
+    #[serde(default)]
+    pub color: String,
+}
+
 /// A manifest exactly as authored — unvalidated, key order preserved, unknown
 /// slots still present.
 ///
@@ -175,6 +187,11 @@ pub struct RawManifest {
     /// `custom` — free-form icon sets, `set -> slot -> [paths]`.
     #[serde(default, skip_serializing_if = "OrderedMap::is_empty")]
     pub custom: OrderedMap<OrderedMap<Option<Paths>>>,
+    /// `pins` — the name and colour of each custom pin, keyed by its slot id in `custom.Pins` (Ruling FP). **A section the
+    /// reference's format does not define**, additive in both directions like [`RawManifest::seamarks`]: absent for every
+    /// pack the reference wrote and for any pack with no pin, and ignored by a reader that does not know it.
+    #[serde(default, skip_serializing_if = "OrderedMap::is_empty")]
+    pub pins: OrderedMap<RawPin>,
 }
 
 impl RawManifest {
@@ -273,6 +290,8 @@ pub struct PackManifest {
     pub structures: Structures,
     /// Free-form icon sets, in manifest document order.
     pub custom: OrderedMap<OrderedMap<Vec<String>>>,
+    /// Validated pin names and colours (Ruling FP), keyed by slot id; only for ids that have art in `custom.Pins`.
+    pub pins: OrderedMap<RawPin>,
     /// Everything the parser dropped or could not use, in the order it was
     /// found. **Not fatal** — a pack with warnings still loads; the reference
     /// surfaces the count next to the import summary rather than refusing.
@@ -377,6 +396,7 @@ impl PackManifest {
                 .iter()
                 .map(|(set, slots)| (set.to_string(), many(slots)))
                 .collect(),
+            pins: self.pins.clone(),
         }
     }
 
@@ -651,6 +671,19 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
         }
         if !out_set.is_empty() {
             out.custom.insert(set_name, out_set);
+        }
+    }
+
+    // ---- custom pins (Ruling FP): a name and a colour for each slot of `custom.Pins`. Refused, not repaired: a colour
+    // that is not `#rrggbb`, an empty name, or an id with no art in the Pins set is dropped with a warning (the art, if
+    // any, still imports as an ordinary custom icon).
+    for (id, pin) in m.pins.iter() {
+        let has_art = out.custom.get(crate::pins::PINS_SET).is_some_and(|s| s.get(id).is_some());
+        match (has_art, crate::pins::clean_pin_name(&pin.name), crate::pins::is_pin_colour(&pin.color)) {
+            (true, Some(name), true) => out.pins.insert(id, RawPin { name, color: pin.color.to_ascii_lowercase() }),
+            (false, _, _) => out.warnings.push(format!("pin {id}: no art in custom {}", crate::pins::PINS_SET)),
+            (_, None, _) => out.warnings.push(format!("pin {id}: no name")),
+            (_, _, false) => out.warnings.push(format!("pin {id}: colour is not #rrggbb")),
         }
     }
 
@@ -1016,5 +1049,29 @@ mod tests {
         assert!(raw.custom.is_empty());
         assert!(raw.name.is_none());
         assert_eq!(raw.icons.len(), 1);
+    }
+
+    /// Protects (Ruling FP): the `pins` section of a manifest. A valid entry is kept (colour lower-cased, name trimmed); a bad
+    /// colour, an empty name and an id with no art in `custom.Pins` are each refused with their own warning and never repaired;
+    /// the section survives `to_raw` and serialises only when present (a pack with no pin has no `pins` key).
+    #[test]
+    fn pins_section_is_validated_per_entry_and_round_trips() {
+        let raw: RawManifest = serde_json::from_str(
+            r##"{"custom":{"Pins":{"a":["p/a.png"],"b":["p/b.png"],"c":["p/c.png"]},"Other":{"d":["p/d.png"]}},
+                "pins":{"a":{"name":"  Alpha ","color":"#AABBCC"},"b":{"name":"B","color":"red"},
+                        "c":{"name":"  ","color":"#112233"},"ghost":{"name":"G","color":"#112233"},"d":{"name":"D","color":"#112233"}}}"##,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(&raw, &files(&["p/a.png", "p/b.png", "p/c.png", "p/d.png"]));
+        assert_eq!(m.pins.len(), 1, "{:?}", m.pins);
+        assert_eq!(m.pins.get("a"), Some(&RawPin { name: "Alpha".into(), color: "#aabbcc".into() }));
+        assert_eq!(
+            m.warnings,
+            ["pin b: colour is not #rrggbb", "pin c: no name", "pin ghost: no art in custom Pins", "pin d: no art in custom Pins"]
+        );
+        let json = m.to_pack_json();
+        assert!(json.contains("\"pins\"") && json.contains("#aabbcc"), "{json}");
+        let none = parse_pack_manifest(&RawManifest::default(), &files(&[]));
+        assert!(!none.to_pack_json().contains("pins"), "no pin, no key");
     }
 }

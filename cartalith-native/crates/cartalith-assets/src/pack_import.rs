@@ -309,6 +309,9 @@ pub struct PlannedSlot {
     /// The reference's own warning when an unknown id was rerouted
     /// (`unknown slot "x" → Custom/Imported`), else `None`.
     pub note: Option<String>,
+    /// The pin name and colour of a slot in the `Pins` custom set whose id the manifest's `pins` section names and whose
+    /// entry is valid (Ruling FP); `None` for every other slot.
+    pub pin: Option<crate::manifest::RawPin>,
 }
 
 /// A whole pack, resolved: its three metadata strings and every slot in the
@@ -407,6 +410,7 @@ pub fn plan_pack_import(
                 target,
                 paths: vec![path_plan(p)],
                 note,
+                pin: None,
             });
         }
     }
@@ -427,6 +431,7 @@ pub fn plan_pack_import(
                 target,
                 paths: paths.as_slice().iter().map(|p| path_plan(p)).collect(),
                 note,
+                pin: None,
             });
         }
     }
@@ -439,6 +444,17 @@ pub fn plan_pack_import(
                 target: SlotTarget::Custom { id: id.to_string(), set: set.to_string() },
                 paths: paths.as_slice().iter().map(|p| path_plan(p)).collect(),
                 note: None,
+                // Ruling FP: a pin's name and colour, only for a slot of the reserved set and only when valid (refused,
+                // not repaired: a bad entry leaves the art an ordinary custom icon in the Pins set, named by its id).
+                pin: (set == crate::pins::PINS_SET)
+                    .then(|| raw.pins.get(id))
+                    .flatten()
+                    .and_then(|p| {
+                        Some(crate::manifest::RawPin {
+                            name: crate::pins::clean_pin_name(&p.name)?,
+                            color: crate::pins::is_pin_colour(&p.color).then(|| p.color.to_ascii_lowercase())?,
+                        })
+                    }),
             });
         }
     }
