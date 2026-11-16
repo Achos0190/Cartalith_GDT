@@ -454,6 +454,11 @@ stages are not drawn (`Planet`, `Extent & scale`, `World structure`, `Volcanism
 per-stage rows says the same). The button is drawn, runs the whole pipeline, and
 says so in its tooltip.
 
+*Correction, 2026-11-16 (docs audit): the paragraph above is the ruling, not the code. No per-stage `Run stage NN`
+button exists in the shell (`git log -S 'Run stage'` over `godot-project/shell` finds only comments;
+`world_workspace.gd`'s note explains that each stage row regenerates on release instead). Ruling D is routed as an
+open owner question in `OUTSTANDING_WORK.md` section 3.1.*
+
 The canvas's one-slider-per-stage model (`stageFields`, `SF`) is a
 *reduction*: the WORLD dock draws the engine's own parameter table
 (`crates/cartalith-godot/src/params.rs`, `PARAMS`), grouped by stage, and under

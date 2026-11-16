@@ -94,3 +94,69 @@ No product code was changed. This file is a dated cut of findings; status is `ca
   FE item 4 (now routed), FH's save and cap (behind the ZR decision), the `ac1_static_sources` test, the Pad's
   `RAYON_NUM_THREADS=1` column.
 - Stale `CLAUDE.md` rows: **1** wrong row plus **13** missing rows.
+
+## Phase 2: the crates, indexed and checked against their documents
+
+The index is `CODEBASE_INVENTORY.md` (sections 1-6 and 9): 19 crates, 373 source files, about 452 000 source lines and
+121 000 test lines, 6 538 `#[test]` and 275 `#[ignore]` attributes, the dependency graph, every module's first `//!`
+line, the section 7p switches each crate names, a similarity table of 17 algorithm families, and the dead code.
+
+### Method
+
+A script over the tree (no build): `Cargo.toml` dependency sections; per-file regex counts; the first `//!` line per
+`src/` file; a token index of all `.rs` and `.gd` files. Against the documents: `ARCHITECTURE.md`'s crate tree and
+`README.md`'s crate list (crate by crate, dependency by dependency); `GENERATION_PARAMETERS.md` against every `PARAMS`
+key (both directions); `SAVEFILE_COMPAT.md`'s archive layout (48 entries) against the code's strings; every
+`js_*` helper `JS_SEMANTICS_AUDIT.md` names against `cartalith-jsmath` (including `libm.rs`'s re-exports); and every
+`src/` module's file stem against the root documents plus `STATUS.md`.
+
+### Verified correct
+
+| # | Claim | Evidence |
+|---|---|---|
+| V12 | Every one of the 137 `PARAMS` keys is documented in `GENERATION_PARAMETERS.md`, and its 125 table rows name only live keys | key-by-key comparison |
+| V13 | All 48 archive entries of `SAVEFILE_COMPAT.md`'s layout are named in the code | string search over `.rs` and `.gd` |
+| V14 | Every `js_*` helper `JS_SEMANTICS_AUDIT.md` names exists in `cartalith-jsmath` | `lib.rs` and `libm.rs` (`pub use libm::{js_acos, js_atan, js_atan2, js_cos, js_exp, js_log, js_log10, js_sin}`) |
+| V15 | Every `src/` file carries a `//!` module doc (Ruling BK) | 0 of 373 without one |
+| V16 | Every `src/` module but one is named in a root document or `STATUS.md` | the exception is N4 |
+| V17 | `ARCHITECTURE.md`'s dev-dependency cycle (civ -> engine -> gpu -> civ, test-only) and `cartalith-jsmath`'s zero dependencies | `Cargo.toml`s |
+
+### Corrected
+
+| # | Document | Claim | Truth and evidence | Action |
+|---|---|---|---|---|
+| C24 | `ARCHITECTURE.md` crate tree | "16 crates"; no `cartalith-llm` or `cartalith-llm-loopback`; `cartalith-civ` without `erosion`; `cartalith-godot` "every crate above except urban and erosion" | 19 crates; `cartalith-llm` [vault] and the test-only `cartalith-llm-loopback` [llm] exist; `cartalith-civ/Cargo.toml` depends on `cartalith-erosion` | tree corrected |
+| C25 | `README.md` crate list | 17 crates; "`cartalith-vault` is the newest" | the two LLM crates are missing and are newer | list extended, dated note |
+
+### Found, not changed
+
+| # | Where | Finding | Why left |
+|---|---|---|---|
+| N3 | code: 4 `pub fn`s referenced nowhere, not even in their own file | `cartalith-civ` `way_join.rs::spliced_share`, `cartalith-hydrology` `rough.rs::noise_at`, `cartalith-llm` `place_vault.rs::plan_json`, `cartalith-spatial` `colour_paint.rs::has_emissive` | code; dead-code removal is R2's (`CODEBASE_REFACTOR_PROPOSAL.md`) |
+| N4 | code, `cartalith-godot/src/progress_bridge.rs` | the only module no document names (`GenerationProgress`, the per-stage readout); it is annotated in place | low value; R0 records it |
+| N5 | code comment, `cartalith-llm/Cargo.toml` | "Deliberately one dependency. A test (`no_network_dependency`) fails if another appears": there are two (`serde_json`, `cartalith-vault`) and the test (`tests/no_network.rs`) pins both | a comment in code; report only (Ruling BK backlog) |
+| N6 | code | per-crate copies of small numeric helpers (`bil_c` x3, `lerp`/`mix`/`clamp01` x4 crates, `slope_at` x4) and three FNV variants | R1's similarity question, `CODEBASE_INVENTORY.md` section 5 |
+
+## Phase 3: the Godot shell, indexed and checked
+
+The index is `CODEBASE_INVENTORY.md` sections 7 and 8: 144 scripts (`shell/`, `shell/workspaces/`, and the root
+`map_overlay.gd`, `credits.gd`, `smoke_test.gd`), about 194 000 lines and 6 959 `func`s; 177 `menus.gd` command ids;
+44 named `DccSettings` keys in 29 sections; and the disabled menu rows. Probes (755 root `_*.gd`, 725 of them
+`_*_probe.gd`) and the untracked editor add-ons (`addons/godot_ai`, `addons/godotsteam`, ignored by `.gitignore`;
+`addons/fennara` is tracked and documented in `project.godot`) are not indexed.
+
+### Method
+
+The 37 `_todo(` calls in `menus.gd` were each read in context to separate the always-disabled rows from build- or
+state-gated fallbacks, then searched in `UNWIRED_FUNCTIONS.md`, `GUI_GAP_REGISTER.md`, `DCC_CONTROL_INDEX.md`,
+`STORY_MENUS_PROPOSAL.md` and `OUTSTANDING_WORK.md`. The GUI plans' milestones were checked by Phase 1 against
+`GUI_PLANS_AUDIT_2026-11-16.md` (its 56 DONE verdicts were not re-opened one by one here; the four rows it got wrong
+after landing are C18).
+
+### Findings
+
+| # | Where | Finding | Action |
+|---|---|---|---|
+| V18 | `menus.gd` | 4 rows are always disabled (*Print sheet (PDF)…*, *VTT battle map…*, *Anti-aliasing · anisotropy*, *3D viewport defaults*); the other 33 `_todo` calls are fallbacks for an older native library or an empty state | verified; listed in `CODEBASE_INVENTORY.md` section 7 |
+| N7 | `UNWIRED_FUNCTIONS.md`, `GUI_GAP_REGISTER.md`, `DCC_CONTROL_INDEX.md` | none lists *Print sheet (PDF)…* or *VTT battle map…*; both are routed only through `STORY_MENUS_PROPOSAL.md` section 8 and `OUTSTANDING_WORK.md` ("Story menus: the proposal's §8 later rows", unscheduled by Ruling EA item 7) | left: routed and owned; the registers are dated cuts |
+| C26 | `TABLET_UI_SPEC.md` | "**`Run stage NN` — Ruling D.** ... The button is drawn, runs the whole pipeline, and says so in its tooltip." | no such control exists (`git log -S 'Run stage'` over `shell/` finds only comments; `world_workspace.gd` explains each stage row regenerates on release) | dated correction; Ruling D routed in `OUTSTANDING_WORK.md` section 3.1 as an owner call (build or record as superseded) |

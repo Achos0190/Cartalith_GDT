@@ -33,13 +33,18 @@ deliberate and test-only: `cartalith-gpu`'s dev-dependencies on
 
 ```
 cartalith-native/                 (workspace root, new repository)
-├── crates/                       16 crates; internal [dependencies] in brackets
+├── crates/                       19 crates (2026-11-16; `ls` it for the live set);
+│                                 internal [dependencies] in brackets
 │   ├── cartalith-jsmath/         Math.hypot/exp/sin/cos/log/atan2/round/toFixed
 │   │                             with V8's semantics — no dependencies at all
 │   ├── cartalith-noise/          hash/vnoise/fbm/ridged — hand-ported, see below  []
 │   ├── cartalith-rng/            mulberry32, ported exactly (PARITY_TESTING.md)   []
 │   ├── cartalith-vault/          Markdown Vault: sections, links, fs provider      []
 │   ├── cartalith-knowledge/      retrieval: BM25, world documents, Vault chunks [vault]
+│   ├── cartalith-llm/            LLM assistant protocol: request builder, SSE decoder,
+│   │                             redaction, mock transport; no sockets      [vault]
+│   ├── cartalith-llm-loopback/   test-only: cartalith-llm over a real loopback
+│   │                             socket; nothing depends on it              [llm]
 │   ├── cartalith-spatial/        tiling, dirty-tracking, draft stack, geometry [jsmath]
 │   ├── cartalith-urban/          urban morphology (UME engine)        [jsmath, rng]
 │   ├── cartalith-assets/         asset packs, library, PNG            [jsmath, noise]
@@ -56,11 +61,12 @@ cartalith-native/                 (workspace root, new repository)
 │   ├── cartalith-engine/         orchestrator: owns WorldState, runs the pipeline
 │   │                             [jsmath, terrain, climate, hydrology, erosion,
 │   │                              spatial, io, assets, gpu]
-│   ├── cartalith-civ/            civilisation layer [jsmath, engine, hydrology, rng,
-│   │                             terrain, urban, noise] (dev-dep: spatial)
+│   ├── cartalith-civ/            civilisation layer [jsmath, engine, erosion, hydrology,
+│   │                             rng, terrain, urban, noise] (dev-dep: spatial)
 │   └── cartalith-godot/          the only crate that depends on gdext; depends on
-│                                 every crate above except urban and erosion
-│                                 (reached through civ and engine)
+│                                 every crate above except urban, erosion (a
+│                                 dev-dependency) and llm-loopback; urban and
+│                                 erosion are reached through civ and engine
 ├── godot-project/                scenes, GDScript glue, export presets
 └── docs/                         STATUS.md, the retired CHANGELOG.md,
                                   3D_TERRAIN_RENDER_RESEARCH.md

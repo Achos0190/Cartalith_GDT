@@ -52,9 +52,13 @@ testable without Godot.
 `cartalith-hydrology` · `cartalith-civ` · `cartalith-engine` ·
 `cartalith-io` · `cartalith-gpu` · `cartalith-spatial` ·
 `cartalith-assets` · `cartalith-urban` · `cartalith-vault` ·
-`cartalith-knowledge` · `cartalith-godot`
+`cartalith-knowledge` · `cartalith-llm` · `cartalith-llm-loopback` · `cartalith-godot`
 
-`cartalith-vault` is the newest and the only one that is not engine work at
+*(Corrected 2026-11-16 by the docs audit: the list lacked the two LLM crates, and `cartalith-vault` is no longer the
+newest. `cartalith-llm` is the assistant's protocol crate, `LLM_ASSISTANT_SCOPE.md`, with no sockets and no Godot
+types; `cartalith-llm-loopback` is test-only and nothing depends on it.)*
+
+`cartalith-vault` was, when written, the newest and the only one that was not engine work at
 all: the Markdown Vault integration (`MARKDOWN_VAULT_SCOPE.md`), depending on
 `serde`/`serde_json` and on nothing else in the workspace. `cartalith-knowledge`
 is the retrieval layer over the Vault and the world's own data
