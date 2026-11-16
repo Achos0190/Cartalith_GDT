@@ -586,3 +586,69 @@ stale (`menus.gd`'s atlas headers, `engine_bridge.gd`'s `atlas_is_covered` note,
 | **Q8** | Tiers? | Balanced, Quality, Ultra on; Performance off (EF-9's Ruling CL pattern); phones `refine_depth` 2 (6T) / 1 (Pad 3) levels shallower |
 | **Q9** | Faithful reference toggles (Burn rivers and Micro-erode as off-by-default switches, with their fixed-seed and world-max defects) or this design's per-tile version always on under `zoom_refine`? | This design, recorded as a §7p divergence |
 | **Q10** | Sculpting directly at a deep level (EF-4)? | Out of scope; a sculpt edits the coarse field and its cone re-refines |
+
+---
+
+## 8. ZR-0 results (2026-11-16): no-go
+
+A measurement record, not a status (status is `STATUS.md`'s). Harness: `cartalith-native/crates/cartalith-godot/tests/
+zr0_refine.rs` (`#[ignore]`d: `zr0_bars`, `zr0_timing`, `zr0_determinism`). The §4.1 chain is prototyped there and
+nowhere else. Evidence, frames, the full table and the verdict: `cartalith-native/docs/evidence/zoom-refine-zr0-2026-11-16/`
+(`VERDICT.md`, `metrics.txt`, six sheets).
+
+**Method.**
+
+- The world and the native maps:
+  - the 40 075 km / 2048 x 1024 world, seed 1200;
+  - the native 1 200 km and 200 km maps, seed 1200, 1024 x 512.
+- Each is coloured by the shipped deep-zoom colouriser at 0.471 and 0.078 km/px. The ZR frames use the shell's level and
+  morph rule.
+- Three places, picked by inputs: a mountain, a plain and FG's pivot.
+- `bind_r` uses one definition for every frame. A native map at fit has no on/off pair, so B4's `bind_r` had never been
+  measured. The definition is in `metrics.txt`'s header.
+- Prototype choices, all labelled in the harness:
+  - the global quantum `2^-20`;
+  - a burn at the level where the valley width `0.1 * sqrt(A km^2)` spans 2-4 texels, with depth half the local slope
+    times the width;
+  - uplift off for both solvers;
+  - FG's top fade on the band.
+
+**Against the bar.**
+
+- **Land luma gradient (≥ 0.6 of native):**
+  - Against the same-terrain native windows it is met everywhere: 0.63-4.37 for Braun-Willett, 0.59-4.31 for EF-3. On
+    mountains it overshoots 2.8-4.4x.
+  - Against the whole native map at fit it fails at 0.078 on flat ground (0.47-0.49).
+- **`bind_r` (within 0.15 of native):** it fails in 5 of 6 cells for both solvers. ZR gives 0.10-0.25 where native gives
+  0.47-0.59. Only the 0.471 mountain passes (0.39 vs 0.43).
+- **Cost (≤ 30 ms per tile on one PC thread):**
+
+  | Solver | PC, one thread | 6T, one thread |
+  |---|---|---|
+  | Braun-Willett | 20.4 ms (19.5..21.3): passes | 80.7 ms |
+  | EF-3 | 37.0 ms (35.1..38.5): fails | 139.7 ms |
+
+  Colouring one tile costs 61 ms on the PC and 189 ms on the 6T, both on one thread.
+
+**Q1:** Braun-Willett, if anything is built. EF-3 is no better on any measure.
+
+**Why it fails.** The refined tiles are the per-level FG band, and noise dominates them:
+
+- Drainage, the burn and erosion add 4-12 % to the gradient over the steps-2-3-only control.
+- The native maps' km-scale ridge and valley systems have no counterpart. Nothing in a per-tile step creates structure
+  at 5-50 km from a smooth 19.6 km cell.
+- Physical-unit steps fight the renderer's per-map normalisation. One 35° talus pass moved 1.6 M texels on the world
+  mountain at level 8, because the FG amplitude implies slopes steeper than 35° there.
+
+This is R6's case in a stronger form. Closing B4 would need a landform process at coarse refined levels, not a light
+per-tile pass. **No tuning was done to pass.**
+
+**What holds:**
+
+- **Seams:** 0 edge texels off the base at every level; channel continuity 94.7-98.1 %; seam step ratio 1.06-1.21.
+- **Determinism:** identical digests at 1, 4 and 16 threads, and identical on the PC and the OnePlus 6T, for both solvers.
+- **Cold jump:** one level-8 tile needs 41 ancestor tiles (levels 1-7).
+
+**Not measured:** compression, the Pad 3, the app's own process, more seeds.
+
+**Decision:** per §5 ZR-0, ZR-1 does not start. ZR closes with this finding, and the owner decides.

@@ -1,0 +1,189 @@
+ZR-0 of ZOOM_REFINEMENT_SCOPE.md (Ruling FH), 2026-11-16. Harness: cartalith-native/crates/cartalith-godot/tests/zr0_refine.rs
+(#[ignore]d; the prototype chain lives only there). Worlds: seed 1200, 40 075 km / 2048x1024 world mode (19.568 km per cell);
+native 1 200 km and 200 km maps, 1024x512, region mode (the FG sweep maps). Look: Quality tier + Natural Vibrant. Colouriser:
+render::render_biome_tile_rgba_water (the shell's deep-zoom tile colouriser, no river layer, as zoom_detail_ladder.rs).
+
+Frames are 768x768 at 0.471 and 0.078 km/px. native = the native map's own shipped tiles (fg_frame, the shell's level and morph);
+fg_noise = the world's shipped FG tiles at the same km/px (level cap 16); zrbase = the ZR chain's steps 2-3 only (upsample + one
+FG band per level, no drainage or erosion); zrbw / zref3 = the full chain with the Braun-Willett light solver / EF-3 tile_erode.
+The ZR frame is the shell's rule: level round(log2 texels-per-cell) morphed over the level above (0.471: level 5 over 4, morph
+0.958; 0.078: level 8 over 7, morph 0.456).
+
+grad   = mean |grad luma| on input-land pixels (forward differences), the FG findings' grad.
+ratio_vs_native = grad / the same-terrain native window's grad; ratio_vs_native_whole = grad / the whole native map at fit.
+bind_r = ONE definition for every frame (FG's needs an on/off pair; a native map at fit has none, so its B4 bind_r was never
+         measured): Pearson r across 32 px land blocks (>= 90 % land) between std(luma - blur16(luma)) and mean |grad blur16(luma)|.
+Places, picked by inputs: mountain = highest mean coarse local relief window, plain = lowest, among land windows; pivot = the FG
+harness's (0.40, 0.625).
+
+== zr0_bars (PC, all cores) ==
+0.471 n1200_fit_whole        grad  4.852 bind_r  0.45 blocks 1840 land 0.62
+0.471 mountain native       grad  3.425 ratio_vs_native  1.00 ratio_vs_native_whole  0.71 bind_r  0.43 (native  0.43, diff  0.00) blocks  475 land 0.91
+0.471 mountain fg_noise     grad 13.025 ratio_vs_native  3.80 ratio_vs_native_whole  2.68 bind_r  0.21 (native  0.43, diff  0.22) blocks  529 land 1.00
+0.471 mountain zrbase       grad 14.877 ratio_vs_native  4.34 ratio_vs_native_whole  3.07 bind_r  0.39 (native  0.43, diff  0.03) blocks  529 land 1.00
+0.471 mountain zrbase       chain: 74 tiles over levels 1..=5 in 0.14s (all cores); edge texels off the base 0 of 75776; burned 0 texels; talus moved 0
+0.471 mountain zrbw         grad 14.957 ratio_vs_native  4.37 ratio_vs_native_whole  3.08 bind_r  0.39 (native  0.43, diff  0.04) blocks  529 land 1.00
+0.471 mountain zrbw         chain: 74 tiles over levels 1..=5 in 0.23s (all cores); edge texels off the base 0 of 75776; burned 92642 texels; talus moved 7364
+0.471 mountain zrbw         seams level 3: 3x4 tiles, channel texels at seams 3331, continued 3129 (93.9 %), seam step ratio 1.125
+0.471 mountain zrbw         seams level 4: 4x4 tiles, channel texels at seams 5297, continued 5111 (96.5 %), seam step ratio 1.168
+0.471 mountain zrbw         seams level 5: 5x5 tiles, channel texels at seams 11631, continued 11203 (96.3 %), seam step ratio 1.144
+0.471 cold jump to one level-5 tile: ancestors L4:4 L3:6 L2:6 L1:9 (total 25); base-cell cone 404x404 cells
+0.471 mountain zref3        grad 14.775 ratio_vs_native  4.31 ratio_vs_native_whole  3.05 bind_r  0.39 (native  0.43, diff  0.04) blocks  529 land 1.00
+0.471 mountain zref3        chain: 74 tiles over levels 1..=5 in 0.34s (all cores); edge texels off the base 0 of 75776; burned 95669 texels; talus moved 6718
+0.471 mountain zref3        seams level 3: 3x4 tiles, channel texels at seams 3316, continued 3156 (95.2 %), seam step ratio 1.126
+0.471 mountain zref3        seams level 4: 4x4 tiles, channel texels at seams 5175, continued 5004 (96.7 %), seam step ratio 1.162
+0.471 mountain zref3        seams level 5: 5x5 tiles, channel texels at seams 11660, continued 11249 (96.5 %), seam step ratio 1.144
+0.471 plain    native       grad  3.154 ratio_vs_native  1.00 ratio_vs_native_whole  0.65 bind_r  0.48 (native  0.48, diff  0.00) blocks  499 land 0.95
+0.471 plain    fg_noise     grad  2.512 ratio_vs_native  0.80 ratio_vs_native_whole  0.52 bind_r  0.13 (native  0.48, diff  0.34) blocks  529 land 1.00
+0.471 plain    zrbase       grad  3.230 ratio_vs_native  1.02 ratio_vs_native_whole  0.67 bind_r  0.11 (native  0.48, diff  0.37) blocks  529 land 1.00
+0.471 plain    zrbase       chain: 94 tiles over levels 1..=5 in 0.17s (all cores); edge texels off the base 0 of 96256; burned 0 texels; talus moved 0
+0.471 plain    zrbw         grad  3.372 ratio_vs_native  1.07 ratio_vs_native_whole  0.70 bind_r  0.11 (native  0.48, diff  0.36) blocks  529 land 1.00
+0.471 plain    zrbw         chain: 94 tiles over levels 1..=5 in 0.29s (all cores); edge texels off the base 0 of 96256; burned 123982 texels; talus moved 0
+0.471 plain    zrbw         seams level 3: 4x4 tiles, channel texels at seams 2740, continued 2495 (91.1 %), seam step ratio 1.156
+0.471 plain    zrbw         seams level 4: 4x5 tiles, channel texels at seams 5274, continued 5018 (95.1 %), seam step ratio 1.126
+0.471 plain    zrbw         seams level 5: 5x6 tiles, channel texels at seams 14320, continued 13933 (97.3 %), seam step ratio 1.117
+0.471 plain    zref3        grad  3.284 ratio_vs_native  1.04 ratio_vs_native_whole  0.68 bind_r  0.10 (native  0.48, diff  0.38) blocks  529 land 1.00
+0.471 plain    zref3        chain: 94 tiles over levels 1..=5 in 0.46s (all cores); edge texels off the base 0 of 96256; burned 122963 texels; talus moved 0
+0.471 plain    zref3        seams level 3: 4x4 tiles, channel texels at seams 2761, continued 2513 (91.0 %), seam step ratio 1.110
+0.471 plain    zref3        seams level 4: 4x5 tiles, channel texels at seams 5363, continued 5107 (95.2 %), seam step ratio 1.101
+0.471 plain    zref3        seams level 5: 5x6 tiles, channel texels at seams 14215, continued 13922 (97.9 %), seam step ratio 1.110
+0.471 pivot    native       grad  3.108 ratio_vs_native  1.00 ratio_vs_native_whole  0.64 bind_r  0.47 (native  0.47, diff  0.00) blocks  505 land 0.96
+0.471 pivot    fg_noise     grad  2.478 ratio_vs_native  0.80 ratio_vs_native_whole  0.51 bind_r  0.17 (native  0.47, diff  0.30) blocks  529 land 1.00
+0.471 pivot    zrbase       grad  3.229 ratio_vs_native  1.04 ratio_vs_native_whole  0.67 bind_r  0.12 (native  0.47, diff  0.35) blocks  529 land 1.00
+0.471 pivot    zrbase       chain: 82 tiles over levels 1..=5 in 0.14s (all cores); edge texels off the base 0 of 83968; burned 0 texels; talus moved 0
+0.471 pivot    zrbw         grad  3.369 ratio_vs_native  1.08 ratio_vs_native_whole  0.69 bind_r  0.13 (native  0.47, diff  0.34) blocks  529 land 1.00
+0.471 pivot    zrbw         chain: 82 tiles over levels 1..=5 in 0.24s (all cores); edge texels off the base 0 of 83968; burned 113659 texels; talus moved 0
+0.471 pivot    zrbw         seams level 3: 3x4 tiles, channel texels at seams 3427, continued 3103 (90.5 %), seam step ratio 1.081
+0.471 pivot    zrbw         seams level 4: 4x4 tiles, channel texels at seams 6110, continued 5954 (97.4 %), seam step ratio 1.146
+0.471 pivot    zrbw         seams level 5: 5x6 tiles, channel texels at seams 15249, continued 14750 (96.7 %), seam step ratio 1.154
+0.471 pivot    zref3        grad  3.278 ratio_vs_native  1.05 ratio_vs_native_whole  0.68 bind_r  0.14 (native  0.47, diff  0.33) blocks  529 land 1.00
+0.471 pivot    zref3        chain: 82 tiles over levels 1..=5 in 0.37s (all cores); edge texels off the base 0 of 83968; burned 114203 texels; talus moved 0
+0.471 pivot    zref3        seams level 3: 3x4 tiles, channel texels at seams 3473, continued 3170 (91.3 %), seam step ratio 1.092
+0.471 pivot    zref3        seams level 4: 4x4 tiles, channel texels at seams 6208, continued 6067 (97.7 %), seam step ratio 1.141
+0.471 pivot    zref3        seams level 5: 5x6 tiles, channel texels at seams 15567, continued 14945 (96.0 %), seam step ratio 1.159
+0.078 n200_fit_whole        grad  6.511 bind_r  0.35 blocks 1887 land 0.61
+0.078 mountain native       grad  5.083 ratio_vs_native  1.00 ratio_vs_native_whole  0.78 bind_r  0.50 (native  0.50, diff  0.00) blocks  469 land 0.91
+0.078 mountain fg_noise     grad  5.882 ratio_vs_native  1.16 ratio_vs_native_whole  0.90 bind_r  0.48 (native  0.50, diff  0.01) blocks  529 land 1.00
+0.078 mountain zrbase       grad 15.148 ratio_vs_native  2.98 ratio_vs_native_whole  2.33 bind_r  0.02 (native  0.50, diff  0.48) blocks  529 land 1.00
+0.078 mountain zrbase       chain: 141 tiles over levels 1..=8 in 0.26s (all cores); edge texels off the base 0 of 144384; burned 0 texels; talus moved 0
+0.078 mountain zrbw         grad 14.252 ratio_vs_native  2.80 ratio_vs_native_whole  2.19 bind_r  0.15 (native  0.50, diff  0.35) blocks  529 land 1.00
+0.078 mountain zrbw         chain: 141 tiles over levels 1..=8 in 0.43s (all cores); edge texels off the base 0 of 144384; burned 182558 texels; talus moved 1672975
+0.078 mountain zrbw         seams level 6: 4x4 tiles, channel texels at seams 8445, continued 8247 (97.7 %), seam step ratio 1.207
+0.078 mountain zrbw         seams level 7: 5x5 tiles, channel texels at seams 14878, continued 14554 (97.8 %), seam step ratio 1.168
+0.078 mountain zrbw         seams level 8: 7x7 tiles, channel texels at seams 29060, continued 28225 (97.1 %), seam step ratio 1.105
+0.078 cold jump to one level-8 tile: ancestors L7:4 L6:4 L5:6 L4:6 L3:6 L2:6 L1:9 (total 41); base-cell cone 404x404 cells
+0.078 mountain zref3        grad 14.251 ratio_vs_native  2.80 ratio_vs_native_whole  2.19 bind_r  0.14 (native  0.50, diff  0.35) blocks  529 land 1.00
+0.078 mountain zref3        chain: 141 tiles over levels 1..=8 in 0.65s (all cores); edge texels off the base 0 of 144384; burned 184591 texels; talus moved 1554575
+0.078 mountain zref3        seams level 6: 4x4 tiles, channel texels at seams 8477, continued 8278 (97.7 %), seam step ratio 1.205
+0.078 mountain zref3        seams level 7: 5x5 tiles, channel texels at seams 14703, continued 14351 (97.6 %), seam step ratio 1.152
+0.078 mountain zref3        seams level 8: 7x7 tiles, channel texels at seams 29428, continued 27948 (95.0 %), seam step ratio 1.103
+0.078 plain    native       grad  4.901 ratio_vs_native  1.00 ratio_vs_native_whole  0.75 bind_r  0.54 (native  0.54, diff  0.00) blocks  492 land 0.93
+0.078 plain    fg_noise     grad  2.202 ratio_vs_native  0.45 ratio_vs_native_whole  0.34 bind_r  0.18 (native  0.54, diff  0.36) blocks  529 land 1.00
+0.078 plain    zrbase       grad  2.763 ratio_vs_native  0.56 ratio_vs_native_whole  0.42 bind_r  0.20 (native  0.54, diff  0.35) blocks  529 land 1.00
+0.078 plain    zrbase       chain: 142 tiles over levels 1..=8 in 0.26s (all cores); edge texels off the base 0 of 145408; burned 0 texels; talus moved 0
+0.078 plain    zrbw         grad  3.068 ratio_vs_native  0.63 ratio_vs_native_whole  0.47 bind_r  0.20 (native  0.54, diff  0.34) blocks  529 land 1.00
+0.078 plain    zrbw         chain: 142 tiles over levels 1..=8 in 0.44s (all cores); edge texels off the base 0 of 145408; burned 190954 texels; talus moved 0
+0.078 plain    zrbw         seams level 6: 4x4 tiles, channel texels at seams 3338, continued 3099 (92.8 %), seam step ratio 1.166
+0.078 plain    zrbw         seams level 7: 5x5 tiles, channel texels at seams 8164, continued 7850 (96.2 %), seam step ratio 1.139
+0.078 plain    zrbw         seams level 8: 7x7 tiles, channel texels at seams 23061, continued 22308 (96.7 %), seam step ratio 1.195
+0.078 plain    zref3        grad  2.902 ratio_vs_native  0.59 ratio_vs_native_whole  0.45 bind_r  0.25 (native  0.54, diff  0.29) blocks  529 land 1.00
+0.078 plain    zref3        chain: 142 tiles over levels 1..=8 in 0.67s (all cores); edge texels off the base 0 of 145408; burned 192935 texels; talus moved 0
+0.078 plain    zref3        seams level 6: 4x4 tiles, channel texels at seams 3370, continued 3101 (92.0 %), seam step ratio 1.143
+0.078 plain    zref3        seams level 7: 5x5 tiles, channel texels at seams 7728, continued 7392 (95.7 %), seam step ratio 1.091
+0.078 plain    zref3        seams level 8: 7x7 tiles, channel texels at seams 24265, continued 23450 (96.6 %), seam step ratio 1.162
+0.078 pivot    native       grad  4.877 ratio_vs_native  1.00 ratio_vs_native_whole  0.75 bind_r  0.59 (native  0.59, diff  0.00) blocks  496 land 0.94
+0.078 pivot    fg_noise     grad  2.236 ratio_vs_native  0.46 ratio_vs_native_whole  0.34 bind_r  0.14 (native  0.59, diff  0.45) blocks  529 land 1.00
+0.078 pivot    zrbase       grad  2.817 ratio_vs_native  0.58 ratio_vs_native_whole  0.43 bind_r  0.15 (native  0.59, diff  0.44) blocks  529 land 1.00
+0.078 pivot    zrbase       chain: 150 tiles over levels 1..=8 in 0.27s (all cores); edge texels off the base 0 of 153600; burned 0 texels; talus moved 0
+0.078 pivot    zrbw         grad  3.167 ratio_vs_native  0.65 ratio_vs_native_whole  0.49 bind_r  0.17 (native  0.59, diff  0.42) blocks  529 land 1.00
+0.078 pivot    zrbw         chain: 150 tiles over levels 1..=8 in 0.44s (all cores); edge texels off the base 0 of 153600; burned 205053 texels; talus moved 0
+0.078 pivot    zrbw         seams level 6: 4x4 tiles, channel texels at seams 8765, continued 8463 (96.6 %), seam step ratio 1.156
+0.078 pivot    zrbw         seams level 7: 5x5 tiles, channel texels at seams 14788, continued 14524 (98.2 %), seam step ratio 1.156
+0.078 pivot    zrbw         seams level 8: 7x7 tiles, channel texels at seams 24442, continued 23351 (95.5 %), seam step ratio 1.162
+0.078 pivot    zref3        grad  2.946 ratio_vs_native  0.60 ratio_vs_native_whole  0.45 bind_r  0.19 (native  0.59, diff  0.40) blocks  529 land 1.00
+0.078 pivot    zref3        chain: 150 tiles over levels 1..=8 in 0.66s (all cores); edge texels off the base 0 of 153600; burned 206454 texels; talus moved 0
+0.078 pivot    zref3        seams level 6: 4x4 tiles, channel texels at seams 8954, continued 8707 (97.2 %), seam step ratio 1.160
+0.078 pivot    zref3        seams level 7: 5x5 tiles, channel texels at seams 14909, continued 14541 (97.5 %), seam step ratio 1.146
+0.078 pivot    zref3        seams level 8: 7x7 tiles, channel texels at seams 24612, continued 23732 (96.4 %), seam step ratio 1.149
+
+== zr0_determinism (PC): level digests 1..8, 0.078 km/px mountain chain ==
+ZRDET zrbw threads  1: 08def0ec5bbcd510 b6675503407e1b27 ba8a6decb5951fa8 9127374c8d7283a1 6bd0599c946ead33 5b58196d3e16f524 be52bf0923043631 32d65a5fff8ccbff
+ZRDET zrbw threads  4: (identical)
+ZRDET zrbw threads 16: (identical)
+ZRDET zrbw identical across 1/4/16 threads: true
+ZRDET zref3 threads  1: bfe079e3c8fcb0a1 92a67539b33c0059 e254482d084097bb 062cc68d01056556 9309d18191abae84 018ebefda69e35a6 b11b41fcc7f2665b 1a3ce4f91f337675
+ZRDET zref3 threads  4: (identical)
+ZRDET zref3 threads 16: (identical)
+ZRDET zref3 identical across 1/4/16 threads: true
+
+== zr0_timing, PC (16 logical cores, release, run alone), two runs; per land tile at levels 4..8, one thread ==
+run 1: world field fnv 917244718a7af1bd; zrbw level-8 digest c0d13bf7ec28f7ae; zref3 16f0b8df7b45edf1
+step          zrbw run1             zrbw run2             zref3 run1            zref3 run2
+window        0.03 (0.01..0.08)     0.02 (0.01..0.07)     0.02 (0.01..0.07)     0.02 (0.01..0.07)
+upsample      4.14 (3.97..4.90)     4.25 (4.08..4.68)     4.07 (3.86..4.28)     4.19 (4.02..4.59)
+band          6.67 (6.63..6.79)     6.67 (6.63..6.97)     6.65 (6.63..7.34)     6.64 (6.62..7.23)
+fill          3.78 (3.48..4.22)     3.81 (3.54..4.58)     3.73 (3.44..4.80)     3.74 (3.50..4.08)
+tile_flow     1.12 (1.01..1.50)     1.12 (1.07..1.22)     0.99 (0.96..1.24)     0.99 (0.96..1.19)
+burn          0.35 (0.32..0.44)     0.35 (0.32..0.42)     0.34 (0.32..0.40)     0.34 (0.32..0.41)
+erode         2.74 (2.65..2.96)     2.72 (2.63..3.15)     19.91 (18.43..20.57)  19.89 (18.34..20.71)
+talus         0.91 (0.86..1.23)     0.92 (0.86..1.34)     0.88 (0.86..1.18)     0.89 (0.86..1.20)
+taper+quant   0.35 (0.27..0.45)     0.34 (0.27..0.49)     0.27 (0.27..0.37)     0.27 (0.27..0.38)
+WHOLE CHAIN   20.42 (19.49..21.27)  20.47 (19.88..21.12)  36.99 (35.06..38.18)  37.12 (35.13..38.47)
+all threads (16), 141 tiles, wall per tile: zrbw 3.20 / 3.19 ms; zref3 4.67 / 4.53 ms
+colour one 256^2 refined tile, one thread: 61.08 (60.84..62.38) / 61.00 (60.80..62.34) ms over 9
+
+== zr0_timing, OnePlus 6T (adb -s 9608b26b, /data/local/tmp, nohup, two runs 20 s apart; binary deleted after) ==
+-- 6T run 1
+world generated in 24.4s, field fnv 917244718a7af1bd
+ZRTIME zrbw one thread, 114 land tiles at levels 4..=8, level-8 digest c0d13bf7ec28f7ae
+ZRTIME zrbw window       median 0.17 ms (0.15..0.26)
+ZRTIME zrbw upsample     median 14.36 ms (14.20..14.98)
+ZRTIME zrbw band         median 22.95 ms (22.69..23.95)
+ZRTIME zrbw fill         median 11.95 ms (10.97..13.13)
+ZRTIME zrbw tile_flow    median 8.00 ms (7.74..8.27)
+ZRTIME zrbw burn         median 1.91 ms (1.71..2.20)
+ZRTIME zrbw erode        median 13.23 ms (12.47..14.00)
+ZRTIME zrbw talus        median 5.75 ms (5.27..6.50)
+ZRTIME zrbw taper+quant  median 1.15 ms (1.09..1.28)
+ZRTIME zrbw whole chain  median 80.74 ms (78.28..82.72)
+ZRTIME zrbw all threads (8): 141 tiles in 2900 ms, 20.57 ms per tile wall; level-8 digest c0d13bf7ec28f7ae
+ZRTIME colour one 256^2 tile (one thread) median 189.26 ms (187.30..193.03) over 9
+ZRTIME zref3 one thread, 114 land tiles at levels 4..=8, level-8 digest 16f0b8df7b45edf1
+ZRTIME zref3 window       median 0.17 ms (0.16..0.26)
+ZRTIME zref3 upsample     median 14.26 ms (14.15..14.76)
+ZRTIME zref3 band         median 22.93 ms (22.69..23.91)
+ZRTIME zref3 fill         median 11.81 ms (11.02..14.43)
+ZRTIME zref3 tile_flow    median 7.98 ms (7.63..8.26)
+ZRTIME zref3 burn         median 1.94 ms (1.65..2.15)
+ZRTIME zref3 erode        median 72.15 ms (66.94..76.80)
+ZRTIME zref3 talus        median 5.88 ms (5.44..6.74)
+ZRTIME zref3 taper+quant  median 1.18 ms (1.12..1.31)
+ZRTIME zref3 whole chain  median 139.71 ms (132.95..145.15)
+ZRTIME zref3 all threads (8): 141 tiles in 4760 ms, 33.76 ms per tile wall; level-8 digest 16f0b8df7b45edf1
+-- 6T run 2
+world generated in 24.0s, field fnv 917244718a7af1bd
+ZRTIME zrbw one thread, 114 land tiles at levels 4..=8, level-8 digest c0d13bf7ec28f7ae
+ZRTIME zrbw window       median 0.18 ms (0.16..0.28)
+ZRTIME zrbw upsample     median 14.26 ms (14.15..14.55)
+ZRTIME zrbw band         median 22.98 ms (22.69..26.03)
+ZRTIME zrbw fill         median 11.86 ms (11.26..13.32)
+ZRTIME zrbw tile_flow    median 8.05 ms (7.76..8.28)
+ZRTIME zrbw burn         median 1.92 ms (1.71..2.11)
+ZRTIME zrbw erode        median 13.22 ms (12.43..14.21)
+ZRTIME zrbw talus        median 5.87 ms (5.24..7.27)
+ZRTIME zrbw taper+quant  median 1.16 ms (1.11..1.30)
+ZRTIME zrbw whole chain  median 80.77 ms (78.67..84.57)
+ZRTIME zrbw all threads (8): 141 tiles in 2945 ms, 20.88 ms per tile wall; level-8 digest c0d13bf7ec28f7ae
+ZRTIME colour one 256^2 tile (one thread) median 189.55 ms (186.99..193.10) over 9
+ZRTIME zref3 one thread, 114 land tiles at levels 4..=8, level-8 digest 16f0b8df7b45edf1
+ZRTIME zref3 window       median 0.17 ms (0.15..0.22)
+ZRTIME zref3 upsample     median 14.26 ms (14.12..14.70)
+ZRTIME zref3 band         median 22.95 ms (22.64..25.89)
+ZRTIME zref3 fill         median 11.76 ms (10.89..12.74)
+ZRTIME zref3 tile_flow    median 7.99 ms (7.58..9.63)
+ZRTIME zref3 burn         median 1.93 ms (1.67..2.90)
+ZRTIME zref3 erode        median 71.97 ms (66.13..76.29)
+ZRTIME zref3 talus        median 5.81 ms (5.31..6.76)
+ZRTIME zref3 taper+quant  median 1.19 ms (1.11..1.39)
+ZRTIME zref3 whole chain  median 139.58 ms (131.18..144.44)
+ZRTIME zref3 all threads (8): 141 tiles in 4806 ms, 34.09 ms per tile wall; level-8 digest 16f0b8df7b45edf1

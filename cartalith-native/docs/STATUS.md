@@ -50,6 +50,35 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### ZR-0, zoom refinement measure-first (2026-11-16, Ruling FH): MEASURED, verdict NO-GO; no product code changed
+
+- **The harness:** `cartalith-native/crates/cartalith-godot/tests/zr0_refine.rs`, `#[ignore]`d. It holds the §4.1 per-tile chain of `ZOOM_REFINEMENT_SCOPE.md` as test-only prototype code:
+  - parent window;
+  - clamped cubic x2;
+  - one FG band from an integer hash;
+  - fill and `tile_flow` with parent inflow;
+  - the burn;
+  - Braun-Willett or EF-3 `tile_erode`;
+  - talus;
+  - taper and quantise.
+
+  Its three tests are `zr0_bars`, `zr0_timing` and `zr0_determinism`.
+- **Evidence:** `cartalith-native/docs/evidence/zoom-refine-zr0-2026-11-16/` (`VERDICT.md`, `metrics.txt`, six frame sheets, all looked at). The results section is `ZOOM_REFINEMENT_SCOPE.md` §8.
+- **Bar, seed 1200, 40 075 km / 2048 world against the native 1 200 km and 200 km maps, at 0.471 and 0.078 km/px:**
+  - The land luma gradient is ≥ 0.6 of the same-terrain native window in every cell, but overshoots on mountains (2.8-4.4x). Against the whole native map at 0.078 on flat ground it reaches only 0.47-0.49.
+  - `bind_r` is within 0.15 of native in only 1 of 6 cells, for both solvers (ZR 0.10-0.25 against native 0.47-0.59).
+  - Cost on one PC thread: Braun-Willett 20.4 ms (19.5..21.3), which passes; EF-3 37.0 ms (35.1..38.5), which fails.
+  - So: **no-go**.
+- **Other measured results:**
+  - **6T, one thread:** Braun-Willett 80.7 ms, EF-3 139.7 ms per tile.
+  - **Colouring one tile:** 61 ms on the PC, 189 ms on the 6T.
+  - **Seams:** 0 edge texels off the base; channel continuity 94.7-98.1 %.
+  - **Determinism:** identical digests at 1, 4 and 16 threads, and identical on the PC and the 6T.
+- **Cause, from the frames:** the refined detail is the per-level noise band. Drainage and erosion add 4-12 % to it, and nothing per tile builds the native maps' km-scale ridge and valley systems.
+- **Not measured:** compression, the Pad 3, the app's own process, more seeds.
+- **Next:** an owner decision (`OUTSTANDING_WORK.md`, the World emboss row).
+- **Gate:** `cargo test --workspace --no-fail-fast` on this change: 279 result lines, 8 529 passed, 1 failed (the known `cartalith-llm` `ac1_static_sources` red), 185 ignored.
+
 ### Terrain detail follows the viewed scale (2026-11-16, Ruling FG, F1-F3 of `WORLD_EMBOSS_FINDINGS_2026-11-15.md`): BUILT, measured before and after in the windowed shell, mutants killed, frames looked at; B6, B7, B8 met, B2 and B3 partly, B1, B4 and the x4 leg of B5 not met (below)
 
 *Opened at the symbols first: `amplify::KmZoomDetail`, `km_zoom_detail_sum`, `km_relief_taper`, `add_zoom_detail_padded`, `sample_elevation`; `render::tile_amplify_opts`, `zoom_detail_km_law`, `land_grain`, `TileCryo::delta_t`; `lod_bridge::MAX_LEVEL`, `level_for_zoom`; `WorldGen::lod_max_level`, `lod_budget`; `viewport_host.gd::_update_lod`, `_refresh_lod_blend`.*
