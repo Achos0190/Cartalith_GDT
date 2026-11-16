@@ -9,6 +9,7 @@ Source documents (read them for the full evidence; this file summarises and link
 
 | Document | What it holds |
 |---|---|
+| `TERRAIN_COMPUTE_METHODS_RESEARCH.md` | sourced cheaper-method research for §10, §10a and §7: erosion, depression filling, climate, detail synthesis, tiling, storage, GPU determinism, with licences and exact-versus-§7p verdicts |
 | `WORLD_EMBOSS_FINDINGS_2026-11-15.md` (`f7afcc79`) | the diagnosis, the width sweep, the three culprits, bars B1-B8 |
 | `cartalith-native/docs/evidence/world-emboss-2026-11-15/` | on/off frames per width, `metrics.txt` |
 | `cartalith-native/docs/evidence/world-emboss-fg-2026-11-16/` (`a673a1df`) | the Ruling FG build: bars before/after, deep-zoom frames |
