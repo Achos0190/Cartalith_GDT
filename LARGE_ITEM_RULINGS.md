@@ -3814,3 +3814,10 @@ Owner, on the world/region emboss difference: *"with the LOD scaling mechanism [
 - **F2** LOD depth counted in ground metres (finest about 10-20 m on any map), within a measured memory and time budget.
 - **F3** `land_grain` lattices keyed to km with a ceiling, fading on low relief at far zoom.
 Bars B1-B8 as in the findings (width invariance, terrain binding, flat land smooth, equal-km/px equivalence, zoom always gains detail, anchor kept, no noise snow, no mottle).
+
+## Ruling FH: zoom refinement depth, saving refined layers, disk cap (owner, 2026-11-16)
+
+Answers to `ZOOM_REFINEMENT_SCOPE.md`'s questions:
+1. **Depth: as deep as the LOD goes** (to about 2 m texels on a 40 075 km world), not stopping at about 15-20 m. Owner, verbatim: *"but a user should be asked at saving the project how many layers they want to save. A calculation should warn them about the approximate size"*. So refined tiles **can** go into a save (overrides the scope's Q7 default "no"): on save, the user picks how many refined levels to include, with an estimated size shown before saving.
+2. **Disk cap: a user setting** in Preferences, defaulting to the scope's values (2 GB desktop, 512 MB phone), refined tiles evicted before user bakes.
+3. **Start with ZR-0** (measure, go/no-go) before building the rest; other questions keep the scope's defaults until the owner says otherwise.
