@@ -548,9 +548,11 @@ func _sm4() -> void:
 	_check("card: Open in city viewer… replaces Open city layout",
 		String(_row_id(rows, "civ.open_city_layout").get("label", "")) == "Open in city viewer…",
 		String(_row_id(rows, "civ.open_city_layout").get("label", "")))
-	var vn := String(_row_id(rows, "civ.vault_note").get("label", ""))
-	_check("card: the note row reads Open note for / Attach note to (no 'vault')",
-		vn == "Open note for %s" % nm or vn == "Attach note to %s…" % nm, vn)
+	## Ruling FJ: the settlement's note is ONE row, `note.open` (the retired `civ.vault_note` and its "Attach note to X…" are gone),
+	## reading `Note…` while no note is linked and `Open note` once one is.
+	var vn := String(_row_id(rows, "note.open").get("label", ""))
+	_check("card: the one note row reads Note… / Open note, and civ.vault_note is gone",
+		(vn == "Note…" or vn == "Open note") and _row_id(rows, "civ.vault_note").is_empty(), vn)
 	var ev := _row_id(rows, "civ.add_event")
 	_check("card: Add event is in Place here", String(ev.get("section", "")) == "place", str(ev.get("section")))
 	if not phone:
@@ -610,7 +612,7 @@ func _sm4() -> void:
 		pm.peek_card(req, rows, Callable())
 		await _frames(6)
 		var chips: PackedStringArray = pm.peek_chip_labels()
-		var note_chip := "Open note" if vn.begins_with("Open note") else "Attach note"
+		var note_chip := "Open note" if vn.begins_with("Open note") else "Note"
 		_check("phone peek chips are the four story verbs in A8's order",
 			Array(chips) == [note_chip, "Add event", "Journey from here", "City viewer"], str(chips))
 		await _shot("peek")

@@ -175,6 +175,16 @@ func _detail_text() -> String:
 	return (d as Label).text if d is Label else ""
 
 
+func _find_button(root: Node, prefix: String) -> Button:
+	for ch in root.get_children():
+		if ch is Button and String((ch as Button).text).to_lower().begins_with(prefix.to_lower()) and (ch as Button).is_visible_in_tree():
+			return ch
+		var r := _find_button(ch, prefix)
+		if r != null:
+			return r
+	return null
+
+
 func _vault_rows() -> Array:
 	var out: Array = []
 	for r in app.context_broker.last_actions:
@@ -404,8 +414,8 @@ func _leg_b(li: int, tip: Vector2, r: float) -> void:
 		and app._selection_back.size() == back0 + 1, "%s back %d->%d" % [app.selection, back0, app._selection_back.size()])
 	_ok("B1: the card has a NOTE band", _find_row("band", "NOTE") != null, str(_card_texts()))
 	var vr := _vault_rows()
-	_ok("B1: with no vault the note row is disabled and says why", vr.size() == 1 and not bool(vr[0].get("enabled", true))
-		and String(vr[0].get("reason", "")).contains("No vault folder"), str(vr))
+	_ok("B1: with no vault the card has ONE note row, Note…, enabled (Ruling FJ)", vr.size() == 1 and bool(vr[0].get("enabled", false))
+		and String(vr[0].get("label", "")) == "Note…" and String(vr[0].get("detail", "")).contains("No vault folder"), str(vr))
 	await _close_card()
 
 	## A vault: the card offers Create note.
@@ -418,8 +428,8 @@ func _leg_b(li: int, tip: Vector2, r: float) -> void:
 	_ok("B2: the pin is white with no linked note (%s)" % white, white.r > 0.92 and white.g > 0.9 and white.b > 0.86)
 	await _click(head)
 	_ok("B2: the card opens again", _card_open())
-	var cr = _find_row("action", "Create note")
-	_ok("B2: the Note section offers Create note...", cr != null, str(_card_texts()))
+	var cr = _find_row("action", "Note…")
+	_ok("B2: the Note section offers the one Note… row", cr != null and _find_row("action", "Create note") == null and _find_row("action", "Attach note") == null, str(_card_texts()))
 	_ok("B2: its detail says the landmark has no note yet", _detail_text().contains("no note yet"), _detail_text())
 	await _shot("cl23_card_%s.png" % ("touch" if _touch else "desk"))
 	if cr == null:
@@ -429,22 +439,21 @@ func _leg_b(li: int, tip: Vector2, r: float) -> void:
 	var c = _card()
 	await _click_host((cr["node"] as Control).get_global_rect().get_center() + Vector2(c.position))
 	await _frames(6)
-	var note = app.context_broker._note
-	var d: Dictionary = note._last_dialog
-	_ok("B3: pressing it opens the Create note dialog", not d.is_empty() and (d["dialog"] as Window).visible)
-	if d.is_empty():
-		return
-	var fp: Dictionary = d["chooser"]
-	_ok("B3: the dialog has the folder chooser (Lore is offered)", (fp["tree"] as Tree).get_root() != null)
-	(fp["select"] as Callable).call("Lore")
-	await _frames(3)
-	var edit := d["field"] as LineEdit
-	_ok("B3: choosing Lore rewrites the path into Lore/", edit.text.begins_with("Lore/"), edit.text)
-	var rel := edit.text
 	var eid := int((_bridge.landmark_names()[li] as Dictionary)["id"])
-	((d["dialog"] as ConfirmationDialog).get_ok_button()).pressed.emit()
+	var vw = app.vault_window
+	_ok("B3: pressing it opens the vault on this landmark (Ruling FJ)", vw.visible and String(vw._kind) == "landmark" and int(vw._entity_id) == eid, "%s %s" % [vw._kind, vw._entity_id])
+	var cb: Button = _find_button(vw, "Create ")
+	_ok("B3: the vault's place panel offers Create (with the folder chooser)", cb != null and vw.find_child("VaultPlaceNotes", true, false) != null)
+	if cb == null:
+		return
+	cb.pressed.emit()
 	await _frames(8)
-	_ok("B3: the note is on disk in Lore", FileAccess.file_exists(_root + "/" + rel), _root + "/" + rel)
+	var rel := ""
+	var got_links: Array = _bridge.vault_links_for("landmark", eid)
+	if got_links.size() == 1:
+		rel = String((got_links[0] as Dictionary).get("path", ""))
+	vw.hide()
+	_ok("B3: the note is on disk", rel != "" and FileAccess.file_exists(_root + "/" + rel), _root + "/" + rel)
 	var links: Array = _bridge.vault_links_for("landmark", eid)
 	_ok("B3: it is bound to the landmark", links.size() == 1 and String((links[0] as Dictionary).get("path", "")) == rel, str(links))
 	_ok("B3: the overlay now says the landmark has a note", _ov.landmark_has_note(li))
@@ -456,14 +465,15 @@ func _leg_b(li: int, tip: Vector2, r: float) -> void:
 	## Open: the card shows the note, and Open shows the Note tab.
 	await _click(head)
 	var orow = _find_row("action", "Open note")
-	_ok("B4: the card now offers Open note with the note's title", orow != null and String(orow["text"]).contains(String((_bridge.landmark_names()[li] as Dictionary)["name"])), str(_card_texts()))
+	_ok("B4: the card now offers Open note, the detail line giving the note's title", orow != null and String(orow["text"]) == "Open note" and _detail_text().contains(String((_bridge.landmark_names()[li] as Dictionary)["name"])), str(_card_texts()) + _detail_text())
 	_ok("B4: the snippet line is present", _detail_text() != "", _detail_text())
 	if orow != null:
 		c = _card()
 		await _click_host((orow["node"] as Control).get_global_rect().get_center() + Vector2(c.position))
 		await _frames(8)
-		_ok("B4: Open shows the Context panel's Note tab", String(app.right_dock_ctrl._tab) == "note", str(app.right_dock_ctrl._tab))
-		_ok("B4: the note is the one created", String(app.vault_window.docked_path()) == rel or app.vault_window.visible, str(app.vault_window.docked_path()))
+		_ok("B4: Open shows the vault on this landmark (Ruling FJ: no longer the Note tab)", app.vault_window.visible and String(app.vault_window._kind) == "landmark", str(app.vault_window._kind))
+		_ok("B4: and its note is the one created", app.vault_window._pick_file == rel, str(app.vault_window._pick_file))
+		app.vault_window.hide()
 	await _close_card()
 
 
@@ -533,14 +543,14 @@ func _leg_d(li: int, tip: Vector2, r: float, form: String) -> void:
 	if rows.is_empty():
 		_ok("D2: a hold builds the Note section", false, "no note rows: card open %s, hits %s, ids %s" % [_card_open(), str(app.context_broker.last_request.get("hits")), str(app.context_broker.last_actions.map(func(a): return a.get("id")))])
 		return
-	_ok("D2: a hold builds the card's Note section (Create note...)", rows.size() == 1 and String(rows[0]["label"]).begins_with("Create note"), str(rows))
+	_ok("D2: a hold builds the card's Note section (the one Note… row)", rows.size() == 1 and String(rows[0]["label"]) == "Note…", str(rows))
 	if DccTheme.is_phone():
 		var pm = app._phone_menu
 		_ok("D2: the peek sheet is open", pm.peek_card_is_open())
 		pm._set_peek_detent("half", false)
 		await _frames(4)
 		var labels = pm.peek_full_row_labels()
-		_ok("D2: the sheet's list has Create note...", "Create note…" in labels, str(labels))
+		_ok("D2: the sheet's list has Note… once and no Create note…", Array(labels).count("Note…") == 1 and not ("Create note…" in labels), str(labels))
 		await _shot("cl23_peek_%s.png" % form)
 		await pm._dismiss_peek_card()
 	else:
@@ -549,18 +559,21 @@ func _leg_d(li: int, tip: Vector2, r: float, form: String) -> void:
 	## Create through the row's own callable (the sheet is a separate widget set; the tablet's card row is the same callable).
 	(rows[0]["callable"] as Callable).call()
 	await _frames(8)
-	var d: Dictionary = app.context_broker._note._last_dialog
-	_ok("D3: Create note opens the dialog", not d.is_empty() and (d["dialog"] as Window).visible)
-	if d.is_empty():
-		return
-	var fp: Dictionary = d["chooser"]
-	(fp["select"] as Callable).call("Lore")
-	var rel := String((d["field"] as LineEdit).text)
 	var eid := int((_bridge.landmark_names()[li] as Dictionary)["id"])
-	_ok("D3: the touch dialog's controls are at least 44 px", (fp["new_button"] as Button).custom_minimum_size.y >= 44.0 and (d["field"] as LineEdit).custom_minimum_size.y >= 44.0)
-	((d["dialog"] as ConfirmationDialog).get_ok_button()).pressed.emit()
+	var vw = app.vault_window
+	_ok("D3: Note… opens the vault on this landmark", vw.visible and String(vw._kind) == "landmark" and int(vw._entity_id) == eid)
+	var cb: Button = _find_button(vw, "Create ")
+	_ok("D3: the place panel offers Create", cb != null)
+	if cb == null:
+		return
+	cb.pressed.emit()
 	await _frames(8)
-	_ok("D3: the note is on disk in Lore", FileAccess.file_exists(_root + "/" + rel), rel)
+	var rel := ""
+	var got_links: Array = _bridge.vault_links_for("landmark", eid)
+	if got_links.size() == 1:
+		rel = String((got_links[0] as Dictionary).get("path", ""))
+	vw.hide()
+	_ok("D3: the note is on disk", rel != "" and FileAccess.file_exists(_root + "/" + rel), rel)
 	_ok("D3: and bound to the landmark", _bridge.vault_links_for("landmark", eid).size() == 1)
 	await _close_card()
 	var orange := await _pixel(head + Vector2(r * 0.85, 0.0))
@@ -569,7 +582,7 @@ func _leg_d(li: int, tip: Vector2, r: float, form: String) -> void:
 	await get_tree().create_timer(1.2).timeout
 	await _hold(head)
 	rows = _vault_rows()
-	_ok("D4: after the create a hold shows Open note · title", rows.size() == 1 and String(rows[0]["label"]).begins_with("Open note"), str(rows))
+	_ok("D4: after the create a hold shows Open note", rows.size() == 1 and String(rows[0]["label"]) == "Open note", str(rows))
 	await _close_card()
 
 

@@ -137,6 +137,8 @@ var _reader_edit: TextEdit
 
 ## The New-note-from-a-template picker's current template (VA-02).
 var _pick_template := ""
+## `_pick_template`'s value for the blank note (Ruling FJ); a template's own value is its vault-relative path, never this.
+const BLANK_TEMPLATE := "(blank)"
 
 ## The picked note (the tree's selection, and the note pane's subject) and
 ## the section an attach copies ("" = the whole document).
@@ -1019,11 +1021,11 @@ func _build_note_data(parent: Control, data: Dictionary, empty_note: String) -> 
 ## heading says which applied.
 func _build_create(parent: Control, open: bool = false) -> void:
 	var templates := bridge.vault_templates()
-	if templates.is_empty():
-		return
-	var sec := DccWidgets.group(parent, "New note from a template", open)
+	## Ruling FJ: a vault with no templates (Cartalith ships none) still offers a **blank note**, as the Note tab and the card's
+	## retired Create dialog did, so the place's panel can always create. The first choice is always `(blank note)` (rel `""`).
+	var sec := DccWidgets.group(parent, "New note from a template" if not templates.is_empty() else "New note", open)
 	var src := bridge.vault_template_source()
-	if bool(src.get("ok", false)):
+	if not templates.is_empty() and bool(src.get("ok", false)):
 		var src_label := DccTheme.label(String(src.get("describe", "")), "text_ghost", DccTheme.FS_SMALL)
 		src_label.name = "TemplateSource"
 		src_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1035,7 +1037,10 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		var d: Dictionary = t
 		labels.append(String(d.get("label", "?")))
 		rels.append(String(d.get("rel", "")))
-	if _pick_template == "" or not rels.has(_pick_template):
+	labels.append("(blank note)")
+	rels.append(BLANK_TEMPLATE)
+	## The first template stays the default (as before); a vault with none defaults to the blank note.
+	if not rels.has(_pick_template):
 		_pick_template = String(rels[0])
 	DccWidgets.choice(sec, "Template", labels, maxi(0, rels.find(_pick_template)),
 		func(i: int): _pick_template = String(rels[i]),
@@ -1066,7 +1071,8 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		if fp["folder"].call() == null:
 			app.set_status("hint", "Name the new folder, or pick an existing one.", "accent")
 			return
-		var r := bridge.vault_create_from_template(_pick_template, rel, _entity_label)
+		var r: Dictionary = (bridge.vault_create_file(rel, "# %s\n" % _entity_label) if _pick_template == BLANK_TEMPLATE
+			else bridge.vault_create_from_template(_pick_template, rel, _entity_label))
 		if not bool(r.get("ok", false)):
 			app.set_status("hint", "Create: %s" % String(r.get("error", "refused")), "accent")
 			_rebuild()
@@ -1079,7 +1085,8 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		if bool(a.get("ok", false)):
 			_reader_link = String(a.get("link_id", ""))
 			store_changed.emit()
-			app.set_status("hint", "%s created from %s and linked to %s." % [rel, _pick_template, _entity_label], "text")
+			app.set_status("hint", (("%s created and linked to %s." % [rel, _entity_label]) if _pick_template == BLANK_TEMPLATE
+				else ("%s created from %s and linked to %s." % [rel, _pick_template, _entity_label])), "text")
 		else:
 			app.set_status("hint", "%s created, but could not be linked: %s" % [rel, String(a.get("error", ""))], "accent")
 		_pick_file = rel
@@ -1253,6 +1260,9 @@ func _build_browse_search(parent: Control) -> void:
 ## (read-only until Open to edit), then the collapsed **More**. An entity
 ## opened with no note gets its attach flow in the note's place.
 func _build_note_pane(parent: Control) -> void:
+	## Ruling FJ: opened on a place, the pane leads with the place's own notes panel (create, attach, unlink, the linked notes).
+	if _kind != "":
+		_build_place_notes(parent)
 	if _pick_file == "":
 		if _kind != "":
 			_build_attach_flow_empty(parent)
@@ -1267,14 +1277,62 @@ func _build_note_pane(parent: Control) -> void:
 	_build_more(parent)
 
 
+## **The place's notes panel** (Ruling FJ, owner 2026-11-16: the card's two note rows became one that "should maybe just open
+## the vault and have these options in detail there"). Shown at the head of the note pane whenever the window is scoped to a
+## place (`_kind != ""`), whether or not a note is linked. It holds, and only reuses what the window already had:
+##   - the place's linked notes (`vault_links_for`): a button per note that picks it, with its **Unlink** (`vault_detach`, the
+##     link only; the file is never touched, the same call the Attached to block's Detach makes);
+##   - **New note...**: the existing template form (`_build_create`, with `VaultFolderPick`'s folder chooser), open while none is linked;
+##   - **Attach an existing note...**: shows the file tree (the phone folds to its FILES pane; wider windows focus the search
+##     field) so a note can be picked, whose Attached to block then offers Attach to this place (`_attach_entity`).
+## Never writes a note's text, and never creates anything but through `_build_create`'s own button.
+func _build_place_notes(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Notes for %s" % _entity_label)
+	sec.name = "VaultPlaceNotes"
+	var links: Array = bridge.vault_links_for(_kind, _entity_id)
+	if links.is_empty():
+		DccWidgets.note(sec, "No note is linked to %s yet." % _entity_label)
+	for l in links:
+		var d: Dictionary = l
+		var rel := String(d.get("path", ""))
+		var lid := String(d.get("link_id", ""))
+		var row := HBoxContainer.new()
+		row.name = "PlaceNoteRow"
+		row.set_meta("rel", rel)
+		row.add_theme_constant_override("separation", 6)
+		sec.add_child(row)
+		var open_b := DccWidgets.action(row, rel.get_file(), func(): _select_file(rel))
+		open_b.name = "PlaceNoteOpen"
+		open_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		open_b.tooltip_text = "Opens %s." % rel
+		var un := DccWidgets.action(row, "Unlink", func():
+			bridge.vault_detach(lid)
+			if lid == _reader_link:
+				_reader_link = ""
+			store_changed.emit()
+			app.set_status("hint", "%s unlinked from %s." % [rel.get_file(), _entity_label], "text")
+			_rebuild())
+		un.name = "PlaceNoteUnlink"
+		un.tooltip_text = "Detaches this note from %s. The note itself is not changed or deleted." % _entity_label
+	var att := DccWidgets.action(sec, "Attach an existing note…", func():
+		if _one_pane():
+			_browse_phone_pane = "tree"
+			_rebuild()
+		elif _search_field != null and is_instance_valid(_search_field):
+			_search_field.grab_focus()
+		app.set_status("hint", "Pick a note in the tree; its Attached to block then offers Attach to %s." % _entity_label, "text"))
+	att.name = "PlaceAttachExisting"
+	att.tooltip_text = "Pick any note in the vault and link it to %s." % _entity_label
+	_build_create(sec, links.is_empty())
+
+
 ## `open_for()` on an entity with no note yet: what to do about it, in the
 ## note's own place, plus the template flow (the one act that needs no note to
 ## exist first).
 func _build_attach_flow_empty(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Attach a note")
 	sec.name = "VaultAttachFlow"
-	DccWidgets.note(sec, "%s has no note attached yet. Pick one in the tree -- its Attached to block then offers Attach to %s -- or start a new one from a template." % [_entity_label, _entity_label])
-	_build_create(sec, true)
+	DccWidgets.note(sec, "%s has no note attached yet. Use Notes for %s above: create one, or attach an existing one." % [_entity_label, _entity_label])
 
 
 ## True while the note pane is the Markdown editor on the picked file.
@@ -3749,8 +3807,7 @@ func _build_more(parent: Control) -> void:
 		## view offers it with no note attached.
 		if _kind != "":
 			_build_snapshots(more)
-	if _kind != "" and _pick_file != "":
-		_build_create(more)
+	## (A place's create-from-template form is `_build_place_notes`'s, Ruling FJ; it is no longer repeated here.)
 	_build_write_prefs(more)
 	_build_index(more)
 	var vs := DccWidgets.section(more, "Vault")

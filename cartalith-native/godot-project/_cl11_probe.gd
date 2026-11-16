@@ -187,6 +187,16 @@ func _action(id: String) -> Variant:
 	return null
 
 
+func _find_button(root: Node, prefix: String) -> Button:
+	for ch in root.get_children():
+		if ch is Button and String((ch as Button).text).to_lower().begins_with(prefix.to_lower()) and (ch as Button).is_visible_in_tree():
+			return ch
+		var r := _find_button(ch, prefix)
+		if r != null:
+			return r
+	return null
+
+
 func _vault_rows() -> Array:
 	var out: Array = []
 	for r in app.context_broker.last_actions:
@@ -486,8 +496,8 @@ func _leg_b() -> void:
 	_ok("B1: the click selected it, one history step", app.selection == {"kind": "poi", "id": 0} and app._selection_back.size() == back0 + 1, str(app.selection))
 	_ok("B1: the card has a NOTE band", _find_row("band", "NOTE") != null, str(_card_texts()))
 	var vr := _vault_rows()
-	_ok("B1: with no vault the note row is disabled and says why", vr.size() == 1 and not bool(vr[0].get("enabled", true))
-		and String(vr[0].get("reason", "")).contains("No vault folder"), str(vr))
+	_ok("B1: with no vault the card has ONE note row, Note…, enabled (Ruling FJ: it opens the vault, where a folder is connected)", vr.size() == 1
+		and bool(vr[0].get("enabled", false)) and String(vr[0].get("label", "")) == "Note…" and String(vr[0].get("id", "")) == "note.open", str(vr))
 	var ids := _action_ids()
 	_ok("B1: edit-from-context rows: Rename, Move, Change kind, Delete", ids.has("el.poi_rename") and ids.has("el.poi_move") and ids.has("el.poi_kind") and ids.has("el.poi_delete"), str(ids))
 	await _shot("cl11_card_desk.png")
@@ -498,27 +508,27 @@ func _leg_b() -> void:
 	_ok("B2: the throw-away vault binds", bool(_bridge.vault_connect(_root, "Chronicle").get("ok", false)))
 	_ov.invalidate_pin_notes()
 	await _click(head)
-	var cr = _find_row("action", "Create note")
-	_ok("B2: the card offers Create note...", cr != null, str(_card_texts()))
+	var cr = _find_row("action", "Note…")
+	_ok("B2: the card offers the one Note… row", cr != null and _find_row("action", "Create note") == null and _find_row("action", "Attach note") == null, str(_card_texts()))
 	if cr == null:
 		return
 	var c = _card()
 	await _click_host((cr["node"] as Control).get_global_rect().get_center() + Vector2(c.position))
-	await _frames(6)
-	var d: Dictionary = app.context_broker._note._last_dialog
-	_ok("B3: the Create dialog opens with the folder chooser", not d.is_empty() and (d["dialog"] as Window).visible and (d["chooser"]["tree"] as Tree).get_root() != null)
-	if d.is_empty():
-		return
-	(d["chooser"]["select"] as Callable).call("Lore")
-	await _frames(3)
-	var rel := String((d["field"] as LineEdit).text)
-	_ok("B3: the path is in Lore/ and names the POI", rel.begins_with("Lore/") and rel.contains("Gilded"), rel)
-	((d["dialog"] as ConfirmationDialog).get_ok_button()).pressed.emit()
 	await _frames(8)
-	_ok("B3: the note is on disk", FileAccess.file_exists(_root + "/" + rel), rel)
+	var vw = app.vault_window
+	_ok("B3: pressing it opens the vault on this POI (Ruling FJ)", vw.visible and String(vw._kind) == "poi" and int(vw._entity_id) == int(_ids["a"]), "%s %s" % [vw._kind, vw._entity_id])
+	var cb: Button = _find_button(vw, "Create ")
+	_ok("B3: the vault's place panel offers Create with the folder chooser", cb != null and vw.find_child("VaultPlaceNotes", true, false) != null)
+	if cb == null:
+		return
+	cb.pressed.emit()
+	await _frames(8)
 	var links: Array = _bridge.vault_links_for("poi", int(_ids["a"]))
-	_ok("B3: it is bound to the POI's stored id", links.size() == 1 and String((links[0] as Dictionary).get("path", "")) == rel, str(links))
+	var rel := String((links[0] as Dictionary).get("path", "")) if links.size() == 1 else ""
+	_ok("B3: the note is on disk, in the suggested folder, and names the POI", rel != "" and FileAccess.file_exists(_root + "/" + rel) and rel.contains("Gilded"), rel)
+	_ok("B3: it is bound to the POI's stored id", links.size() == 1, str(links))
 	_ok("B3: the overlay says the POI has a note", _ov.poi_has_note(_bridge.poi_get(0)))
+	vw.hide()
 	_ids["rel"] = rel
 	await _close_card()
 	var orange := await _pixel(head + Vector2(r * 0.85, 0.0))
@@ -532,12 +542,13 @@ func _leg_b() -> void:
 	await _shot("cl11_orange_desk.png")
 	await _click(head)
 	var orow = _find_row("action", "Open note")
-	_ok("B4: the card now offers Open note", orow != null, str(_card_texts()))
+	_ok("B4: the card now offers Open note (the one row)", orow != null and _find_row("action", "Note…") == null, str(_card_texts()))
 	if orow != null:
 		c = _card()
 		await _click_host((orow["node"] as Control).get_global_rect().get_center() + Vector2(c.position))
 		await _frames(8)
-		_ok("B4: Open shows the Context panel's Note tab", String(app.right_dock_ctrl._tab) == "note", str(app.right_dock_ctrl._tab))
+		_ok("B4: Open shows the vault on this POI (Ruling FJ: it no longer shows the Note tab)", app.vault_window.visible and String(app.vault_window._kind) == "poi", str(app.vault_window._kind))
+		app.vault_window.hide()
 	await _close_card()
 	var rd = app.right_dock_ctrl
 	_ok("B5: the Context panel shows the POI (Inspect page title)", rd.shown_subject() == {"kind": "poi", "id": 0}, str(rd.shown_subject()))
@@ -982,7 +993,7 @@ func _leg_touch(form: String) -> void:
 	if rows.is_empty():
 		_ok("T2: a hold builds the Note section", false, "card %s hits %s" % [_card_open(), str(app.context_broker.last_request.get("hits"))])
 		return
-	_ok("T2: a hold builds the card's Note section (Create note...)", rows.size() == 1 and String(rows[0]["label"]).begins_with("Create note"), str(rows))
+	_ok("T2: a hold builds the card's Note section (the one Note… row)", rows.size() == 1 and String(rows[0]["label"]) == "Note…", str(rows))
 	var ids := _action_ids()
 	_ok("T2: the hold's rows carry Rename, Move, Change kind and Delete", ids.has("el.poi_rename") and ids.has("el.poi_move") and ids.has("el.poi_kind") and ids.has("el.poi_delete"), str(ids))
 	if DccTheme.is_phone():
@@ -990,7 +1001,7 @@ func _leg_touch(form: String) -> void:
 		_ok("T2: the peek sheet is open", pm.peek_card_is_open())
 		pm._set_peek_detent("half", false)
 		await _frames(4)
-		_ok("T2: the sheet's list has Create note...", "Create note…" in pm.peek_full_row_labels())
+		_ok("T2: the sheet's list has Note… once", Array(pm.peek_full_row_labels()).count("Note…") == 1 and not ("Create note…" in pm.peek_full_row_labels()))
 		await _shot("cl11_peek_%s.png" % form)
 		await pm._dismiss_peek_card()
 	else:
@@ -998,14 +1009,16 @@ func _leg_touch(form: String) -> void:
 		await _shot("cl11_card_%s.png" % form)
 	(rows[0]["callable"] as Callable).call()
 	await _frames(8)
-	var d: Dictionary = app.context_broker._note._last_dialog
-	_ok("T3: Create note opens the dialog", not d.is_empty() and (d["dialog"] as Window).visible)
-	if d.is_empty():
+	var vw = app.vault_window
+	_ok("T3: Note… opens the vault on this POI", vw.visible and String(vw._kind) == "poi" and int(vw._entity_id) == a)
+	var cb: Button = _find_button(vw, "Create ")
+	_ok("T3: the place panel offers Create", cb != null)
+	if cb == null:
 		return
-	(d["chooser"]["select"] as Callable).call("Lore")
-	((d["dialog"] as ConfirmationDialog).get_ok_button()).pressed.emit()
+	cb.pressed.emit()
 	await _frames(8)
 	_ok("T3: bound to the POI", _bridge.vault_links_for("poi", a).size() == 1)
+	vw.hide()
 	await _close_card()
 	var orange := await _pixel(head + Vector2(r * 0.85, 0.0))
 	_ok("T3: the pin is orange (%s)" % orange, _is_orange(orange))
@@ -1013,7 +1026,7 @@ func _leg_touch(form: String) -> void:
 	await get_tree().create_timer(1.2).timeout
 	await _hold(head)
 	rows = _vault_rows()
-	_ok("T4: after the create a hold shows Open note", rows.size() == 1 and String(rows[0]["label"]).begins_with("Open note"), str(rows))
+	_ok("T4: after the create a hold shows Open note", rows.size() == 1 and String(rows[0]["label"]) == "Open note", str(rows))
 	## Move through the card's row, then undo, on touch.
 	var mv = _action("el.poi_move")
 	await _close_card()

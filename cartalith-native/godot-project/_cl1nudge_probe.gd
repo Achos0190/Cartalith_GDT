@@ -805,7 +805,7 @@ func _leg_v(unused: bool) -> void:
 		_ok("V8: a left click on a pin selects the POI", app.selection == {"kind": "poi", "id": int(ids[1])}, str(app.selection))
 		_ok("V8: and opens the card", _card_open())
 		var rows := _vault_rows()
-		_ok("V8: with a NOTE section: Create note...", _find_row("band", "NOTE") != null and rows.size() == 1 and String(rows[0]["label"]).begins_with("Create note"), str(_card_texts()))
+		_ok("V8: with a NOTE section holding the one Note… row (Ruling FJ)", _find_row("band", "NOTE") != null and rows.size() == 1 and String(rows[0]["label"]) == "Note…", str(_card_texts()))
 		var hits: Array = app.context_broker.last_request.get("hits", [])
 		_ok("V8: for exactly that one subject", hits.size() == 1 and String(hits[0]["kind"]) == "poi" and int(hits[0]["id"]) == int(ids[1]), str(hits))
 		var cr: Rect2i = Rect2i(_card().position, _card().size)
@@ -840,7 +840,7 @@ func _leg_v(unused: bool) -> void:
 		await get_tree().create_timer(0.8).timeout
 		await _frames(4)
 		var rows := _vault_rows()
-		_ok("V9 touch: a long press opens the card with the Note section (Create note...)", rows.size() == 1 and String(rows[0]["label"]).begins_with("Create note"), str(rows))
+		_ok("V9 touch: a long press opens the card with the Note section (the one Note… row, Ruling FJ)", rows.size() == 1 and String(rows[0]["label"]) == "Note…", str(rows))
 		var up_sel: Dictionary = app.selection
 		_cv_press(cv, hpos, false)
 		await _frames(6)

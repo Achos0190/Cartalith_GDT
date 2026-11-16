@@ -4862,6 +4862,10 @@ func _build_label(body: Control) -> void:
 func _element_actions(parent: Control, kind: String, id: int, label: String) -> void:
 	var req := {"domain": app.active_domain() if app != null else "", "hits": [{"kind": kind, "id": id, "label": label}]}
 	var rows: Array = GlobalTools.element_rows(app, req)
+	## Ruling FJ: the element rows no longer carry a note row; the card's ONE `note.open` row (`ContextNote.card_rows`, through
+	## the broker) is appended here, so this page, the card and the phone sheet (which has no Note tab) offer the same single entry.
+	if app.context_broker != null:
+		rows.append_array(app.context_broker.note_rows(req))
 	var grp: Control = null
 	for r in rows:
 		var rid := String((r as Dictionary).get("id", ""))

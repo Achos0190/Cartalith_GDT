@@ -362,58 +362,6 @@ func create_note(r: Dictionary, template_rel: String, rel: String) -> bool:
 	return true
 
 
-## CL-3 (Ruling EW item 3): the information card's Create note. A small dialog (the shell's own `custom_dialog`, so it is
-## a phone sheet or a desktop window like every other prompt) holding the path field and the SAME folder chooser the
-## Note tab uses (`VaultFolderPick.build`, 4df2db45), then `create_note`. The template choice stays in the Note tab (VQ2):
-## this dialog makes a blank note. Create is disabled while "New folder..." is open with no valid name. After a create the
-## panel's Note tab is redrawn and the pins re-read their colour (`store_changed`, which `create_note` emits).
-func ask_create(r: Dictionary) -> void:
-	var bridge = app.bridge
-	## Ruling EA item 11's rule: a dialog a pop-out spawns opens in that pop-out. The asker is the marker card, which
-	## sits under the popped City Viewer when that is where the pin was clicked; for every other caller it is under the app.
-	var asker: Node = app.context_broker.card if app.context_broker != null and app.context_broker.card != null else app
-	var d: Dictionary = DccWidgets.custom_dialog(PopoutHost.dialog_host(app, asker), "Create note", "Create", 380)
-	var dlg: ConfirmationDialog = d["dialog"]
-	var body: VBoxContainer = d["body"]
-	body.add_child(DccTheme.label("New note for %s" % String(r["name"]), "text_dim", DccTheme.FS_SMALL))
-	var suggested: String = bridge.vault_suggested_path(String(r["vk"]), String(r["name"]))
-	var edit := LineEdit.new()
-	edit.name = "CardNotePath"
-	edit.text = suggested
-	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	edit.tooltip_text = "Where the new note goes, relative to the vault folder."
-	if DccTheme.is_touch():
-		edit.custom_minimum_size.y = 44
-	## The path field sits ABOVE the folder tree (2026-11-15): the name is the thing typed, the tree only rewrites its
-	## folder part, and a field below a tall tree was the first thing a cramped dialog cut off.
-	body.add_child(edit)
-	var fp: Dictionary = VaultFolderPick.build(body, bridge, String(r["vk"]), suggested, edit)
-	var sync := func() -> void:
-		dlg.get_ok_button().disabled = fp["folder"].call() == null
-	(fp["tree"] as Tree).item_selected.connect(sync)
-	(fp["new_edit"] as LineEdit).text_changed.connect(func(_t: String) -> void: sync.call())
-	(fp["new_button"] as Button).toggled.connect(func(_on: bool) -> void: sync.call())
-	sync.call()
-	dlg.confirmed.connect(func() -> void:
-		if fp["folder"].call() != null and create_note(r, "", edit.text.strip_edges()):
-			if app.right_dock_ctrl != null:
-				app.right_dock_ctrl.refresh_note()
-		if is_instance_valid(dlg):
-			dlg.queue_free())
-	dlg.canceled.connect(func() -> void:
-		if is_instance_valid(dlg):
-			dlg.queue_free())
-	DccWidgets.present_custom_dialog(d)
-	edit.grab_focus.call_deferred()   ## `prompt()`'s own habit: type the name straight away
-	d["field"] = edit
-	d["chooser"] = fp
-	_last_dialog = d
-
-
-## The last Create dialog's `{dialog, body, field, ...}`, so a probe can drive it. Never read by shell code.
-var _last_dialog: Dictionary = {}
-
-
 ## Characters a card snippet is cut to, and how much of a note is read to make it.
 const SNIPPET_MAX := 140
 const PEEK_READ_MAX := 4000
@@ -460,38 +408,47 @@ static func peek_text(text: String, rel: String) -> Dictionary:
 	return {"title": title, "snippet": snippet}
 
 
-## CL-3: the information card's NOTE section for the card's one subject (`{kind, id}`, a `DccApp.selection`-shaped value),
-## as broker action rows (`ContextBroker.collect` appends them; section `note`). The rows come from `resolve()`, the
-## Note tab's own state function, so the card and the tab can never disagree about a subject's note:
-##   `note`         an enabled `Open note · <title>` row, with the note's first lines as its `detail`;
-##   `no_note`      an enabled `Create note…` row (the dialog above), with `<name> has no note yet.` as its `detail`;
-##   `novault`      a disabled row whose `reason` is the missing vault (the card draws it inline, never only a tooltip);
+## CL-3 / Ruling FJ: the information card's NOTE section for the card's one subject (`{kind, id}`, a `DccApp.selection`-shaped
+## value), as broker action rows (`ContextBroker.collect` appends them; section `note`). **Exactly one row, ever** (Ruling FJ,
+## owner 2026-11-16: *"There's two options for notes here, should maybe just open the vault and have these options in detail
+## there"*): the earlier second row (`Attach note to ...`, from `GlobalTools` and the civilisation provider) and the separate
+## `Create note...` row are gone. The row is `Open note` while a note is linked and `Note...` while none is, and in every state it
+## opens the vault focused on this place (`DccApp.open_vault`), where `VaultWindow._build_place_notes` offers create, attach,
+## unlink and the place's linked notes. The state still comes from `resolve()`, the Note tab's own state function, so the card
+## and the tab can never disagree about whether a subject has a note:
+##   `note`         `Open note`, with the linked note's first lines as its `detail`;
+##   `no_note`      `Note...`, with `<name> has no note yet.` as its `detail`;
+##   `novault`      `Note...`, still enabled (the vault window is where a folder is connected), with `detail` saying none is;
 ##   `unsupported`  a disabled row with the state's own `why`;
 ##   `none`         no rows (the subject is gone), never a blank row.
-## Open runs the same route the Note tab's own menu row does: on desktop and tablet it selects the subject and shows the
-## panel's Note tab (`open_context_tab`), on the phone it opens the vault scoped to the entity (`open_vault`).
+## The row carries `tap: "Note"` (the element-chip strip's Note chip) and `chip` 1 (the phone peek's lead chip), which the
+## removed rows used to carry, so those two surfaces keep their Note control.
 func card_rows(subject: Dictionary) -> Array:
 	var r := resolve(subject)
 	var nm := String(r.get("name", ""))
-	match String(r["state"]):
-		"note":
-			var pk := peek(String(r["rel"]))
-			return [{"id": "note.open", "label": "Open note · %s" % String(pk["title"]), "detail": String(pk["snippet"]),
-				"section": "note", "enabled": true, "callable": func() -> void:
-					if app.is_phone():
-						app.open_vault(String(r["vk"]), int(r["vid"]), nm)
-					else:
-						app.select(String(subject["kind"]), int(subject["id"]))
-						app.open_context_tab("note")}]
-		"no_note":
-			return [{"id": "note.create", "label": "Create note…", "detail": "%s has no note yet." % nm,
-				"section": "note", "enabled": true, "callable": func() -> void: ask_create(r)}]
-		"novault":
-			return [{"id": "note.none", "label": "Note", "section": "note", "enabled": false,
-				"reason": "No vault folder is connected, so %s has no note to show." % nm}]
-		"unsupported":
-			return [{"id": "note.none", "label": "Note", "section": "note", "enabled": false, "reason": String(r["why"])}]
-	return []
+	var st := String(r["state"])
+	if st == "unsupported":
+		return [{"id": "note.none", "label": "Note", "section": "note", "enabled": false, "reason": String(r["why"])}]
+	if st != "note" and st != "no_note" and st != "novault":
+		return []
+	var vk := String(r.get("vk", subject.get("kind", "")))
+	var vid := int(r.get("vid", subject.get("id", 0)))
+	var row := {"id": "note.open", "section": "note", "enabled": true, "tap": "Note", "chip": NOTE_CHIP,
+		"callable": func() -> void: app.open_vault(vk, vid, nm)}
+	if st == "note":
+		var pk := peek(String(r["rel"]))
+		row["label"] = "Open note"
+		row["chip_label"] = "Open note"
+		row["detail"] = "%s: %s" % [String(pk["title"]), String(pk["snippet"])]
+	else:
+		row["label"] = "Note…"
+		row["chip_label"] = "Note"
+		row["detail"] = ("%s has no note yet." % nm) if st == "no_note" else "No vault folder is connected yet."
+	return [row]
+
+
+## The phone peek's rank for the Note chip (the value `civilization_workspace.gd`'s `STORY_CHIP_NOTE` gave the row this one replaces).
+const NOTE_CHIP := 1
 
 
 ## The note's dated entries (authored ` ```chronos ` lines, read through `vault_entity_chronos`): a row per

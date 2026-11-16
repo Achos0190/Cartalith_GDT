@@ -396,12 +396,14 @@ func _run() -> void:
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
 		"Open in city viewer… [OBJECT]",
 		"Open %s… [OBJECT]" % a_fname, "Claim for %s [OBJECT]" % a_fname,
-		"Delete %s [OBJECT]" % _sname, "Drop settlement here [PLACE HERE]",
+		"Delete %s [OBJECT]" % _sname,
+		## Ruling FJ: the old "Attach note to X… [INFO]" row is gone. The card's one note row (`note.open`) is not in this
+		## list (it filters to CM-1's ids), and `_ctxbroker_probe` counts it.
+		"Drop settlement here [PLACE HERE]",
 		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
 		"Add event to timeline here [PLACE HERE]",
 		"Plan journey from here [GO / MEASURE]", "Journey to here [GO / MEASURE] {disabled}",
 		"Select culture: %s [INFO]" % a_cul,
-		"Attach note to %s… [INFO]" % _sname,
 		"Info here (settlement & ecology) [INFO]"]
 	var rows_a := _civ_rows()
 	_ok("A CX-01's five rows + CM-7's three + the vault note row: text, order, section, enabled", rows_a, want_a)

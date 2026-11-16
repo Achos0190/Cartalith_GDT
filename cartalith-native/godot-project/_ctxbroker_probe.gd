@@ -123,6 +123,17 @@ func _rows(c) -> Array:
 	return out
 
 
+## The ids of every drawn row whose id starts `note.` or ends `_note` (the two spellings the card ever drew a note under).
+func _note_ids() -> Array:
+	var out: Array = []
+	for c in _visible_popups():
+		for r in c.drawn_rows():
+			var id := String(r.get("id", ""))
+			if id.begins_with("note.") or id.ends_with("_note"):
+				out.append(id)
+	return out
+
+
 func _dump(tag: String) -> Array:
 	var vis := _visible_popups()
 	print("ROW %s visible_popups=%d" % [tag, vis.size()])
@@ -274,7 +285,7 @@ func _run() -> void:
 	## timeline here (place), Plan journey from here and Journey to here (go;
 	## the second disabled with its reason while no route draft is open), so a
 	## third separator opens the go band. Fourteen rows, three separators.
-	_ok("A fifteen rows plus three separators (SM-4 + the culture row)", rows_a.size(), 18)
+	_ok("A fourteen rows plus three separators (SM-4 + the culture row; Ruling FJ removed the attach row)", rows_a.size(), 17)
 	_ok("A row order", rows_a, [
 		"Edit %s" % sname, "Move viewer to %s" % sname,
 		"Open in city viewer…",
@@ -284,7 +295,11 @@ func _run() -> void:
 		"Add event to timeline here", "----",
 		"Plan journey from here", "Journey to here {disabled}", "----",
 		"Select culture: %s" % a_cul,
-		"Attach note to %s…" % sname, "Info here (settlement & ecology)"])
+		"Info here (settlement & ecology)"])
+	## Ruling FJ: the old second note row ("Attach note to X…", `civ.vault_note`) is gone from CM-1's list; the card's ONE note
+	## row (`note.open`, the NOTE band, drawn between Delete and Drop settlement here) is outside CM-1's whitelist, so it is
+	## asserted separately and by count: exactly one `note.*` row on the card.
+	_ok("A FJ: the card has exactly one note row, and it is note.open", _note_ids(), ["note.open"])
 
 	# -- B ------------------------------------------------------------------
 	await _hide_popups()

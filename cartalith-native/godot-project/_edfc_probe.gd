@@ -599,12 +599,13 @@ func _leg_settlement(bridge) -> void:
 		var ids := _ids()
 		_ok(ids.has("el.settlement_rename"), "ST %s: Rename present (pos %s, hits %s, ids %s)" % [d, str(pos), str(_app.context_broker.last_request.get("hits")), str(ids)])
 		if d == "civilization":
-			for need in ["civ.edit", "civ.delete", "civ.vault_note"]:
+			for need in ["civ.edit", "civ.delete", "note.open"]:   ## Ruling FJ: the one note row replaced civ.vault_note
 				_ok(ids.has(need), "ST civilization: CIVIL's own %s kept" % need)
-			_ok(not ids.has("el.settlement_delete") and not ids.has("el.settlement_note"), "ST civilization: no duplicate Delete or Note")
+			_ok(not ids.has("el.settlement_delete") and not ids.has("el.settlement_note") and not ids.has("civ.vault_note"), "ST civilization: no duplicate Delete or Note")
 		else:
-			for need in ["el.settlement_edit", "el.settlement_delete", "el.settlement_note"]:
+			for need in ["el.settlement_edit", "el.settlement_delete", "note.open"]:
 				_ok(ids.has(need), "ST %s: %s present" % [d, need])
+			_ok(not ids.has("el.settlement_note"), "ST %s: Ruling FJ: the retired el.settlement_note row is gone" % d)
 		await _close_card()
 	# Rename in CARTO through the card and dialog.
 	await _domain("cartography")
@@ -706,7 +707,7 @@ func _leg_label_icon(bridge) -> void:
 		for need in ["el.label_rename", "el.label_move"]:
 			_ok(ids.has(need), "LB %s: %s present (pa %s hits %s ids %s)" % [d, need, str(pa), str(_app.context_broker.last_request.get("hits")), str(ids)])
 		_ok(ids.has("el.label_delete") == (d != "cartography"), "LB %s: Delete from the shared provider only outside CARTO" % d)
-		_ok(ids.has("el.label_note"), "LBN %s: the Note row is offered on a label (Ruling EQ item 2)" % d)
+		_ok(ids.has("note.open") and not ids.has("el.label_note"), "LBN %s: the ONE note row is offered on a label (Ruling EQ item 2, Ruling FJ)" % d)
 		await _close_card()
 	## Ruling EQ item 2: right-click > Note on a label. A real vault folder is connected so the note can exist.
 	var root := ProjectSettings.globalize_path("user://") + "eq2_vault"
@@ -721,7 +722,7 @@ A note for a label.
 	await _domain("world")
 	pa = await _label_hit_pos(li)
 	await _context_at(pa)
-	_ok(String(_row_of("el.label_note").get("label", "")) == "Attach note to Probe label…", "LBN unlinked: the row says Attach note to Probe label… (%s)" % str(_row_of("el.label_note").get("label")))
+	_ok(String(_row_of("note.open").get("label", "")) == "Note…", "LBN unlinked: the row says Note… (%s)" % str(_row_of("note.open").get("label")))
 	await _close_card()
 	var gid: Dictionary = bridge.vault_label_entity_id(li)
 	_ok(bool(gid.get("ok", false)) and gid.has("entity_id") and String(gid.get("label", "")) == "Probe label", "LBN the engine names the label's vault id (%s)" % str(gid))
@@ -729,8 +730,8 @@ A note for a label.
 	_ok(bool(bridge.vault_attach("label", eid, "Probe label", "Labels/Probe label.md", "").get("ok", false)), "LBN a note is attached to the label")
 	_ok(bridge.vault_links_for("label", eid).size() == 1 and bridge.vault_links_for("settlement", eid).is_empty(), "LBN filed under kind label only")
 	await _context_at(pa)
-	_ok(String(_row_of("el.label_note").get("label", "")) == "Open note for Probe label", "LBN linked: the row says Open note for Probe label (%s)" % str(_row_of("el.label_note").get("label")))
-	_ok(await _press("el.label_note"), "LBN press Open note")
+	_ok(String(_row_of("note.open").get("label", "")) == "Open note", "LBN linked: the row says Open note (%s)" % str(_row_of("note.open").get("label")))
+	_ok(await _press("note.open"), "LBN press Open note")
 	await _frames(6)
 	var vwin = _app.vault_window
 	_ok(vwin != null and vwin.visible and String(vwin._kind) == "label" and int(vwin._entity_id) == eid, "LBN the vault window opened for kind label at that entity")
@@ -806,7 +807,7 @@ A note for a label.
 		await _context_at(pb)
 		var ids2 := _ids()
 		_ok(ids2.has("el.icon_move"), "IC %s: Move present" % d2)
-		_ok(ids2.has("el.icon_note"), "ICN %s: the Note row is offered on an icon (Ruling EQ item 2)" % d2)
+		_ok(ids2.has("note.open") and not ids2.has("el.icon_note"), "ICN %s: the ONE note row is offered on an icon (Ruling EQ item 2, Ruling FJ)" % d2)
 		_ok(ids2.has("el.icon_delete") == (d2 != "cartography"), "IC %s: Delete from the shared provider only outside CARTO" % d2)
 		await _close_card()
 	await _domain("world")
@@ -1100,10 +1101,10 @@ func _leg_note(bridge) -> void:
 		dock.refresh_shown()  # the page was built before the note was attached
 		_app.phone_show_right_sheet()
 		await _frames(4)
-		var act = _app.right_dock_body.find_child("Act_el_label_note", true, false)
+		var act = _app.right_dock_body.find_child("Act_note_open", true, false)
 		_ok(act != null, "NTP the phone sheet's label page offers the Note row")
 		if act != null:
-			_ok(String((act as Button).text).to_lower() == "open note for note label", "NTP the row reads Open note for Note label (%s)" % (act as Button).text)
+			_ok(String((act as Button).text).to_lower() == "open note", "NTP the row reads Open note (%s)" % (act as Button).text)
 			## 44 reference px of a 412-wide canvas, in this viewport's physical px, less 5 % for rounding: derived from
 			## the viewport width the probe was started with, not from the shell's own scale.
 			var floor_px := 44.0 * float(_vw) / 412.0 * 0.95

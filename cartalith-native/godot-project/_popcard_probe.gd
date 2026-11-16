@@ -14,8 +14,8 @@ extends Node
 ##      in the window and within 40 px of the pin it was opened for, with the NOTE section naming the town.
 ##   E  the same with the pin pushed to the window's bottom-right corner, where the card must flip and clamp INSIDE the
 ##      pop-out (a card that measured the main window's bounds would hang off the pop-out).
-##   N  the Note section works there: Create note... opens its dialog INSIDE the pop-out (Ruling EA item 11), confirming
-##      it binds a note to the town in the vault, and the card then reads Open note.
+##   N  the Note section works there (Ruling FJ): the card's one Note... row opens the vault on the town, the vault's place
+##      panel creates a note bound to it, and the card then reads Open note.
 ##   K  click-through in the pop-out: with a card open, a click on another pin opens THAT pin's card (the press is not
 ##      swallowed).
 ##   D  docked again: the same click opens the card under the app, embedded in the main window, at the pin as before
@@ -122,6 +122,16 @@ func _town() -> int:
 			if lay.size() > 0 and (lay[0] as Dictionary).has("market"):
 				return k
 	return -1
+
+
+func _find_button(root: Node, prefix: String) -> Button:
+	for ch in root.get_children():
+		if ch is Button and String((ch as Button).text).to_lower().begins_with(prefix.to_lower()) and (ch as Button).is_visible_in_tree():
+			return ch
+		var r := _find_button(ch, prefix)
+		if r != null:
+			return r
+	return null
 
 
 func _card():
@@ -262,26 +272,27 @@ func _run() -> void:
 		_ok(_row("NOTE", "band") != null, "P1: with a NOTE section")
 		await _shot(cv, "popped_card")
 	# ---- N: the Note section in the pop-out
-	var cr = _row("Create note", "action")
-	_ok(cr != null, "N1: the card offers Create note...")
+	var cr = _row("Note…", "action")
+	_ok(cr != null and _row("Create note", "action") == null and _row("Attach note", "action") == null, "N1: the card offers the one Note… row (Ruling FJ), none of the retired rows")
 	if cr != null:
 		var rc: Vector2 = (cr["node"] as Control).get_global_rect().get_center() + Vector2(c.position)
 		await _click_in(cv, rc)
-		var d: Dictionary = _app.context_broker._note._last_dialog
-		var dlg: Window = d.get("dialog", null)
-		_ok(dlg != null and dlg.visible, "N2: the Create dialog opens")
-		if dlg != null and dlg.visible:
-			_ok(dlg.get_parent() == cv and dlg.is_embedded() and _nwin() == 2, "N2: inside the pop-out, not the main window (parent %s, windows %d)" % [str(dlg.get_parent().name), _nwin()])
-			_ok(vis.encloses(Rect2(Vector2(dlg.position), Vector2(dlg.size))), "N2: and wholly inside it (%s)" % str(Rect2(Vector2(dlg.position), Vector2(dlg.size))))
-			await _shot(cv, "popped_create")
-			(d["chooser"]["select"] as Callable).call("Lore")
-			await _settle(3)
-			var rel := String((d["field"] as LineEdit).text)
-			((d["dialog"] as ConfirmationDialog).get_ok_button()).pressed.emit()
+		await _settle(8)
+		var vw = _app.vault_window
+		var tid := int((_bridge.settlements()[si] as Dictionary).get("tid", si))
+		_ok(vw.visible and String(vw._kind) == "settlement" and int(vw._entity_id) == tid, "N2: pressing it from the pop-out's card opens the vault on this town (%s %s)" % [str(vw._kind), str(vw._entity_id)])
+		_ok(_nwin() == 2, "N2: no extra OS window opened (%d)" % _nwin())
+		var cb: Button = _find_button(vw, "Create ")
+		_ok(cb != null and vw.find_child("VaultPlaceNotes", true, false) != null, "N3: the vault's place panel offers Create")
+		if cb != null:
+			await _shot(get_window(), "popped_vault")
+			cb.pressed.emit()
 			await _settle(10)
-			_ok(FileAccess.file_exists(_root + "/" + rel), "N3: the note is on disk (%s)" % rel)
+			var links: Array = _bridge.vault_links_for("settlement", tid)
+			_ok(links.size() == 1 and FileAccess.file_exists(_root + "/" + String((links[0] as Dictionary).get("path", ""))), "N3: the note is on disk and bound to the town (%s)" % str(links))
 			var rs: Dictionary = _app.context_broker._note.resolve({"kind": "settlement", "id": si})
-			_ok(String(rs.get("state", "")) == "note", "N3: bound to the town (the Note logic now reads state %s)" % String(rs.get("state", "")))
+			_ok(String(rs.get("state", "")) == "note", "N3: the Note logic now reads state %s" % String(rs.get("state", "")))
+		vw.hide()
 	await _close_card()
 	await _click_in(cv, at)
 	_ok(_card_open() and _row("Open note") != null, "N4: the card now offers Open note")

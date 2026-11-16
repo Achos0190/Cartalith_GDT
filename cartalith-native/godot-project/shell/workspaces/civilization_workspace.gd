@@ -845,18 +845,8 @@ func context_actions(req: Dictionary) -> Array:
 			rows.append({"id": "civ.select_culture", "label": "Select culture: %s" % cul_name, "section": "info",
 				"enabled": true, "header": head,
 				"callable": func() -> void: app.select("culture", cul_idx)})
-		var tid := int(s.get("tid", hit))
-		var vsum := bridge.vault_entity_summary("settlement", tid)
-		## SM-4 (§4, A4): the proposal's wording, "Open note for X", while a
-		## note is linked; "Attach note to X…" while none is (the window then
-		## offers the attach, so "open" would promise a note that does not
-		## exist). "vault" dropped from both, as the proposal draws it.
-		var linked := int(vsum.get("link_count", 0)) > 0
-		var vlabel := ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm)
-		rows.append({"id": "civ.vault_note", "label": vlabel, "section": "info",
-			"enabled": true, "header": head,
-			"callable": func() -> void: app.open_vault("settlement", tid, nm),
-			"chip": STORY_CHIP_NOTE, "chip_label": "Open note" if linked else "Attach note", "tap": "Note"})
+		## Ruling FJ: no note row here. The card's one `note.open` row (`ContextNote.card_rows`, from `ContextBroker.note_rows`)
+		## is every domain's, and carries the `Note` tap and the peek chip this provider's `civ.vault_note` used to.
 	## §4.3's Landmark row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 1): the hit
 	## itself is already `map_overlay.gd::hits_at`'s own "landmark" kind (CM-1
 	## put it there for the hover/select pair, and a multi-hit hit list makes

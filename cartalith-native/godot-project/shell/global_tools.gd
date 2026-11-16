@@ -261,8 +261,9 @@ static func rename_prompt(app, title: String, initial: String, on_submit: Callab
 	DccWidgets.prompt(app, title, "Name", initial, "Rename", on_submit)
 
 ## Settlement rows. **Rename** in every domain (CIVIL's Edit opens the whole Place editor; this is the one
-## field); in WORLD and CARTO also Edit, Delete (the Place editor's own confirm) and the note row, which CIVIL's
-## provider already carries (`civ.edit`, `civ.delete`, `civ.vault_note`). Move: the engine has no settlement
+## field); in WORLD and CARTO also Edit and Delete (the Place editor's own confirm), which CIVIL's
+## provider already carries (`civ.edit`, `civ.delete`). There is no note row here (Ruling FJ): the card's one `note.open` row
+## (`ContextNote.card_rows`) is every domain's, so a note is never offered twice. Move: the engine has no settlement
 ## relocation (`civ_edit_settlement`'s keys are name, kind, faction, population, specialisation, history, age,
 ## walls), so none is offered: filed, not invented.
 static func _settlement_rows(app, domain: String, si: int, s: Dictionary) -> Array:
@@ -282,12 +283,6 @@ static func _settlement_rows(app, domain: String, si: int, s: Dictionary) -> Arr
 		"callable": func() -> void: app.open_place_editor(si)})
 	rows.append({"id": "el.settlement_delete", "label": "Delete %s" % nm, "section": "object", "enabled": true,
 		"danger": true, "tap": "Delete", "callable": func() -> void: app.place_editor_window.confirm_delete(si)})
-	var tid := int(s.get("tid", si))
-	var linked := int(app.bridge.vault_entity_summary("settlement", tid).get("link_count", 0)) > 0
-	rows.append({"id": "el.settlement_note",
-		"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
-		"section": "info", "enabled": true, "tap": "Note",
-		"callable": func() -> void: app.open_vault("settlement", tid, nm)})
 	return rows
 
 ## Landmark rows (Ruling EI, saved by Ruling EL; Change kind and Restore generated kind by Ruling FD item 3): Rename (the user's own name, replacing the generated one;
@@ -338,14 +333,6 @@ static func _landmark_rows(app, li: int) -> Array:
 				if app.bridge.landmark_set_kind_override(key, ""):
 					app.set_status("hint", "Restored the generated kind · Edit > Undo puts your choice back", "text_ghost")
 					after.call()})
-	var got: Dictionary = app.bridge.vault_landmark_entity_id(key)
-	if bool(got.get("ok", false)) and got.has("entity_id"):
-		var eid := int(got["entity_id"])
-		var linked := int(app.bridge.vault_entity_summary("landmark", eid).get("link_count", 0)) > 0
-		rows.append({"id": "el.landmark_note",
-			"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
-			"section": "info", "enabled": true, "tap": "Note",
-			"callable": func() -> void: app.open_vault("landmark", eid, nm)})
 	rows.append({"id": "el.landmark_select", "label": "Select %s" % nm, "section": "info", "enabled": true,
 		"callable": func() -> void: app.select("landmark", li)})
 	return rows
@@ -373,7 +360,6 @@ static func _label_rows(app, domain: String, idx: int, text: String) -> Array:
 				if app.bridge.label_delete(idx):
 					_annotations_changed(app)
 					app.set_status("hint", "Label deleted · Edit > Undo puts it back", "text_ghost")})
-	rows.append_array(_item_note_rows(app, "label", idx, t))
 	return rows
 
 ## Icon rows: Move in every domain (`icon_move`), Delete in WORLD and CIVIL (CARTO's provider carries it); a
@@ -388,7 +374,6 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 				if app.bridge.icon_delete(idx):
 					_annotations_changed(app)
 					app.set_status("hint", "Icon deleted · Edit > Undo puts it back", "text_ghost")})
-	rows.append_array(_item_note_rows(app, "icon", idx, name))
 	return rows
 
 ## Point-of-interest rows (Ruling EW item 4, CL-11), the same in every domain: **Rename** (`poi_rename`), **Move**
@@ -424,26 +409,7 @@ static func _poi_rows(app, idx: int, name: String) -> Array:
 			if app.bridge.poi_delete(idx):
 				_annotations_changed(app)
 				app.set_status("hint", "Point of interest deleted · Edit > Undo puts it back", "text_ghost")})
-	rows.append_array(_item_note_rows(app, "poi", idx, t))
 	return rows
-
-## Ruling EQ item 2: the Note row of a label or an icon, in every domain. The vault entity id comes from the
-## engine (the item's cell, `vault_label_entity_id` / `vault_icon_entity_id`), never from the index, which
-## shifts when an earlier item is deleted. The row opens the vault at that entity (an existing note, or the
-## attach-or-create flow), the way a settlement's does. No row, rather than a dead one, when the engine
-## cannot name the item (an index the list no longer holds, or a build without the binding).
-static func _item_note_rows(app, kind: String, idx: int, name: String) -> Array:
-	var got: Dictionary = app.bridge.vault_label_entity_id(idx) if kind == "label" \
-		else (app.bridge.vault_poi_entity_id(idx) if kind == "poi" else app.bridge.vault_icon_entity_id(idx))
-	if not bool(got.get("ok", false)) or not got.has("entity_id"):
-		return []
-	var eid := int(got["entity_id"])
-	var nm := String(got.get("label", name))
-	var linked := int(app.bridge.vault_entity_summary(kind, eid).get("link_count", 0)) > 0
-	return [{"id": "el.%s_note" % kind,
-		"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
-		"section": "info", "enabled": true, "tap": "Note",
-		"callable": func() -> void: app.open_vault(kind, eid, nm)}]
 
 ## Redraws the annotation layers and tells every workspace that lists them (`on_annotations_changed`).
 static func _annotations_changed(app) -> void:
