@@ -1299,6 +1299,27 @@ pub struct WorldParams {
     /// (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the towns it was
     /// saved with.
     pub urban_harbour_front: bool,
+    /// **River towns stretched along their river** (owner Ruling FN,
+    /// 2026-11-16: *"river towns may stretch along their river beyond the
+    /// square town box where terrain allows"*). A river town of 1 500 people
+    /// and up (`cartalith_urban::stretch::STRETCH_MIN_POP`) whose box holds no
+    /// sea is laid out in a box elongated to its river and grows in a
+    /// river-following frame: farther along its banks, less far inland
+    /// (`cartalith_urban::stretch`), up to twice its growth radius each way
+    /// and short of open water, unbuildable bank and the other settlements
+    /// (`cartalith_civ::urban_adapter::um_place_context_with`). Rides
+    /// `urban_riverbank` (read only with it on); villages and harbour towns
+    /// are untouched.
+    ///
+    /// **A prototype, `false` here and in the shipped app** (2026-11-16,
+    /// `DECISIONS.md` §7p): measured, it reached a 5.1 % riverside share
+    /// against the ruling's 15 % bar, and its towns read as walled cores with
+    /// ribbon suburbs along the river road, so it waits on the owner. The
+    /// urban goldens pin the reference's box. Read fresh each time a layout
+    /// is asked for (never stored), so it moves no generated field and needs
+    /// no regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`).
+    pub urban_river_stretch: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1533,6 +1554,8 @@ impl WorldParams {
             urban_market_scale: false,
             // Ruling FK item 1: the reference pins the market at the box centre.
             urban_harbour_front: false,
+            // Ruling FN: the reference's square-ish box round the market.
+            urban_river_stretch: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

@@ -209,6 +209,14 @@ pub fn defaults() -> WorldParams {
     // every urban golden pins (`DECISIONS.md` section 7p). See
     // `WorldParams::urban_harbour_front`.
     p.urban_harbour_front = true;
+    // Ruling FN (owner 2026-11-16): river towns stretch along their river.
+    // **A prototype, OFF here too** (2026-11-16): measured, it reached a 5.1 %
+    // riverside share against the ruling's 15 % bar and drew walled cores with
+    // ribbon suburbs along the river road, so it stops at a prototype for the
+    // owner to judge (`STATUS.md`, "River towns stretched along their river";
+    // `DECISIONS.md` section 7p). Turn it on in the parameters to see it. See
+    // `WorldParams::urban_river_stretch`.
+    p.urban_river_stretch = false;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -467,6 +475,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_harbour_front", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Harbour towns built to their water", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_harbour_front), set_fn: |p, v| p.urban_harbour_front = v != 0.0 },
+    // Ruling FN (owner 2026-11-16): river towns stretch along their river.
+    // A prototype: OFF at the app boundary and in `WorldParams::defaults`
+    // until the owner rules on it; no reference control (the reference lays
+    // every town out in one 1 700 x 1 250 m box).
+    // A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read fresh
+    // whenever a layout is asked for, so it invalidates nothing and
+    // `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_river_stretch", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River towns stretch along their river (prototype)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_river_stretch), set_fn: |p, v| p.urban_river_stretch = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1169,6 +1187,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (Ruling FK item 1); the reference pins a real-water town's
     // market at its box centre.
     ("urban_harbour_front", ""),
+    // Port-only (Ruling FN); the reference lays every town out in one box.
+    ("urban_river_stretch", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1520,6 +1540,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Harbour towns laid out to their water (Ruling FK item 1, 2026-11-16):
     // every save without the key drew its harbour towns round a box-centre market.
     ("urban_harbour_front", Value::Bool(false)),
+    // River towns stretched along their river (Ruling FN, 2026-11-16): every
+    // save without the key drew its river towns in the reference's box.
+    ("urban_river_stretch", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

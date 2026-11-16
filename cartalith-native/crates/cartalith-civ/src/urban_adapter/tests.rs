@@ -2553,7 +2553,7 @@ fn a_river_is_not_carried_on_at_a_sliver_a_lake_or_outside_the_box() {
     // An end outside the box (local x -50): unchanged.
     let mut p = vec![Vec2::new(400.0, 600.0), Vec2::new(-50.0, 600.0)];
     let to_grid = |lx: f64, ly: f64| (20.0 + (lx - 850.0) / 200.0, 45.0 + (ly - 625.0) / 200.0);
-    river_to_sea(&w, &to_grid, &mut p);
+    river_to_sea(&w, &to_grid, &mut p, SITE_WM, SITE_HM);
     assert_eq!(p.len(), 2, "an end outside the box: not carried on");
 }
 
@@ -2580,4 +2580,54 @@ fn the_harbour_front_reaches_only_seaside_boxes_and_moves_the_market_to_the_wate
     assert!(l.river.last().is_some_and(|e| e.y > 1161.0), "the layout's river reaches the sea");
     let off = run_layout(&um_place_context_with(&w, &settlement(20, 45, 3_000), &[], &PlaceOverrides { riverbank: true, ..Default::default() }), None).expect("a layout");
     assert_eq!(off.pin, off.market, "off: the pin is the market (the reference)");
+}
+
+/// Protects Ruling FN's adapter half (`um_place_context_with`'s stretch gate,
+/// `river_stretch_plan`): on the fine river world (a stem down the whole
+/// `x == 20` column to the sea at row 48, 200 m cells), a town of 20 000 at
+/// (20, 20) is stretched along its river only with both the switch and
+/// `urban_riverbank` on: its plan reaches the cap (1 080 m each way, depth
+/// 480 m) and its box is the reference's width by `2 x (1 080 + 150)` m
+/// down the river. Its own entry in the settlement list does not stop it; a
+/// neighbour 1.2 km downstream cuts the downstream reach at the half-way line
+/// (600 m), read through the grid-to-box transform; a town whose box holds
+/// sea (20, 45) is never stretched; and the layout is laid out in the
+/// stretched box.
+#[test]
+fn a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 20_000);
+    let alone = [(20.0, 20.0, 20_000.0)];
+    let on = PlaceOverrides { riverbank: true, river_stretch: Some(&alone), ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &on);
+    assert_eq!(ctx.site_kind, "river", "premise");
+    let plan = ctx.river_stretch.expect("a big river town is stretched");
+    assert_eq!(plan, cartalith_urban::stretch::StretchPlan { ahead_m: 1080.0, behind_m: 1080.0, across_m: 480.0 });
+    assert_eq!(ctx.site_box, Some((SITE_WM, 2.0 * (1080.0 + 150.0))), "the box runs down the river");
+    let off_bank = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: false, ..on });
+    assert!(off_bank.river_stretch.is_none() && off_bank.site_box.is_none(), "rides urban_riverbank");
+    let off = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, ..Default::default() });
+    assert!(off.river_stretch.is_none() && off.site_box.is_none(), "off: the reference's box");
+    // A neighbour 6 cells (1.2 km) downstream: the half-way line at 600 m.
+    let two = [(20.0, 20.0, 20_000.0), (20.0, 26.0, 400.0)];
+    let cut = um_place_context_with(&w, &s, &[], &PlaceOverrides { river_stretch: Some(&two), ..on }).river_stretch.expect("still stretched upstream");
+    assert_eq!(cut.behind_m, 1080.0, "{cut:?}");
+    assert!(cut.ahead_m < 700.0, "the neighbour cuts the downstream reach: {cut:?}");
+    let sea = um_place_context_with(&w, &settlement(20, 45, 20_000), &[], &on);
+    assert!(sea.river_stretch.is_none() && sea.site_box.is_none(), "a box holding sea is not stretched");
+    let wc = &ctx.water.as_ref().expect("water").ctx;
+    assert_eq!((wc.mw, wc.mh), (77, 112), "the water raster is the stretched box's (1 700 x 2 460 m in 22 m cells)");
+    let l = run_layout(&ctx, None).expect("a layout");
+    assert_eq!((l.wm, l.hm), (SITE_WM, 2460.0), "the layout is laid out in the stretched box");
+    // A river along the coast (row 46, 340 m from the sea at 47.68): the box
+    // holds sea, and the bank along the river is buildable, so only the sea
+    // test keeps the town unstretched.
+    let coastal = vec![(0..64).map(|x| traced(x, 46)).collect::<Vec<_>>()];
+    let wc = mouth_world(&f, &order, &coastal);
+    let shore = um_place_context_with(&wc, &settlement(32, 46, 20_000), &[], &PlaceOverrides { river_stretch: Some(&[(32.0, 46.0, 20_000.0)]), ..on });
+    assert!(shore.water.as_ref().is_some_and(|u| u.sea_frac > 0.02), "premise: the box holds sea");
+    assert!(shore.river_stretch.is_none(), "a seaside river town is not stretched");
 }

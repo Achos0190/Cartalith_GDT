@@ -174,6 +174,19 @@ fn street_village(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_SV").map_or(p.urban_street_village, |v| v != "0")
 }
 
+/// Whether the audits lay river towns out stretched along their river (Ruling
+/// FN): the app's (`WorldParams::urban_river_stretch` from `params::defaults`,
+/// on) unless `TOWN_RIVER_STRETCH=0|1` overrides it (0 gives the "before").
+fn river_stretch(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_STRETCH").map_or(p.urban_river_stretch, |v| v != "0")
+}
+
+/// Every settlement as `(x, y, pop)` in grid cells, for
+/// `PlaceOverrides::river_stretch` (Ruling FN), as `urban_bridge` builds it.
+fn stretch_others(civ: &crate::CivData) -> Vec<(f64, f64, f64)> {
+    civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect()
+}
+
 /// Whether the census sizes market squares with the town
 /// (`TOWN_GENERATOR_JUDGEMENT.md` change 6): the app's
 /// (`WorldParams::urban_market_scale` from `params::defaults`, on) unless
@@ -1517,8 +1530,9 @@ fn riverbank_gap_audit() {
             river_kind_from_map: p.urban_river_kind_map,
         };
         let mut seed_gap = Vec::new();
+        let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1758,10 +1772,11 @@ fn town_housing_audit() {
             river_kind_from_map: river_kind_map(&p),
         };
         let mut seed_bld = [0usize; 2];
+        let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -1799,6 +1814,13 @@ fn town_housing_audit() {
 /// widest street `grow` lays (`r.range(3.4, 5.4)`), the figure `_framegap_probe`
 /// and `framegap.txt` used ("2 street widths, 10.8 m"), so the two read alike.
 const BANK_STREET_W: f64 = 5.4;
+
+/// Ruling FN's overlap test: two towns overlap when a building centroid of one
+/// stands within this many metres of a building centroid of the other. **A
+/// labelled judgement**: about one house's width (the reference's lots are
+/// about 8 m wide), so two towns that merely face each other across a field
+/// do not count.
+const OVERLAP_M: f64 = 10.0;
 
 /// **The both-banks audit** (2026-11-15, Rulings FB and EZ item 1: *"Big river
 /// towns can grow around both banks when the terrain allows it"*; *"Riverside
@@ -1901,6 +1923,7 @@ fn both_banks_audit() {
     // (2026-11-15, the waterfront's frames: a riverside block left with its
     // lots and houses after its streets were swept), and the towns with any.
     let (mut orphans, mut orphan_towns) = (0usize, 0usize);
+    let (mut n_stretched, mut overlap_pairs) = (0usize, 0usize);
     for seed in seeds {
         let (ws, civ, gh, p) = generate_world(seed, gw, true);
         let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
@@ -1923,10 +1946,26 @@ fn both_banks_audit() {
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
         };
+        let others = stretch_others(&civ);
+        // Ruling FN: every town's building centroids in world metres, for the
+        // town-overlap count after the seed's loop.
+        let gpm = gw as f64 / (p.map_width_km * 1000.0);
+        let mut seed_pts: Vec<(f64, f64, usize)> = Vec::new();
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
+            // Ruling FN: a stretched town (its box larger than the reference's).
+            let stretched = l.wm > cartalith_civ::urban_adapter::SITE_WM + 1.0 || l.hm > cartalith_civ::urban_adapter::SITE_HM + 1.0;
+            n_stretched += usize::from(stretched);
+            {
+                let (co, so) = (l.orient.cos(), l.orient.sin());
+                for b in &l.buildings {
+                    let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+                    let (dx, dy) = (c.x - l.pin.x, c.y - l.pin.y);
+                    seed_pts.push((s.placement.x as f64 / gpm + dx * co - dy * so, s.placement.y as f64 / gpm + dx * so + dy * co, i));
+                }
+            }
             // Houses with no street near them.
             let segs: Vec<((f64, f64), (f64, f64))> = l.edges.iter().map(|e| ((e.a.x, e.a.y), (e.b.x, e.b.y))).collect();
             let town_orphans = l
@@ -1962,8 +2001,8 @@ fn both_banks_audit() {
             if let Ok(dir) = std::env::var("TOWN_RIVER_PLOT") {
                 let pts = |v: &[Vec2]| v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",");
                 let json = format!(
-                    "{{\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0},\"plaza\":[{}],\"blocks\":[{}]}}",
-                    l.market.x, l.market.y, l.river_w, pts(&l.river), pts(&l.water_poly),
+                    "{{\"wm\":{:.1},\"hm\":{:.1},\"market\":[{:.1},{:.1}],\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"pop\":{:.0},\"target\":{:.0},\"plaza\":[{}],\"blocks\":[{}]}}",
+                    l.wm, l.hm, l.market.x, l.market.y, l.river_w, pts(&l.river), pts(&l.water_poly),
                     l.wall.ring.as_deref().map_or(String::new(), pts),
                     l.buildings.iter().map(|b| format!("[{}]", pts(&b.poly))).collect::<Vec<_>>().join(","),
                     l.edges.iter().map(|e| format!("[\"{}\",{:.1},{:.1},{:.1},{:.1},{:.1}]", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y)).collect::<Vec<_>>().join(","),
@@ -2159,10 +2198,37 @@ fn both_banks_audit() {
                 );
             }
             if list {
-                println!("{row}");
+                println!("{row}{}", if stretched { format!(" STRETCHED box {:.0}x{:.0}", l.wm, l.hm) } else { String::new() });
             }
         }
+        // Ruling FN's "no town overlapping another": pairs of towns with a
+        // building centroid of one within `OVERLAP_M` of the other's.
+        let mut cells: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
+        for (k, &(x, y, _)) in seed_pts.iter().enumerate() {
+            cells.entry(((x / OVERLAP_M).floor() as i64, (y / OVERLAP_M).floor() as i64)).or_default().push(k);
+        }
+        let mut pairs: std::collections::BTreeSet<(usize, usize)> = std::collections::BTreeSet::new();
+        for &(x, y, t) in &seed_pts {
+            let (cx, cy) = ((x / OVERLAP_M).floor() as i64, (y / OVERLAP_M).floor() as i64);
+            for j in cy - 1..=cy + 1 {
+                for i in cx - 1..=cx + 1 {
+                    for &k in cells.get(&(i, j)).map_or(&[][..], |v| v.as_slice()) {
+                        let (qx, qy, u) = seed_pts[k];
+                        if u != t && (qx - x).hypot(qy - y) < OVERLAP_M {
+                            pairs.insert((t.min(u), t.max(u)));
+                        }
+                    }
+                }
+            }
+        }
+        if list {
+            for (a, b) in &pairs {
+                println!("  seed {seed} towns #{a} and #{b} overlap");
+            }
+        }
+        overlap_pairs += pairs.len();
     }
+    println!("  Ruling FN: stretched towns {n_stretched}; town pairs overlapping (a building centroid within {OVERLAP_M} m of the other town's): {overlap_pairs}");
     let q = |v: &mut Vec<f64>| {
         let under = v.iter().filter(|&&r| r < 80.0).count();
         let over = v.iter().filter(|&&r| r > 200.0).count();
@@ -2316,6 +2382,7 @@ fn harbour_front_audit() {
         let mut c = [0usize; 15];
         c[0] = civ.settlements.iter().filter(|s| s.placement.coastal).count();
         c[1] = civ.sea_routes.len();
+        let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
             let (x, y) = (s.placement.x, s.placement.y);
             let m = (x as f64 + 0.5, y as f64 + 0.5);
@@ -2341,6 +2408,7 @@ fn harbour_front_audit() {
                 street_village: street_village(&p),
                 market_scale: market_scale(&p),
                 harbour_front: hf,
+                river_stretch: river_stretch(&p).then_some(others.as_slice()),
                 ..Default::default()
             };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);

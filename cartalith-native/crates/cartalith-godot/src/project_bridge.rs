@@ -7654,7 +7654,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "civ.map_rivers", "civ.harbour_box", "civ.port_reach"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7674,6 +7674,8 @@ mod tests {
         assert!(!p.urban_market_scale, "an old archive keeps the reference's square");
         // Ruling FK (2026-11-16): an old archive centres its harbour towns on the pin and badges ports on the radius.
         assert!(!p.urban_harbour_front && !p.civ.port_reach, "an old archive keeps its harbour layouts and its port radius");
+        // Ruling FN (2026-11-16): an old archive lays its river towns out in the reference's box.
+        assert!(!p.urban_river_stretch, "an old archive keeps its river towns unstretched");
         // Ruling EX (2026-11-14): an archive that predates the river frontage term keeps its placements.
         assert!(!p.civ.river_front, "an old archive places its towns without the frontage term");
         // Ruling FF items 5 and 6 (2026-11-15): an old archive sites on the rebuilt network and badges on the radius.
@@ -7703,6 +7705,7 @@ mod tests {
         assert!(p.civ.map_rivers && p.civ.harbour_box, "a new world sites on the map's rivers and badges harbours by the box (Ruling FF)");
         assert!(p.civ.port_shore && p.civ.map_crossings, "a new world nudges ports to the shore and charges every drawn crossing (Ruling FI)");
         assert!(p.urban_harbour_front && p.civ.port_reach, "a new world builds harbour towns to their water and badges ports within about 4 km (Ruling FK)");
+        assert!(!p.urban_river_stretch, "Ruling FN's river stretch is a prototype, off in a new world too");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)

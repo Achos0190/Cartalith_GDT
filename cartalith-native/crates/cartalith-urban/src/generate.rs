@@ -238,6 +238,28 @@ pub struct GenOpts {
     /// from in place of [`Self::water`]. Read only with
     /// [`Self::harbour_front`]; `None` is the river as traced.
     pub water_to_sea: Option<WaterCtx>,
+    /// **Not the reference** -- Ruling FN (owner, 2026-11-16): the layout box,
+    /// `(width, height)` in metres, when the host lays a stretched river town
+    /// out in a box larger than the reference's [`SITE_WM`] by [`SITE_HM`]
+    /// ([`crate::stretch::stretch_half_box`]). The market stays at its centre.
+    /// `None` is the reference's box, so every JS-captured golden and every
+    /// other `GenOpts` literal is unmoved by control flow.
+    pub site_box: Option<(f64, f64)>,
+    /// **Not the reference** -- Ruling FN: the town grows in a river-following
+    /// frame stretched by this plan ([`crate::stretch::StretchFrame`]), the
+    /// host's [`crate::stretch::plan_river_stretch`]. Read only on the organic
+    /// plan, on a river site with a centreline. `None` is the reference's
+    /// growth round the market, by control flow.
+    pub river_stretch: Option<crate::stretch::StretchPlan>,
+}
+
+/// `maxRf` (reference line 30967): the growth front's full radius, metres, for
+/// a town of (clamped) population target `pop_target`. Split out of
+/// [`generate`] (2026-11-16, Ruling FN) so the host can size a neighbour's
+/// reach ([`crate::stretch::StretchNeighbour`]) by the same arithmetic; the
+/// expression is the reference's, term for term.
+pub fn town_reach_m(pop_target: f64) -> f64 {
+    js_min(720.0, (pop_target * 21.0).sqrt() * 1.35 + 80.0)
 }
 
 /// The reference's market-to-harbour distance on a sea site, metres:
@@ -739,13 +761,15 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // M-DEN-1/2, M-PAR-1: ~150 p/ha and ~8 m frontages give ~2.1 m of street per
     // inhabitant; the floor keeps a hamlet a crossroads cluster (M-AMEN-2).
     let target_len = js_max(1600.0, js_min(42000.0, pop_target * 2.1));
-    let max_rf = js_min(720.0, (pop_target * 21.0).sqrt() * 1.35 + 80.0);
+    let max_rf = town_reach_m(pop_target);
     // **Not the reference** (Ruling FE item 2, `crate::village`): a street
     // village. Organic plan only (the radial plan lays its own rings).
     let street_village = opts.street_village && pop_target < crate::plaza::PLAZA_MARKET_POP && profile.planning != "radial";
     // Its lanes: a quarter of a town's street a head, with no floor.
     let target_len = if street_village { pop_target * crate::village::STREET_PER_HEAD_M } else { target_len };
-    let (wm, hm) = (SITE_WM, SITE_HM);
+    // **Not the reference** (Ruling FN, `GenOpts::site_box`): a stretched
+    // river town's larger box; `None` is the reference's.
+    let (wm, hm) = opts.site_box.unwrap_or((SITE_WM, SITE_HM));
     let site_kind = or_str(opts.site.as_deref(), "river").to_string();
 
     // **Not the reference** (2026-11-15, `crate::riverbank`): with the
@@ -889,6 +913,21 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         anchors.market = mc;
     }
 
+    // **Not the reference** (Ruling FN, `GenOpts::river_stretch`): a river
+    // town the host stretched is laid out in the river-following frame
+    // (`Site::market_dist`), set once its market is placed and before any
+    // street. Only the organic plan on a river site with a real centreline,
+    // never a street village; `None`: the reference's distances.
+    if let Some(plan) = opts.river_stretch
+        && !street_village
+        && profile.planning != "radial"
+        && site.real_river
+        && (site.kind == "river" || site.kind == "riverthrough")
+    {
+        let f = crate::stretch::StretchFrame::new(&site.river, anchors.market, plan, max_rf);
+        site.set_stretch(f);
+    }
+
     let mut g = Graph::new();
     let mut wall_state = WallState::default();
 
@@ -963,6 +1002,10 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         if let Some(water) = front_water {
             harbour_street(&site, &mut g, anchors.market, water);
         }
+        // **Not the reference** (Ruling FN, `crate::stretch::lay_river_spine`):
+        // a stretched river town's road along its bank, before it grows, so
+        // it grows along its river. Nothing without a stretch frame.
+        crate::stretch::lay_river_spine(&site, &mut g, anchors.market);
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
         }

@@ -437,7 +437,9 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
             continue;
         }
         let p = n.pt();
-        if p.dist(anchors.market) > 620.0 {
+        // Ruling FN: `Site::market_dist` (the plain distance unless the town
+        // is stretched along its river, whose wall then takes its whole length).
+        if site.market_dist(p, anchors.market) > 620.0 {
             continue;
         }
         if rk && site.river_dist(p) < site.river_w / 2.0 + 14.0 {
@@ -462,11 +464,11 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
     } else {
         near.clone()
     };
-    let mut ds: Vec<f64> = mass_nodes.iter().map(|n| n.dist(anchors.market)).collect();
+    let mut ds: Vec<f64> = mass_nodes.iter().map(|n| site.market_dist(*n, anchors.market)).collect();
     ds.sort_by(|a, b| js_num_cmp(*a, *b));
     let cut = ds[(ds.len() as f64 * 0.85).floor() as usize] * 1.12;
     let pts: Vec<Vec2> =
-        mass_nodes.iter().copied().filter(|n| n.dist(anchors.market) <= cut).collect();
+        mass_nodes.iter().copied().filter(|n| site.market_dist(*n, anchors.market) <= cut).collect();
     if pts.len() < 8 {
         return None;
     }

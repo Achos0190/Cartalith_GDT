@@ -243,14 +243,18 @@ pub fn assign_districts<'a>(
     // urban-core radius
     let in_wall = |p: Vec2| match &wall_state.ring {
         Some(ring) => point_in_poly(p, ring),
-        None => p.dist(anchors.market) < max_rf * 0.72,
+        // Ruling FN: `Site::market_dist`, the plain distance unless the town
+        // is stretched along its river.
+        None => site.market_dist(p, anchors.market) < max_rf * 0.72,
     };
 
     let mut lots: Vec<Lot<'a>> = parcels.iter().map(Lot::new).collect();
 
     for lot in &mut lots {
         let c = poly_centroid(&lot.par.poly);
-        let d_m = c.dist(anchors.market);
+        // Ruling FN: `Site::market_dist`, the plain distance unless the town
+        // is stretched along its river (its zones then follow the river).
+        let d_m = site.market_dist(c, anchors.market);
         let rd = site.river_dist(c);
         // docs/08: informational by default (M-TER-1)
         lot.suitability = lot_suitability(site, lot.par);
@@ -372,7 +376,7 @@ pub fn assign_districts<'a>(
                 // hamlet scale: relative edge, no absolute floor
                 list = cand(
                     &lots,
-                    &mut |_l, c| c.dist(anchors.market) > max_rf * 0.4,
+                    &mut |_l, c| site.market_dist(c, anchors.market) > max_rf * 0.4,
                     &mut ore_score,
                 );
             }
@@ -399,7 +403,7 @@ pub fn assign_districts<'a>(
                 // hamlet scale: relative edge
                 list = cand(
                     &lots,
-                    &mut |_l, c| c.dist(anchors.market) > max_rf * 0.4,
+                    &mut |_l, c| site.market_dist(c, anchors.market) > max_rf * 0.4,
                     &mut |_l, c| -c.dist(anchors.market),
                 );
             }
@@ -429,7 +433,7 @@ pub fn assign_districts<'a>(
                     continue;
                 }
                 let c = poly_centroid(&lot.par.poly);
-                if c.dist(anchors.market) > max_rf * 0.62 {
+                if site.market_dist(c, anchors.market) > max_rf * 0.62 {
                     lot.district = "agrarian";
                     lot.prov_district = PROV_PASTORAL_AGRARIAN;
                 }

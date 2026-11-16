@@ -337,7 +337,9 @@ pub fn build_parcels(
         }
         let mut r_b = stream(fnv1a(&blk.id), &format!("parcels/{}", blk.id));
         let mut cand: Vec<Parcel> = Vec::new();
-        let d_m = poly_centroid(poly).dist(anchors_market);
+        // Ruling FN: `Site::market_dist` (the plain distance unless the town
+        // is stretched along its river).
+        let d_m = site.market_dist(poly_centroid(poly), anchors_market);
         // M-PAR-2: block-uniform target depth, shallower at the core where
         // land is dear.
         let depth_target = js_max(

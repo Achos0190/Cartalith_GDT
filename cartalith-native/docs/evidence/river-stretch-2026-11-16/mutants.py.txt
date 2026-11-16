@@ -1,0 +1,65 @@
+"""mutants.py: Ruling FN's mutants. Exact literal replace (must occur once), build error kept apart from survival,
+restored in a finally. Usage: python -I mutants.py <out.txt>"""
+import subprocess, sys, os, hashlib
+ROOT = "C:/cw/rivertown/cartalith-native"
+U = "crates/cartalith-urban/src/"
+C = "crates/cartalith-civ/src/"
+ENV = dict(os.environ, CARGO_TARGET_DIR="C:/cw/rivertown_target")
+M = [
+ # (id, file, old, new, crate, filter)
+ ("target-cap", U+"stretch.rs", "(max_rf * max_rf / across0).min(STRETCH_ALONG_MAX_RF * max_rf)", "(max_rf * max_rf / across0)", "cartalith-urban", "stretch::"),
+ ("across-const", U+"stretch.rs", "pub const STRETCH_ACROSS_M: f64 = 450.0;", "pub const STRETCH_ACROSS_M: f64 = 400.0;", "cartalith-urban", "stretch::"),
+ ("along-const", U+"stretch.rs", "pub const STRETCH_ALONG_MAX_RF: f64 = 1.5;", "pub const STRETCH_ALONG_MAX_RF: f64 = 1.6;", "cartalith-urban", "stretch::"),
+ ("min-pop", U+"stretch.rs", "if river.len() < 2 || pop_target < STRETCH_MIN_POP ||", "if river.len() < 2 ||", "cartalith-urban", "stretch::"),
+ ("open-water-cut", U+"stretch.rs", "if !in_box(c) || open_water(c) || crowded(c) {", "if !in_box(c) || crowded(c) {", "cartalith-urban", "stretch::"),
+ ("neighbour-reach", U+"stretch.rs", "p.dist(n.at) < n.reach_m + STRETCH_NEIGHBOUR_GAP_M ||", "p.dist(n.at) < n.reach_m ||", "cartalith-urban", "stretch::"),
+ ("neighbour-bisector", U+"stretch.rs", " || p.dist(n.at) < p.dist(market))", ")", "cartalith-urban", "stretch::"),
+ ("either-bank", U+"stretch.rs", "if buildable(site, c + nl * probe) || buildable(site, c + nl * -probe) {", "if buildable(site, c + nl * probe) && buildable(site, c + nl * -probe) {", "cartalith-urban", "stretch::"),
+ ("gap-const", U+"stretch.rs", "pub const STRETCH_GAP_M: f64 = 120.0;", "pub const STRETCH_GAP_M: f64 = 1000.0;", "cartalith-urban", "stretch::"),
+ ("gain-floor", U+"stretch.rs", "if !(mean > max_rf * STRETCH_MIN_GAIN) {", "if !(mean > max_rf) {", "cartalith-urban", "stretch::"),
+ ("across-clamp", U+"stretch.rs", "let across = (max_rf * max_rf / mean).clamp(across0, max_rf);", "let across = across0;", "cartalith-urban", "stretch::"),
+ ("side-floor", U+"stretch.rs", "Some(StretchPlan { ahead_m: fwd.max(across), behind_m: back.max(across), across_m: across })", "Some(StretchPlan { ahead_m: fwd, behind_m: back, across_m: across })", "cartalith-urban", "stretch::"),
+ ("frame-side", U+"stretch.rs", "let reach = if ds >= 0.0 { self.plan.ahead_m } else { self.plan.behind_m };", "let reach = self.plan.ahead_m;", "cartalith-urban", "stretch::"),
+ ("box-floor", U+"stretch.rs", "(hx + STRETCH_BOX_MARGIN_M).max(crate::generate::SITE_WM / 2.0),", "hx + STRETCH_BOX_MARGIN_M,", "cartalith-urban", "stretch::"),
+ ("spine-off", U+"generate.rs", "crate::stretch::lay_river_spine(&site, &mut g, anchors.market);", "let _ = 0;", "cartalith-urban", "stretch::"),
+ ("frame-off", U+"generate.rs", "site.set_stretch(f);", "let _ = f;", "cartalith-urban", "stretch::"),
+ ("grow-dist", U+"growth.rs", "            let d_mkt = site.market_dist(o, anchors.market);", "            let d_mkt = o.dist(anchors.market);", "cartalith-urban", "stretch::"),
+ ("districts-dist", U+"districts.rs", "        let d_m = site.market_dist(c, anchors.market);", "        let d_m = c.dist(anchors.market);", "cartalith-urban", "stretch::"),
+ ("lane-dist", U+"cleanup.rs", "        if site.market_dist(c, anchors.market) > 520.0 {", "        if c.dist(anchors.market) > 520.0 {", "cartalith-urban", "stretch::"),
+ ("wallmass-dist", U+"fortify.rs", "        if site.market_dist(p, anchors.market) > 620.0 {", "        if p.dist(anchors.market) > 620.0 {", "cartalith-urban", "stretch::"),
+ ("spine-bank", U+"stretch.rs", "&& site.bank_side(p) == side", "", "cartalith-urban", "stretch::"),
+ ("open-water-at", U+"site.rs", "mask_idx(w, p).and_then(|i| open.get(i)).copied() == Some(1)", "false && mask_idx(w, p).and_then(|i| open.get(i)).copied() == Some(1)", "cartalith-urban", "stretch::"),
+ ("adapter-bank", C+"urban_adapter.rs", "let ok = o.riverbank && site_kind_stretches(site_kind)", "let ok = site_kind_stretches(site_kind)", "cartalith-civ", "a_river_town_stretches"),
+ ("adapter-sea", C+"urban_adapter.rs", "u.sea_frac <= BOX_SEA_FRAC && u.ctx.has_real_river_path()", "u.ctx.has_real_river_path()", "cartalith-civ", "a_river_town_stretches"),
+ ("adapter-self", C+"urban_adapter.rs", ".filter(|&&(x, y, _)| !(x == px && y == py))", ".filter(|_| true)", "cartalith-civ", "a_river_town_stretches"),
+ ("adapter-gpm", C+"urban_adapter.rs", "at: Vec2::new(half + (x - px) / gpm, half + (y - py) / gpm),", "at: Vec2::new(half + (x - px), half + (y - py)),", "cartalith-civ", "a_river_town_stretches"),
+ ("adapter-box", C+"urban_adapter.rs", "Some((plan, (bw, bh))) => (um_water_ctx_box(w, px, py, false, bw, bh), um_terrain_ctx_box(w, px, py, bw, bh), Some((bw, bh)), Some(plan)),", "Some((plan, (bw, bh))) => (water, terrain, Some((bw, bh)), Some(plan)),", "cartalith-civ", "a_river_town_stretches"),
+ ("runlayout-box", C+"urban_adapter.rs", "site_box: ctx.site_box,", "site_box: None,", "cartalith-civ", "a_river_town_stretches"),
+]
+only = set(sys.argv[2:])
+out = open(sys.argv[1], "a", encoding="utf-8")
+for mid, f, old, new, crate, flt in M:
+    if only and mid not in only:
+        continue
+    path = os.path.join(ROOT, f)
+    src = open(path, encoding="utf-8", newline="").read()
+    h0 = hashlib.sha1(src.encode()).hexdigest()
+    n = src.count(old)
+    if n != 1:
+        out.write(f"{mid}: NOT-ONCE ({n})\n"); out.flush(); continue
+    try:
+        open(path, "w", encoding="utf-8", newline="").write(src.replace(old, new))
+        b = subprocess.run(["cargo", "test", "-p", crate, "--lib", "--no-run"], cwd=ROOT, env=ENV, capture_output=True, text=True)
+        if b.returncode != 0:
+            res = "BUILD_ERROR"
+        else:
+            t = subprocess.run(["cargo", "test", "-p", crate, "--lib", flt], cwd=ROOT, env=ENV, capture_output=True, text=True)
+            res = "KILLED" if t.returncode != 0 else "SURVIVED"
+            if res == "KILLED":
+                fails = [l for l in t.stdout.splitlines() if l.startswith("test ") and l.endswith("FAILED")]
+                res += " by " + ", ".join(x.split()[1] for x in fails[:4])
+    finally:
+        open(path, "w", encoding="utf-8", newline="").write(src)
+    assert hashlib.sha1(open(path, encoding="utf-8", newline="").read().encode()).hexdigest() == h0
+    out.write(f"{mid}: {res}\n"); out.flush()
+print("done")

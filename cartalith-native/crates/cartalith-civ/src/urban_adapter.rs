@@ -680,12 +680,28 @@ pub fn um_primary_paths(
     map_width_km: f64,
     orient: f64,
 ) -> Option<Vec<Vec<Vec2>>> {
+    um_primary_paths_reach(ways, px, py, gw, map_width_km, orient, js_max(SITE_WM, SITE_HM))
+}
+
+/// [`um_primary_paths`], following each road out to `max_off_m` metres of
+/// path instead of the reference box's long side: **not the reference**
+/// (Ruling FN; a stretched river town's box is larger, so its roads run on to
+/// its edge). With `max(SITE_WM, SITE_HM)` it is [`um_primary_paths`]
+/// exactly.
+pub fn um_primary_paths_reach(
+    ways: &[Way],
+    px: f64,
+    py: f64,
+    gw: usize,
+    map_width_km: f64,
+    orient: f64,
+    max_off_m: f64,
+) -> Option<Vec<Vec<Vec2>>> {
     if ways.is_empty() {
         return None;
     }
     let eps = js_max(1.0, gw as f64 / 250.0);
     let grid_per_meter = gw as f64 / (map_width_km * 1000.0);
-    let max_off_m = js_max(SITE_WM, SITE_HM);
     let step_g = js_max(1e-4, 55.0 * grid_per_meter);
     let max_g = max_off_m * grid_per_meter;
     let c = (-orient).cos();
@@ -926,10 +942,19 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
 /// [`um_water_ctx`]'s either way; `false` is [`um_water_ctx`] by control flow,
 /// the reference boundary (`DECISIONS.md` section 7p).
 pub fn um_water_ctx_with(w: &UrbanWorld, px: f64, py: f64, to_sea: bool) -> Option<UmWater> {
+    um_water_ctx_box(w, px, py, to_sea, SITE_WM, SITE_HM)
+}
+
+/// [`um_water_ctx_with`] over a town box of `wm` by `hm` metres centred on
+/// `(px, py)` instead of the reference's [`SITE_WM`] by [`SITE_HM`]: **not the
+/// reference** (Ruling FN, owner 2026-11-16: a river town stretched along its
+/// river is laid out in a larger box, `cartalith_urban::stretch`). With the
+/// reference's box it is [`um_water_ctx_with`] exactly; every box-sized step
+/// (the stem search radius, the river clip, the raster) reads the box given.
+pub fn um_water_ctx_box(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64, hm: f64) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
     }
-    let (wm, hm) = (SITE_WM, SITE_HM);
     let cx = wm / 2.0;
     let cy = hm / 2.0;
     let gpm = w.grid_per_meter();
@@ -1004,7 +1029,7 @@ pub fn um_water_ctx_with(w: &UrbanWorld, px: f64, py: f64, to_sea: bool) -> Opti
                         let (ex, ey) = traced_to_cell(own[own.len() - 1]);
                         let at_end = ext.last().is_some_and(|e| e.dist(grid_to_local(ex, ey)) < 1e-6);
                         if at_end && junction_trunk(w, &chain, (ex, ey)).is_none() {
-                            river_to_sea(w, &local_to_grid, &mut ext);
+                            river_to_sea(w, &local_to_grid, &mut ext, wm, hm);
                         }
                     }
                     // Not the reference: a river that never enters the town box
@@ -1022,8 +1047,8 @@ pub fn um_water_ctx_with(w: &UrbanWorld, px: f64, py: f64, to_sea: bool) -> Opti
         }
     }
     // Ruling FK item 1: the river carried on, as a second context.
-    let to_sea = river_ext.and_then(|ext| finish_water_ctx(w, &local_to_grid, Some(ext), river_width_m, river_order)).map(|u| u.ctx);
-    finish_water_ctx(w, &local_to_grid, river_path, river_width_m, river_order).map(|u| UmWater { to_sea, ..u })
+    let to_sea = river_ext.and_then(|ext| finish_water_ctx(w, &local_to_grid, Some(ext), river_width_m, river_order, wm, hm)).map(|u| u.ctx);
+    finish_water_ctx(w, &local_to_grid, river_path, river_width_m, river_order, wm, hm).map(|u| UmWater { to_sea, ..u })
 }
 
 /// **Not the reference** -- Ruling FK item 1: carries a river `local` (local
@@ -1160,8 +1185,7 @@ const RIVER_JUNCTION_CELLS: f64 = 1.5;
 ///
 /// Leaves `path` unchanged in every other case. Must never shorten or reorder
 /// the traced river, and never extend it toward a lake.
-fn river_to_sea(w: &UrbanWorld, local_to_grid: &impl Fn(f64, f64) -> (f64, f64), path: &mut Vec<Vec2>) {
-    let (wm, hm) = (SITE_WM, SITE_HM);
+fn river_to_sea(w: &UrbanWorld, local_to_grid: &impl Fn(f64, f64) -> (f64, f64), path: &mut Vec<Vec2>, wm: f64, hm: f64) {
     let Some(&end) = path.last() else { return };
     if end.x < 0.0 || end.y < 0.0 || end.x > wm || end.y > hm {
         return;
@@ -1374,8 +1398,9 @@ fn finish_water_ctx(
     river_path: Option<Vec<Vec2>>,
     river_width_m: f64,
     river_order: f64,
+    wm: f64,
+    hm: f64,
 ) -> Option<UmWater> {
-    let (wm, hm) = (SITE_WM, SITE_HM);
     let cell_m = CTX_CELL_M;
     let mw = js_max(8.0, js_round(wm / cell_m)) as usize;
     let mh = js_max(8.0, js_round(hm / cell_m)) as usize;
@@ -1547,10 +1572,16 @@ fn finish_water_ctx(
 /// synthetic proxy — so the engine's `slope × 900` scaling and its `0.34`
 /// street-rejection threshold keep their calibrated meaning.
 pub fn um_terrain_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<TerrainCtx> {
+    um_terrain_ctx_box(w, px, py, SITE_WM, SITE_HM)
+}
+
+/// [`um_terrain_ctx`] over a `wm` by `hm` box centred on `(px, py)`: **not
+/// the reference** (Ruling FN; see [`um_water_ctx_box`]). With the
+/// reference's box it is [`um_terrain_ctx`] exactly.
+pub fn um_terrain_ctx_box(w: &UrbanWorld, px: f64, py: f64, wm: f64, hm: f64) -> Option<TerrainCtx> {
     if w.field.is_empty() {
         return None;
     }
-    let (wm, hm) = (SITE_WM, SITE_HM);
     let cx = wm / 2.0;
     let cy = hm / 2.0;
     let gpm = w.grid_per_meter();
@@ -2235,6 +2266,14 @@ pub struct UrbanContext {
     /// item 1). `false` for every other town, so a lakeside or river town's
     /// market stays where the reference puts it.
     pub harbour_front: bool,
+    /// Ruling FN: the layout box `(width, height)`, metres, of a stretched
+    /// river town ([`river_stretch_plan`]), carried to `GenOpts::site_box`.
+    /// `None` is the reference's [`SITE_WM`] by [`SITE_HM`].
+    pub site_box: Option<(f64, f64)>,
+    /// Ruling FN: how the town is stretched along its river, carried to
+    /// `GenOpts::river_stretch`. `None` for every town the ruling does not
+    /// reach.
+    pub river_stretch: Option<cartalith_urban::stretch::StretchPlan>,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -2327,6 +2366,16 @@ pub struct PlaceOverrides<'a> {
     /// unmoved by control flow. The app sets it from
     /// `WorldParams::urban_harbour_front` (`DECISIONS.md` section 7p).
     pub harbour_front: bool,
+    /// Ruling FN (owner 2026-11-16): a river town of
+    /// `cartalith_urban::stretch::STRETCH_MIN_POP` and up stretches along its
+    /// river ([`river_stretch_plan`]). `Some` carries every settlement of the
+    /// world as `(x, y, pop)` in grid cells (this town among them; it is
+    /// skipped by position), so the stretch stops short of the others.
+    /// **Not a `_umPlaceContext` field** and not in the reference, so `None`
+    /// (the `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_river_stretch` (`DECISIONS.md` section 7p).
+    pub river_stretch: Option<&'a [(f64, f64, f64)]>,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2357,6 +2406,21 @@ pub fn um_place_context_with(
     let harbour_front = o.harbour_front && water.as_ref().is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);
     let site_kind = box_water_kind(w, um_site_kind_from_terrain(w, px, py), water.as_ref());
     let terrain = um_terrain_ctx(w, px, py);
+    // Ruling FN: a river town stretched along its river is laid out in a
+    // larger box, from the water and relief of that box. The site kind and
+    // the harbour front stay the reference box's answers. `None` (the switch
+    // off, or a town the ruling does not reach): the reference's box.
+    let stretch = o.river_stretch.and_then(|others| {
+        let ok = o.riverbank && site_kind_stretches(site_kind) && !harbour_front && water.as_ref().is_some_and(|u| u.sea_frac <= BOX_SEA_FRAC && u.ctx.has_real_river_path());
+        if !ok {
+            return None;
+        }
+        river_stretch_plan(w, px, py, seed, site_kind, pop, others)
+    });
+    let (water, terrain, site_box, river_stretch) = match stretch {
+        Some((plan, (bw, bh))) => (um_water_ctx_box(w, px, py, false, bw, bh), um_terrain_ctx_box(w, px, py, bw, bh), Some((bw, bh)), Some(plan)),
+        None => (water, terrain, None, None),
+    };
     // v0.98: with real water the geometry is already in position, so no
     // rotation is needed and the reference bypasses `_umTerrainOrient`.
     let orient = if water.is_some() { 0.0 } else { um_terrain_orient(w, px, py, site_kind) };
@@ -2407,15 +2471,71 @@ pub fn um_place_context_with(
         ore_bearing,
         water,
         terrain,
-        route_ends: um_route_ends(ways, px, py, w.gw, SITE_WM, SITE_HM, orient),
-        primary_paths: um_primary_paths(ways, px, py, w.gw, w.map_width_km, orient),
+        route_ends: um_route_ends(ways, px, py, w.gw, site_box.map_or(SITE_WM, |b| b.0), site_box.map_or(SITE_HM, |b| b.1), orient),
+        primary_paths: um_primary_paths_reach(ways, px, py, w.gw, w.map_width_km, orient, site_box.map_or(js_max(SITE_WM, SITE_HM), |b| js_max(b.0, b.1))),
         faith: o.faith.map(str::to_string),
         wall_hug: o.wall_hug,
         riverbank: o.riverbank,
         street_village: o.street_village,
         market_scale: o.market_scale,
         harbour_front,
+        site_box,
+        river_stretch,
     }
+}
+
+/// The site kinds a Ruling FN stretch reaches: a river through the town box
+/// (`river`, or `riverthrough`, a river town the proxy also saw sea near).
+fn site_kind_stretches(kind: &str) -> bool {
+    kind == "river" || kind == "riverthrough"
+}
+
+/// **Not the reference** -- Ruling FN (owner 2026-11-16): how the river town
+/// at grid point `(px, py)` (layout seed `seed`, site kind `kind`, population
+/// `pop`) is stretched along its river, and the box it is then laid out in,
+/// `(width, height)` metres; `None` when it is not stretched.
+///
+/// The plan is made on a probe box large enough for the longest stretch
+/// (`STRETCH_ALONG_MAX_RF` times the town's reach each way, plus its reach
+/// and the box margin), built exactly as `cartalith_urban::generate` builds a
+/// riverbank site (the centreline resampled by
+/// `cartalith_urban::riverbank::fine_river_path`, the riverbank geometry
+/// switched on), so its walk reads the same banks the layout will.
+/// `others` is every settlement as `(x, y, pop)` in grid cells; the one at
+/// `(px, py)` is skipped, and each other one's reach is
+/// `cartalith_urban::generate::town_reach_m` of its clamped population.
+/// Must never stretch a town under `STRETCH_MIN_POP` (the plan refuses) nor
+/// return a box smaller than the reference's.
+fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, pop: f64, others: &[(f64, f64, f64)]) -> Option<(cartalith_urban::stretch::StretchPlan, (f64, f64))> {
+    use cartalith_urban::stretch::{STRETCH_ALONG_MAX_RF, STRETCH_BOX_MARGIN_M, StretchNeighbour, plan_river_stretch, stretch_half_box};
+    let pop_target = js_max(400.0, js_min(20000.0, pop));
+    let max_rf = cartalith_urban::generate::town_reach_m(pop_target);
+    let half = max_rf * (STRETCH_ALONG_MAX_RF + 1.0) + STRETCH_BOX_MARGIN_M;
+    let (pw, ph) = (2.0 * half, 2.0 * half);
+    let water = um_water_ctx_box(w, px, py, false, pw, ph)?;
+    let mut ctx = water.ctx;
+    let fine = ctx.river_path.as_deref().filter(|p| p.len() >= 2).and_then(|p| cartalith_urban::riverbank::fine_river_path(p, pw, ph));
+    if let Some(f) = fine {
+        ctx.river_path = Some(f);
+    }
+    let terrain = um_terrain_ctx_box(w, px, py, pw, ph);
+    let mut site = cartalith_urban::site::build_site(seed, pw, ph, kind, cartalith_urban::site::SiteOpts { water: Some(ctx), terrain, economy: None });
+    if !site.use_riverbank() {
+        return None;
+    }
+    let gpm = w.grid_per_meter();
+    let market = Vec2::new(half, half);
+    let neighbours: Vec<StretchNeighbour> = others
+        .iter()
+        .filter(|&&(x, y, _)| !(x == px && y == py))
+        .map(|&(x, y, p)| StretchNeighbour {
+            at: Vec2::new(half + (x - px) / gpm, half + (y - py) / gpm),
+            reach_m: cartalith_urban::generate::town_reach_m(js_max(400.0, js_min(20000.0, p))),
+        })
+        .collect();
+    let plan = plan_river_stretch(&site, market, max_rf, pop_target, &neighbours)?;
+    let (hx, hy) = stretch_half_box(&site.river, market, plan);
+    Some((plan, (2.0 * hx, 2.0 * hy)))
 }
 
 // ------------------------------------------------------------- the layout --
@@ -2763,6 +2883,9 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.
         water_to_sea: if ctx.harbour_front { ctx.water.as_ref().and_then(|w| w.to_sea.clone()) } else { None },
+        // Ruling FN: a stretched river town's box and stretch.
+        site_box: ctx.site_box,
+        river_stretch: ctx.river_stretch,
     };
     let t = generate(ctx.seed, &opts);
 

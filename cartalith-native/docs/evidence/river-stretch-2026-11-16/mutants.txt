@@ -1,0 +1,34 @@
+Ruling FN mutants (mutants.py.txt; python -I mutants.py <out> [ids]): 28 run, 26 killed, 2 survive with reasons. Passes: the first pass's 4 survivors (open-water-cut, either-bank, gap-const, districts-dist) and the adapter's 2 (adapter-sea, adapter-box) were killed after fixtures were added (a 44 m pond across the river, one bank wet, a 300 m wet bank that ends before the cap, the districts read through the frame, a river along the coast, the water raster's size); 5 first-pass literals that did not occur once (CRLF) were re-run as single-line literals.
+
+target-cap: KILLED by stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not, stretch::tests::an_open_river_stretches_a_big_town_to_its_cap_both_ways, stretch::tests::a_neighbour_stops_the_stretch_short_of_its_reach_and_the_half_way_line, stretch::tests::open_water_downstream_cuts_the_reach_on_that_side
+across-const: KILLED by stretch::tests::small_towns_and_riverless_sites_are_not_stretched
+along-const: KILLED by stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not, stretch::tests::a_neighbour_stops_the_stretch_short_of_its_reach_and_the_half_way_line, stretch::tests::an_open_river_stretches_a_big_town_to_its_cap_both_ways, stretch::tests::open_water_downstream_cuts_the_reach_on_that_side
+min-pop: KILLED by stretch::tests::small_towns_and_riverless_sites_are_not_stretched
+neighbour-reach: KILLED by stretch::tests::a_neighbour_stops_the_stretch_short_of_its_reach_and_the_half_way_line
+neighbour-bisector: KILLED by stretch::tests::a_neighbour_stops_the_stretch_short_of_its_reach_and_the_half_way_line
+gain-floor: KILLED by stretch::tests::small_towns_and_riverless_sites_are_not_stretched
+across-clamp: KILLED by stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not, stretch::tests::open_water_downstream_cuts_the_reach_on_that_side, stretch::tests::an_open_river_stretches_a_big_town_to_its_cap_both_ways, stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+side-floor: KILLED by stretch::tests::open_water_downstream_cuts_the_reach_on_that_side, stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not
+frame-side: KILLED by stretch::tests::the_frame_reads_along_and_across_the_river_at_their_own_scales
+box-floor: KILLED by stretch::tests::the_box_holds_the_stretched_region_and_never_shrinks
+grow-dist: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+wallmass-dist: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+adapter-bank: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+adapter-gpm: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+open-water-cut: KILLED by stretch::tests::open_water_downstream_cuts_the_reach_on_that_side
+either-bank: KILLED by stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not
+gap-const: KILLED by stretch::tests::a_long_unbuildable_bank_ends_the_stretch_and_a_short_one_does_not
+districts-dist: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+lane-dist: SURVIVED
+spine-bank: SURVIVED
+adapter-sea: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+adapter-box: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+spine-off: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+frame-off: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+open-water-at: KILLED by stretch::tests::open_water_downstream_cuts_the_reach_on_that_side
+adapter-self: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+runlayout-box: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+
+Survivors, with reasons:
+ lane-dist (cleanup::lane_pass reading Site::market_dist for its 520 m cut-off): a consistency conversion; no fixture face of 1.2-14 ha lies between 520 m of plain distance and 520 m of the frame's, so the integration fixture lays the same lanes either way.
+ spine-bank (lay_river_spine's market-bank guard): masked by point(), which already offsets to the market's side; the guard only acts at a bend sharp enough that the offset point is nearer a segment on the other side, which the straight-river fixture has none of.

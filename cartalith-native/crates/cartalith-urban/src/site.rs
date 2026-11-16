@@ -291,6 +291,12 @@ pub struct Site {
     /// the open-water raster and its distance transform. `None` (every site
     /// [`build_site`] makes) is the reference's water.
     bank: Option<BankCtx>,
+    /// **Not the reference** -- Ruling FN (`crate::stretch`): the
+    /// river-following frame a stretched river town is laid out in, set by
+    /// `generate` once its market is placed ([`Site::set_stretch`]) and read
+    /// by [`Site::market_dist`]. `None` (every site [`build_site`] makes) is
+    /// the reference's plain distance to the market.
+    stretch: Option<crate::stretch::StretchFrame>,
 }
 
 /// The open water a riverbank site still reads off the raster (2026-11-15,
@@ -398,6 +404,44 @@ impl Site {
     /// geometry.
     pub fn riverbank(&self) -> bool {
         self.bank.is_some()
+    }
+    /// **Not the reference** (Ruling FN, `crate::stretch`): lay this site's
+    /// town out in the stretched frame `f` (`None` clears it). Set by
+    /// `generate` once the market is placed, before any street is laid.
+    pub fn set_stretch(&mut self, f: Option<crate::stretch::StretchFrame>) {
+        self.stretch = f;
+    }
+    /// The stretched frame [`Site::set_stretch`] set, if any.
+    pub fn stretch(&self) -> Option<&crate::stretch::StretchFrame> {
+        self.stretch.as_ref()
+    }
+    /// **Not the reference** (Ruling FN): how far `p` is from the town's
+    /// market `market` for every stage that zones the town by that distance
+    /// (the growth front and its density gradient, the districts' radii, the
+    /// interior-lane and wall-mass cut-offs, the plot depth's core, the
+    /// courtyard ring, the hinterland's urban test): in a stretched town the
+    /// frame's equivalent distance ([`crate::stretch::StretchFrame::dist`],
+    /// metres of the unstretched town), else `p.dist(market)`, the
+    /// reference's own expression, so a site with no stretch reads exactly
+    /// what the reference read.
+    pub fn market_dist(&self, p: Vec2, market: Vec2) -> f64 {
+        match &self.stretch {
+            Some(f) => f.dist(p),
+            None => p.dist(market),
+        }
+    }
+    /// **Not the reference** (Ruling FN, `crate::stretch`): is `p` on an
+    /// open-water cell (sea or lake, before the river band was stamped:
+    /// [`WaterCtx::open_water`])? The river's own channel is not open water.
+    /// `false` on a site with no open-water raster of the mask's size: then
+    /// nothing is known to be open water, and nothing is guessed from the
+    /// stamped mask.
+    pub fn open_water_at(&self, p: Vec2) -> bool {
+        let Some(w) = &self.water else { return false };
+        let Some(open) = w.open_water.as_ref().filter(|o| o.len() == w.mw * w.mh) else {
+            return false;
+        };
+        mask_idx(w, p).and_then(|i| open.get(i)).copied() == Some(1)
     }
     /// **Not the reference** (2026-11-15, the riverbank geometry): does the
     /// polygon `poly` reach into the water, exactly? The channel (any edge
@@ -932,6 +976,7 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
         water,
         terrain,
         bank: None,
+        stretch: None,
     };
 
     if rk {

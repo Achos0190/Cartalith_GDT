@@ -370,7 +370,9 @@ pub fn strip_fields(
         if urban(mid) {
             continue;
         }
-        if mid.dist(anchors.market) < 330.0 {
+        // Ruling FN: `Site::market_dist` (the plain distance unless the town
+        // is stretched along its river).
+        if site.market_dist(mid, anchors.market) < 330.0 {
             continue;
         }
         let dir = (b - a).norm();
@@ -542,7 +544,9 @@ pub fn build_farmland(
     };
     let urban = |p: Vec2| match &wall_state.ring {
         Some(ring) => point_in_poly(p, ring),
-        None => p.dist(anchors.market) < max_rf * 0.7,
+        // Ruling FN: `Site::market_dist` (the plain distance unless the town
+        // is stretched along its river).
+        None => site.market_dist(p, anchors.market) < max_rf * 0.7,
     };
     // Created before the dispatch, as the reference does, even though the strip
     // branch never draws from it.

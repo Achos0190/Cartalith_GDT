@@ -296,6 +296,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         // Nor a harbour front (Ruling FK item 1): the market at the box centre.
         harbour_front: false,
         water_to_sea: None,
+        site_box: None,
+        river_stretch: None,
     }
 }
 

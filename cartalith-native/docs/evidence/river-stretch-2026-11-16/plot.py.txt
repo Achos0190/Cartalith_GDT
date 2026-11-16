@@ -1,0 +1,29 @@
+"""plot.py <json> <out.png> [label]: plan of one town JSON (river, edges by class, buildings, ring, market), box wm x hm, scaled to fit 1000 px."""
+import json, sys
+from PIL import Image, ImageDraw
+d = json.load(open(sys.argv[1]))
+wm, hm = d.get("wm", 1700), d.get("hm", 1250)
+F = 3300.0
+S = 800.0 / F
+OX, OY = (F - wm) / 2, (F - hm) / 2
+W, H = int(F * S), int(F * S)
+im = Image.new("RGB", (W, H + 16), (226, 222, 205))
+dr = ImageDraw.Draw(im)
+P = lambda p: ((p[0] + OX) * S, (p[1] + OY) * S + 16)
+if len(d.get("water_poly", [])) >= 3:
+    dr.polygon([P(p) for p in d["water_poly"]], fill=(150, 180, 215))
+if len(d["river"]) >= 2:
+    dr.line([P(p) for p in d["river"]], fill=(60, 100, 190), width=max(1, int(d["river_w"] * S)))
+col = {"primary": (200, 120, 40), "street": (120, 120, 120), "lane": (170, 170, 170), "quay": (20, 20, 120), "bank": (40, 40, 160), "ringroad": (90, 90, 90)}
+for e in d["edges"]:
+    dr.line([P(e[2:4]), P(e[4:6])], fill=col.get(e[0], (0, 0, 0)), width=max(1, int(e[1] * S)))
+for b in d["buildings"]:
+    if len(b) >= 3:
+        dr.polygon([P(p) for p in b], fill=(140, 70, 50))
+if len(d.get("ring", [])) >= 3:
+    dr.line([P(p) for p in d["ring"] + d["ring"][:1]], fill=(40, 40, 40), width=2)
+x, y = P(d["market"]); dr.ellipse([x - 5, y - 5, x + 5, y + 5], outline=(220, 0, 0), width=2)
+dr.rectangle([P((0, 0)), P((wm, hm))], outline=(150, 150, 150))
+dr.rectangle([0, 0, W, 15], fill=(0, 0, 0))
+dr.text((3, 2), (sys.argv[3] if len(sys.argv) > 3 else sys.argv[1])[:160] + f"  pop {d['pop']:.0f}/{d['target']:.0f} box {wm:.0f}x{hm:.0f}", fill=(255, 255, 255))
+im.save(sys.argv[2])

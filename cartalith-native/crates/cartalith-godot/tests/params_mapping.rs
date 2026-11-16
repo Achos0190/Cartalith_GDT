@@ -1366,6 +1366,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // box-centre market and badged ports within the reference's radius.
     expect.urban_harbour_front = false;
     expect.civ.port_reach = false;
+    // And Ruling FN: a save without the key laid its river towns out in the
+    // reference's box.
+    expect.urban_river_stretch = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1456,7 +1459,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `urban_river_kind_map` and, 2026-11-15, `urban_riverbank`, Ruling FE
 /// item 2's `urban_street_village` and the town judgement's change 6,
 /// `urban_market_scale`; Ruling FF's and FI's four civ switches; and, 2026-11-16,
-/// Ruling FK's `urban_harbour_front` and `civ.port_reach`.)
+/// Ruling FK's `urban_harbour_front` and `civ.port_reach`, and Ruling FN's
+/// `urban_river_stretch`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1500,6 +1504,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.urban_market_scale && !parity.urban_market_scale, "the market square is sized with the town, judgement change 6");
     assert!(app.urban_harbour_front && !parity.urban_harbour_front, "harbour towns are built to their water, Ruling FK item 1");
     assert!(app.civ.port_reach && !parity.civ.port_reach, "ports only within about 4 km of the ocean, Ruling FK item 2");
+    assert!(!app.urban_river_stretch && !parity.urban_river_stretch, "Ruling FN's river stretch is a prototype, off in the app too");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1537,6 +1542,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.map_crossings = false;
     neutral.urban_harbour_front = false;
     neutral.civ.port_reach = false;
+    neutral.urban_river_stretch = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;

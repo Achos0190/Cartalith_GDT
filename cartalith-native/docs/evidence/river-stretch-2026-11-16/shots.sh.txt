@@ -1,0 +1,11 @@
+#!/bin/bash
+# shots.sh: City Viewer opening frames, before (--stretch 0) and after (--stretch 1), same DLL, app worlds at 384x288. Windowed, under the window lock.
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+cd C:/cw/rivertown/cartalith-native/godot-project
+for run in 483920:0,2,4,6,11,15,17,23 912345:0,3,8,15; do
+  seed=${run%%:*}; ids=${run#*:}
+  for st in 0 1; do
+    APPDATA=C:/cw/rivertown_scratch/appdata timeout 1800 "$GODOT" --path . --resolution 1600x1000 _viewerframe_probe.tscn -- --seed $seed --grid 384x288 --stretch $st --shots C:/cw/rivertown_scratch/shots_s$st --ids $ids > C:/cw/rivertown_scratch/shots_${seed}_s$st.log 2>&1
+    echo "$seed stretch $st exit $?"
+  done
+done

@@ -86,6 +86,8 @@ pub mod routes;
 pub mod riverbank;
 pub mod rules;
 pub mod site;
+/// Ruling FN: river towns stretched along their river (`urban_river_stretch`).
+pub mod stretch;
 /// Ruling FE item 2: street villages (`urban_street_village`).
 pub mod village;
 pub mod wallgap;

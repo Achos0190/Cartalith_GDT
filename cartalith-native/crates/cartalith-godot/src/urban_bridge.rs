@@ -764,6 +764,10 @@ impl WorldGen {
         });
 
         let mut out = out;
+        // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
+        // call, so a stretched river town stops short of the others.
+        let stretch_others: Vec<(f64, f64, f64)> =
+            civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
         for i in indices.as_slice() {
             let Ok(idx) = usize::try_from(*i) else { continue };
             let Some(s) = civ.settlements.get(idx) else { continue };
@@ -815,6 +819,9 @@ impl WorldGen {
                 // Ruling FK item 1: a harbour town lays out to its water. Read
                 // live, like the four above.
                 harbour_front: self.params.urban_harbour_front,
+                // Ruling FN: river towns stretch along their river, short of
+                // the other settlements. Read live, like the five above.
+                river_stretch: self.params.urban_river_stretch.then_some(stretch_others.as_slice()),
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

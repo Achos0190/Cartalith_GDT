@@ -606,7 +606,9 @@ pub fn lane_pass(
             continue;
         }
         let c = poly_centroid(&f.poly);
-        if c.dist(anchors.market) > 520.0 {
+        // Ruling FN: `Site::market_dist` (the plain distance unless the town
+        // is stretched along its river).
+        if site.market_dist(c, anchors.market) > 520.0 {
             continue;
         }
         if site.is_water(c) {

@@ -637,9 +637,13 @@ pub fn grow(
             }
             // Demand decays from the market — and from the quay in port towns,
             // which are densest at the waterfront (harbour-city family).
+            // **Not the reference** (Ruling FN, `Site::market_dist`): a
+            // stretched river town reads the market's distance along and
+            // across its river; unstretched, the reference's distance.
+            let d_mkt = site.market_dist(o, anchors.market);
             let d_m = match &opts.harbour {
-                Some(h) => js_min(o.dist(anchors.market), dist_to_line(o, &h.quay) + 35.0),
-                None => o.dist(anchors.market),
+                Some(h) => js_min(d_mkt, dist_to_line(o, &h.quay) + 35.0),
+                None => d_mkt,
             };
             if !explore && d_m > max_r {
                 continue;
@@ -1013,7 +1017,13 @@ pub fn grow_far_bank(
         if site.bank_side(o) == mkt_side || !crate::riverbank::far_bank_buildable(site, o) {
             continue;
         }
-        let d = o.dist(far_centre);
+        // **Not the reference** (Ruling FN): a stretched town's far bank
+        // grows along the river in the same frame as its market's bank (the
+        // frame's foot is the market's; the bridge stands beside it).
+        let d = match site.stretch() {
+            Some(f) => f.dist(o),
+            None => o.dist(far_centre),
+        };
         if d > opts.max_rf {
             continue;
         }

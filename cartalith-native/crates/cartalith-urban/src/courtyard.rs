@@ -197,7 +197,9 @@ pub fn build_courtyard_rings(
     site: &Site,
 ) -> Vec<String> {
     let built = |b: &&Block| !b.plaza && parcels.iter().any(|p| p.block == b.id);
-    let d_m = |b: &Block| poly_centroid(&b.poly).dist(market);
+    // Ruling FN: `Site::market_dist` (the plain distance unless the town is
+    // stretched along its river, whose outer ring is then its edge, not its ends).
+    let d_m = |b: &Block| site.market_dist(poly_centroid(&b.poly), market);
     let max_d = blocks.iter().filter(built).map(d_m).fold(0.0, f64::max);
     let ring: Vec<&Block> =
         blocks.iter().filter(built).filter(|b| d_m(b) >= max_d * OUTER_RING_FRAC).collect();

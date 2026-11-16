@@ -3,7 +3,7 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
@@ -13,6 +13,7 @@ extends Node
 ## evidence's `plot.py` (2026-11-15): the app's own layout, since the census's CPU world is not the shell's.
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
+## `--stretch 0|1` does the same for `urban_river_stretch` (Ruling FN, 2026-11-16: river towns stretched along their river).
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
 
 var _fails := 0
@@ -95,7 +96,8 @@ func _pts(v) -> Array:
 		out.append([p.x, p.y])
 	return out
 
-## Write one layout in `plot.py`'s format (market, plaza, river, ring, buildings, edges by class, parcels, pop). Street
+## Write one layout in `plot.py`'s format (market, plaza, river, ring, buildings, edges by class, parcels, pop; the box
+## `wm` x `hm` and the site kind since Ruling FN, whose stretched towns have a larger box). Street
 ## widths are the drawn class's nominal ones (the dictionary carries none); a plot, not a measurement.
 func _dump_layout(lay: Dictionary, path: String) -> void:
 	var widths := {"lane": 3.4, "street": 4.4, "quay": 4.0, "ringroad": 5.4, "primary": 6.0}
@@ -117,7 +119,8 @@ func _dump_layout(lay: Dictionary, path: String) -> void:
 	var d := {"market": [m.x, m.y], "river_w": lay.get("river_w", 0.0), "river": _pts(lay.get("river", PackedVector2Array())),
 		"water_poly": _pts(lay.get("water_poly", PackedVector2Array())), "ring": _pts(lay.get("wall_ring", PackedVector2Array())),
 		"plaza": _pts(lay.get("plaza", PackedVector2Array())), "buildings": blds, "edges": edges, "parcels": parcels,
-		"pop": lay.get("pop", 0.0), "target": lay.get("pop_target", 0.0), "stages": lay.get("stages", PackedStringArray())}
+		"pop": lay.get("pop", 0.0), "target": lay.get("pop_target", 0.0), "stages": lay.get("stages", PackedStringArray()),
+		"wm": lay.get("wm", 1700.0), "hm": lay.get("hm", 1250.0), "site_kind": lay.get("site_kind", "")}
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify(d))
 	f.close()
@@ -151,6 +154,7 @@ func _ready() -> void:
 	var shots := ""
 	var dump := ""
 	var riverbank := -1
+	var stretch := -1
 	## `--villages 0` makes the world without villages, as the FH-R2 harness
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
 	## as the shell's probes ask.
@@ -168,6 +172,7 @@ func _ready() -> void:
 			"--shots": shots = args[i + 1]
 			"--dump": dump = args[i + 1]
 			"--riverbank": riverbank = int(args[i + 1])
+			"--stretch": stretch = int(args[i + 1])
 			"--villages": villages = int(args[i + 1]) != 0
 			"--ids":
 				for t in String(args[i + 1]).split(",", false):
@@ -194,6 +199,8 @@ func _ready() -> void:
 		app.open_project_dialog.hide()
 	if riverbank >= 0:
 		_ok(bridge.param_set("urban_riverbank", riverbank == 1), "urban_riverbank set to %d" % riverbank)
+	if stretch >= 0:
+		_ok(bridge.param_set("urban_river_stretch", stretch == 1), "urban_river_stretch set to %d" % stretch)
 	var places: Array = bridge.settlements()
 	_ok(places.size() > 70 or gw != 384, "the world generated (%d settlements)" % places.size())
 	app.open_city_viewer(0)

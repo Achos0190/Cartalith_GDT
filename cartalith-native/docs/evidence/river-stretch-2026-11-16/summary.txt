@@ -1,0 +1,94 @@
+Ruling FN (owner, 2026-11-16): river towns may stretch along their river beyond the square town box where terrain
+allows, so the town judgement's 15 % riverside bar becomes reachable. Built as a PROTOTYPE behind a new switch,
+urban_river_stretch, OFF in WorldParams::defaults AND in params::defaults (the app): it misses the 15 % bar and
+three of the must-hold bars, so it waits on the owner. Measured 2026-11-16.
+
+Census: cartalith-godot town_river_census (both_banks_audit, town_housing_audit, riverbank_gap_audit,
+harbour_front_audit), seeds 483920, 912345, 246371, 800 km, villages on (TOWN_RIVER_VILLAGES=1), release test
+binary, the app's other switches (params::defaults), at 384 x 288 and 2048 x 1311 (audit.sh.txt). Before = the
+same binary with TOWN_RIVER_STRETCH=0, which is the reference box by control flow (its numbers equal the town
+leftovers' "after" at origin/main 12cb6983: 2.5 % / 2.5 %, wall / hull p90 1.12 / 1.16). After = TOWN_RIVER_STRETCH=1.
+Full outputs: before/ and after/.
+
+What the prototype does (cartalith_urban::stretch, cartalith_civ::urban_adapter::river_stretch_plan):
+ 1. A river town (site kind river or riverthrough, a real centreline, urban_riverbank on, no sea in its reference
+    box) of STRETCH_MIN_POP (1 500) and up is planned on a probe box: target depth across the river
+    STRETCH_ACROSS_M (450 m), reach along it max_rf^2 / 450 (the town's area kept), capped at
+    STRETCH_ALONG_MAX_RF (1.5) x max_rf each way; each side walked along the centreline every 20 m and cut where
+    the river enters open water, both banks are unbuildable for more than STRETCH_GAP_M (120 m), or another
+    settlement's reach (+120 m) or the half-way line to it is reached. The depth widens back to keep the area
+    when a side is cut; a gain under 1.15 x max_rf drops the stretch. With 450 m only towns of about 5 000 and up
+    actually stretch (max_rf over 517 m).
+ 2. The town is laid out in a box holding the stretched region plus 150 m (centred on the market; the City
+    Viewer frame and the map's town layer read the layout's own wm / hm and pin), from that box's water and
+    relief; the host's roads are followed to its edge.
+ 3. Every stage that zones the town by its distance from the market reads a river-following distance
+    (Site::market_dist: max_rf * hypot(along / reach, across / depth)): the growth front and density gradient,
+    the far bank's growth, the districts' rings, the interior-lane and wall-mass cut-offs, the plot depth's core,
+    the courtyard ring and the hinterland's urban test.
+ 4. A road along the market's bank, 40 m back from the channel's edge (the waterfront back street's band), is
+    laid before the town grows (stretch::lay_river_spine): without it the growth tree never reached along the
+    river (fixture stretch::tests at a 300 m / 1 300 m plan: 6 776 people against the unstretched 10 795).
+
+Results, pooled over the three seeds, before -> after (bar from TOWN_GENERATOR_JUDGEMENT.md change 5 and the brief):
+                                                     384 x 288                   2048 x 1311
+ stretched towns                                     0 -> 25                     0 -> 24
+ houses within 2 street widths of the bank,
+   river towns >= 1 500 (bar 15 %)                   2.5 -> 5.1 %   MISSED       2.5 -> 4.4 %   MISSED
+   per stretched town (max)                          12 %                        10 %
+ built reach fronted                                 66.4 -> 69.9 %              63.9 -> 63.8 %
+ towns >= 1 500 housed %: p10 / median / p90         89 / 102 / 145 -> 82 / 104 / 157   82 / 96 / 129 -> 72 / 101 / 137
+   under 80 % of target                              2 -> 3          WORSE       4 -> 6          WORSE
+ wall / hull length p90 (max)                        1.12 (1.19) -> 1.15 (1.22) WORSE    1.16 (1.23) -> 1.14 (1.22)
+ walled towns with the square outside the wall       5 -> 7          WORSE       2 -> 2
+ unbuilt patch inside a wall over 1 ha               1 -> 2 (max 7.4 -> 35.5 ha) WORSE   0 -> 1 (1.58 ha)
+ town pairs overlapping (a building centroid within
+   10 m of another town's)                           0 -> 0                      0 -> 0
+ buildings in water (channel / open / water_poly)    0 / 0 / 0 -> 0 / 0 / 0      0 / 0 / 0 -> 0 / 0 / 0
+ villages (housed, under 80 %)                       unchanged (49)              unchanged (20)
+ harbour_front_audit (ports, harbours over 23 m,
+   river-mouth rivers short, buildings in water)     unchanged                   unchanged
+
+Worst towns (both_banks rows, after): 483920 #12 at 384 (8 006, riverthrough) gains a wall round a 35.5 ha
+unbuilt patch with its square outside; 246371 #2 at 2048 housed 82 -> 54 %; 483920 #1 and #4 at 2048 housed
+97 -> 72 % and 91 -> 73 %; 483920 #13 at 384 housed 102 -> 76 %; wall / hull 246371 #15 at 384 1.08 -> 1.22,
+483920 #5 at 2048 1.05 -> 1.22.
+
+Arithmetic (why 15 % is out of reach for a town that does not look like a noodle): a fully lined river front is
+about (bank row depth) / (town depth across the river) of a town's houses, whatever its size. The plain town is a
+half disc about max_rf (720 m) deep: 2.5 %. At 450 m target depth (one bank about 300-450 m deep) the census
+reached 5.1 %. 15 % needs a town about 140-200 m deep on each bank, 3-4 km long for 20 000 people: the variant below.
+
+The steeper variant (variant_2x_300m/: STRETCH_ACROSS_M 300, STRETCH_ALONG_MAX_RF 2.0, at 384 only):
+6.7 % riverside; housed p10 74, under 80 % 6, over 200 % 1, p90 188; wall / hull p90 1.15, max 1.34. Its plans
+(pair_*.png, off | on, census world, same scale) are walled cores with long ragged ribbon suburbs of dead-end
+lanes along the river road, 246371 #11 housing 12 522 of its 18 568 (from 19 287): a noodle and a sprawl.
+Not kept.
+
+Frames (frames/pair_viewer_<seed>_<id>.png, the City Viewer's opening frame, _viewerframe_probe.gd windowed under
+the window lock, the app's own world at 384 x 288, same debug DLL, --stretch 0 | --stretch 1; shots.sh.txt).
+All twelve looked at:
+ 483920 #0 (20 000): before a loose unwalled town over both banks; after a full walled town along the river on
+   both banks. Better.
+ 483920 #2 (20 000): after spans both banks inside one wall, a far-bank quarter; the frame zooms out (the box
+   is 2.5 km). Mixed.
+ 483920 #4 (20 000): before a wall round much open ground; after a dense walled town along the bank and large
+   unwalled suburbs on the far bank. Mixed.
+ 483920 #6 (20 000): after narrower across the river and longer along it, still compact. Neutral.
+ 483920 #11 (17 913): after elongated along the river with a lobe at the south. Neutral.
+ 483920 #15 (20 000): after a long riverside town; its far-bank suburbs leafy and unwalled. Mixed.
+ 483920 #17 (18 188): after a long walled town along the river, a clear linear river town. Better.
+ 483920 #23 (7 086): after a crescent along the river bend with open ground inside its wall. Mixed (worse on the
+   unbuilt-ground bar).
+ 912345 #0 (20 000): after a lens on both banks, along the river. Neutral.
+ 912345 #3 (17 903): after an L along the river bend. Better.
+ 912345 #8 (7 495): after thinner, along the river. Neutral.
+ 912345 #15 (8 939): after a linear town along both arms of the bend. Better.
+ None of the twelve reads as a noodle at 1.5 x / 450 m; four read better, four mixed, four neutral. The noodle
+ is the 2 x / 300 m variant above, which the census plans show.
+
+Plans (plans/pair_<seed>_384_<id>.png, census world, off | on at one scale; plot.py.txt): the 1.5 x / 450 m
+prototype's walled cores keep shorter ribbon suburbs along the river road (246371 #11), or become elongated
+walled towns (912345 #0).
+
+Mutants: mutants.txt (mutants.py.txt).
