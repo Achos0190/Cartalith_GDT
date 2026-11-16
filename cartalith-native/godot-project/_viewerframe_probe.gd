@@ -3,7 +3,7 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--quick 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
@@ -14,6 +14,7 @@ extends Node
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
 ## `--stretch 0|1` does the same for `urban_river_stretch` (Ruling FN, 2026-11-16: river towns stretched along their river).
+## `--quick 1` (Ruling FQ) skips the water-in-frame measure and its two bars and lists every town of 1 500 and up with its cell.
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
 
 var _fails := 0
@@ -159,6 +160,10 @@ func _ready() -> void:
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
 	## as the shell's probes ask.
 	var villages := true
+	## `--quick` (Ruling FQ, 2026-11-16): skip the water-in-frame measure (it lays out every settlement, which on a
+	## 2 048 world with the debug DLL is most of the run) and its two bars, and list every town of 1 500 and up with its
+	## cell, so a census row's `@(x,y)` can be matched to this world's index; for shots only.
+	var quick := false
 	var ids: Array[int] = []
 	var args := OS.get_cmdline_user_args()
 	var i := 0
@@ -174,6 +179,7 @@ func _ready() -> void:
 			"--riverbank": riverbank = int(args[i + 1])
 			"--stretch": stretch = int(args[i + 1])
 			"--villages": villages = int(args[i + 1]) != 0
+			"--quick": quick = int(args[i + 1]) != 0
 			"--ids":
 				for t in String(args[i + 1]).split(",", false):
 					ids.append(int(t))
@@ -216,7 +222,11 @@ func _ready() -> void:
 	var n_river_water := 0
 	var n_river_has_geom := 0
 	var misses: Array = []
-	for k in places.size():
+	if quick:
+		for k in places.size():
+			if int(places[k].get("population", 0)) >= 1500:
+				print("  TOWN #%d at (%d,%d) pop %d" % [k, places[k]["x"], places[k]["y"], places[k]["population"]])
+	for k in (0 if quick else places.size()):
 		var lay: Dictionary = bridge.urban_layouts(PackedInt32Array([k]))[0]
 		var kind := String(lay.get("site_kind", ""))
 		## The `bay` towns, listed so a shot of one can be asked for by index (2026-11-15, Ruling FB's
@@ -254,8 +264,9 @@ func _ready() -> void:
 	## What this protects: before the fix 37 of 221 river-kind towns (settlement #70 among them) opened with no water in
 	## frame; after it the residue is the towns whose nearest water is beyond `fit_with_water`'s bound (6 on this world).
 	## Both bars are literals, never read back from the constant under test.
-	_ok(not 70 in misses, "settlement #70 shows water in its opening frame (seed 483920 at 384 x 288 only)" if (seed_n == 483920 and gw == 384) else "skipped, not seed 483920 at 384")
-	_ok(misses.size() <= 8 and (seed_n != 483920 or gw != 384 or n_river_water >= 213), "at most 8 river-kind towns open without water (%d)" % misses.size())
+	if not quick:
+		_ok(not 70 in misses, "settlement #70 shows water in its opening frame (seed 483920 at 384 x 288 only)" if (seed_n == 483920 and gw == 384) else "skipped, not seed 483920 at 384")
+		_ok(misses.size() <= 8 and (seed_n != 483920 or gw != 384 or n_river_water >= 213), "at most 8 river-kind towns open without water (%d)" % misses.size())
 	_literal_checks()
 	if dump != "":
 		DirAccess.make_dir_recursive_absolute(dump)

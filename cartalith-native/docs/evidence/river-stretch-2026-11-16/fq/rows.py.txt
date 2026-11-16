@@ -1,0 +1,27 @@
+"""rows.py <evidence-root>: Ruling FQ's per-town table (river towns of 1 500 and up planned stretched) from the
+both_banks audits: before (switch off), the prototype's after (`496c7a2d`), and Ruling FQ's after."""
+import re, sys
+seeds = [483920, 912345, 246371]
+def rows(f):
+    out = {}; seed = 0; last = -1
+    for line in open(f, encoding='utf-8', errors='replace'):
+        m = re.match(r'.*?#\s*(\d+)\s+(\S+) target\s+(\d+) housed\s+([\d.]+) % bld\s+(\d+)', line)
+        if not m: continue
+        i = int(m.group(1))
+        if i <= last: seed += 1
+        last = i
+        if int(m.group(3)) < 1500: continue
+        wh = re.search(r'wall/hull ([\d.]+)', line); un = re.search(r'unbuilt patch ([\d.]+) ha', line); w2 = re.search(r'within2 (\d+)', line)
+        st = 'stretched' if 'STRETCHED' in line else ('refused' if 'REFUSED' in line else '-')
+        out[(seeds[seed], i)] = dict(kind=m.group(2), pop=int(m.group(3)), h=float(m.group(4)), wh=wh.group(1) if wh else '-',
+            un=un.group(1) if un else '-', out='OUT' if 'OUTSIDE' in line else ('in' if wh else '-'), w2=w2.group(1) if w2 else '-', st=st)
+    return out
+root = sys.argv[1]
+P = 'C:/cw/stretch2/cartalith-native/docs/evidence/river-stretch-2026-11-16/after/'
+for sz in (384, 2048):
+    b = rows(f'{root}/before/both_banks_audit_{sz}.txt'); a = rows(f'{root}/after/both_banks_audit_{sz}.txt'); p = rows(P + f'both_banks_audit_{sz}.txt')
+    print(f'== {sz}: seed #id kind target | before housed% wall/hull square patch(ha) within2% | prototype | Ruling FQ (state)')
+    for k in sorted(a):
+        if a[k]['st'] == '-' and p.get(k, {}).get('st') != 'stretched': continue
+        f = lambda r: f"{r['h']:5.0f} {r['wh']:>5} {r['out']:>3} {r['un']:>5} {r['w2']:>2}"
+        print(f"{k[0]} #{k[1]:<3} {a[k]['kind']:>12} {a[k]['pop']:6} | {f(b[k])} | {f(p[k])} | {f(a[k])} {a[k]['st']}")

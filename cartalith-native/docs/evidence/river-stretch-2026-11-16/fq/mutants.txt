@@ -1,0 +1,52 @@
+Ruling FQ mutants (mutants.py.txt; python -I mutants.py <out> [ids]): exact literal replace, occurs once, build
+error kept apart, restored in a finally with a sha1 check. First pass, then the survivors re-run after fixtures were
+added (marked 'rerun'). 34 run: 30 killed, 4 survive with reasons below.
+
+housed-bound: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+housed-plain: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+wall-bound: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+wall-plain: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+square-bound: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+square-plain: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+patch-bound: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+patch-plain: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+housed-const: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+wallhull-const: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+unbuilt-const: KILLED by stretch::tests::the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout
+square-out-const: SURVIVED   ->   rerun KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+measures-wall: SURVIVED   ->   rerun KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+measures-housed: KILLED by stretch::tests::a_stretched_town_grows_along_its_river_not_inland
+retry-share: KILLED by stretch::tests::the_milder_plan_halves_the_extra_reach_and_keeps_the_area
+milder-short: KILLED by stretch::tests::the_milder_plan_halves_the_extra_reach_and_keeps_the_area
+milder-floor: KILLED by stretch::tests::the_milder_plan_halves_the_extra_reach_and_keeps_the_area
+milder-gain: KILLED by stretch::tests::the_milder_plan_halves_the_extra_reach_and_keeps_the_area
+milder-clamp: KILLED by stretch::tests::the_milder_plan_halves_the_extra_reach_and_keeps_the_area
+patch-reach: KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+patch-ring: KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+patch-river: KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+patch-water: KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+patch-plaza: KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+patch-houses: SURVIVED   ->   rerun KILLED by stretch::tests::the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall
+lane-dist: KILLED by stretch::tests::a_stretched_town_lays_interior_lanes_along_its_river_where_a_plain_one_does_not
+spine-bank: SURVIVED
+gate-off: KILLED by urban_adapter::tests::a_stretched_layout_that_fails_the_bars_is_laid_out_in_the_reference_box
+fallback-off: KILLED by urban_adapter::tests::a_stretched_layout_that_fails_the_bars_is_laid_out_in_the_reference_box
+plain-carried: KILLED by urban_adapter::tests::a_stretched_layout_that_fails_the_bars_is_laid_out_in_the_reference_box
+layoutbox-ctx: KILLED by urban_adapter::tests::a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour
+plan-earlyout: SURVIVED
+layoutbox-early: SURVIVED
+milder-off: SURVIVED   (added after the first pass)
+
+Survivors, with reasons:
+ spine-bank (lay_river_spine's market-bank guard, the prototype's survivor): a fixture was written for it
+   (stretch::tests::the_spine_stops_where_a_tight_bend_would_carry_it_across_the_river, a market inside a 30 degree V)
+   and it does not kill it: the walk stops one step earlier on `buildable`, whose flood band (river_w / 2 + 30 m round
+   every segment) is wider than the 20 m a 40 m step closes on the far arm. The guard stays as a belt-and-braces check.
+ milder-off (run_layout keeping the milder stretch on the bounds): no fixture lays out a town whose full stretch
+   misses a bound and whose milder one meets it; measured instead on the census (246371 #11 at 384, 246371 #31 and
+   483920 #5 at 2048 are kept on the milder stretch, rows.txt). StretchPlan::milder itself is killed four ways.
+ plan-earlyout (river_stretch_plan's refusal of small towns before reading a probe box) and layoutbox-early
+   (um_layout_box's refusal before running the context): speed only, equivalent mutants by design; the plan and the
+   context refuse the same towns a step later (plan_river_stretch's first test; site_box None).
+The prototype's other survivor, lane-dist (cleanup::lane_pass's 520 m cut-off read through the frame), is now killed
+by stretch::tests::a_stretched_town_lays_interior_lanes_along_its_river_where_a_plain_one_does_not.

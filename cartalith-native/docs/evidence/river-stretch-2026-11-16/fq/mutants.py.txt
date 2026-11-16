@@ -1,0 +1,74 @@
+"""mutants.py: Ruling FQ's mutants. Exact literal replace (must occur once), build error kept apart from survival,
+restored in a finally (sha1 checked). Usage: python -I mutants.py <out.txt> [ids]"""
+import subprocess, sys, os, hashlib
+ROOT = "C:/cw/stretch2/cartalith-native"
+U = "crates/cartalith-urban/src/"
+C = "crates/cartalith-civ/src/"
+ENV = dict(os.environ, CARGO_TARGET_DIR="C:/cw/stretch2_target")
+UF, CF = "stretch::", "urban_adapter::tests::a_"
+M = [
+ ("housed-bound", U+"stretch.rs", "let housed_ok = s.housed >= STRETCH_HOUSED_MIN ||", "let housed_ok = s.housed >= 0.0 ||", "cartalith-urban", UF),
+ ("housed-plain", U+"stretch.rs", " || plain.is_some_and(|p| s.housed >= p.housed);", ";", "cartalith-urban", UF),
+ ("wall-bound", U+"stretch.rs", "let wall_ok = wh <= STRETCH_WALL_HULL_MAX ||", "let wall_ok = true ||", "cartalith-urban", UF),
+ ("wall-plain", U+"stretch.rs", " || pw.is_some_and(|(pwh, _, _)| wh <= pwh);", ";", "cartalith-urban", UF),
+ ("square-bound", U+"stretch.rs", "let square_ok = !out ||", "let square_ok = true ||", "cartalith-urban", UF),
+ ("square-plain", U+"stretch.rs", " || pw.is_some_and(|(_, pout, _)| pout);", ";", "cartalith-urban", UF),
+ ("patch-bound", U+"stretch.rs", "let patch_ok = patch <= STRETCH_UNBUILT_MAX_M2 ||", "let patch_ok = true ||", "cartalith-urban", UF),
+ ("patch-plain", U+"stretch.rs", " || pw.is_some_and(|(_, _, pp)| patch <= pp);", ";", "cartalith-urban", UF),
+ ("housed-const", U+"stretch.rs", "pub const STRETCH_HOUSED_MIN: f64 = 0.9;", "pub const STRETCH_HOUSED_MIN: f64 = 0.8;", "cartalith-urban", UF),
+ ("wallhull-const", U+"stretch.rs", "pub const STRETCH_WALL_HULL_MAX: f64 = 1.12;", "pub const STRETCH_WALL_HULL_MAX: f64 = 1.2;", "cartalith-urban", UF),
+ ("unbuilt-const", U+"stretch.rs", "pub const STRETCH_UNBUILT_MAX_M2: f64 = 5_000.0;", "pub const STRETCH_UNBUILT_MAX_M2: f64 = 10_000.0;", "cartalith-urban", UF),
+ ("square-out-const", U+"stretch.rs", "pub const STRETCH_SQUARE_OUT_M: f64 = 5.4;", "pub const STRETCH_SQUARE_OUT_M: f64 = 50.0;", "cartalith-urban", UF),
+ ("measures-wall", U+"stretch.rs", "let wall_hull = loop_len(ring) / loop_len(&crate::geom::convex_hull(ring)).max(1e-9);", "let wall_hull = 1.0;", "cartalith-urban", UF),
+ ("measures-housed", U+"stretch.rs", "let housed = if t.pop_target > 0.0 { t.pop / t.pop_target } else { 0.0 };", "let housed = 1.0;", "cartalith-urban", UF),
+ ("retry-share", U+"stretch.rs", "pub const STRETCH_RETRY_SHARE: f64 = 0.5;", "pub const STRETCH_RETRY_SHARE: f64 = 0.6;", "cartalith-urban", UF),
+ ("milder-short", U+"stretch.rs", "let cut = |r: f64| if r > max_rf { max_rf + (r - max_rf) * STRETCH_RETRY_SHARE } else { r };", "let cut = |r: f64| max_rf + (r - max_rf) * STRETCH_RETRY_SHARE;", "cartalith-urban", UF),
+ ("milder-floor", U+"stretch.rs", "Some(StretchPlan { ahead_m: ahead.max(across), behind_m: behind.max(across), across_m: across })", "Some(StretchPlan { ahead_m: ahead, behind_m: behind, across_m: across })", "cartalith-urban", UF),
+ ("milder-gain", U+"stretch.rs", "        let mean = (ahead + behind) / 2.0;\n        if !(mean > max_rf * STRETCH_MIN_GAIN) {", "        let mean = (ahead + behind) / 2.0;\n        if !(mean > max_rf) {", "cartalith-urban", UF),
+ ("milder-clamp", U+"stretch.rs", "let across = (max_rf * max_rf / mean).clamp(self.across_m, max_rf.max(self.across_m));", "let across = self.across_m;", "cartalith-urban", UF),
+ ("patch-reach", U+"stretch.rs", "let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 3.0) as u32;", "let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 2.0) as u32;", "cartalith-urban", UF),
+ ("patch-ring", U+"stretch.rs", "                && crate::geom::point_in_poly(q, ring)\n", "", "cartalith-urban", UF),
+ ("patch-river", U+"stretch.rs", "                && !(river.len() >= 2 && river_d(q) < river_w / 2.0 + UNBUILT_CELL_M)\n", "", "cartalith-urban", UF),
+ ("patch-water", U+"stretch.rs", "                && !(water.len() >= 3 && crate::geom::point_in_poly(q, water))\n", "", "cartalith-urban", UF),
+ ("patch-plaza", U+"stretch.rs", "                && !(plaza.len() >= 3 && crate::geom::point_in_poly(q, plaza))\n", "", "cartalith-urban", UF),
+ ("patch-houses", U+"stretch.rs", "                if crate::geom::point_in_poly(ctr(i, j), &b.poly) {\n                    d[j * nx + i] = 0;\n                }", "", "cartalith-urban", UF),
+ ("lane-dist", U+"cleanup.rs", "        if site.market_dist(c, anchors.market) > 520.0 {", "        if c.dist(anchors.market) > 520.0 {", "cartalith-urban", UF),
+ ("spine-bank", U+"stretch.rs", "            && site.bank_side(p) == side\n", "", "cartalith-urban", UF),
+ ("gate-off", C+"urban_adapter.rs", "    if stretch_holds(&m, None) {\n        return Some(layout_from_town(ctx, t));", "    if true {\n        return Some(layout_from_town(ctx, t));", "cartalith-civ", CF),
+ ("fallback-off", C+"urban_adapter.rs", "    Some(if stretch_holds(&m, Some(&pm)) { layout_from_town(ctx, t) } else { layout_from_town(plain, tp) })", "    let _ = (&pm, &tp);\n    Some(layout_from_town(ctx, t))", "cartalith-civ", CF),
+ ("plain-carried", C+"urban_adapter.rs", "Some((bw, bh)), Some(plan), Some(Box::new(plain))),", "Some((bw, bh)), Some(plan), None),", "cartalith-civ", CF),
+ ("layoutbox-ctx", C+"urban_adapter.rs", "    um_place_context_with(w, s, &[], o).site_box.unwrap_or((SITE_WM, SITE_HM))", "    let _ = (w, s);\n    (SITE_WM, SITE_HM)", "cartalith-civ", CF),
+ ("plan-earlyout", C+"urban_adapter.rs", "    if pop_target < cartalith_urban::stretch::STRETCH_MIN_POP || !(max_rf > cartalith_urban::stretch::STRETCH_ACROSS_M) {\n        return None;\n    }\n    let half", "    let half", "cartalith-civ", CF),
+ ("milder-off", C+"urban_adapter.rs", "        if stretch_holds(&mm, None) {\n            return Some(layout_from_town(ctx, tm));", "        if false {\n            return Some(layout_from_town(ctx, tm));", "cartalith-civ", CF),
+ ("layoutbox-early", C+"urban_adapter.rs", "if o.river_stretch.is_none() || !o.riverbank || pop < cartalith_urban::stretch::STRETCH_MIN_POP || !(reach > cartalith_urban::stretch::STRETCH_ACROSS_M) {", "if o.river_stretch.is_none() {", "cartalith-civ", CF),
+]
+only = set(sys.argv[2:])
+out = open(sys.argv[1], "a", encoding="utf-8")
+for mid, f, old, new, crate, flt in M:
+    if only and mid not in only:
+        continue
+    path = os.path.join(ROOT, f)
+    src = open(path, encoding="utf-8", newline="").read()
+    h0 = hashlib.sha1(src.encode()).hexdigest()
+    o2, n2 = old, new
+    if "\r\n" in src:
+        o2, n2 = old.replace("\n", "\r\n"), new.replace("\n", "\r\n")
+    n = src.count(o2)
+    if n != 1:
+        out.write(f"{mid}: NOT-ONCE ({n})\n"); out.flush(); continue
+    try:
+        open(path, "w", encoding="utf-8", newline="").write(src.replace(o2, n2))
+        b = subprocess.run(["cargo", "test", "-p", crate, "--lib", "--no-run"], cwd=ROOT, env=ENV, capture_output=True, text=True)
+        if b.returncode != 0:
+            res = "BUILD_ERROR"
+        else:
+            t = subprocess.run(["cargo", "test", "-p", crate, "--lib", flt], cwd=ROOT, env=ENV, capture_output=True, text=True)
+            res = "KILLED" if t.returncode != 0 else "SURVIVED"
+            if res == "KILLED":
+                fails = [l for l in t.stdout.splitlines() if l.startswith("test ") and l.endswith("FAILED")]
+                res += " by " + ", ".join(x.split()[1] for x in fails[:4])
+    finally:
+        open(path, "w", encoding="utf-8", newline="").write(src)
+    assert hashlib.sha1(open(path, encoding="utf-8", newline="").read().encode()).hexdigest() == h0
+    out.write(f"{mid}: {res}\n"); out.flush()
+print("done")

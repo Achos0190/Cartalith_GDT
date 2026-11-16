@@ -3173,6 +3173,7 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	refresh_urban_boxes()
 	## A new river network makes a traced branch or a catchment from the old
 	## one describe rivers that are no longer there. The rivers themselves are
 	## drawn by the overlay from the engine (`map_overlay.gd::_draw_rivers`:
@@ -3593,7 +3594,17 @@ func forget_urban_layout(index: int) -> void:
 ## reached only towns not yet cached (`RC_ENGINE_CHANGES.md` §6r.2's hazard).
 func forget_all_urban_layouts() -> void:
 	overlay.clear_urban_layouts()
+	refresh_urban_boxes()
 	overlay.queue_redraw()
+
+## Ruling FQ (owner, 2026-11-16): hands the overlay each stretched river town's planned layout box
+## (`EngineBridge.urban_layout_boxes`), so its town layer claims pins and culls by each town's own extent, not the
+## reference's 1.7 km box (`map_overlay.gd`, `_town_half_km`). Called wherever the roster or the layouts are dropped.
+func refresh_urban_boxes() -> void:
+	if not _engine_readable():
+		overlay.set_urban_boxes({})
+		return
+	overlay.set_urban_boxes(_bridge.urban_layout_boxes())
 
 ## The per-class / per-way-type half of the reference's own layer filters
 ## (`#explSettlementFilterList`, and `#explShowRoads`'s by-way-type list --

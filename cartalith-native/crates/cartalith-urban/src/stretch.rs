@@ -35,12 +35,18 @@
 //!   the river.
 //! - [`stretch_half_box`] is the box the host lays the town out in: the
 //!   stretched region's extent from the market plus [`STRETCH_BOX_MARGIN_M`].
+//! - [`stretch_holds`] (Ruling FQ, owner 2026-11-16) judges a finished
+//!   stretched layout against the ruling's bars ([`StretchMeasures`]); the
+//!   host keeps it, tries [`StretchPlan::milder`], or lays the town out
+//!   unstretched (`cartalith_civ::urban_adapter::run_layout`).
 //!
 //! # What it must never do
 //!
 //! Reach a town that is not a river town of [`STRETCH_MIN_POP`] and up (the
 //! host decides; villages are untouched), cross into another settlement's
-//! reach or past the half-way line to it, or run into open water. With
+//! reach or past the half-way line to it, or run into open water; nor, once
+//! judged ([`stretch_holds`]), leave a town worse on Ruling FQ's bars than
+//! both their bounds and its own unstretched layout. With
 //! `GenOpts::river_stretch` `None` nothing here is read, so every JS-captured
 //! golden is unmoved by control flow.
 
@@ -427,6 +433,274 @@ pub fn stretch_half_box(river: &[Vec2], market: Vec2, plan: StretchPlan) -> (f64
         (hx + STRETCH_BOX_MARGIN_M).max(crate::generate::SITE_WM / 2.0),
         (hy + STRETCH_BOX_MARGIN_M).max(crate::generate::SITE_HM / 2.0),
     )
+}
+
+/// The least share of its target, `pop / pop_target`, a stretched layout
+/// must house for [`stretch_holds`]. **A labelled judgement** from Ruling FQ's
+/// bar (owner, 2026-11-16: housed p10 and the towns under 80 % back to the
+/// pre-stretch levels, 89 % p10 at 384 x 288 and 82 % at 2 048 x 1 311): a
+/// floor above both p10s means a stretched town can never be one of the
+/// towns that pulls either down. Measured on the prototype
+/// (`cartalith-native/docs/evidence/river-stretch-2026-11-16/`): the towns
+/// it made worse housed 54 to 82 %.
+pub const STRETCH_HOUSED_MIN: f64 = 0.9;
+
+/// The longest wall a stretched layout may have, as its length over its own
+/// convex hull's ([`stretch_holds`]). **A labelled judgement** from Ruling
+/// FQ's bar that the wall / hull p90 must not get worse: 1.12 is the
+/// pre-stretch p90 at 384 x 288, the lower of the two sizes' (1.16 at
+/// 2 048), so a stretched town is never one of the towns above either p90.
+/// The prototype's worst were 1.22 (246371 #15 at 384, 483920 #5 at 2 048).
+pub const STRETCH_WALL_HULL_MAX: f64 = 1.12;
+
+/// The largest unbuilt patch, square metres, a stretched layout's wall may
+/// enclose ([`stretch_holds`], [`unbuilt_patch_m2`]). **A labelled
+/// judgement**: half of Ruling FQ's 1 ha bar ("no new unbuilt walled patch
+/// over 1 ha"), so a stretched town never comes near the census's line. The
+/// prototype's 483920 #12 at 384 walled 35.5 ha of empty ground.
+pub const STRETCH_UNBUILT_MAX_M2: f64 = 5_000.0;
+
+/// How far a stretched town's square (its market square's centre, else the
+/// market) may stand outside its wall, metres ([`stretch_holds`]): the
+/// census's own street width (`town_river_census.rs`, `BANK_STREET_W`, the
+/// widest street the growth lays), since a river town's market is the
+/// bridge foot, on the bank the water wall follows.
+pub const STRETCH_SQUARE_OUT_M: f64 = 5.4;
+
+/// The grid step of [`unbuilt_patch_m2`], metres: under the narrowest lot
+/// frontage the platting allows (`build_parcels`' 4.5 m floor), so a row of
+/// houses cannot slip between two cells. The same step as the census's
+/// `unbuilt_inside_wall`, so the gate reads ground as the bar does.
+pub const UNBUILT_CELL_M: f64 = 4.0;
+
+/// How far from every building a point inside the wall must be to count as
+/// unbuilt, metres ([`unbuilt_patch_m2`]): a deep burgage plot (about 40 m)
+/// has its house at the street and its yard behind, so ground farther than
+/// that from every house is open land, not a back garden. The census's
+/// `unbuilt_inside_wall` reach.
+pub const UNBUILT_REACH_M: f64 = 40.0;
+
+/// What [`stretch_holds`] reads off a finished layout: the four measures of
+/// Ruling FQ's bars, each as the census reads it
+/// (`town_river_census.rs::both_banks_audit`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StretchMeasures {
+    /// Housed people over the target, `pop / pop_target`.
+    pub housed: f64,
+    /// For a walled town (a ring of three points and up, with houses), its
+    /// wall's length over its own convex hull's, its square's standing (`true`
+    /// when the square, else the market, is outside the wall by more than
+    /// [`STRETCH_SQUARE_OUT_M`]) and its largest unbuilt patch inside the
+    /// wall, square metres ([`unbuilt_patch_m2`]). `None` for an unwalled
+    /// town, which none of the three applies to.
+    pub wall: Option<(f64, bool, f64)>,
+}
+
+impl StretchMeasures {
+    /// The measures of the finished layout `t`.
+    pub fn of(t: &crate::generate::Town) -> Self {
+        let housed = if t.pop_target > 0.0 { t.pop / t.pop_target } else { 0.0 };
+        let wall = t.wall.ring.as_ref().filter(|r| r.len() >= 3 && !t.buildings.is_empty()).map(|ring| {
+            let wall_hull = loop_len(ring) / loop_len(&crate::geom::convex_hull(ring)).max(1e-9);
+            let sq = t.plaza.as_ref().map_or(t.anchors.market, |z| z.center);
+            let ring_d = (0..ring.len()).map(|k| crate::geom::dist_pt_seg(sq, ring[k], ring[(k + 1) % ring.len()])).fold(f64::INFINITY, f64::min);
+            let out = !crate::geom::point_in_poly(sq, ring) && ring_d > STRETCH_SQUARE_OUT_M;
+            let plaza: &[Vec2] = t.plaza.as_ref().map_or(&[], |z| z.poly.as_slice());
+            (wall_hull, out, unbuilt_patch_m2(ring, &t.buildings, &t.site.river, t.site.river_w, &t.site.water_poly, plaza))
+        });
+        Self { housed, wall }
+    }
+}
+
+/// **Ruling FQ** (owner, 2026-11-16): whether a stretched layout measured `s`
+/// is kept, given the same town's unstretched layout measured `plain` where
+/// its host has laid it out (`None` before it has). Each of Ruling FQ's four
+/// bars is met when the stretched layout is inside the bar's own bound **or**
+/// no worse than the unstretched layout on it:
+///
+/// - housed at least [`STRETCH_HOUSED_MIN`] of its target, or no less than
+///   the unstretched layout;
+/// - and if walled: a wall no longer than [`STRETCH_WALL_HULL_MAX`] times its
+///   own convex hull, or than the unstretched wall's share (an unwalled
+///   unstretched town allows only the bound); its square inside the wall
+///   (within [`STRETCH_SQUARE_OUT_M`]), or the unstretched square outside
+///   too; no unbuilt patch inside the wall over [`STRETCH_UNBUILT_MAX_M2`], or
+///   none larger than the unstretched wall's.
+///
+/// **Why a test on the result, and why "or no worse".** The prototype's
+/// census (Ruling FN, `496c7a2d`) found the stretch worse on a minority of
+/// towns, each for a reason of its own site: a market at a sharp river bend
+/// walls the inside of the bend (483920 #12 at 384), a town whose ground runs
+/// out along the river houses short (246371 #2 at 2 048: 54 %), a town
+/// wrapped round the outside of a bend gets a wall bent round it (246371 #15
+/// at 384: 1.22). Ruling FQ's bars are on the census's whole population (the
+/// housed p10 and the towns under 80 %, the wall / hull p90, the squares
+/// outside their wall, the patches over 1 ha), and a town whose value is
+/// either inside a bound tighter than the population's bar or no worse than
+/// its own unstretched value can raise none of them: each order statistic of
+/// the new population is bounded by the larger of the bound and the old one's
+/// (the bounds sit at or inside the pre-stretch p10s and p90s, see each
+/// constant). The host asks without `plain` first, so a town that clears the
+/// bounds is laid out once.
+///
+/// Must never be asked for an unstretched town (its host does not), and
+/// reads nothing but the two finished layouts' measures.
+pub fn stretch_holds(s: &StretchMeasures, plain: Option<&StretchMeasures>) -> bool {
+    let housed_ok = s.housed >= STRETCH_HOUSED_MIN || plain.is_some_and(|p| s.housed >= p.housed);
+    if !housed_ok {
+        return false;
+    }
+    let Some((wh, out, patch)) = s.wall else { return true };
+    let pw = plain.and_then(|p| p.wall);
+    let wall_ok = wh <= STRETCH_WALL_HULL_MAX || pw.is_some_and(|(pwh, _, _)| wh <= pwh);
+    let square_ok = !out || pw.is_some_and(|(_, pout, _)| pout);
+    let patch_ok = patch <= STRETCH_UNBUILT_MAX_M2 || pw.is_some_and(|(_, _, pp)| patch <= pp);
+    wall_ok && square_ok && patch_ok
+}
+
+/// The share of a plan's reach beyond `max_rf` a second, milder try keeps
+/// ([`StretchPlan::milder`]). **A labelled judgement** (Ruling FQ): half
+/// way between the planned stretch and the unstretched town, so a town
+/// whose full stretch fails [`stretch_holds`] (most often a wall bent round a
+/// river bend, or houses run short along it) is tried once more nearer its
+/// plain shape before it is laid out unstretched.
+pub const STRETCH_RETRY_SHARE: f64 = 0.5;
+
+impl StretchPlan {
+    /// The milder plan of a town of reach `max_rf`: each side's reach beyond
+    /// `max_rf` cut to [`STRETCH_RETRY_SHARE`] of it (a side already no
+    /// longer than `max_rf` kept), and the depth widened back to keep the
+    /// area (`max_rf^2 / mean reach`, between this plan's depth and
+    /// `max_rf`; each side then at least that depth). `None` when the milder
+    /// plan gains less than
+    /// [`STRETCH_MIN_GAIN`], as [`plan_river_stretch`] drops such a plan.
+    pub fn milder(&self, max_rf: f64) -> Option<StretchPlan> {
+        let cut = |r: f64| if r > max_rf { max_rf + (r - max_rf) * STRETCH_RETRY_SHARE } else { r };
+        let (ahead, behind) = (cut(self.ahead_m), cut(self.behind_m));
+        let mean = (ahead + behind) / 2.0;
+        if !(mean > max_rf * STRETCH_MIN_GAIN) {
+            return None;
+        }
+        let across = (max_rf * max_rf / mean).clamp(self.across_m, max_rf.max(self.across_m));
+        // As in `plan_river_stretch`: a side is never shorter than the depth,
+        // so the town's end stays round.
+        Some(StretchPlan { ahead_m: ahead.max(across), behind_m: behind.max(across), across_m: across })
+    }
+}
+
+/// The length of the closed loop `ring`, metres.
+fn loop_len(ring: &[Vec2]) -> f64 {
+    (0..ring.len()).map(|k| ring[k].dist(ring[(k + 1) % ring.len()])).sum()
+}
+
+/// **Ruling FQ**: the largest 4-connected patch, square metres, of the
+/// [`UNBUILT_CELL_M`] cells inside `ring` farther than [`UNBUILT_REACH_M`]
+/// from every building footprint, leaving out the river channel (`river_w /
+/// 2` of the centreline, plus a cell), `water` and the market square
+/// (`plaza`, open by design). Distances by a two-pass 3-4 chamfer (within
+/// about 8 % of Euclidean, ample at a hectare). The same reading as the
+/// census's `unbuilt_inside_wall` (`town_river_census.rs`), which must stay
+/// a measurement only; this copy is the generation side's own, read by
+/// [`stretch_holds`] alone.
+pub fn unbuilt_patch_m2(ring: &[Vec2], buildings: &[crate::districts::Building], river: &[Vec2], river_w: f64, water: &[Vec2], plaza: &[Vec2]) -> f64 {
+    if ring.len() < 3 {
+        return 0.0;
+    }
+    let x0 = ring.iter().map(|p| p.x).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
+    let y0 = ring.iter().map(|p| p.y).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
+    let x1 = ring.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let y1 = ring.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let nx = ((x1 - x0) / UNBUILT_CELL_M).ceil() as usize + 1;
+    let ny = ((y1 - y0) / UNBUILT_CELL_M).ceil() as usize + 1;
+    let ctr = |i: usize, j: usize| Vec2::new(x0 + (i as f64 + 0.5) * UNBUILT_CELL_M, y0 + (j as f64 + 0.5) * UNBUILT_CELL_M);
+    let ci = |x: f64, n: usize, o: f64| (((x - o) / UNBUILT_CELL_M).floor().max(0.0) as usize).min(n - 1);
+    const INF: u32 = u32::MAX / 2;
+    let mut d = vec![INF; nx * ny];
+    for b in buildings.iter().filter(|b| b.poly.len() >= 3) {
+        let bx0 = b.poly.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let by0 = b.poly.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+        let bx1 = b.poly.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+        let by1 = b.poly.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+        for j in ci(by0, ny, y0)..=ci(by1, ny, y0) {
+            for i in ci(bx0, nx, x0)..=ci(bx1, nx, x0) {
+                if crate::geom::point_in_poly(ctr(i, j), &b.poly) {
+                    d[j * nx + i] = 0;
+                }
+            }
+        }
+        for p in &b.poly {
+            d[ci(p.y, ny, y0) * nx + ci(p.x, nx, x0)] = 0;
+        }
+    }
+    for j in 0..ny {
+        for i in 0..nx {
+            let mut v = d[j * nx + i];
+            if i > 0 {
+                v = v.min(d[j * nx + i - 1] + 3);
+            }
+            if j > 0 {
+                v = v.min(d[(j - 1) * nx + i] + 3);
+                if i > 0 {
+                    v = v.min(d[(j - 1) * nx + i - 1] + 4);
+                }
+                if i + 1 < nx {
+                    v = v.min(d[(j - 1) * nx + i + 1] + 4);
+                }
+            }
+            d[j * nx + i] = v;
+        }
+    }
+    for j in (0..ny).rev() {
+        for i in (0..nx).rev() {
+            let mut v = d[j * nx + i];
+            if i + 1 < nx {
+                v = v.min(d[j * nx + i + 1] + 3);
+            }
+            if j + 1 < ny {
+                v = v.min(d[(j + 1) * nx + i] + 3);
+                if i + 1 < nx {
+                    v = v.min(d[(j + 1) * nx + i + 1] + 4);
+                }
+                if i > 0 {
+                    v = v.min(d[(j + 1) * nx + i - 1] + 4);
+                }
+            }
+            d[j * nx + i] = v;
+        }
+    }
+    let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 3.0) as u32;
+    let river_d = |q: Vec2| (0..river.len().saturating_sub(1)).map(|k| crate::geom::dist_pt_seg(q, river[k], river[k + 1])).fold(f64::INFINITY, f64::min);
+    let open: Vec<bool> = (0..nx * ny)
+        .map(|k| {
+            let q = ctr(k % nx, k / nx);
+            d[k] > reach
+                && crate::geom::point_in_poly(q, ring)
+                && !(river.len() >= 2 && river_d(q) < river_w / 2.0 + UNBUILT_CELL_M)
+                && !(water.len() >= 3 && crate::geom::point_in_poly(q, water))
+                && !(plaza.len() >= 3 && crate::geom::point_in_poly(q, plaza))
+        })
+        .collect();
+    let mut seen = vec![false; nx * ny];
+    let mut best = 0usize;
+    for k0 in 0..nx * ny {
+        if !open[k0] || seen[k0] {
+            continue;
+        }
+        let (mut n, mut stack) = (0usize, vec![k0]);
+        seen[k0] = true;
+        while let Some(k) = stack.pop() {
+            n += 1;
+            let (i, j) = (k % nx, k / nx);
+            for (ok, kk) in [(i > 0, k.wrapping_sub(1)), (i + 1 < nx, k + 1), (j > 0, k.wrapping_sub(nx)), (j + 1 < ny, k + nx)] {
+                if ok && open[kk] && !seen[kk] {
+                    seen[kk] = true;
+                    stack.push(kk);
+                }
+            }
+        }
+        best = best.max(n);
+    }
+    best as f64 * UNBUILT_CELL_M * UNBUILT_CELL_M
 }
 
 #[cfg(test)]

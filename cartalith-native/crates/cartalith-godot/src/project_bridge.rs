@@ -7718,7 +7718,7 @@ mod tests {
         assert!(p.civ.map_rivers && p.civ.harbour_box, "a new world sites on the map's rivers and badges harbours by the box (Ruling FF)");
         assert!(p.civ.port_shore && p.civ.map_crossings, "a new world nudges ports to the shore and charges every drawn crossing (Ruling FI)");
         assert!(p.urban_harbour_front && p.civ.port_reach, "a new world builds harbour towns to their water and badges ports within about 4 km (Ruling FK)");
-        assert!(!p.urban_river_stretch, "Ruling FN's river stretch is a prototype, off in a new world too");
+        assert!(!p.urban_river_stretch, "Ruling FN's river stretch is off in a new world until the owner rules on Ruling FQ's riverside shortfall");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)

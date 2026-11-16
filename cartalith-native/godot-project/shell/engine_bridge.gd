@@ -1678,6 +1678,14 @@ func rivers_in_map() -> bool:
 ##
 ## Empty against a binary built before this landed, the same `has_method` guard
 ## `lod_level_for_zoom()` above uses for its own milestone.
+## Ruling FQ (owner, 2026-11-16): `WorldGen.urban_layout_boxes` -- settlement `tid` -> `Vector2(width, height)` metres
+## of each stretched river town's planned layout box (absent = the reference's box). `{}` while `generating` (the worker
+## holds `WorldGen`) or from an older DLL without the call.
+func urban_layout_boxes() -> Dictionary:
+	if generating or not _has("urban_layout_boxes"):
+		return {}
+	return world_gen.urban_layout_boxes()
+
 func urban_layouts(indices: PackedInt32Array) -> Array:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:

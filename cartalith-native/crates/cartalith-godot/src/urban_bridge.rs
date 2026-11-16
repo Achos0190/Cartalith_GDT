@@ -840,6 +840,71 @@ impl WorldGen {
         out
     }
 
+    /// **Ruling FQ** (owner, 2026-11-16): the box each stretched river town's
+    /// layout is planned in, so the map's town layer can claim pins and cull
+    /// by each town's real extent instead of the reference's 1.7 km box
+    /// (`map_overlay.gd`, `TOWN_PIN_RADIUS_KM` and `_urban_plan_update`).
+    /// A `Dictionary` of settlement `tid` -> `Vector2(width, height)` metres,
+    /// centred on the town's pin, holding **only** the towns whose box is not
+    /// the reference's `SITE_WM` x `SITE_HM` (absent = that box), so a world
+    /// with the switch off answers `{}`. Keyed by `tid`, not roster index, so a
+    /// filtered roster (CIVIL's *Exist only*) still finds its towns.
+    ///
+    /// It is the planned box (`urban_adapter::um_layout_box`): a town whose
+    /// stretched layout the adapter refuses is laid out in the reference's box,
+    /// so this is an upper bound on what is drawn, and a fetched layout's own
+    /// `wm`/`hm` is exact. Reads the same overrides [`Self::urban_layouts`]
+    /// hands the stretch (the variant's seed, `urban_riverbank`,
+    /// `urban_harbour_front`, `urban_river_stretch` and every settlement's
+    /// position), and nothing a stretch does not read.
+    ///
+    /// Empty before the first `generate()`, on a world without its substrate,
+    /// or with `urban_river_stretch` off.
+    #[func]
+    fn urban_layout_boxes(&self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            return out;
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() || !self.params.urban_river_stretch {
+            return out;
+        }
+        let river_polys = traced_river_polys(ws, gw, gh);
+        let world = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: self.sea_level,
+            map_width_km: self.map_width_km,
+            // The same as `urban_layouts`, so the site kind agrees.
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            world_seed: self.seed,
+            river_kind_from_map: self.params.urban_river_kind_map,
+        };
+        let others: Vec<(f64, f64, f64)> =
+            civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
+        for s in &civ.settlements {
+            let e = civ.place_extras.get(s.tid);
+            let o = urban_adapter::PlaceOverrides {
+                variant: (e.variant != 0).then_some(e.variant),
+                riverbank: self.params.urban_riverbank,
+                harbour_front: self.params.urban_harbour_front,
+                river_stretch: Some(others.as_slice()),
+                ..Default::default()
+            };
+            let (bw, bh) = urban_adapter::um_layout_box(&world, s, &o);
+            if (bw - urban_adapter::SITE_WM).abs() > 0.5 || (bh - urban_adapter::SITE_HM).abs() > 0.5 {
+                out.set(s.tid as i64, Vector2::new(bw as f32, bh as f32));
+            }
+        }
+        out
+    }
+
     /// The Settlement diagnostics overlay's own fact card — the reference's
     /// `#civDiagnosticsChk` (`drawCivLayer` §2.6): at most three lines,
     /// specialisation + [`um_wall_spec`]'s wall rung on the first,

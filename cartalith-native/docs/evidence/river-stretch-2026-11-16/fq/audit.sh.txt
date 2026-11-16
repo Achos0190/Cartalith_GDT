@@ -1,0 +1,19 @@
+#!/bin/bash
+# audit.sh <exe> <outroot> [sizes]: Ruling FQ's census. The four town audits, seeds 483920 912345 246371, 800 km,
+# villages on, the app's parameters, before = TOWN_RIVER_STRETCH=0 and after = TOWN_RIVER_STRETCH=1 on one binary.
+set -u
+EXE=$1; OUT=$2; mkdir -p $OUT/before $OUT/after
+cd C:/cw/stretch2/cartalith-native/crates/cartalith-godot
+for sz in ${3:-384:288 2048:1311}; do
+  gw=${sz%%:*}; gh=${sz##*:}
+  for st in 0 1; do
+    d=$OUT/before; [ $st = 1 ] && d=$OUT/after
+    for a in both_banks_audit town_housing_audit riverbank_gap_audit harbour_front_audit; do
+      env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_STRETCH=$st \
+        $EXE $a --ignored --nocapture --test-threads 1 > $d/${a}_$gw.txt 2>&1 &
+    done
+  done
+  wait
+  echo "$gw done"
+done
+echo ALLDONE

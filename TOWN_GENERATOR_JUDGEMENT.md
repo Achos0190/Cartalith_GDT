@@ -157,7 +157,7 @@ Ranked by visual impact against cost. "Cost" is my estimate of builder effort, n
 - **Risk.** The "house over the widest street" measure already regressed in the last rework (259 to 298 of 617). Houses in water must stay 0.
 - **Switch.** Rides `urban_riverbank`.
 - **Acceptance bar** (towns of 1 500 and up):
-  - at least 15 % of houses within two street widths of the bank;
+  - ~~at least 15 % of houses within two street widths of the bank;~~ **about 5 %** of houses within two street widths of the bank (owner Ruling FQ, 2026-11-16, replacing 15 %, held on seeds 483920, 912345 and 246371 at 384 x 288 and 2 048 x 1 311). Measured with `urban_river_stretch` on and its worse rows fixed: 2.5 -> **4.1 %** at 384 and 2.5 -> **3.7 %** at 2 048, **short** (`STATUS.md`, "River towns stretched along their river, fixed"; the prototype's 5.1 / 4.4 % came with the rows Ruling FQ had fixed, whose towns now lay out unstretched), so the switch is still off;
   - no river town with every house over two widths away;
   - at least 70 % of the built reach's bank length fronted by a building or a quay;
   - buildings in water 0.

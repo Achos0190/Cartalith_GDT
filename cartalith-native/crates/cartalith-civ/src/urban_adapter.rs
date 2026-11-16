@@ -2274,6 +2274,12 @@ pub struct UrbanContext {
     /// `GenOpts::river_stretch`. `None` for every town the ruling does not
     /// reach.
     pub river_stretch: Option<cartalith_urban::stretch::StretchPlan>,
+    /// Ruling FQ (owner, 2026-11-16): for a stretched town, the same town's
+    /// context in the reference's box, which [`run_layout`] lays out instead
+    /// when the stretched layout fails
+    /// `cartalith_urban::stretch::stretch_holds`. `None` for every town not
+    /// stretched (and inside `plain` itself).
+    pub plain: Option<Box<UrbanContext>>,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -2417,71 +2423,112 @@ pub fn um_place_context_with(
         }
         river_stretch_plan(w, px, py, seed, site_kind, pop, others)
     });
-    let (water, terrain, site_box, river_stretch) = match stretch {
-        Some((plan, (bw, bh))) => (um_water_ctx_box(w, px, py, false, bw, bh), um_terrain_ctx_box(w, px, py, bw, bh), Some((bw, bh)), Some(plan)),
-        None => (water, terrain, None, None),
+    // Ruling FQ (owner, 2026-11-16): the context is built for the
+    // reference's box first; a stretched town's context is built for its
+    // larger box and carries the reference one as `plain`, which
+    // [`run_layout`] lays out instead when the stretched layout fails
+    // `cartalith_urban::stretch::stretch_holds`.
+    let build = |water: Option<UmWater>, terrain: Option<TerrainCtx>, site_box: Option<(f64, f64)>, river_stretch: Option<cartalith_urban::stretch::StretchPlan>, plain: Option<Box<UrbanContext>>| -> UrbanContext {
+        // v0.98: with real water the geometry is already in position, so no
+        // rotation is needed and the reference bypasses `_umTerrainOrient`.
+        let orient = if water.is_some() { 0.0 } else { um_terrain_orient(w, px, py, site_kind) };
+        // `wallStyle=_umWallSpec(p)`. The three inputs this port's
+        // [`NamedSettlement`] does not carry (`umWalls`, `traits`,
+        // `specialisation`) come from `o`; `PlaceOverrides::default()` supplies the
+        // value every settlement holds in the reference before anything sets one,
+        // which is what [`SiteProfileWorld::walled`] documents for the other caller
+        // of this same ladder.
+        let wall_style = um_wall_spec(&WallPlace {
+            walls_override: o.walls_override,
+            kind: s.placement.kind,
+            pop,
+            fortified_trait: o.fortified_trait,
+            age_override: o.age_override,
+            specialisation: o.specialisation,
+            relative_elevation: civ_relative_elevation(w.field, w.gw, w.gh, w.sea_level, px, py),
+        });
+        // `const spec=(p.specialisation&&p.specialisation!=='none')?p.specialisation:null;`
+        // then `const economy=spec?{...}:null` — one truthiness test, two uses.
+        let spec = o.specialisation.filter(|&k| !k.is_empty() && k != "none");
+        // `(spec==='mining')?_umOreBearing(p,orient):null`. Computed after `orient`,
+        // as the reference computes it, because the bearing is expressed in the
+        // layout's local frame.
+        let ore_bearing = spec
+            .filter(|&k| k == "mining")
+            .and_then(|_| o.resources)
+            .and_then(|r| um_ore_bearing(r, w.gw, w.gh, px, py, orient));
+        let economy = spec.map(|k| Economy {
+            specialisation: Some(k.to_string()),
+            // The reference stores the angle in this slot; this port's field is a
+            // `bool`, so it carries presence only and `GenOpts::ore_bearing` carries
+            // the angle. See this module's header.
+            ore_bearing: ore_bearing.is_some(),
+        });
+        UrbanContext {
+            seed,
+            culture: o.culture.map(str::to_string),
+            pop: js_min(20000.0, js_max(400.0, pop)),
+            site_kind,
+            orient,
+            settlement_age: age,
+            wall_style,
+            walls: wall_style != "none",
+            harbour_scale: um_harbour_scale(pop, site_kind),
+            fortified: o.fortified_trait,
+            economy,
+            ore_bearing,
+            water,
+            terrain,
+            route_ends: um_route_ends(ways, px, py, w.gw, site_box.map_or(SITE_WM, |b| b.0), site_box.map_or(SITE_HM, |b| b.1), orient),
+            primary_paths: um_primary_paths_reach(ways, px, py, w.gw, w.map_width_km, orient, site_box.map_or(js_max(SITE_WM, SITE_HM), |b| js_max(b.0, b.1))),
+            faith: o.faith.map(str::to_string),
+            wall_hug: o.wall_hug,
+            riverbank: o.riverbank,
+            street_village: o.street_village,
+            market_scale: o.market_scale,
+            harbour_front,
+            site_box,
+            river_stretch,
+            plain,
+        }
     };
-    // v0.98: with real water the geometry is already in position, so no
-    // rotation is needed and the reference bypasses `_umTerrainOrient`.
-    let orient = if water.is_some() { 0.0 } else { um_terrain_orient(w, px, py, site_kind) };
-    // `wallStyle=_umWallSpec(p)`. The three inputs this port's
-    // [`NamedSettlement`] does not carry (`umWalls`, `traits`,
-    // `specialisation`) come from `o`; `PlaceOverrides::default()` supplies the
-    // value every settlement holds in the reference before anything sets one,
-    // which is what [`SiteProfileWorld::walled`] documents for the other caller
-    // of this same ladder.
-    let wall_style = um_wall_spec(&WallPlace {
-        walls_override: o.walls_override,
-        kind: s.placement.kind,
-        pop,
-        fortified_trait: o.fortified_trait,
-        age_override: o.age_override,
-        specialisation: o.specialisation,
-        relative_elevation: civ_relative_elevation(w.field, w.gw, w.gh, w.sea_level, px, py),
-    });
-    // `const spec=(p.specialisation&&p.specialisation!=='none')?p.specialisation:null;`
-    // then `const economy=spec?{...}:null` — one truthiness test, two uses.
-    let spec = o.specialisation.filter(|&k| !k.is_empty() && k != "none");
-    // `(spec==='mining')?_umOreBearing(p,orient):null`. Computed after `orient`,
-    // as the reference computes it, because the bearing is expressed in the
-    // layout's local frame.
-    let ore_bearing = spec
-        .filter(|&k| k == "mining")
-        .and_then(|_| o.resources)
-        .and_then(|r| um_ore_bearing(r, w.gw, w.gh, px, py, orient));
-    let economy = spec.map(|k| Economy {
-        specialisation: Some(k.to_string()),
-        // The reference stores the angle in this slot; this port's field is a
-        // `bool`, so it carries presence only and `GenOpts::ore_bearing` carries
-        // the angle. See this module's header.
-        ore_bearing: ore_bearing.is_some(),
-    });
-    UrbanContext {
-        seed,
-        culture: o.culture.map(str::to_string),
-        pop: js_min(20000.0, js_max(400.0, pop)),
-        site_kind,
-        orient,
-        settlement_age: age,
-        wall_style,
-        walls: wall_style != "none",
-        harbour_scale: um_harbour_scale(pop, site_kind),
-        fortified: o.fortified_trait,
-        economy,
-        ore_bearing,
-        water,
-        terrain,
-        route_ends: um_route_ends(ways, px, py, w.gw, site_box.map_or(SITE_WM, |b| b.0), site_box.map_or(SITE_HM, |b| b.1), orient),
-        primary_paths: um_primary_paths_reach(ways, px, py, w.gw, w.map_width_km, orient, site_box.map_or(js_max(SITE_WM, SITE_HM), |b| js_max(b.0, b.1))),
-        faith: o.faith.map(str::to_string),
-        wall_hug: o.wall_hug,
-        riverbank: o.riverbank,
-        street_village: o.street_village,
-        market_scale: o.market_scale,
-        harbour_front,
-        site_box,
-        river_stretch,
+    let plain = build(water, terrain, None, None, None);
+    match stretch {
+        // A stretched box whose water cannot be read (never seen: the plan
+        // itself read water over a larger box) keeps the reference's box.
+        Some((plan, (bw, bh))) => match um_water_ctx_box(w, px, py, false, bw, bh) {
+            Some(sw) => build(Some(sw), um_terrain_ctx_box(w, px, py, bw, bh), Some((bw, bh)), Some(plan), Some(Box::new(plain))),
+            None => plain,
+        },
+        None => plain,
     }
+}
+
+/// **Ruling FQ** (owner, 2026-11-16): the box, `(width, height)` metres,
+/// settlement `s`'s layout is planned in under the overrides `o`: a
+/// stretched river town's [`UrbanContext::site_box`], else the reference's
+/// [`SITE_WM`] by [`SITE_HM`]. Centred on the map pin. For a host that must
+/// know a town's extent before laying it out (the map's town layer culls and
+/// claims pins by it), without `generate`.
+///
+/// It is the planned box: where [`run_layout`] refuses the stretched layout
+/// (`cartalith_urban::stretch::stretch_holds`) the town is laid out in the
+/// reference's box, so this is an upper bound on the drawn town, and a
+/// finished layout's own `wm` by `hm` is the exact answer.
+///
+/// Reads only what decides the stretch: a town the plan refuses outright
+/// (the switch off, `urban_riverbank` off, or under
+/// `cartalith_urban::stretch::STRETCH_MIN_POP` or the
+/// `STRETCH_ACROSS_M` reach) answers without reading any water; the rest
+/// runs [`um_place_context_with`]'s own gate and plan, so the answer is
+/// that function's, never a second copy of its rules.
+pub fn um_layout_box(w: &UrbanWorld, s: &NamedSettlement, o: &PlaceOverrides) -> (f64, f64) {
+    let pop = js_min(20000.0, js_max(400.0, js_max(20.0, s.pop as f64)));
+    let reach = cartalith_urban::generate::town_reach_m(pop);
+    if o.river_stretch.is_none() || !o.riverbank || pop < cartalith_urban::stretch::STRETCH_MIN_POP || !(reach > cartalith_urban::stretch::STRETCH_ACROSS_M) {
+        return (SITE_WM, SITE_HM);
+    }
+    um_place_context_with(w, s, &[], o).site_box.unwrap_or((SITE_WM, SITE_HM))
 }
 
 /// The site kinds a Ruling FN stretch reaches: a river through the town box
@@ -2510,6 +2557,12 @@ fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, p
     use cartalith_urban::stretch::{STRETCH_ALONG_MAX_RF, STRETCH_BOX_MARGIN_M, StretchNeighbour, plan_river_stretch, stretch_half_box};
     let pop_target = js_max(400.0, js_min(20000.0, pop));
     let max_rf = cartalith_urban::generate::town_reach_m(pop_target);
+    // Ruling FQ: the plan refuses these two (`plan_river_stretch`'s first
+    // test) whatever the site, so refuse them before reading a probe box's
+    // water and relief: a speed-up only, the answer is the plan's.
+    if pop_target < cartalith_urban::stretch::STRETCH_MIN_POP || !(max_rf > cartalith_urban::stretch::STRETCH_ACROSS_M) {
+        return None;
+    }
     let half = max_rf * (STRETCH_ALONG_MAX_RF + 1.0) + STRETCH_BOX_MARGIN_M;
     let (pw, ph) = (2.0 * half, 2.0 * half);
     let water = um_water_ctx_box(w, px, py, false, pw, ph)?;
@@ -2816,11 +2869,69 @@ pub struct UrbanLayout {
 /// group of the `DEFAULT_RULES` clone `resolve_rules` starts from rather than
 /// merging onto it — `generate()` then sees exactly `r`, not `r` blended with
 /// the defaults.
+///
+/// **Not the reference** (Ruling FQ, owner 2026-11-16): a stretched town's
+/// context (`ctx.river_stretch` and `ctx.plain` both `Some`) may be laid out
+/// up to three times: the full stretch, kept if
+/// `cartalith_urban::stretch::stretch_holds` passes it on the bars' own
+/// bounds; a milder stretch (`StretchPlan::milder`) in the same box, kept
+/// likewise; then the town in the reference's box from `ctx.plain`, against
+/// which each stretch is judged again ("no worse than unstretched"), and
+/// which is the answer when neither holds. Every other context is laid out
+/// once, as before. Must never return a stretched layout that fails both
+/// tests.
 pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayout> {
     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
         return None;
     }
-    let opts = GenOpts {
+    let opts = layout_opts(ctx, rules);
+    let t = generate(ctx.seed, &opts);
+    let (Some(plan), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
+        return Some(layout_from_town(ctx, t));
+    };
+    // Ruling FQ (owner, 2026-11-16): a stretched town is kept only where its
+    // layout holds the ruling's bars (`cartalith_urban::stretch::stretch_holds`):
+    // the full stretch, then a milder one (`StretchPlan::milder`), each first
+    // against the bars' own bounds; then both against the same town laid out
+    // unstretched in the reference's box (`UrbanContext::plain`), which is
+    // laid out only now and is the answer when neither holds, as with the
+    // switch off.
+    use cartalith_urban::stretch::{StretchMeasures, stretch_holds};
+    let m = StretchMeasures::of(&t);
+    if stretch_holds(&m, None) {
+        return Some(layout_from_town(ctx, t));
+    }
+    // The milder try, in the same box (it fits inside the full stretch's).
+    let mild = plan.milder(t.max_rf).map(|p| {
+        let tm = generate(ctx.seed, &GenOpts { river_stretch: Some(p), ..opts.clone() });
+        let mm = StretchMeasures::of(&tm);
+        (tm, mm)
+    });
+    if let Some((tm, mm)) = mild {
+        if stretch_holds(&mm, None) {
+            return Some(layout_from_town(ctx, tm));
+        }
+        let tp = generate(plain.seed, &layout_opts(plain, rules));
+        let pm = StretchMeasures::of(&tp);
+        return Some(if stretch_holds(&m, Some(&pm)) {
+            layout_from_town(ctx, t)
+        } else if stretch_holds(&mm, Some(&pm)) {
+            layout_from_town(ctx, tm)
+        } else {
+            layout_from_town(plain, tp)
+        });
+    }
+    let tp = generate(plain.seed, &layout_opts(plain, rules));
+    let pm = StretchMeasures::of(&tp);
+    Some(if stretch_holds(&m, Some(&pm)) { layout_from_town(ctx, t) } else { layout_from_town(plain, tp) })
+}
+
+/// [`run_layout`]'s `GenOpts` for `ctx`: every field `_umModelFor` hands
+/// `generate()`, read off the context. Split out of [`run_layout`]
+/// (2026-11-16, Ruling FQ) so a stretched town can be laid out again in the
+/// reference's box from its `plain` context.
+fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
+    GenOpts {
         // `civFactionCulture[p.faction] || 'medieval'` — a naming-culture key
         // that `resolveProfile` sends to `medieval` for every `CIV_CULTURES`
         // entry (this module's header), so `None` — `resolve_profile`'s own
@@ -2886,8 +2997,13 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         // Ruling FN: a stretched river town's box and stretch.
         site_box: ctx.site_box,
         river_stretch: ctx.river_stretch,
-    };
-    let t = generate(ctx.seed, &opts);
+    }
+}
+
+/// [`run_layout`]'s [`UrbanLayout`] from the town `t` generated from `ctx`.
+/// Split out of [`run_layout`] (2026-11-16, Ruling FQ) with
+/// [`layout_opts`].
+fn layout_from_town(ctx: &UrbanContext, t: cartalith_urban::generate::Town) -> UrbanLayout {
 
     let edges = t
         .graph
@@ -2937,7 +3053,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
             .collect()
     });
 
-    Some(UrbanLayout {
+    UrbanLayout {
         wm: t.wm,
         hm: t.hm,
         market: t.anchors.market,
@@ -3001,7 +3117,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
             .map(|w| if t.riverbank { w.ctx.open_water_runs() } else { w.ctx.water_runs() })
             .unwrap_or_default(),
         faith_sites: t.churches,
-    })
+    }
 }
 
 /// [`um_place_context`] then [`run_layout`] — the one call a caller needs,

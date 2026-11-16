@@ -6718,7 +6718,7 @@ func _town_layer_zoom_reached(rect: Rect2) -> bool:
 ## `{"lm": {index: true}, "poi": {index: true}}`: the pins inside some settlement's box (rebuilt when the roster or the pin
 ## lists change; a cell-bucket grid keeps it near-linear in the pins).
 func _town_pin_membership() -> Dictionary:
-	var key := [_settlements.size(), _landmarks.size(), _pois.size(), _fan_rev, _gw, _map_width_km]
+	var key := [_settlements.size(), _landmarks.size(), _pois.size(), _fan_rev, _gw, _map_width_km, _urban_boxes_rev]
 	if key == _town_pin_key:
 		return _town_pin_sets
 	_town_pin_key = key
@@ -6726,31 +6726,39 @@ func _town_pin_membership() -> Dictionary:
 	_town_pin_sets = out
 	if _settlements.is_empty() or _gw <= 0 or _map_width_km <= 0.0:
 		return out
-	var rad := TOWN_PIN_RADIUS_KM / (_map_width_km / float(_gw))   ## the radius in grid cells
-	var bsz := maxf(1.0, rad)
-	var grid := {}
+	## Ruling FQ: each town claims its own reach (`_town_half_km`: its planned box, 0.85 km for the reference's), so a
+	## stretched town's pins along its river hide with it. Buckets are the widest reach, so a 3 x 3 search still finds it.
+	var cell_km := _map_width_km / float(_gw)
+	var bsz := 1.0
+	var towns: Array = []   ## [centre in cells, reach in cells]
 	for s in _settlements:
-		var c := Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5)
+		var rad := _town_half_km(s) / cell_km
+		bsz = maxf(bsz, rad)
+		towns.append([Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5), rad])
+	var grid := {}
+	for t in towns:
+		var c: Vector2 = t[0]
 		var k := Vector2i(floori(c.x / bsz), floori(c.y / bsz))
 		if not grid.has(k):
 			grid[k] = []
-		(grid[k] as Array).append(c)
+		(grid[k] as Array).append(t)
 	for i in _landmarks.size():
 		var lm: Dictionary = _landmarks[i]
-		if _near_a_town(Vector2(float(lm.get("x", 0)) + 0.5, float(lm.get("y", 0)) + 0.5), grid, bsz, rad):
+		if _near_a_town(Vector2(float(lm.get("x", 0)) + 0.5, float(lm.get("y", 0)) + 0.5), grid, bsz):
 			out["lm"][i] = true
 	for i in _pois.size():
 		var pd: Dictionary = _pois[i]
-		if _near_a_town(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), grid, bsz, rad):
+		if _near_a_town(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), grid, bsz):
 			out["poi"][i] = true
 	return out
 
-func _near_a_town(p: Vector2, grid: Dictionary, bsz: float, rad: float) -> bool:
+## Whether `p` (grid cells) stands within some town's own reach; `grid` buckets `[centre, reach]` pairs by `bsz` cells.
+func _near_a_town(p: Vector2, grid: Dictionary, bsz: float) -> bool:
 	var k := Vector2i(floori(p.x / bsz), floori(p.y / bsz))
 	for dx in range(-1, 2):
 		for dy in range(-1, 2):
-			for c in grid.get(Vector2i(k.x + dx, k.y + dy), []):
-				if p.distance_to(c as Vector2) <= rad:
+			for t in grid.get(Vector2i(k.x + dx, k.y + dy), []):
+				if p.distance_to(t[0] as Vector2) <= float(t[1]):
 					return true
 	return false
 
@@ -9594,6 +9602,39 @@ func forget_urban_layout(index: int) -> void:
 	queue_redraw()
 
 
+## Ruling FQ (owner, 2026-11-16): settlement `tid` -> `Vector2(width, height)` metres, the box each STRETCHED river
+## town's layout is planned in (`WorldGen.urban_layout_boxes`), centred on its pin. Absent = the reference's 1.7 x 1.25 km
+## box (`URBAN_SITE_BOX_KM`). Pushed by `ViewportHost.refresh_urban_boxes()`; read by the pin claim
+## (`_town_pin_membership`) and, for a town with no layout yet, by the culling (`_urban_plan_update`).
+var _urban_boxes: Dictionary = {}
+var _urban_boxes_rev := 0
+
+## Takes `WorldGen.urban_layout_boxes()`'s answer (see `_urban_boxes`) and redraws.
+func set_urban_boxes(boxes: Dictionary) -> void:
+	_urban_boxes = boxes
+	_urban_boxes_rev += 1
+	queue_redraw()
+
+## Ruling FQ: how far, km, settlement `s`'s town reaches from its pin, for claiming pins and for culling: half the larger
+## side of its planned box (`_urban_boxes`), else of the reference's box (0.85 km, `URBAN_SITE_BOX_KM / 2`). A planned
+## box, not a constant: a stretched town's runs to about 2.5 km.
+func _town_half_km(s: Dictionary) -> float:
+	var b = _urban_boxes.get(int(s.get("tid", -1)))
+	if b is Vector2:
+		return maxf((b as Vector2).x, (b as Vector2).y) * 0.0005
+	return URBAN_SITE_BOX_KM * 0.5
+
+## Ruling FQ: the same reach, km, for culling a town that HAS a layout: its own box (`wm`, `hm`) measured from its `pin`,
+## the farthest box edge in x or y. Exact where `_town_half_km` is an upper bound (a stretched town whose layout the
+## engine refused is laid out in the reference's box). Layouts carry no rotation on real water, which every stretched
+## town has (`orient` 0), so the box's half-extents bound it.
+func _layout_half_km(layout: Dictionary) -> float:
+	var wm := float(layout.get("wm", URBAN_SITE_BOX_KM * 1000.0))
+	var hm := float(layout.get("hm", 1250.0))
+	var pin: Vector2 = layout.get("pin", layout.get("market", Vector2(wm * 0.5, hm * 0.5)))
+	return maxf(maxf(pin.x, wm - pin.x), maxf(pin.y, hm - pin.y)) * 0.001
+
+
 ## Screen pixels per model metre, at the current fit and camera zoom. Widths
 ## drawn through this scale with the camera exactly as positions do, which is
 ## right for a town's streets (a real world-space width) and is the opposite
@@ -9684,17 +9725,18 @@ func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
 	visible_area = visible_area.intersection(interior)
 	if visible_area.size.x <= 0.0 or visible_area.size.y <= 0.0:
 		return
-	## Half a box of slack, so a town whose centre is just off-screen still
-	## draws the half of itself that is on-screen.
-	visible_area = visible_area.grow(box_px * 0.5 / maxf(0.001, _camera_zoom))
-
+	## Ruling FQ: each town's own reach of slack (its layout's box once laid out, `_layout_half_km`, else its planned
+	## box, `_town_half_km`), so a town whose centre is just off-screen still draws the part of itself that is on-screen,
+	## a stretched town's 2.5 km box as well as the reference's 1.7 km one. `m_scale` is this control's pixels per metre.
 	var need := PackedInt32Array()
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
 		if _hidden_settlement_kinds.has(s["kind"]):
 			continue
 		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
-		if not visible_area.has_point(pos):
+		var lay = _urban_layouts.get(i)
+		var half_km := _layout_half_km(lay) if lay is Dictionary else _town_half_km(s)
+		if not visible_area.grow(half_km * 1000.0 * m_scale).has_point(pos):
 			continue
 		if not _urban_layouts.has(i):
 			if need.size() < URBAN_BATCH_MAX:
@@ -9729,7 +9771,8 @@ func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
 ##    whichever tile is drawing. The settlement layer's label placement plan
 ##    reads this set (`_settlement_plan_begin`): a set that differed per tile
 ##    would place a name differently on each side of a seam.
-## 2. **The draw list is the tile grown by a whole site box**, not half: a
+## 2. **The draw list is the tile grown by a whole site box**, not half (Ruling FQ, 2026-11-16: each town's own box,
+##    twice `_layout_half_km`, which is the reference's 1.7 km for an unstretched town): a
 ##    layout is rotated by its terrain orientation, so its corner reaches
 ##    `sqrt(2)/2` of a box from its centre, past the live rule's half-box
 ##    slack, and a town just outside that slack would be cut at the seam. One
@@ -9738,10 +9781,11 @@ func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
 ##
 ## Requests nothing: the export driver fetches every layout the export needs
 ## before the first tile (`export_urban_needs`). Must never draw.
-func _urban_plan_export(rect: Rect2, interior: Rect2, box_px: float) -> void:
+func _urban_plan_export(rect: Rect2, interior: Rect2, _box_px: float) -> void:
 	var visible_area := get_global_transform().affine_inverse() * get_viewport_rect()
-	visible_area = visible_area.intersection(interior).grow(box_px / maxf(0.001, _camera_zoom))
+	visible_area = visible_area.intersection(interior)
 	var any_view := visible_area.size.x > 0.0 and visible_area.size.y > 0.0
+	var m_scale := _urban_m_scale(rect)
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
 		if _hidden_settlement_kinds.has(s["kind"]) or _settlement_hidden(s):
@@ -9749,7 +9793,9 @@ func _urban_plan_export(rect: Rect2, interior: Rect2, box_px: float) -> void:
 		if _urban_layouts.get(i) == null:
 			continue
 		_urban_revealed[i] = true
-		if any_view and visible_area.has_point(_cell_to_screen(Vector2(s["x"], s["y"]), rect)):
+		## Ruling FQ: grown by the town's own box (twice its reach, `_layout_half_km`), not the reference's 1.7 km.
+		var grow_px := 2.0 * _layout_half_km(_urban_layouts[i]) * 1000.0 * m_scale
+		if any_view and visible_area.grow(grow_px).has_point(_cell_to_screen(Vector2(s["x"], s["y"]), rect)):
 			_urban_draw_list.append(i)
 
 

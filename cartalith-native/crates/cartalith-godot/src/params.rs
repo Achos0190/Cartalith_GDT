@@ -210,12 +210,14 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::urban_harbour_front`.
     p.urban_harbour_front = true;
     // Ruling FN (owner 2026-11-16): river towns stretch along their river.
-    // **A prototype, OFF here too** (2026-11-16): measured, it reached a 5.1 %
-    // riverside share against the ruling's 15 % bar and drew walled cores with
-    // ribbon suburbs along the river road, so it stops at a prototype for the
-    // owner to judge (`STATUS.md`, "River towns stretched along their river";
-    // `DECISIONS.md` section 7p). Turn it on in the parameters to see it. See
-    // `WorldParams::urban_river_stretch`.
+    // **OFF here too, pending the owner** (Ruling FQ, 2026-11-16): the worse
+    // rows are fixed (a stretched layout that misses the ruling's bars is
+    // laid out milder or unstretched, `cartalith_urban::stretch::stretch_holds`)
+    // and every must-hold bar holds, but the riverside share reached 4.1 %
+    // (384) and 3.7 % (2 048) against the ruling's "about 5 %", so the brief's
+    // rule leaves it off (`STATUS.md`, "River towns stretched along their
+    // river, fixed"; `DECISIONS.md` section 7p). Turn it on in the parameters
+    // to see it. See `WorldParams::urban_river_stretch`.
     p.urban_river_stretch = false;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
@@ -476,14 +478,14 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "Harbour towns built to their water", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_harbour_front), set_fn: |p, v| p.urban_harbour_front = v != 0.0 },
     // Ruling FN (owner 2026-11-16): river towns stretch along their river.
-    // A prototype: OFF at the app boundary and in `WorldParams::defaults`
-    // until the owner rules on it; no reference control (the reference lays
-    // every town out in one 1 700 x 1 250 m box).
+    // OFF at the app boundary and in `WorldParams::defaults` until the owner
+    // rules on Ruling FQ's riverside shortfall; no reference control (the reference lays every town out in one
+    // 1 700 x 1 250 m box).
     // A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read fresh
     // whenever a layout is asked for, so it invalidates nothing and
     // `param_catalogue::regen` calls it live.
     ParamSpec { key: "urban_river_stretch", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
-        label: "River towns stretch along their river (prototype)", unit: "", reference_control: "",
+        label: "River towns stretch along their river", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_river_stretch), set_fn: |p, v| p.urban_river_stretch = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference

@@ -2622,6 +2622,12 @@ fn a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour() 
     assert_eq!((wc.mw, wc.mh), (77, 112), "the water raster is the stretched box's (1 700 x 2 460 m in 22 m cells)");
     let l = run_layout(&ctx, None).expect("a layout");
     assert_eq!((l.wm, l.hm), (SITE_WM, 2460.0), "the layout is laid out in the stretched box");
+    // Ruling FQ: the planned box the map reads before any layout
+    // (`um_layout_box`) is the context's, and the reference's with the
+    // switch off.
+    assert_eq!(um_layout_box(&w, &s, &on), (SITE_WM, 2460.0));
+    assert_eq!(um_layout_box(&w, &s, &PlaceOverrides { riverbank: true, ..Default::default() }), (SITE_WM, SITE_HM));
+    assert_eq!(um_layout_box(&w, &settlement(20, 20, 4_000), &on), (SITE_WM, SITE_HM), "a town too small to stretch");
     // A river along the coast (row 46, 340 m from the sea at 47.68): the box
     // holds sea, and the bank along the river is buildable, so only the sea
     // test keeps the town unstretched.
@@ -2630,4 +2636,32 @@ fn a_river_town_stretches_only_with_the_switch_and_stops_short_of_a_neighbour() 
     let shore = um_place_context_with(&wc, &settlement(32, 46, 20_000), &[], &PlaceOverrides { river_stretch: Some(&[(32.0, 46.0, 20_000.0)]), ..on });
     assert!(shore.water.as_ref().is_some_and(|u| u.sea_frac > 0.02), "premise: the box holds sea");
     assert!(shore.river_stretch.is_none(), "a seaside river town is not stretched");
+}
+
+/// Protects Ruling FQ's fallback in `run_layout`: a stretched context whose
+/// stretched layout fails `cartalith_urban::stretch::stretch_holds` (here a
+/// plan of 100 m each way, so the town cannot grow: it houses a fraction of
+/// its target, and has no milder form) is laid out in the reference's box
+/// from its `plain` context, the same layout the switch-off context gives;
+/// and the context carries that `plain` only when stretched. MUTATION:
+/// dropping the gate, or returning the stretched layout regardless, fails.
+#[test]
+fn a_stretched_layout_that_fails_the_bars_is_laid_out_in_the_reference_box() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 20_000);
+    let alone = [(20.0, 20.0, 20_000.0)];
+    let on = PlaceOverrides { riverbank: true, river_stretch: Some(&alone), ..Default::default() };
+    let mut ctx = um_place_context_with(&w, &s, &[], &on);
+    assert!(ctx.plain.as_ref().is_some_and(|p| p.site_box.is_none() && p.plain.is_none()), "a stretched context carries its plain one");
+    let off = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, ..Default::default() });
+    assert!(off.plain.is_none(), "an unstretched context carries none");
+    ctx.river_stretch = Some(cartalith_urban::stretch::StretchPlan { ahead_m: 100.0, behind_m: 100.0, across_m: 100.0 });
+    let l = run_layout(&ctx, None).expect("a layout");
+    let plain = run_layout(&off, None).expect("a layout");
+    assert_eq!((l.wm, l.hm), (SITE_WM, SITE_HM), "laid out in the reference's box");
+    assert_eq!((l.buildings.len(), l.pop), (plain.buildings.len(), plain.pop), "the switch-off town");
+    assert!(plain.pop >= 0.9 * plain.pop_target, "premise: the plain town houses its target");
 }

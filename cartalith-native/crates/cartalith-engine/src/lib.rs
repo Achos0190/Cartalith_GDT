@@ -1305,20 +1305,26 @@ pub struct WorldParams {
     /// and up (`cartalith_urban::stretch::STRETCH_MIN_POP`) whose box holds no
     /// sea is laid out in a box elongated to its river and grows in a
     /// river-following frame: farther along its banks, less far inland
-    /// (`cartalith_urban::stretch`), up to twice its growth radius each way
-    /// and short of open water, unbuildable bank and the other settlements
-    /// (`cartalith_civ::urban_adapter::um_place_context_with`). Rides
-    /// `urban_riverbank` (read only with it on); villages and harbour towns
-    /// are untouched.
+    /// (`cartalith_urban::stretch`), up to 1.5 times its growth radius each
+    /// way and short of open water, unbuildable bank and the other
+    /// settlements (`cartalith_civ::urban_adapter::um_place_context_with`).
+    /// A stretched layout that misses Ruling FQ's bars (housed share, wall
+    /// over hull, square inside the wall, unbuilt ground inside it) is tried
+    /// once more milder and otherwise laid out in the reference's box
+    /// (`cartalith_urban::stretch::stretch_holds`,
+    /// `cartalith_civ::urban_adapter::run_layout`). Rides `urban_riverbank`
+    /// (read only with it on); villages and harbour towns are untouched.
     ///
-    /// **A prototype, `false` here and in the shipped app** (2026-11-16,
-    /// `DECISIONS.md` §7p): measured, it reached a 5.1 % riverside share
-    /// against the ruling's 15 % bar, and its towns read as walled cores with
-    /// ribbon suburbs along the river road, so it waits on the owner. The
-    /// urban goldens pin the reference's box. Read fresh each time a layout
-    /// is asked for (never stored), so it moves no generated field and needs
-    /// no regeneration. A save without the key loads it off
-    /// (`params::LOADS_WHEN_ABSENT`).
+    /// **`false` here and, for now, in the shipped app too** (`DECISIONS.md`
+    /// §7p): Ruling FQ (owner 2026-11-16) asked for it on once the
+    /// prototype's worse rows were fixed with a riverside share of about 5 %;
+    /// the rows are fixed but the share measured 4.1 % (384) and 3.7 %
+    /// (2 048), so it waits on the owner. The urban goldens pin the
+    /// reference's box. Read
+    /// fresh each time a layout is asked for (never stored), so it moves no
+    /// generated field and needs no regeneration. A save without the key
+    /// loads it off (`params::LOADS_WHEN_ABSENT`), so a reopened world draws
+    /// the towns it was saved with.
     pub urban_river_stretch: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new

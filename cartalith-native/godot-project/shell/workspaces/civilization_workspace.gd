@@ -1922,6 +1922,9 @@ func _refresh_civ_data() -> void:
 	var g := bridge.grid_size()
 	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), _tl_apply_filters(bridge.roads()),
 		bridge.sea_routes(), g.x, g.y, bridge.border_inset_frac())
+	## Ruling FQ: a place edit can change a town's size and so its stretched box (`ViewportHost.refresh_urban_boxes`).
+	if app.viewport.has_method("refresh_urban_boxes"):
+		app.viewport.refresh_urban_boxes()
 	## The Timeline's per-pin marks follow the same year the filter above did.
 	_tl_push_marks()
 	## The faith-divergence layer's second input, pushed here rather than at

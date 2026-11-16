@@ -204,6 +204,21 @@ fn river_kind_map(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_KIND_MAP").map_or(p.urban_river_kind_map, |v| v != "0")
 }
 
+/// **Ruling FQ** (owner, 2026-11-16): the context the layout `l` was laid
+/// out from: `ctx` itself, or, where `ctx` is a stretched town's whose
+/// stretched layout `run_layout` refused
+/// (`cartalith_urban::stretch::stretch_holds`), its reference-box `plain`
+/// context, whose water raster is the one `l`'s metres index.
+fn laid_ctx<'a>(
+    ctx: &'a cartalith_civ::urban_adapter::UrbanContext,
+    l: &cartalith_civ::urban_adapter::UrbanLayout,
+) -> &'a cartalith_civ::urban_adapter::UrbanContext {
+    match (ctx.site_box, ctx.plain.as_deref()) {
+        (Some((bw, bh)), Some(plain)) if (l.wm - bw).abs() > 0.5 || (l.hm - bh).abs() > 0.5 => plain,
+        _ => ctx,
+    }
+}
+
 /// The seeds the owner's request names: the frame's own world (483920) and the
 /// two the wall-hug census used beside it, the second being the owner's world.
 const SEEDS: [i32; 3] = [483920, 912345, 246371];
@@ -1598,10 +1613,10 @@ fn riverbank_gap_audit() {
             if front > street {
                 front_over += 1;
             }
-            let wctx = ctx.water.as_ref().map(|w| (w.ctx.mask.as_slice(), w.ctx.mw, w.ctx.mh, w.ctx.cell_m));
+            let wctx = laid_ctx(&ctx, &l).water.as_ref().map(|w| (w.ctx.mask.as_slice(), w.ctx.mw, w.ctx.mh, w.ctx.cell_m));
             // The sea and lake alone (the mask before the river band is
             // stamped): a building there is in water whatever the switch says.
-            let octx = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            let octx = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
             if let Some(w) = wctx {
                 let m = l.buildings.iter().flat_map(|b| b.poly.iter()).filter_map(|v| mask_dist(w, (v.x, v.y), 12)).fold(f64::INFINITY, f64::min);
                 if m.is_finite() {
@@ -1779,7 +1794,7 @@ fn town_housing_audit() {
                 let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
-                let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+                let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
                 let w = wet_buildings(&l, open);
                 let r = 100.0 * l.pop / l.pop_target;
                 bld[k] += l.buildings.len();
@@ -1923,7 +1938,9 @@ fn both_banks_audit() {
     // (2026-11-15, the waterfront's frames: a riverside block left with its
     // lots and houses after its streets were swept), and the towns with any.
     let (mut orphans, mut orphan_towns) = (0usize, 0usize);
-    let (mut n_stretched, mut overlap_pairs) = (0usize, 0usize);
+    // Ruling FQ: towns planned stretched whose stretched layout was refused
+    // (`stretch_holds`) and laid out in the reference's box instead.
+    let (mut n_stretched, mut overlap_pairs, mut n_refused) = (0usize, 0usize, 0usize);
     for seed in seeds {
         let (ws, civ, gh, p) = generate_world(seed, gw, true);
         let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
@@ -1951,13 +1968,22 @@ fn both_banks_audit() {
         // town-overlap count after the seed's loop.
         let gpm = gw as f64 / (p.map_width_km * 1000.0);
         let mut seed_pts: Vec<(f64, f64, usize)> = Vec::new();
+        // `TOWN_RIVER_ONLY=<i,j,..>` (Ruling FQ, 2026-11-16): lay out only
+        // these settlement ids (the others still bound a stretch), for quick
+        // iteration on a few towns. Absent: every settlement.
+        let only: Option<Vec<usize>> =
+            std::env::var("TOWN_RIVER_ONLY").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect());
         for (i, s) in civ.settlements.iter().enumerate() {
+            if only.as_ref().is_some_and(|o| !o.contains(&i)) {
+                continue;
+            }
             let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
             // Ruling FN: a stretched town (its box larger than the reference's).
             let stretched = l.wm > cartalith_civ::urban_adapter::SITE_WM + 1.0 || l.hm > cartalith_civ::urban_adapter::SITE_HM + 1.0;
             n_stretched += usize::from(stretched);
+            n_refused += usize::from(ctx.site_box.is_some() && !stretched);
             {
                 let (co, so) = (l.orient.cos(), l.orient.sin());
                 for b in &l.buildings {
@@ -2023,7 +2049,7 @@ fn both_banks_audit() {
             let wpoly: Vec<(f64, f64)> = l.water_poly.iter().map(|v| (v.x, v.y)).collect();
             let is_river = (l.site_kind == "river" || l.site_kind == "riverthrough") && river.len() >= 2;
             // Buildings in water, by test.
-            let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
             let (mut b_ch, mut b_open, mut b_poly, mut b_shore) = (0usize, 0usize, 0usize, 0usize);
             for b in &l.buildings {
                 let poly: Vec<(f64, f64)> = b.poly.iter().map(|v| (v.x, v.y)).collect();
@@ -2198,7 +2224,7 @@ fn both_banks_audit() {
                 );
             }
             if list {
-                println!("{row}{}", if stretched { format!(" STRETCHED box {:.0}x{:.0}", l.wm, l.hm) } else { String::new() });
+                println!("{row}{}", if stretched { format!(" STRETCHED box {:.0}x{:.0}", l.wm, l.hm) } else if ctx.site_box.is_some() { " REFUSED".to_string() } else { String::new() });
             }
         }
         // Ruling FN's "no town overlapping another": pairs of towns with a
@@ -2228,7 +2254,7 @@ fn both_banks_audit() {
         }
         overlap_pairs += pairs.len();
     }
-    println!("  Ruling FN: stretched towns {n_stretched}; town pairs overlapping (a building centroid within {OVERLAP_M} m of the other town's): {overlap_pairs}");
+    println!("  Ruling FN: stretched towns {n_stretched} (Ruling FQ: refused and laid out in the reference box {n_refused}); town pairs overlapping (a building centroid within {OVERLAP_M} m of the other town's): {overlap_pairs}");
     let q = |v: &mut Vec<f64>| {
         let under = v.iter().filter(|&&r| r < 80.0).count();
         let over = v.iter().filter(|&&r| r > 200.0).count();
@@ -2413,7 +2439,7 @@ fn harbour_front_audit() {
             };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
-            let open = ctx.water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
             c[9] += wet_buildings(&l, open);
             let sea_box = cartalith_civ::urban_adapter::um_box_has_sea(&ws.field, &civ.water_bodies, gw, gh, ws.sea_level, p.map_width_km, x as f64, y as f64);
             let mut row = String::new();

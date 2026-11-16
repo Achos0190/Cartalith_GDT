@@ -1,0 +1,89 @@
+Ruling FQ (owner, 2026-11-16): of Ruling FN's three options after the prototype (496c7a2d), (a): fix the rows that got
+worse, then ship urban_river_stretch ON in params::defaults, with the town judgement's riverside bar lowered from 15 %
+to about 5 %. Measured 2026-11-16. OUTCOME: the rows are fixed and every must-hold bar holds, but the riverside share
+is 4.1 % / 3.7 %, short of about 5 %, so by the brief's rule the switch STAYS OFF in params::defaults (owner call).
+
+Census: cartalith-godot town_river_census (both_banks_audit, town_housing_audit, riverbank_gap_audit,
+harbour_front_audit), seeds 483920, 912345, 246371, 800 km, villages on, the app's parameters, release test binary,
+384 x 288 and 2048 x 1311 (audit.sh.txt). Before = TOWN_RIVER_STRETCH=0 on the same binary (its numbers equal the
+prototype's "before"); after = TOWN_RIVER_STRETCH=1 (the switch on). Full outputs: before/, after/. Per town:
+rows.txt (rows.py.txt), every river town of 1 500 and up the prototype stretched or that is planned stretched now,
+before | prototype | Ruling FQ, with its state (stretched, or refused: planned stretched and laid out unstretched).
+
+What the fix is (cartalith_urban::stretch::stretch_holds, cartalith_civ::urban_adapter::run_layout):
+ The prototype's worse rows came from single sites, so the fix tests each finished layout against Ruling FQ's bars:
+ housed >= 0.9 x target; walled: wall <= 1.12 x its own convex hull, the square inside the wall (5.4 m), no unbuilt
+ patch inside the wall over 0.5 ha (unbuilt_patch_m2, the census's reading). Each bar is met by its bound OR by being
+ no worse than the same town laid out unstretched. Order: the full stretch against the bounds; a milder stretch
+ (StretchPlan::milder: half the extra reach, depth widened to keep the area) against the bounds; then the town
+ unstretched (UrbanContext::plain, the reference-box context) and each stretch against it; else the unstretched
+ layout. Each bound is at or inside the pre-stretch p10 / p90, so no census order statistic can get worse.
+ Map: WorldGen.urban_layout_boxes (um_layout_box, the planned box by tid) -> map_overlay.gd: each town claims pins
+ within its own reach and is culled by its layout's own box (wm, hm, pin) or, before it has one, its planned box.
+
+Results, pooled over the three seeds, before -> after (the prototype's after in brackets):
+                                                   384 x 288                         2048 x 1311
+ stretched towns (planned, laid out unstretched)   0 -> 17 (8)   [25]                0 -> 18 (6)   [24]
+ towns >= 1500 housed p10 / median / p90           89 / 102 / 145 -> 89 / 104 / 151  82 / 96 / 129 -> 85 / 100 / 137
+   under 80 % of target                            2 -> 2        [3]    HELD         4 -> 3        [6]    HELD
+ wall / hull p90 (max)                             1.12 (1.19) -> 1.11 (1.14) HELD   1.16 (1.23) -> 1.09 (1.21) HELD
+ walled towns with the square outside the wall     5 -> 5        [7]    HELD         2 -> 2        [2]    HELD
+ unbuilt patch inside a wall over 1 ha             1 -> 1 (the same 7.37 ha)  HELD   0 -> 0        [1]    HELD
+   over 0.5 ha                                     2 -> 1                            1 -> 0
+ houses within 2 street widths of the bank,
+   river towns >= 1500 (bar: about 5 %)            2.5 -> 4.1 %  [5.1]  SHORT        2.5 -> 3.7 %  [4.4]  SHORT
+ built reach fronted                               66.4 -> 69.4 %                    63.9 -> 63.3 %
+ wall vertices / (len / 35 m) max (over 1)         2.95 (1) -> 2.95 (1)              3.24 (2) -> 4.47 (2)
+ buildings in water (channel / open / poly)        0 / 0 / 0 -> 0 / 0 / 0            0 / 0 / 0 -> 0 / 0 / 0
+ town pairs overlapping                            0 -> 0                            0 -> 0
+ villages housed (p10, under 80 %)                 unchanged (82, 49)                unchanged (91, 20)
+ harbour_front_audit                               unchanged but its wall / hull line
+
+The named rows (rows.txt): 483920 #12 at 384 (prototype: wall round 35.5 ha, square outside) and #13 (76 %): laid out
+unstretched, as before. 246371 #2 at 2048 (54 %): unstretched, 82 %. 483920 #1, #4 at 2048 (72 / 73 %): unstretched,
+97 / 91 %. 246371 #15 at 384 (wall / hull 1.22): unstretched, 1.08. 246371 #1 at 2048 (the 1.58 ha patch):
+unstretched. Kept on the milder stretch: 246371 #11 at 384 (95 %), 246371 #31 (91 %) and 483920 #5 (wall / hull 1.04)
+at 2048. Kept stretched with the square outside because the plain town's is outside too: 483920 #21 and 912345 #10
+at 2048 (912345 #10 housed 62 -> 66 %, still under 80 % as before).
+
+The riverside bar is SHORT: the towns the bars send back to their plain layout carried much of the prototype's gain.
+Two variants were measured on the dev binary and not kept: the spine 15 m from the bank instead of 40 (1.7 % at 384:
+it stops the waterfront pass laying its lanes, so the stretched towns lose their riverside houses), and a 400 m
+depth instead of 450 (4.2 % / 3.7 %, no gain: towns of 20 000 are capped by the 1.5 x reach, not the depth).
+
+Frames (frames/pair_viewer_<seed>_<id>.png: the City Viewer's opening frame, the app's own world at 384 x 288,
+_viewerframe_probe.gd windowed under the window lock, one DLL, --stretch 0 | 1; shots.sh.txt). The app's world is not
+the census's (its towns stand elsewhere; of the named census rows only 483920 #13's site (4,240) exists in it, as
+#17), so the named rows are shown as census plans instead (plans/plan_<seed>_<gw>_<id>.png: before | prototype |
+Ruling FQ, plot.py from TOWN_RIVER_PLOT dumps of the release binary and the prototype binary). All 19 frames looked at:
+ 483920 #0: a walled town on both banks along the river with a far-bank wall and citadel. Better.
+ 483920 #2: one bank inside a wall along the river, a sparse far bank. As the prototype.
+ 483920 #6: narrower, along the river, a small detached lobe outside the wall. Neutral.
+ 483920 #17: a long walled town along the river. Better (as the prototype).
+ 483920 #4, #11, #15, #23; 912345 #0: unchanged (laid out unstretched; the prototype's mixed #4, #15, #23 among them).
+ 483920 #12, #13; 912345 #9: villages or a hamlet on this world, unchanged.
+ 912345 #3: an L along the river bend. Better. 912345 #8: thinner, along the river. Neutral to better.
+ 912345 #15: a linear town along both arms of the bend. Better.
+ 246371 #2, #15 (villages or a hamlet on this world), #6 (refused): unchanged.
+ 246371 #11: DEFECT. A river town whose reference box holds no sea; stretched into a 2.1 km box it loses the open
+   water and the harbour quays beside it: the river runs along dry land where the frame before shows water. Not
+   diagnosed; a blocker for turning the switch on.
+ None reads as a noodle.
+Plans (plans/, all 15 looked at): 483920 #12, #13, #4, #18, 246371 #2, #6, #15, 912345 #9 at 384 and 246371 #1, #2,
+ 483920 #1, #4 at 2048 are their plain layouts again (identical to before). On the milder stretch: 246371 #11 at 384 a
+ walled town along its river (95 %); 483920 #5 at 2048 a walled one-bank town (93 %, wall / hull 1.04, the prototype's
+ far-bank lobes gone); 246371 #31 at 2048 keeps an unwalled far-bank sprawl of lanes north-west of its bend (91 %), as
+ the prototype had: mixed. (The viewer's opening frame cuts 483920 #17's north-east end, as it did the prototype's.)
+
+Map (map/, _stretchmap_probe.gd, seed 912345 at 384 x 288, town #4, planned and laid out in a 2 506 m box; map.sh.txt):
+ 11 of 11 checks (probe_after.log). Against the pre-change map_overlay.gd (probe_before_change.log) it fails exactly
+ its three bars: the POI on the river 1.05 km from the town (past the old 0.85 km) is claimed by the town; it hides
+ with the town one zoom step below the town layer (29.1 x) and shows at the step where the layer appears (33.5 x); and
+ the town is still drawn with its centre 951 m off the left edge (old slack 850 m, its own 1 253 m). Frames:
+ stretchmap_912345_4_{below,appears,closer}.png (cropped to the map). The probe's edge frame shows only terrain
+ (the town's buildings do not reach 951 m east of its centre) and is not kept; S3 is a draw-list check.
+ SEEN AND NOT CAUSED BY THIS CHANGE: at the zoom where the town layer appears, and two steps closer, the town draws as a
+ large dark teardrop-shaped smudge round its pin with specks of buildings; before_change/ shows the same frame from
+ the pre-change overlay, identical.
+
+Mutants: mutants.txt (mutants.py.txt; python -I mutants.py <out> [ids]).

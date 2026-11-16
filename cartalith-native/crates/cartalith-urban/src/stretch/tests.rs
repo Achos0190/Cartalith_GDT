@@ -222,5 +222,207 @@ fn a_stretched_town_grows_along_its_river_not_inland() {
     let near_agrarian = long.parcels.iter().filter(|p| p.district == "agrarian" && f.dist(crate::geom::poly_centroid(&p.par.poly)) <= 430.0).count();
     assert_eq!(near_agrarian, 0, "agrarian lots inside the stretched core");
     assert!(long.parcels.iter().any(|p| p.district == "agrarian"), "premise: the town has agrarian lots");
+    // Ruling FQ's measures read the layout itself (`StretchMeasures::of`):
+    // the housed share, and the wall's three answers only for a walled town.
+    let m = StretchMeasures::of(&long);
+    assert_eq!(m.housed, long.pop / long.pop_target);
+    assert_eq!(m.wall.is_some(), long.wall.ring.is_some(), "{m:?}");
+    if let Some((wh, out, _)) = m.wall {
+        assert!((1.0..1.5).contains(&wh), "a wall at least as long as its hull: {wh}");
+        assert!(!out, "the fixture town's square is inside its wall");
+    }
+    // Hand-set walls, so each measure is checked against a literal: an L of
+    // 200 x 200 m less a 100 x 100 m corner is 800 m round against a hull of
+    // 200 + 100 + 141.42 + 100 + 200 = 741.42 m, 1.0790; the market (no
+    // square) inside it, 3 m outside it (within the census's street width)
+    // and 10 m outside it.
+    let mut walled = long.clone();
+    let o = Vec2::new(2900.0, RIVER_Y + 20.0);
+    let l = [(0.0, 0.0), (200.0, 0.0), (200.0, 100.0), (100.0, 100.0), (100.0, 200.0), (0.0, 200.0)];
+    walled.wall.ring = Some(l.iter().map(|&(x, y)| o + Vec2::new(x, y)).collect());
+    walled.plaza = None;
+    let at = |t: &mut crate::generate::Town, x: f64, y: f64| {
+        t.anchors.market = o + Vec2::new(x, y);
+        StretchMeasures::of(t).wall.expect("walled")
+    };
+    let (wh, inside, _) = at(&mut walled, 50.0, 50.0);
+    assert!((wh - 800.0 / (500.0 + 2.0f64.sqrt() * 100.0 + 100.0)).abs() < 1e-9, "wall / hull {wh}");
+    assert!((wh - 1.0790).abs() < 1e-4, "wall / hull {wh}");
+    assert!(!inside, "the market inside the wall");
+    assert!(!at(&mut walled, -3.0, 50.0).1, "3 m outside: within the street width");
+    assert!(at(&mut walled, -10.0, 50.0).1, "10 m outside: outside");
+    assert!(at(&mut walled, 150.0, 150.0).1, "in the L's notch: outside");
 }
 
+
+/// Protects Ruling FQ's milder retry (`StretchPlan::milder`): each side's
+/// reach beyond `max_rf` halved (720 + 360 / 2 = 900 m), the depth widened to
+/// keep the area (720^2 / 900 = 576 m), a side already short kept but never
+/// shorter than the new depth, and a plan whose milder form gains under
+/// `STRETCH_MIN_GAIN` dropped.
+#[test]
+fn the_milder_plan_halves_the_extra_reach_and_keeps_the_area() {
+    let p = StretchPlan { ahead_m: 1080.0, behind_m: 1080.0, across_m: 480.0 };
+    assert_eq!(p.milder(720.0), Some(StretchPlan { ahead_m: 900.0, behind_m: 900.0, across_m: 576.0 }));
+    // One side cut at 600 m by a neighbour: (900 + 600) / 2 = 750 m, under
+    // 1.15 x 720 = 828 m, so there is no milder stretch.
+    assert_eq!(StretchPlan { ahead_m: 1080.0, behind_m: 600.0, across_m: 548.6 }.milder(720.0), None);
+    // A long one-sided stretch: (1 260 + 520) / 2 = 890 m; depth 720^2 / 890
+    // = 582.5 m, and the short side is raised to it.
+    let m = StretchPlan { ahead_m: 1800.0, behind_m: 520.0, across_m: 446.9 }.milder(720.0).expect("gains enough");
+    assert_eq!((m.ahead_m, m.behind_m), (1260.0, 720.0 * 720.0 / 890.0));
+    assert!((m.across_m - 582.47).abs() < 0.01, "{m:?}");
+}
+
+/// Measures of a layout with the given housed share and wall answer.
+fn measures(housed: f64, wall: Option<(f64, bool, f64)>) -> StretchMeasures {
+    StretchMeasures { housed, wall }
+}
+
+/// Protects Ruling FQ's gate (`stretch_holds`), each bar on its own: inside
+/// the bound alone it holds; past a bound it fails without the unstretched
+/// layout, and holds against one no better on that bar (and only that bar).
+#[test]
+fn the_gate_holds_each_bar_by_its_bound_or_by_the_plain_layout() {
+    let good = (1.05, false, 1_000.0);
+    assert!(stretch_holds(&measures(0.95, Some(good)), None), "inside every bound");
+    assert!(stretch_holds(&measures(0.90, None), None), "unwalled at the housed bound");
+    // Housed.
+    let short = measures(0.80, Some(good));
+    assert!(!stretch_holds(&short, None), "housed under 90 %");
+    assert!(stretch_holds(&short, Some(&measures(0.78, Some(good)))), "no less than plain");
+    assert!(!stretch_holds(&short, Some(&measures(0.85, Some(good)))), "less than plain");
+    // Wall over hull.
+    let bent = measures(1.0, Some((1.13, false, 0.0)));
+    assert!(!stretch_holds(&bent, None), "wall / hull over 1.12");
+    assert!(stretch_holds(&bent, Some(&measures(1.0, Some((1.14, false, 0.0))))), "no longer than plain's");
+    assert!(!stretch_holds(&bent, Some(&measures(1.0, Some((1.10, false, 0.0))))), "longer than plain's");
+    assert!(!stretch_holds(&bent, Some(&measures(1.0, None))), "plain unwalled: the bound alone");
+    // The square.
+    let out = measures(1.0, Some((1.0, true, 0.0)));
+    assert!(!stretch_holds(&out, None), "square outside");
+    assert!(stretch_holds(&out, Some(&measures(1.0, Some((1.0, true, 0.0))))), "plain's outside too");
+    assert!(!stretch_holds(&out, Some(&measures(1.0, Some((1.3, false, 9e9))))), "plain's inside");
+    // The unbuilt patch.
+    let open = measures(1.0, Some((1.0, false, 5_001.0)));
+    assert!(!stretch_holds(&open, None), "patch over half a hectare");
+    assert!(stretch_holds(&measures(1.0, Some((1.0, false, 5_000.0))), None), "at the bound");
+    assert!(stretch_holds(&open, Some(&measures(1.0, Some((1.0, false, 6_000.0))))), "no larger than plain's");
+    assert!(!stretch_holds(&open, Some(&measures(1.0, Some((1.0, false, 4_000.0))))), "larger than plain's");
+}
+
+/// A square building `side` metres across centred on `c`.
+fn house(c: Vec2, side: f64) -> crate::districts::Building {
+    let h = side / 2.0;
+    crate::districts::Building {
+        id: "bld0".into(),
+        poly: vec![c + Vec2::new(-h, -h), c + Vec2::new(h, -h), c + Vec2::new(h, h), c + Vec2::new(-h, h)],
+        ridge: [c, c],
+        parcel: "p0".into(),
+        kind: "house",
+        district: "core",
+        age: 0.0,
+        courtyard: false,
+        prov: "",
+    }
+}
+
+/// Protects the unbuilt-patch measure (`unbuilt_patch_m2`): an empty 200 m
+/// square wall encloses its whole 4 ha; a house at its centre leaves a ring
+/// of open ground (smaller, and still one patch); a grid of houses every 50 m
+/// leaves no cell 40 m from them all; a river through the middle splits the
+/// open ground and is not counted; neither a plaza nor a water body is; and
+/// a house's whole footprint counts as built, not only its corners.
+#[test]
+fn the_unbuilt_patch_is_ground_far_from_every_house_inside_the_wall() {
+    let ring = vec![Vec2::new(0.0, 0.0), Vec2::new(200.0, 0.0), Vec2::new(200.0, 200.0), Vec2::new(0.0, 200.0)];
+    let empty = unbuilt_patch_m2(&ring, &[], &[], 0.0, &[], &[]);
+    assert_eq!(empty, 40_000.0, "the whole square, 50 x 50 cells of 16 m2");
+    let one = unbuilt_patch_m2(&ring, &[house(Vec2::new(100.0, 100.0), 10.0)], &[], 0.0, &[], &[]);
+    assert!(one < empty - 5_000.0 && one > 30_000.0, "a ring round the house: {one}");
+    let mut row = Vec::new();
+    for j in 0..6 {
+        for i in 0..6 {
+            row.push(house(Vec2::new(-25.0 + 50.0 * i as f64, -25.0 + 50.0 * j as f64), 8.0));
+        }
+    }
+    assert_eq!(unbuilt_patch_m2(&ring, &row, &[], 0.0, &[], &[]), 0.0, "houses every 50 m");
+    let river = vec![Vec2::new(-50.0, 100.0), Vec2::new(250.0, 100.0)];
+    let split = unbuilt_patch_m2(&ring, &[], &river, 20.0, &[], &[]);
+    assert!(split < 20_000.0 && split > 15_000.0, "one bank's half: {split}");
+    let plaza = vec![Vec2::new(0.0, 0.0), Vec2::new(200.0, 0.0), Vec2::new(200.0, 100.0), Vec2::new(0.0, 100.0)];
+    assert_eq!(unbuilt_patch_m2(&ring, &[], &[], 0.0, &[], &plaza), 20_000.0, "the square's half is not counted");
+    assert_eq!(unbuilt_patch_m2(&ring, &[], &[], 0.0, &plaza, &[]), 20_000.0, "nor a water body's");
+    // A house far wider than twice the reach: its own footprint is built, not
+    // only its corners (its centre is 113 m from every corner).
+    assert_eq!(unbuilt_patch_m2(&ring, &[house(Vec2::new(100.0, 100.0), 160.0)], &[], 0.0, &[], &[]), 0.0, "a 160 m house leaves no open ground");
+}
+
+/// The fixture's water context with the river along `path` instead of the
+/// straight one, no open water.
+fn water_along(path: Vec<Vec2>) -> WaterCtx {
+    WaterCtx { river_path: Some(path), ..water(&|_, _| false) }
+}
+
+/// Protects the spine's stop at a tight bend (`lay_river_spine`): a market
+/// inside a 30 degree V of the river. Walking toward the apex, the offset
+/// point 52 m inside the near arm closes on the far arm, so the spine must
+/// stop before it: it is laid (not dropped), every point stands on the
+/// market's bank and dry, and it ends at least 100 m short of the apex.
+/// Written (Ruling FQ, 2026-11-16) for the prototype's surviving mutant
+/// "spine-bank" (the `site.bank_side(p) == side` guard, `496c7a2d`), and it
+/// does NOT kill it: the walk stops one step earlier on `buildable`, whose
+/// flood band (`river_w / 2 + 30` m round every segment) is wider than the
+/// 20 m a 40 m step closes on the far arm, so the guard never acts here.
+/// The guard stays as a belt-and-braces check; the survivor and its reason
+/// are in `cartalith-native/docs/evidence/river-stretch-2026-11-16/`.
+#[test]
+fn the_spine_stops_where_a_tight_bend_would_carry_it_across_the_river() {
+    let apex = Vec2::new(4000.0, 3000.0);
+    let (a0, b1) = (Vec2::new(1000.0, 2200.0), Vec2::new(1000.0, 3800.0));
+    let mut path: Vec<Vec2> = (0..=150).map(|k| a0.lerp(apex, k as f64 / 150.0)).collect();
+    path.extend((1..=150).map(|k| apex.lerp(b1, k as f64 / 150.0)));
+    let mut s = build_site(7, BOX, BOX, "river", SiteOpts { water: Some(water_along(path)), terrain: Some(flat()), economy: None });
+    assert!(s.use_riverbank(), "premise: the riverbank geometry");
+    // On the near arm's inner side, 60 m off it, 1.5 km from the apex.
+    let market = Vec2::new(2500.0, 2200.0 + 800.0 * 0.5 + 60.0);
+    let side = s.bank_side(market);
+    let plan = StretchPlan { ahead_m: 2400.0, behind_m: 500.0, across_m: 450.0 };
+    let f = StretchFrame::new(&s.river, market, plan, 720.0);
+    s.set_stretch(f);
+    let mut g = crate::graph::Graph::new();
+    let ids = lay_river_spine(&s, &mut g, market);
+    assert!(!ids.is_empty(), "the spine is laid up to the bend, not dropped");
+    let pts: Vec<Vec2> = g.nodes.iter().map(|n| n.pt()).collect();
+    assert!(pts.iter().all(|&p| s.bank_side(p) == side && !s.is_water(p)), "every spine point on the market's bank");
+    let reach = pts.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+    assert!(reach > 3000.0 && reach < apex.x - 100.0, "it runs toward the apex and stops short of it: {reach:.0}");
+}
+
+/// Protects the interior-lane cut-off's read of the frame (`cleanup::lane_pass`
+/// through `Site::market_dist`; the prototype's surviving mutant "lane-dist",
+/// `496c7a2d`): a 2 ha face 700 m along the river from the market and 100 m
+/// off it is 707 m from the market (past the 520 m cut-off) but 490 m in the
+/// stretched frame (1 080 m along, 480 m across), so a stretched town lays a
+/// lane through it and the same town unstretched does not.
+#[test]
+fn a_stretched_town_lays_interior_lanes_along_its_river_where_a_plain_one_does_not() {
+    let face = |g: &mut crate::graph::Graph| {
+        let (x0, x1, y0, y1) = (3600.0, 3800.0, RIVER_Y + 50.0, RIVER_Y + 150.0);
+        g.add_street(x0, y0, x1, y0, "street", 5.0, 0, "test");
+        g.add_street(x1, y0, x1, y1, "street", 5.0, 0, "test");
+        g.add_street(x1, y1, x0, y1, "street", 5.0, 0, "test");
+        g.add_street(x0, y1, x0, y0, "street", 5.0, 0, "test");
+    };
+    let anchors = crate::routes::Anchors { market: MARKET, prov: "test" };
+    let mut s = site(&|_, _| false);
+    let mut plain = crate::graph::Graph::new();
+    face(&mut plain);
+    assert_eq!(crate::cleanup::lane_pass(7, &s, &anchors, &mut plain, 1, None), 0, "unstretched: 707 m is past the cut-off");
+    let plan = StretchPlan { ahead_m: 1080.0, behind_m: 1080.0, across_m: 480.0 };
+    s.set_stretch(StretchFrame::new(&s.river.clone(), MARKET, plan, 720.0));
+    assert!((s.market_dist(Vec2::new(3700.0, RIVER_Y + 100.0), MARKET) - 490.2).abs() < 0.5, "premise: 490 m in the frame");
+    let mut long = crate::graph::Graph::new();
+    face(&mut long);
+    assert_eq!(crate::cleanup::lane_pass(7, &s, &anchors, &mut long, 1, None), 1, "stretched: one lane through the face");
+}

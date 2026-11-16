@@ -1,0 +1,251 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build eb87bff51273
+ERROR: Couldn't open directory at path "C:/cw/stretch2_scratch/appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5260)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2737)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17abe4997c0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17abe4997c0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17abe4997c0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  urban_river_stretch is on in a new world (the app's default)
+planned stretched boxes: 8 of 233 settlements
+town #4 Zafashkadrest pop 25366 at (172,236): planned box (2506.173, 2506.173), laid out 2506 x 2506 m, pin (1283.087, 1253.087)
+  PASS  S1 the planned box is the laid-out box
+  PASS  S1 the town's half box (1253 m) is past the reference's 850 m
+  PASS  S2 the layout's river runs between 0.85 km and the half box
+  PASS  S2 the POI is placed 1.05 km from the town (over the old 0.85 km reach)
+  FAIL  S2 the overlay claims the POI for the town (its own box)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+  PASS  the town layer draws the town at zoom 33.51
+  PASS  S2 at that zoom the far POI is drawn (the town shows)
+  shot C:/cw/stretch2_scratch/shots/map_before/stretchmap_912345_4_appears.png
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:372)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:372)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+  shot C:/cw/stretch2_scratch/shots/map_before/stretchmap_912345_4_closer.png
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+  PASS  below: zoom 29.14 is under the town layer's gate
+  FAIL  S2 below: the far POI hides with its town
+  shot C:/cw/stretch2_scratch/shots/map_before/stretchmap_912345_4_below.png
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+ERROR: Invalid polygon data, triangulation failed.
+   at: canvas_item_add_polygon (servers/rendering/renderer_canvas_cull.cpp:1770)
+   GDScript backtrace (most recent call first):
+       [0] draw (res://shell/pin_marker.gd:374)
+       [1] _draw_settlement_pin_marker (res://map_overlay.gd:4356)
+       [2] _draw_settlement_pin (res://map_overlay.gd:5916)
+       [3] _draw_settlements_chunk (res://map_overlay.gd:5882)
+       [4] _draw_chunk (res://map_overlay.gd:5314)
+       [5] _draw (res://map_overlay.gd:4777)
+  edge: town centre 951 m left of the visible edge (old slack 850 m, own 1253 m)
+  FAIL  S3 the town still draws with its centre 951 m off screen
+  shot C:/cw/stretch2_scratch/shots/map_before/stretchmap_912345_4_edge.png
+RESULT: FAIL (3 failed) checks=11
+ERROR: 19 RID allocations of type 'N5GLES38MaterialE' were leaked at exit.
+ERROR: 1 RID allocations of type 'N5GLES36ShaderE' were leaked at exit.
+ERROR: 21 RID allocations of type 'N5GLES37TextureE' were leaked at exit.
+WARNING: 19 RIDs of type "CanvasItem" were leaked.
+   at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2735)
+ERROR: 1 shaders of type CanvasShaderGLES3 were never freed
+   at: ~ShaderGLES3 (drivers/gles3/shader_gles3.cpp:838)
+ERROR: Texture with GL ID of 869: leaked 442353 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 608: leaked 21844 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 678: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 679: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 680: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 681: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 618: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 619: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 612: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 620: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 621: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 624: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 627: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 629: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 632: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 637: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 638: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 691: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 695: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 709: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+ERROR: Texture with GL ID of 712: leaked 262140 bytes.
+   at: ~Utilities (drivers/gles3/storage/utilities.cpp:82)
+WARNING: 70 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 6 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
