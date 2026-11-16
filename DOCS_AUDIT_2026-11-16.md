@@ -281,3 +281,250 @@ The symbol sweep proves a name exists, not that it still does what the prose say
 read where flagged, not entry by entry. The GUI plans' 56 DONE verdicts and the unlettered August/early-September
 rulings were taken from their own audits and rows rather than re-opened one by one.
 
+
+## Appendix A: tokens the documents name that the code no longer has (after triage)
+
+One row per document and token: where it is cited, the era of the nearest date above it, and the last commit that touched the name in `cartalith-native/crates` or `godot-project` (`git log -S`, newest first). "never in code" means the name never appeared there (a mutant label, probe leg, script internal, external API or document-only term). Each row was read; the ones that were real are C26-C33 and N8 above, the rest are history correctly told.
+
+| Document | Line | Era | Token | Last code commit touching it |
+|---|---|---|---|---|
+| `STATUS.md` | 84 | November | `cq6_T_lifted` | never in code |
+| `STATUS.md` | 84 | November | `cq6_P_lifted` | never in code |
+| `STATUS.md` | 89 | November | `_tolerates_a_few_percent_of_misses` | 1a6800d2 · 2026-11-16 · Vet GPU plate and blur results so the integrated Radeon cannot make a silent wrong 16k world; re-point the town-plan stitch probe |
+| `STATUS.md` | 199 | November | `M_pin_at_ignores_tilt` | never in code |
+| `STATUS.md` | 199 | November | `M_probe_upright_head` | never in code |
+| `STATUS.md` | 199 | November | `M_poi_click_opens_town_card` | never in code |
+| `STATUS.md` | 204 | November | `landmark_note` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 204 | November | `_item_note_rows` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 204 | November | `_last_dialog` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 206 | November | `_notedlg_probe` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 210 | November | `km_relief_taper` | a673a1df · 2026-11-16 · Ruling FG: terrain detail follows the viewed scale (F1-F3 of the world emboss findings) |
+| `STATUS.md` | 270 | November | `drop_tip` | never in code |
+| `STATUS.md` | 270 | November | `search_prefix` | never in code |
+| `STATUS.md` | 270 | November | `recents_cap` | never in code |
+| `STATUS.md` | 270 | November | `recents_dupe` | never in code |
+| `STATUS.md` | 270 | November | `move_stream` | never in code |
+| `STATUS.md` | 270 | November | `town_gate` | never in code |
+| `STATUS.md` | 270 | November | `drag_drop` | never in code |
+| `STATUS.md` | 270 | November | `change_kind` | 0236a62b · 2026-11-15 · Pin palette PP-6 (Ruling FD): the tablet touch form and the phone sheet, long-press drags, recents in the tool strip |
+| `STATUS.md` | 270 | November | `old_save` | never in code |
+| `STATUS.md` | 270 | November | `free_label_save` | never in code |
+| `STATUS.md` | 270 | November | `name_list` | df36f8d1 · 2026-11-09 · VE-9 finished: landmark names and links (Ruling EI), the notes scope in Find, and the private badge (Ruling DP) |
+| `STATUS.md` | 270 | November | `legacy_name` | never in code |
+| `STATUS.md` | 312 | November | `disc_spacing_low` | never in code |
+| `STATUS.md` | 312 | November | `export_excluded` | never in code |
+| `STATUS.md` | 312 | November | `circles_excluded` | never in code |
+| `STATUS.md` | 312 | November | `circles_lm_pin_radius` | never in code |
+| `STATUS.md` | 312 | November | `circles_settle_head_radius` | never in code |
+| `STATUS.md` | 312 | November | `circles_disc_not_dot` | never in code |
+| `STATUS.md` | 312 | November | `circles_settle_pick` | never in code |
+| `STATUS.md` | 312 | November | `sig_no_style` | never in code |
+| `STATUS.md` | 312 | November | `circles_lod_dot_takes_room` | never in code |
+| `STATUS.md` | 312 | November | `circles_head_above_tip` | never in code |
+| `STATUS.md` | 312 | November | `circles_tip_clear_kept` | never in code |
+| `STATUS.md` | 332 | November | `_poi_kind_dialog` | 0236a62b · 2026-11-15 · Pin palette PP-6 (Ruling FD): the tablet touch form and the phone sheet, long-press drags, recents in the tool strip |
+| `STATUS.md` | 337 | November | `drop_tip_tab` | never in code |
+| `STATUS.md` | 337 | November | `drop_tip_phone` | never in code |
+| `STATUS.md` | 337 | November | `fit_skip` | never in code |
+| `STATUS.md` | 337 | November | `search_all_tab` | never in code |
+| `STATUS.md` | 337 | November | `search_all_phone` | never in code |
+| `STATUS.md` | 337 | November | `chip_filter` | never in code |
+| `STATUS.md` | 337 | November | `no_hold` | never in code |
+| `STATUS.md` | 337 | November | `claim_off` | never in code |
+| `STATUS.md` | 337 | November | `overlay_claim` | never in code |
+| `STATUS.md` | 337 | November | `kind_row_tab` | never in code |
+| `STATUS.md` | 337 | November | `kind_row_phone` | never in code |
+| `STATUS.md` | 337 | November | `recents_hidden` | never in code |
+| `STATUS.md` | 337 | November | `phone_dom` | 90cd811c · 2026-11-13 · Phone landscape: a rotation no longer leaves the docked sheet blank; header top-right, grip on the right, no header backdrop |
+| `STATUS.md` | 337 | November | `both_floors` | never in code |
+| `STATUS.md` | 337 | November | `touch_floor` | 58c180da · 2026-11-15 · CQ-5: the tablet form of the quick bar; the card no longer swallows the finger that opened the ring, and no longer covers the ring in a narrow pane |
+| `STATUS.md` | 339 | November | `transparent_backing` | never in code |
+| `STATUS.md` | 339 | November | `poi_label` | never in code |
+| `STATUS.md` | 339 | November | `tiny_label` | never in code |
+| `STATUS.md` | 339 | November | `strip_behind` | never in code |
+| `STATUS.md` | 347 | November | `far_bank` | 3138edcd · 2026-11-15 · Both-banks towns reworked: the far bank grows after the town's own, the wall follows the built area, the market square stays inside (urban_riverbank) |
+| `STATUS.md` | 380 | November | `_DEBUG` | dab668a8 · 2026-11-15 · FH-R2 building-count drop broken down: a regression for big river towns (one bank, no bridge), not fixed, routed as an owner call |
+| `STATUS.md` | 486 | November | `WorkerThread_N` | never in code |
+| `STATUS.md` | 522 | November | `host_always_app` | never in code |
+| `STATUS.md` | 522 | November | `anchor_always_offset` | never in code |
+| `STATUS.md` | 522 | November | `anchor_never_offset` | never in code |
+| `STATUS.md` | 522 | November | `no_host_window_key` | never in code |
+| `STATUS.md` | 522 | November | `bounds_app_viewport` | never in code |
+| `STATUS.md` | 522 | November | `create_dialog_in_app` | never in code |
+| `STATUS.md` | 522 | November | `no_host_click_through` | never in code |
+| `STATUS.md` | 650 | November | `take_place` | e5893f7a · 2026-11-14 · PC-7 leftover: one host with a back stack, W7 refresh items, live private line in the Note tab |
+| `STATUS.md` | 650 | November | `keep_text` | never in code |
+| `STATUS.md` | 970 | November | `get_display_cutouts` | 37f4d166 · 2026-11-13 · Phone landscape: the quick-drawer grip moves to the screen's outer edge on the dominant-hand side |
+| `STATUS.md` | 972 | November | `cutouts_probe` | 37f4d166 · 2026-11-13 · Phone landscape: the quick-drawer grip moves to the screen's outer edge on the dominant-hand side |
+| `STATUS.md` | 1101 | November | `_notedlg_probe.gd` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 1430 | November | `_small_worlds` | 8f1740ef · 2026-11-12 · Ruling EU item 1: generated roads share trunks instead of running as parallel strokes |
+| `STATUS.md` | 1478 | November | `knowledge_embed` | never in code |
+| `STATUS.md` | 1480 | November | `rust_out` | never in code |
+| `STATUS.md` | 1564 | November | `_running_away_from_its_destination` | f7ce2bb7 · 2026-11-13 · Ruling EU item 1, verifier findings: tracks join only lines that reach their destination; merged routes keep their class |
+| `STATUS.md` | 1910 | November | `_param_ctl` | never in code |
+| `STATUS.md` | 1983 | November | `_v3d_2d_id` | never in code |
+| `STATUS.md` | 2294 | November | `disable_scroll_deadzone` | never in code |
+| `STATUS.md` | 2327 | November | `tilt_min` | never in code |
+| `STATUS.md` | 2352 | November | `_phone_gen_tab_on` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2353 | November | `_phone_gen_col` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2353 | November | `_world_sheet_mode` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2358 | November | `_genphone_probe` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2358 | November | `_phonepaint_probe` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2358 | November | `_phonepaint` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 2377 | November | `_build_preferences` | never in code |
+| `STATUS.md` | 2452 | November | `NAVPAD_TEXT_META` | a2200e5b · 2026-11-08 · MS-5 first step: the map's control row and gestures (DS-13 items 1-6) |
+| `STATUS.md` | 2530 | November | `faith_key` | 9e79e52e · 2026-09-03 · Urban morphology finishes, and nine false claims that outlived their code |
+| `STATUS.md` | 2530 | November | `card_row_id` | never in code |
+| `STATUS.md` | 2530 | November | `stale_rule` | never in code |
+| `STATUS.md` | 2570 | November | `SpaActivity` | never in code |
+| `STATUS.md` | 3111 | November | `cancel_requested` | 875b8542 · 2026-11-08 · VE-4: autosave, the conflict banner, the session undo and Revert to opened in the vault editor |
+| `STATUS.md` | 3123 | November | `_vaulttree_probe.tscn` | fa25ab6f · 2026-10-17 · Ruling BK annotation: 57 more probe headers gain a Result block (comments only) |
+| `STATUS.md` | 3129 | November | `_open_link_picker` | 5b7f7947 · 2026-11-08 · VE-2: [[ suggestions with headings, aliases and places, and auto-pair in the vault editor |
+| `STATUS.md` | 3134 | November | `close_on_escape` | 3fdb8997 · 2026-11-11 · Track the fennara editor addon (MIT) with its autoload, at the owner's request; Android exports exclude its binaries |
+| `STATUS.md` | 3242 | November | `_phonemore_act` | 9bae6952 · 2026-11-08 · MS-4: the phone's MENU is the eight desktop menus row for row; 14 screens and 8 probes deleted |
+| `STATUS.md` | 3337 | November | `_phonemore_reach` | 9bae6952 · 2026-11-08 · MS-4: the phone's MENU is the eight desktop menus row for row; 14 screens and 8 probes deleted |
+| `STATUS.md` | 3592 | November | `_sync_view3d_btn` | a2200e5b · 2026-11-08 · MS-5 first step: the map's control row and gestures (DS-13 items 1-6) |
+| `STATUS.md` | 3625 | November | `_genphone` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 3633 | November | `world_all` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 3637 | November | `quick_bar_phone_row.gd` | never in code |
+| `STATUS.md` | 3637 | November | `phone_quick_row` | eef64483 · 2026-11-12 · MS-11: the phone's quick drawer replaces CQ-6's chip row |
+| `STATUS.md` | 3637 | November | `_phone_quick_wanted` | eef64483 · 2026-11-12 · MS-11: the phone's quick drawer replaces CQ-6's chip row |
+| `STATUS.md` | 4086 | October | `_live_2026-10-26.json` | b75eef7d · 2026-10-26 · LLM-12: the model field is a dropdown filled from the endpoint's own list (OpenAI-compatible, Anthropic, Ollama, LM Studio), through the chat gate; localhost now connects (IPv4 first) |
+| `STATUS.md` | 4088 | October | `knowledge_eval` | 3d29e575 · 2026-11-12 · RK-8 to RK-11: the measurement machinery for the retrieval step-2 decisions, tested on stand-in controls (no real model used) |
+| `STATUS.md` | 4107 | October | `quick_bar_phone_list.gd` | 3f7ea940 · 2026-11-16 · Three GUI leftovers: delete QuickBarPhoneList, CQ-6 long-press reorder, VE-6 template chooser with preview |
+| `STATUS.md` | 4115 | October | `terrace_flood_basalt` | 1153bbee · 2026-10-25 · VA-6 under owner Ruling DJ: calderas, maars, supervolcano ON; flood basalt render-only |
+| `STATUS.md` | 4122 | October | `NotLocal` | b344af86 · 2026-10-25 · LLM-4: hosted OpenAI-compatible and Anthropic adapters, token counter, one automatic retry |
+| `STATUS.md` | 4122 | October | `UnsupportedStyle` | b344af86 · 2026-10-25 · LLM-4: hosted OpenAI-compatible and Anthropic adapters, token counter, one automatic retry |
+| `STATUS.md` | 4122 | October | `_tot_prompt` | b344af86 · 2026-10-25 · LLM-4: hosted OpenAI-compatible and Anthropic adapters, token counter, one automatic retry |
+| `STATUS.md` | 4131 | October | `summit_headroom` | never in code |
+| `STATUS.md` | 4131 | October | `_not_kept` | never in code |
+| `STATUS.md` | 4147 | October | `WARM_C` | b9e2db42 · 2026-10-19 · Orogen follow-up: gully relief and a capped breach replace the ridged term and the late fill; Satellite relief holds covered slopes |
+| `STATUS.md` | 4178 | October | `km_gate_dropped` | never in code |
+| `STATUS.md` | 4178 | October | `warp_zero` | never in code |
+| `STATUS.md` | 4200 | October | `td0_tile_with_heights` | never in code |
+| `STATUS.md` | 4212 | September | `create_local_rendering_device` | 3fdb8997 · 2026-11-11 · Track the fennara editor addon (MIT) with its autoload, at the owner's request; Android exports exclude its binaries |
+| `STATUS.md` | 4220 | October | `_document` | 91983d59 · 2026-11-15 · Ruling FD item 3: Change kind and Restore generated kind for generated landmarks, through the same pin palette |
+| `STATUS.md` | 4220 | October | `_set_document` | bde044e5 · 2026-11-12 · CP-4 thumb path, CP-5 fill tool, the map-width notice with Scale with the map, CP-6 export switch: shell, probe, docs |
+| `STATUS.md` | 4220 | October | `_add_mark` | bde044e5 · 2026-11-12 · CP-4 thumb path, CP-5 fill tool, the map-width notice with Scale with the map, CP-6 export switch: shell, probe, docs |
+| `STATUS.md` | 4220 | October | `_set_visible` | 3fdb8997 · 2026-11-11 · Track the fennara editor addon (MIT) with its autoload, at the owner's request; Android exports exclude its binaries |
+| `STATUS.md` | 4230 | October | `hook_ungated` | never in code |
+| `STATUS.md` | 4351 | October | `carve_subcell` | 26ac5156 · 2026-10-18 · Ruling CM: B-spline rain up-sample ships in the app; spike variants (b), (c), MFD and plain-D8 removed |
+| `STATUS.md` | 4353 | October | `stream_rho8` | 26ac5156 · 2026-10-18 · Ruling CM: B-spline rain up-sample ships in the app; spike variants (b), (c), MFD and plain-D8 removed |
+| `STATUS.md` | 4385 | October | `pre_bh_world` | never in code |
+| `STATUS.md` | 4394 | October | `CARGO_TARGET_DIR` | never in code |
+| `STATUS.md` | 4424 | October | `_vaultclick` | a7c3a84e · 2026-09-22 · Fix Data > Browse & edit a note: an unbounded range check ate its id |
+| `STATUS.md` | 4443 | October | `jp_slope_applies_to` | e9c12067 · 2026-10-12 · Ruling CG item 4 addendum: slope keeps stacking on Hills / Mountain Trails (asymmetry only) |
+| `STATUS.md` | 4461 | October | `AT_0801FBCE` | 49be2c5d · 2026-10-25 · FH-R2 R2-4 (S3a): religion -> rite table and plumbing, built but not switched on |
+| `STATUS.md` | 4487 | October | `_day_of_year` | 80f8f8a1 · 2026-11-12 · Journey departure day (SP-2 residual) and per-leg override fingerprints (Ruling EA item 10) |
+| `STATUS.md` | 4487 | October | `_timeline_years` | 55312a12 · 2026-11-08 · PC-3: the year strip in WORLD, CIVIL and CARTO, recorded years, filters and events, one range from the world; the collapsed strip clickable across its width |
+| `STATUS.md` | 4487 | October | `_territory_year` | bec4f064 · 2026-11-07 · PC-2: one year — DccShell.tl_set_year is the only writer, and the dock, Place editor, CIVIL pills and territory follow it |
+| `STATUS.md` | 4496 | October | `_busyov` | a786b8a7 · 2026-10-12 · Busy overlay around the synchronous actions: save, open, export, bake, erosion, civilisation, roads |
+| `STATUS.md` | 4497 | October | `_planner` | 3f7ea940 · 2026-11-16 · Three GUI leftovers: delete QuickBarPhoneList, CQ-6 long-press reorder, VE-6 template chooser with preview |
+| `STATUS.md` | 4499 | October | `_jpzero_probe` | never in code |
+| `STATUS.md` | 4534 | October | `_pg_on_started` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 4542 | October | `lod_d4` | 1fa7c0d2 · 2026-09-26 · Glaciation on for new worlds; honest substrate refusals; derived garrisons and manpower across the year cursor |
+| `STATUS.md` | 4548 | October | `harness_prereg_v3.rs` | never in code |
+| `STATUS.md` | 4550 | October | `_lu2_probe` | never in code |
+| `STATUS.md` | 4550 | October | `_u_probe` | never in code |
+| `STATUS.md` | 4550 | October | `_a_probe` | never in code |
+| `STATUS.md` | 4580 | October | `items_undoc` | never in code |
+| `STATUS.md` | 4581 | October | `tests_unprotected` | never in code |
+| `STATUS.md` | 4581 | October | `consts_undoc` | never in code |
+| `STATUS.md` | 4625 | October | `_cultureprofiles` | cd5a8143 · 2026-10-05 · Faction hub FH-2: Culture profiles folded into the Identity tab, standalone window retired |
+| `STATUS.md` | 4625 | October | `_pelayout` | never in code |
+| `STATUS.md` | 4637 | September | `_pinlabelovr` | 1050cf09 · 2026-09-21 · Fix settlement pin rings ballooning into a screen-filling blob at deep zoom |
+| `STATUS.md` | 4642 | August | `_phonepaint_probe.tscn` | 3af1e0ac · 2026-11-09 · Ruling EH item 1: retire the phone's GENERATE column; the WORLD sheet is the dock's own categories |
+| `STATUS.md` | 4644 | August | `export_fans_ignore_style` | never in code |
+| `STATUS.md` | 5011 | September | `preceded_by_any_comment` | never in code |
+| `STATUS.md` | 5027 | September | `stream_power_refresh` | never in code |
+| `STATUS.md` | 5061 | September | `preceded_by_doc` | never in code |
+| `STATUS.md` | 5196 | September | `_measure_poly` | 7ffb59a8 · 2026-08-24 · Measurement toolbar + unified Sculpt/Paint/Measure bar (GUI_GAP_REGISTER §16) |
+| `STATUS.md` | 5196 | September | `_pyramid` | 0ece9a3a · 2026-11-13 · 3D-3: Standard and Full draw a CDLOD quadtree streamed from the LOD worker; 2D parks while 3D shows |
+| `STATUS.md` | 5513 | September | `scan_rust_file` | never in code |
+| `STATUS.md` | 5586 | September | `list_rs_files` | never in code |
+| `STATUS.md` | 6009 | September | `mod.rs` | 8dd94baf · 2026-11-16 · GUI leftovers: touch forms drop key hints, MS-7 dock pin and 1920 dp readouts, VE-5 tablet form |
+| `STATUS.md` | 6016 | September | `preceding_comment_block_has_protects` | never in code |
+| `STATUS.md` | 6017 | September | `test_fn_window_and_body_protects` | never in code |
+| `STATUS.md` | 6304 | September | `census_v2` | never in code |
+| `STATUS.md` | 6495 | September | `_workspace.gd` | 96131242 · 2026-11-16 · One note entry on the card; the vault holds the detail (Ruling FJ) |
+| `STATUS.md` | 6528 | September | `fill_title` | 2e36d516 · 2026-09-27 · Ruling BF: vault templates and Markdown follow Obsidian exactly (73) |
+| `STATUS.md` | 6864 | September | `GUI_SHELL` | 0700f467 · 2026-09-26 · Comments: finish the false-comments row (audit Part 2 G1-G3, G5, rest of G2; Part 1 Journeys and Civ) |
+| `STATUS.md` | 6864 | September | `MILITARY_MANPOWER` | 5c3b3d8d · 2026-10-25 · G1-1 (Ruling CZ): guards first, then the six core government forms |
+| `STATUS.md` | 6864 | September | `RELIGION_DIFFUSION` | 93b80da8 · 2026-10-26 · UI copy pass, first cut: plain-language Assistant, quick bar, consent and error text; no milestone or ruling ids in user-facing strings |
+| `STATUS.md` | 6864 | September | `SCULPT_LIVE` | 1549d1a6 · 2026-10-11 · Annotate 19 more cartalith-godot integration tests (Ruling BK): every test opens with Protects |
+| `STATUS.md` | 6865 | September | `STORY_PLANNING` | 7039afa7 · 2026-11-12 · Landmarks: the 12 remaining M8 kinds, M9's temporal state and its cultural half |
+| `STATUS.md` | 7131 | September | `claude_design` | never in code |
+| `STATUS.md` | 7214 | September | `VK_ERROR_DEVICE_LOST` | never in code |
+| `STATUS.md` | 7571 | September | `JpLeg` | 97209d6e · 2026-11-13 · Ruling EU items 2 and 3, verifier findings: walked hops, legs cut into the walked stages, overrides kept on their stage, replay on the spliced route, ways ridden where they lie |
+| `STATUS.md` | 7575 | September | `journey_planner_window.gd` | 8bb8516e · 2026-08-19 · Journey Planner: distance-spine takeover replaces the AcceptDialog |
+| `STATUS.md` | 7640 | September | `the_civ_group_is_a_real_contiguous_group_of_fourteen` | 8f1740ef · 2026-11-12 · Ruling EU item 1: generated roads share trunks instead of running as parallel strokes |
+| `STATUS.md` | 7827 | September | `P_retain` | never in code |
+| `STATUS.md` | 7829 | September | `EliteAdherents` | never in code |
+| `STATUS.md` | 7829 | September | `RulerReligion` | never in code |
+| `STATUS.md` | 7829 | September | `MerchantStatus` | never in code |
+| `STATUS.md` | 7848 | September | `_petimeline_probe.gd` | never in code |
+| `STATUS.md` | 8203 | September | `apply_stamp` | never in code |
+| `STATUS.md` | 8304 | November | `resource_potentials` | e4183543 · 2026-11-15 · Ruling EZ item 3: the GPU path keeps only device-identical kernels that pay; one GPU world on the PC, the 6T and the Pad 3 |
+| `STATUS.md` | 8304 | November | `_civgpu_probe.tscn` | e4183543 · 2026-11-15 · Ruling EZ item 3: the GPU path keeps only device-identical kernels that pay; one GPU world on the PC, the 6T and the Pad 3 |
+| `STATUS.md` | 8416 | September | `flow_accumulation_gpu_with` | 46aff27d · 2026-09-21 · Delete seven uncalled cartalith-gpu public functions (~75 lines) |
+| `STATUS.md` | 8417 | September | `gpu_resistance_grid_cpu` | 46aff27d · 2026-09-21 · Delete seven uncalled cartalith-gpu public functions (~75 lines) |
+| `STATUS.md` | 8456 | August | `_peakaudit_peak.rs` | d218c715 · 2026-10-04 · Ruling BK: annotate cartalith-civ tests and examples (comments only, 31 files) |
+| `STATUS.md` | 8456 | August | `_peakaudit_block.rs` | 0bba2f97 · 2026-09-03 · Twelve verified batches, and a file to stop repeating the mistakes |
+| `STATUS.md` | 8456 | August | `_peakaudit_hash.rs` | 0bba2f97 · 2026-09-03 · Twelve verified batches, and a file to stop repeating the mistakes |
+| `STATUS.md` | 8521 | September | `affordance_tile` | never in code |
+| `STATUS.md` | 8592 | August | `accelerometer_rotation` | never in code |
+| `STATUS.md` | 8717 | September | `TooltipPanel` | never in code |
+| `STATUS.md` | 8726 | September | `TooltipLabel` | never in code |
+| `STATUS.md` | 8930 | September | `a_cell_below_sea_level_freezes_its_ring_even_when_not_classified_water` | 298c0cfc · 2026-09-28 · Full recolour 23-30% faster and byte-identical (water bodies once, one-pass render context); every sea test reads the true height, so river mouths lose their carve notch; zoom stutter traced to the overlay redraw (67) |
+| `STATUS.md` | 8937 | September | `_repaintasync` | never in code |
+| `STATUS.md` | 9025 | September | `_show_rivers` | 2cf01432 · 2026-09-27 · Rivers are drawn through the style: every preset shapes them, smooth at every zoom |
+| `STATUS.md` | 9584 | November | `_remount_composition_for_test` | 1e996036 · 2026-11-09 · MS-1 S4.4: the class swap runs on the mount path, carrying the user's state |
+| `STATUS.md` | 9629 | November | `_for_test` | 7039afa7 · 2026-11-12 · Landmarks: the 12 remaining M8 kinds, M9's temporal state and its cultural half |
+| `OUTSTANDING_WORK.md` | 436 | November | `tilt_min` | never in code |
+| `OUTSTANDING_WORK.md` | 1281 | September | `_phonetiles_probe.gd` | 9bae6952 · 2026-11-08 · MS-4: the phone's MENU is the eight desktop menus row for row; 14 screens and 8 probes deleted |
+| `OUTSTANDING_WORK.md` | 1408 | September | `_phonemore_act_probe.gd` | 9bae6952 · 2026-11-08 · MS-4: the phone's MENU is the eight desktop menus row for row; 14 screens and 8 probes deleted |
+| `OUTSTANDING_WORK.md` | 1477 | September | `_pepolitical_probe.gd` | e3325662 · 2026-10-05 · SP-3 combined timeline strip: four lanes on one year axis in the Political history tab |
+| `OUTSTANDING_WORK.md` | 2167 | September | `_refresh_stage_rows` | never in code |
+| `OUTSTANDING_WORK.md` | 2452 | September | `performance_window.gd` | 06c89634 · 2026-09-06 · The Performance window folds away, and a lane that refused to invent an identity |
+| `OUTSTANDING_WORK.md` | 2688 | September | `_peakaudit_peak.rs` | d218c715 · 2026-10-04 · Ruling BK: annotate cartalith-civ tests and examples (comments only, 31 files) |
+| `OUTSTANDING_WORK.md` | 3509 | October | `gradient_ui.rs` | never in code |
+| `OUTSTANDING_WORK.md` | 3509 | October | `color_picker_ui.rs` | never in code |
+| `OUTSTANDING_WORK.md` | 3613 | September | `VK_ERROR_DEVICE_LOST` | never in code |
+| `OUTSTANDING_WORK.md` | 3619 | September | `OnGodotMainLoopStarted` | never in code |
+| `OUTSTANDING_WORK.md` | 3639 | September | `items_undoc` | never in code |
+| `OUTSTANDING_WORK.md` | 3639 | September | `consts_undoc` | never in code |
+| `OUTSTANDING_WORK.md` | 3639 | September | `CARGO_TARGET_DIR` | never in code |
+| `OUTSTANDING_WORK.md` | 3639 | September | `foo.rs` | 662d488c · 2026-11-16 · Ruling FK: harbour towns laid out to their water, port reach about 4 km |
+| `OUTSTANDING_WORK.md` | 3639 | September | `x.rs` | ? |
+| `OUTSTANDING_WORK.md` | 3639 | September | `_probe.gd` | 8dd94baf · 2026-11-16 · GUI leftovers: touch forms drop key hints, MS-7 dock pin and 1920 dp readouts, VE-5 tablet form |
+| `OUTSTANDING_WORK.md` | 3639 | September | `_ss_layerspop_check` | never in code |
+| `OUTSTANDING_WORK.md` | 3650 | October | `lattice_diag` | never in code |
+| `OUTSTANDING_WORK.md` | 3693 | October | `_bugg_probe.gd` | never in code |
+| `OUTSTANDING_WORK.md` | 3693 | October | `_armg_probe.gd` | never in code |
+| `OUTSTANDING_WORK.md` | 3698 | October | `_window.gd` | 3f7ea940 · 2026-11-16 · Three GUI leftovers: delete QuickBarPhoneList, CQ-6 long-press reorder, VE-6 template chooser with preview |
+| `OUTSTANDING_WORK.md` | 3770 | October | `km_relief_taper` | a673a1df · 2026-11-16 · Ruling FG: terrain detail follows the viewed scale (F1-F3 of the world emboss findings) |
+| `OUTSTANDING_WORK.md` | 3854 | November | `pill_reserve` | 90cd811c · 2026-11-13 · Phone landscape: a rotation no longer leaves the docked sheet blank; header top-right, grip on the right, no header backdrop |
+| `OUTSTANDING_WORK.md` | 3857 | October | `SCREEN_ORIENTATION_SENSOR` | never in code |
+| `OUTSTANDING_WORK.md` | 4197 | September | `ComputeBackend` | never in code |
+| `OUTSTANDING_WORK.md` | 4451 | August | `_refresh_phone_bar_lit` | 5543ef36 · 2026-08-31 · The unwired table, rewritten against the new shell -- and nine false reasons |
+| `OUTSTANDING_WORK.md` | 4482 | October | `_mapdetent_shot.gd` | never in code |
+| `LARGE_ITEM_RULINGS.md` | 425 | September | `performance_window.gd` | 06c89634 · 2026-09-06 · The Performance window folds away, and a lane that refused to invent an identity |
+| `LARGE_ITEM_RULINGS.md` | 666 | September | `OPEN_FILE` | c1e0a2a6 · 2026-09-24 · Travel Library: import definitions from .csv |
+| `LARGE_ITEM_RULINGS.md` | 669 | September | `_on_import_pack` | never in code |
+| `LARGE_ITEM_RULINGS.md` | 1099 | September | `MAP_BOUNDED` | c6de2a2d · 2026-09-21 · Water-body topology metadata: the additive first step of HYDROLOGY_CLASSIFICATION_RESEARCH.md |
+| `LARGE_ITEM_RULINGS.md` | 1103 | September | `build_water_bodies_largest_below_sea_component_is_ocean` | cc834d26 · 2026-09-21 · Water bodies reclassify by hydrological topology, not size |
+| `LARGE_ITEM_RULINGS.md` | 1141 | September | `settlement_and_poi_are_not_named_by_the_unused_warning` | b1abc0a5 · 2026-10-19 · AP-3 and AP-4: pack art on placed icons; seam checker and make-seamless |
+| `LARGE_ITEM_RULINGS.md` | 1302 | September | `export_layers` | never in code |
+| `LARGE_ITEM_RULINGS.md` | 1762 | September | `fill_title` | 2e36d516 · 2026-09-27 · Ruling BF: vault templates and Markdown follow Obsidian exactly (73) |
+| `LARGE_ITEM_RULINGS.md` | 1971 | September | `cartalith_wt_route` | never in code |
+| `LARGE_ITEM_RULINGS.md` | 2563 | October | `next_heading` | never in code |
+| `DECISIONS.md` | 932 | September | `rho_max` | never in code |
+| `DECISIONS.md` | 1270 | September | `CHANNEL_DESCENT_CENTRE_HALFW` | never in code |
+| `DECISIONS.md` | 1353 | September | `_riverconnect_probe.gd` | 259738ed · 2026-10-05 · Rivers that stopped on dry land now run on to the next river, lake or sea |
+| `DECISIONS.md` | 1459 | October | `EdificeVariant` | 2cfce96c · 2026-10-18 · Ruling CO (2, 4): edifice variant (a), stamp-time fill and ablations retired |
+| `DECISIONS.md` | 1505 | November | `far_bank` | 3138edcd · 2026-11-15 · Both-banks towns reworked: the far bank grows after the town's own, the wall follows the built area, the market square stays inside (urban_riverbank) |
+| `GENERATION_PARAMETERS.md` | 200 | September | `_sized` | fbcd869f · 2026-11-14 · Welcome: a world card opens under the busy card, and the card shows on the phone picker |
+| `GENERATION_PARAMETERS.md` | 420 | September | `warp_split` | e4183543 · 2026-11-15 · Ruling EZ item 3: the GPU path keeps only device-identical kernels that pay; one GPU world on the PC, the 6T and the Pad 3 |
+| `SAVEFILE_COMPAT.md` | 1183 | October | `deny_unknown_fields` | never in code |
+| `JS_SEMANTICS_AUDIT.md` | 200 | August | `js_to_fixed_matches_v8_on_every_rounding_branch` | c3faa6b8 · 2026-08-18 · cartalith-jsmath: one implementation each, and the last two atan2 hazards |
+| `JS_SEMANTICS_AUDIT.md` | 973 | August | `CARGO_TARGET_DIR` | never in code |
