@@ -1067,6 +1067,19 @@ pub struct CivParams {
     /// `DECISIONS.md` §7p split: the reference badges on its own radius. A save
     /// without the key loads it off.
     pub port_reach: bool,
+    /// Owner Ruling FO item 1 (2026-11-16, `LARGE_ITEM_RULINGS.md`): every settlement a generation places
+    /// is given a **founding year**, stored beside its place-editor extras (`PlaceExtras::founded`, saved
+    /// as `extras.founded`, `SAVEFILE_COMPAT.md` 9.1). The year is `-um_infer_age(population)`: the
+    /// engine's one existing settlement-age model (the town generator's `settlement_age`), measured back
+    /// from the civilisation timeline's year 0, so a place's founding year and its drawn age agree. It
+    /// reads no random number, so every settlement, road and golden is unchanged by the switch; a place
+    /// dropped by hand later is founded in the year the timeline cursor shows. `None` (absent) is
+    /// "unknown", never a plausible year.
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the `DECISIONS.md` section 7p
+    /// split: the reference has no founding year. A save without the key loads it off, so an old world
+    /// stays "unknown" and is not stamped on load.
+    pub founding_year: bool,
     /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
     /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
     /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
@@ -1732,6 +1745,8 @@ impl WorldParams {
                 map_crossings: false,
                 // Ruling FK item 2: the reference badges ports within its own radius.
                 port_reach: false,
+                // Ruling FO item 1: the reference has no founding year.
+                founding_year: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
             },

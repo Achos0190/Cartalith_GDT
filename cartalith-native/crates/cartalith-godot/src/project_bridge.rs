@@ -376,6 +376,10 @@ struct ExtrasDto {
     rules_preset: String,
     #[serde(default, skip_serializing_if = "is_zero")]
     variant: u32,
+    // Ruling FO item 1: the founding year. Omitted when unknown, so an old save (no member) loads
+    // unknown and a world made without the switch writes the bytes it wrote before this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    founded: Option<i64>,
 }
 
 /// `skip_serializing_if` predicate: true for `0`, so a default `variant` writes no member.
@@ -2255,6 +2259,7 @@ fn settlement_to_dto(
                 culture: e.culture.clone(),
                 rules_preset: e.rules_preset.clone(),
                 variant: e.variant,
+                founded: e.founded,
             }),
     }
 }
@@ -2913,6 +2918,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
                     culture: e.culture.clone(),
                     rules_preset: e.rules_preset.clone(),
                     variant: e.variant,
+                    founded: e.founded,
                 },
             );
         }
@@ -5595,6 +5601,7 @@ mod tests {
                 culture: "venus".into(),
                 rules_preset: "market_town".into(),
                 variant: 3,
+                founded: Some(-340),
             },
         );
         let mut village_tids = std::collections::HashSet::new();
@@ -7651,6 +7658,35 @@ mod tests {
         assert_eq!(warnings.iter().filter(|w| w.contains("religious policy")).count(), 1, "{warnings:?}");
     }
 
+    /// Protects Ruling FO item 1's save format, on the settlement document itself (literal JSON, not a round trip of
+    /// the code under test): a place with a founding year writes `"founded": -340` inside its `extras`; **year 0 writes
+    /// `"founded": 0` and loads back as year 0, not unknown**; a place whose year is unknown writes no `founded` member
+    /// at all (so a world made without the switch writes the bytes it did before); and an `extras` member from an older
+    /// save, which has no `founded`, loads as `None`. MUTATION: dropping `skip_serializing_if`, writing `0` for `None`,
+    /// or dropping `#[serde(default)]` turns a line red.
+    #[test]
+    fn a_founding_year_saves_as_extras_founded_and_absent_means_unknown() {
+        let json = |e: &civ_roster_bridge::PlaceExtras| {
+            let s = cartalith_civ::NamedSettlement {
+                tid: 5,
+                placement: cartalith_civ::SettlementPlacement { x: 1, y: 2, suit: 0.5, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Town, coastal: false },
+                name: "Nareth".into(),
+                pop: 900,
+            };
+            serde_json::to_value(settlement_to_dto(&s, None, Some(e), false)).unwrap()
+        };
+        let with = |founded| civ_roster_bridge::PlaceExtras { history: "h".into(), founded, ..Default::default() };
+        assert_eq!(json(&with(Some(-340)))["extras"]["founded"], serde_json::json!(-340));
+        assert_eq!(json(&with(Some(0)))["extras"]["founded"], serde_json::json!(0), "year 0 is written");
+        assert!(json(&with(None))["extras"].get("founded").is_none(), "unknown writes no member");
+        // A row that is entirely default writes no extras at all, as before.
+        assert!(json(&civ_roster_bridge::PlaceExtras::default()).get("extras").is_none());
+        let old: ExtrasDto = serde_json::from_str(r#"{"specialisation":"port","history":"h","age":120}"#).unwrap();
+        assert_eq!(old.founded, None, "an old save's extras load as unknown");
+        let zero: ExtrasDto = serde_json::from_str(r#"{"founded":0}"#).unwrap();
+        assert_eq!(zero.founded, Some(0), "year 0 loads as year 0");
+    }
+
     /// Protects owner Ruling EV (2026-11-13) on a REAL prior-format archive (written by the app on
     /// 2026-09-24, before Rulings ER, ET, EU and EV): opening it loads every generation rule it
     /// predates OFF, so the opened world regenerates as it was saved; then the New World restore
@@ -7667,7 +7703,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach", "civ.founding_year"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7687,6 +7723,8 @@ mod tests {
         assert!(!p.urban_market_scale, "an old archive keeps the reference's square");
         // Ruling FK (2026-11-16): an old archive centres its harbour towns on the pin and badges ports on the radius.
         assert!(!p.urban_harbour_front && !p.civ.port_reach, "an old archive keeps its harbour layouts and its port radius");
+        // Ruling FO item 1 (2026-11-16): an old archive has no founding years and gets none stamped on load.
+        assert!(!p.civ.founding_year, "an old archive's settlements stay without a founding year");
         // Ruling FN (2026-11-16): an old archive lays its river towns out in the reference's box.
         assert!(!p.urban_river_stretch, "an old archive keeps its river towns unstretched");
         // Ruling EX (2026-11-14): an archive that predates the river frontage term keeps its placements.
@@ -7719,6 +7757,7 @@ mod tests {
         assert!(p.civ.port_shore && p.civ.map_crossings, "a new world nudges ports to the shore and charges every drawn crossing (Ruling FI)");
         assert!(p.urban_harbour_front && p.civ.port_reach, "a new world builds harbour towns to their water and badges ports within about 4 km (Ruling FK)");
         assert!(!p.urban_river_stretch, "Ruling FN's river stretch is off in a new world until the owner rules on Ruling FQ's riverside shortfall");
+        assert!(p.civ.founding_year, "a new world gives its settlements founding years (Ruling FO item 1)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)
@@ -7740,7 +7779,7 @@ mod tests {
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
             "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
-            "urban_harbour_front", "civ.port_reach",
+            "urban_harbour_front", "civ.port_reach", "civ.founding_year",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

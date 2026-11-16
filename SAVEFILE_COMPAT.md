@@ -1276,7 +1276,8 @@ for a settlement or a way; for a **faction** id `0` is meaningful and means
         "traits": ["walled", "university"],
         "history": "Founded after the second flood.",
         "age": 320,
-        "walls": true
+        "walls": true,
+        "founded": -340
       }
     }
   ]
@@ -1323,7 +1324,7 @@ diagnostic over generation inputs the archive deliberately does not store
 a score, and a reader that reads `0` MUST treat that as "not recorded" rather
 than as "unsuitable site".
 | `settlements[].trade` | object | MAY | `exports` and `imports`, each an array of resource key strings. Unknown keys MUST be ignored. Absent: no trade profile. |
-| `settlements[].extras` | object | MAY | Author-editable fields with no generator equivalent. All members optional. `age` is an integer or `null` (`null` = infer from population). `walls` is a boolean or `null` (`null` = automatic). `traits` is an array of strings in insertion order; order is significant and MUST be preserved. |
+| `settlements[].extras` | object | MAY | Author-editable fields with no generator equivalent. All members optional. `age` is an integer or `null` (`null` = infer from population). `walls` is a boolean or `null` (`null` = automatic). `traits` is an array of strings in insertion order; order is significant and MUST be preserved. `founded` (added 2026-11-16, owner Ruling FO item 1) is an integer year on the civilisation timeline's axis (year 0 is the world as generated; negative is before it; magnitude at most 1 000 000) or **absent**. **Absent means unknown, never a year**: a writer MUST omit the member rather than write `null` or `0` for an unknown founding year (year `0` is a real year and MUST round-trip as `0`), and a reader MUST read an `extras` object without it, which is every save written before this field, as unknown and MUST NOT stamp one on load (`civ.founding_year` also loads off when its key is absent). An `extras` object whose only non-default member is `founded` is still written. |
 
 ### 9.2 `entities/factions.json`
 

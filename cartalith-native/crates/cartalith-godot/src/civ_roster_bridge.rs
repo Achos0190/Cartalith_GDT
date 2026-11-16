@@ -639,11 +639,48 @@ pub struct PlaceExtras {
     pub rules_preset: String,
     /// Ruling J's "regenerate": 0 = the position-derived seed.
     pub variant: u32,
+    /// Ruling FO item 1: the year the settlement was founded, on the civilisation timeline's own
+    /// year axis (year 0 is the generated world; a negative year is before it). **`None` is
+    /// "unknown", never a stand-in year** (`MISTAKES.md`, "never encode no value as a plausible
+    /// value"): a world made without `civ.founding_year`, an old save, and a place whose year the
+    /// user cleared all read `None`, and the shell shows a dash with the reason. Stamped by
+    /// [`PlaceExtrasTable::stamp_founded`] at generation and at a hand drop; edited by
+    /// [`PlaceExtrasTable::set_founded`]. Saved as `extras.founded` (`SAVEFILE_COMPAT.md` 9.1).
+    pub founded: Option<i64>,
 }
 
 /// Every place edit, keyed by the settlement's stable `tid`.
 #[derive(Debug, Clone, Default)]
 pub struct PlaceExtrasTable(pub HashMap<u64, PlaceExtras>);
+
+/// The founding year a generation gives a settlement of `pop` people (Ruling FO item 1,
+/// `civ.founding_year`): **minus the engine's own inferred age**, `um_infer_age` over the same
+/// floored population the town generator and the place editor's "Auto" age read (`max(pop, 20)`,
+/// `civ_settlement_details`' `age_inferred`), so the year a place is "founded" and the age its town
+/// is drawn at are one fact, not two clocks. Year 0 is the generated world, so the result is in
+/// `-1000..=-60` (`um_infer_age` reads `max(1, pop / 100)`, so nothing is under 60 years old; its
+/// `30..=1000` clamp is the reference's own). A larger settlement is
+/// older (the model is monotone in population), which is the growth order the timeline and the
+/// reference's own age inference already assume. It draws no random number.
+pub fn generation_founding_year(pop: u32) -> i64 {
+    -(cartalith_civ::urban_adapter::um_infer_age((pop as f64).max(20.0)) as i64)
+}
+
+/// The place extras a fresh generation starts with: with `founding_year` on, one row per
+/// settlement carrying only its [`generation_founding_year`]; with it off, the empty table every
+/// generation started with before Ruling FO (so a world made without the switch is unchanged).
+pub fn generation_place_extras(
+    settlements: &[cartalith_civ::NamedSettlement],
+    founding_year: bool,
+) -> PlaceExtrasTable {
+    let mut t = PlaceExtrasTable::default();
+    if founding_year {
+        for s in settlements {
+            t.stamp_founded(s.tid, generation_founding_year(s.pop));
+        }
+    }
+    t
+}
 
 /// Edits and reads of the per-`tid` place extras. A `tid` with no row reads as
 /// [`PlaceExtras::default`]; only a setter ever creates a row, and [`Self::forget`] removes it.
@@ -736,6 +773,31 @@ impl PlaceExtrasTable {
         self.0.entry(tid).or_default().history = text.to_string();
     }
 
+    /// Records the founding year of `tid` **only if it has none yet** (a hand-set or earlier stamp
+    /// wins), creating the row if needed. Returns whether it wrote. The generation pass and a
+    /// hand drop are the only callers; a user's edit goes through [`Self::set_founded`].
+    pub fn stamp_founded(&mut self, tid: u64, year: i64) -> bool {
+        let e = self.0.entry(tid).or_default();
+        if e.founded.is_some() {
+            return false;
+        }
+        e.founded = Some(year);
+        true
+    }
+
+    /// Sets (`Some`) or clears (`None`, back to unknown) the founding year of `tid`. Clearing a
+    /// row that does not exist creates none, so merely clearing never grows the table.
+    pub fn set_founded(&mut self, tid: u64, year: Option<i64>) {
+        match year {
+            Some(y) => self.0.entry(tid).or_default().founded = Some(y),
+            None => {
+                if let Some(e) = self.0.get_mut(&tid) {
+                    e.founded = None;
+                }
+            }
+        }
+    }
+
     /// `age < 0` means "back to auto" (`p.umAge = null`); anything else is
     /// clamped to the reference's own `30..=1000`.
     pub fn set_age(&mut self, tid: u64, age: i64) {
@@ -809,6 +871,53 @@ pub fn delete_settlement(settlements: &mut Vec<NamedSettlement>, index: usize) -
 /// `cargo test -p cartalith-godot`, with no Godot runtime.
 #[cfg(test)]
 mod tests {
+    /// Protects Ruling FO item 1's year model against **literals worked out by hand** from the reference's
+    /// `_umInferAge` (`60 + 240 log10(max(1, pop / 100))`, rounded, clamped `30..=1000`): 100 people are 60 years
+    /// old, 1 000 are 300, 10 000 are 540, 100 000 are 780, and 10 000 000 clamp at 1 000; a hamlet below 100 (and
+    /// the 20-person floor) is 60. The year is the **minus** of the age. MUTATION: the sign, the 240 or the 60
+    /// turns a row red. (The floor of 20 is equivalent to no floor under this formula, because everything under 100
+    /// reads 60; it is kept to read the same population the town generator and the place editor read.)
+    #[test]
+    fn the_generation_founding_year_is_minus_the_inferred_age() {
+        for (pop, year) in [(0u32, -60i64), (5, -60), (20, -60), (100, -60), (1_000, -300), (10_000, -540), (100_000, -780), (10_000_000, -1000)] {
+            assert_eq!(generation_founding_year(pop), year, "pop {pop}");
+        }
+    }
+
+    /// Protects the table's three rules for the year: [`PlaceExtrasTable::stamp_founded`] never overwrites an existing
+    /// year (a hand-set one beats a later stamp) and reports whether it wrote; **year 0 is a year, not "unknown"**
+    /// (`Some(0)` survives a stamp attempt); [`PlaceExtrasTable::set_founded`] `None` returns a place to unknown but
+    /// creates no row for a `tid` that never had one; and `generation_place_extras` writes nothing when the switch is
+    /// off. MUTATION: stamping over an existing year, reading `0` as absent, or creating a row on clear turns it red.
+    #[test]
+    fn the_founded_year_is_stamped_once_and_year_zero_is_not_unknown() {
+        let mut t = PlaceExtrasTable::default();
+        assert!(t.stamp_founded(1, -120));
+        assert!(!t.stamp_founded(1, -500), "an existing year is kept");
+        assert_eq!(t.get(1).founded, Some(-120));
+        assert!(t.stamp_founded(2, 0));
+        assert!(!t.stamp_founded(2, 40), "year 0 is a year, so it is kept too");
+        assert_eq!(t.get(2).founded, Some(0));
+        t.set_founded(1, None);
+        assert_eq!(t.get(1).founded, None, "cleared back to unknown");
+        assert!(t.stamp_founded(1, 77), "a cleared place can be stamped again");
+        t.set_founded(9, None);
+        assert!(!t.0.contains_key(&9), "clearing a place with no row creates none");
+        t.set_founded(9, Some(15));
+        assert_eq!(t.get(9).founded, Some(15));
+
+        let s = |tid: u64, pop: u32| cartalith_civ::NamedSettlement {
+            tid,
+            placement: cartalith_civ::SettlementPlacement { x: 1, y: 1, suit: 0.5, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Town, coastal: false },
+            name: format!("S{tid}"),
+            pop,
+        };
+        let places = [s(3, 1_000), s(4, 10_000)];
+        let on = generation_place_extras(&places, true);
+        assert_eq!((on.get(3).founded, on.get(4).founded), (Some(-300), Some(-540)));
+        assert!(generation_place_extras(&places, false).0.is_empty(), "the off path stamps nothing");
+    }
+
     use super::*;
     use cartalith_civ::{SettlementKind, SettlementPlacement};
 

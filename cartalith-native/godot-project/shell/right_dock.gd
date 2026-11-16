@@ -3544,6 +3544,7 @@ func _build_settlement(body: Control) -> void:
 	_field(sec, "Population", str(int(s.get("population", 0))))
 	if not editing:
 		_settlement_faction_row(sec, int(s.get("faction", 0)))
+	_settlement_founded_rows(sec, s, editing)
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
 	## MM-6/MM-8: this place's share of its faction's standing army, read at
@@ -3697,6 +3698,61 @@ func _build_settlement_edit_rows(sec: Control, s: Dictionary) -> void:
 		func(i: int) -> void: _inspect_edit_apply(idx, {"walls": (-1 if i == 0 else (0 if i == 1 else 1))}),
 		"Auto lets the settlement's size and age decide; the other two override it.")
 	wc.name = "InspectEditWalls"
+
+## Ruling FO item 1, the founding year on the settlement page, beside the Faction row that says who holds the place
+## in the year the timeline shows. **Unknown is a dash with its reason, never a stand-in year**: the key
+## `founded` is absent from `get_settlements()` for an old save, a world made without `civ.founding_year`, or a
+## place whose year the user cleared, and year 0 (present) is a real year. Read fresh from `civ_settlement_details`
+## for the same reason Faith is read fresh: `_settlement_data` is a snapshot, and an edit must show at once.
+## Viewing: on desktop and tablet the year is a link that moves the timeline there (`_year_link`); on the phone's
+## sheet a plain row (`PC_SHELL_PROPOSAL.md` 3.11). The tooltip says when the place is not yet founded in the year
+## the timeline shows. Editing: an Unknown/Set choice, then a year field only while Set (the Place editor's Age
+## pattern); every write is `civ_edit_settlement`'s `founded` / `founded_clear`, all-or-nothing.
+func _settlement_founded_rows(sec: Control, s: Dictionary, editing: bool) -> void:
+	var det: Dictionary = bridge.civ_settlement_details(_settlement_index)
+	var known: bool = det.has("founded")
+	var year := int(det.get("founded", 0))
+	var idx := _settlement_index
+	if editing:
+		var fc := DccWidgets.choice(sec, "Founded", ["Unknown", "Set"], 1 if known else 0,
+			func(i: int) -> void:
+				## Set starts at the year the timeline shows (the one year the user is looking at), so switching
+				## over writes a real choice rather than an invented one.
+				_inspect_edit_apply(idx, {"founded": bridge.get_civ_year()} if i == 1 else {"founded_clear": true}),
+			"Unknown clears the founding year. Set starts from the year the timeline shows.")
+		fc.name = "InspectEditFoundedMode"
+		if known:
+			var sb := DccWidgets.number(sec, "Year", -100000.0, 100000.0, 1.0, float(year),
+				func(v: float) -> void: _inspect_edit_apply(idx, {"founded": int(v)}),
+				"The year the place was founded; negative is before year 0. Negative years read as BC.")
+			sb.name = "InspectEditFoundedYear"
+		return
+	if not known:
+		_field(sec, "Founded", "—",
+			"Unknown. A world made before founding years, or one made with them off, records none, and a place "
+			+ "whose year was cleared has none. Edit the place to set it.", false)
+		return
+	var cursor := bridge.get_civ_year()
+	var tip := "Founded in %s (year %d; year 0 is the world as generated)." % [app._tl_format_year(year), year]
+	if cursor < year:
+		tip += " It is not yet founded in the year the timeline shows (%s)." % app._tl_format_year(cursor)
+	if not _panel_chrome():
+		_field(sec, "Founded", app._tl_format_year(year), tip)
+		return
+	var row := HBoxContainer.new()
+	row.name = "InspectFoundedRow"
+	row.add_theme_constant_override("separation", ROW_GAP)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 22
+	row.tooltip_text = tip
+	var l := DccTheme.label("Founded", "text_dim", DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
+	_field_label_fit(l, row, tip, _FIELD_LABEL_W)
+	row.add_child(l)
+	var b := _year_link(row, year, app._tl_format_year(year))
+	b.name = "InspectFoundedLink"
+	b.tooltip_text = tip + " Select to move the timeline there."
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	sec.add_child(row)
 
 ## The name editor Inspect's edit mode drew, and the settlement index it was drawn for (a later selection must
 ## write to THAT place, not to whatever is shown by then).

@@ -374,6 +374,9 @@ pub fn defaults() -> WorldParams {
     // ocean. Off in `WorldParams::defaults` (section 7p). See
     // `CivParams::port_reach`.
     p.civ.port_reach = true;
+    // Ruling FO item 1 (owner 2026-11-16): settlements carry a founding year. Off in
+    // `WorldParams::defaults` (section 7p). See `CivParams::founding_year`.
+    p.civ.founding_year = true;
     p
 }
 
@@ -1074,6 +1077,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.port_reach", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Ports only within about 4 km of the sea", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.port_reach), set_fn: |p, v| p.civ.port_reach = v != 0.0 },
+    // Ruling FO item 1 (owner 2026-11-16): every generated settlement gets a founding year. ON at the app
+    // boundary, OFF in `WorldParams::defaults`; no reference control. A save without the key loads OFF.
+    // Read by `compute_civilisation`, which stamps `PlaceExtras::founded`.
+    ParamSpec { key: "civ.founding_year", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Settlements have a founding year", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.founding_year), set_fn: |p, v| p.civ.founding_year = v != 0.0 },
     // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
     // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
     // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
@@ -1383,6 +1392,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Ruling FK item 2: no reference control; the reference badges ports within
     // its own radius.
     ("civ.port_reach", ""),
+    // Ruling FO item 1: no reference control; the reference has no founding year.
+    ("civ.founding_year", ""),
     ("civ.base_ag_tech", ""),
 ];
 
@@ -1633,6 +1644,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling FK item 2 (2026-11-16): every save without the key badged its
     // port candidates within the reference's radius.
     ("civ.port_reach", Value::Bool(false)),
+    // Ruling FO item 1 (2026-11-16): every save without the key has no founding years, and stays so.
+    ("civ.founding_year", Value::Bool(false)),
 ];
 
 /// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its

@@ -2438,6 +2438,38 @@ mod civ_pipeline_tests {
         }
     }
 
+    /// Protects: Ruling FO item 1 through the real `compute_civilisation`: with `civ.founding_year` on every settlement
+    /// has exactly one stamped year, equal to the minus of the reference's age formula worked out here independently
+    /// (`60 + 240 log10(max(1, max(pop, 20) / 100))`, rounded, clamped `30..=1000`), a bigger place is never founded
+    /// later than a smaller one, and the years are strictly before year 0; with it off the table is empty (so a world
+    /// made without the switch writes what it wrote before) and **no settlement, name or population moves** either way
+    /// (the stamp reads no random number). MUTATION: dropping the minus sign, stamping `0`, stamping on the off path,
+    /// or drawing a random number turns this red.
+    #[test]
+    fn founding_years_are_stamped_from_the_age_model_and_move_nothing() {
+        let on = world().1.clone();
+        assert!(on.civ.founding_year, "premise: the app ships the switch on");
+        let mut off = on.clone();
+        off.civ.founding_year = false;
+        let (a, b) = (civ(&on, &[]), civ(&off, &[]));
+        assert!(a.settlements.len() > 8, "premise: a world with settlements to stamp");
+        assert!(b.place_extras.0.is_empty(), "the off path writes no row at all");
+        assert_eq!(a.place_extras.0.len(), a.settlements.len(), "one row per settlement");
+        let at = |c: &CivData| c.settlements.iter().map(|s| (s.placement, s.pop, s.name.clone())).collect::<Vec<_>>();
+        assert_eq!(at(&a), at(&b), "the switch moves no settlement, name or population");
+        let age = |pop: u32| (60.0 + 240.0 * ((pop.max(20) as f64) / 100.0).max(1.0).log10()).round().clamp(30.0, 1000.0) as i64;
+        let mut by_pop: Vec<(u32, i64)> = Vec::new();
+        for s in &a.settlements {
+            let y = a.place_extras.0.get(&s.tid).and_then(|e| e.founded).expect("every settlement has a year");
+            assert_eq!(y, -age(s.pop), "{} (pop {})", s.name, s.pop);
+            assert!((-1000..=-60).contains(&y), "{y}");
+            by_pop.push((s.pop, y));
+        }
+        by_pop.sort();
+        assert!(by_pop.windows(2).all(|w| w[0].1 >= w[1].1), "a bigger place is never founded later: {by_pop:?}");
+        assert!(by_pop.first().unwrap().1 > by_pop.last().unwrap().1, "the years are not all one value");
+    }
+
     /// Protects: A2: a roster at its defaults names settlements exactly as no roster does, and
     /// editing one faction's culture renames only that faction's settlements (from the new
     /// culture's name pool) while moving no settlement's position, population or faction.
@@ -3290,6 +3322,12 @@ mod civ_pipeline_tests {
 /// not a silent one -- `civ_add_year`'s own doc comment is where it's
 /// enforced.
 const TIMELINE_MAX_YEARS: usize = 2000;
+
+/// The farthest a founding year may sit from year 0, in either direction (Ruling FO item 1). A labelled
+/// judgement, not a reference value: far beyond any generated year (`-1000..=-30`) and the timeline's own
+/// range, yet small enough that `year`, a `Variant` int and the save's JSON number all carry it exactly.
+/// `civ_edit_settlement` refuses a year beyond it rather than clamping one into a plausible neighbour.
+const FOUNDED_YEAR_LIMIT: u64 = 1_000_000;
 
 /// Plain Rust methods over [`CivData`], below the `#[func]`/`Variant`
 /// boundary.
@@ -5973,6 +6011,10 @@ fn compute_civilisation(
     // `timeline`/`year`/`faction_roster`/`place_extras` onto the struct this
     // builds. They are boundary state with no terrain input at all, so the
     // reset below would be a pure loss there — see that method's own doc.
+    // Ruling FO item 1: the founding years, stamped here because this is where every settlement of a
+    // fresh generation gets its `tid` (above). The keep paths discard this table for the old one
+    // (`recompute_civilisation`), so a kept place keeps the year it was given, or none.
+    let place_extras = civ_roster_bridge::generation_place_extras(&settlements, opts.founding_year);
     CivData {
         settlements,
         ways,
@@ -6003,7 +6045,7 @@ fn compute_civilisation(
         // so this is `seeded(n)` exactly for a default world).
         faction_roster: civ_roster_bridge::FactionRoster::seeded_with_tech(opts.factions.max(1) as usize, opts.base_ag_tech),
         religions: Default::default(),
-        place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
+        place_extras,
         village_tids,
         // Milestone 1's belief layer is not built here -- see `CivData::belief`.
         belief: Vec::new(),
@@ -13620,6 +13662,11 @@ impl WorldGen {
                     "coastal" => s.placement.coastal,
                     "tid" => s.tid as i64,
                 };
+                // Ruling FO item 1: the founding year, **omitted when unknown** (never a stand-in year),
+                // so a reader tells "unknown" from year 0 with `has("founded")`.
+                if let Some(y) = civ.place_extras.0.get(&s.tid).and_then(|e| e.founded) {
+                    d.set("founded", y);
+                }
                 if let Some(state) = belief.and_then(|b| b.get(i)) {
                     let key = cartalith_civ::belief::religion_key(state.plurality()).unwrap_or("none");
                     let counts = state.adherents(s.pop);
@@ -16700,6 +16747,7 @@ impl WorldGen {
         // Ruling FF item 6: a hand-placed town is badged a harbour on the test a
         // generated one is (`harbour_badge`), when the world's switch is on.
         let (harbour_box, map_width_km, before) = (self.params.civ.harbour_box, self.map_width_km, civ.settlements.len());
+        let founding_year = self.params.civ.founding_year;
         match civ_tools_bridge::drop_settlement(
             &mut civ.settlements,
             &mut civ.next_tid,
@@ -16724,6 +16772,11 @@ impl WorldGen {
                 if harbour_box && civ.settlements.len() > before {
                     let p = &mut civ.settlements[i].placement;
                     p.coastal = harbour_badge(p.coastal, &ws.field, &civ.water_bodies, gw, gh, sea, map_width_km, p.x, p.y);
+                }
+                // Ruling FO item 1: a hand-placed town is founded in the year the timeline cursor shows
+                // (the one thing the engine knows about when it came to be), not in an inferred past.
+                if founding_year && civ.settlements.len() > before {
+                    civ.place_extras.stamp_founded(civ.settlements[i].tid, civ.year);
                 }
                 // SG-01: roads, territory, provinces and trade balances were
                 // all derived before this settlement existed.
@@ -26772,7 +26825,7 @@ impl WorldGen {
         let e = civ.place_extras.get(s.tid);
         let traits: PackedStringArray = e.traits.iter().map(GString::from).collect();
         let spec = if e.specialisation.is_empty() { "none".to_string() } else { e.specialisation };
-        dict! {
+        let mut out = dict! {
             "tid" => s.tid as i64,
             "specialisation" => spec,
             "traits" => &traits,
@@ -26788,7 +26841,12 @@ impl WorldGen {
             "culture" => e.culture,
             "rules_preset" => e.rules_preset,
             "variant" => e.variant as i64,
+        };
+        // Ruling FO item 1: omitted when unknown, like `get_settlements`' `founded`.
+        if let Some(y) = e.founded {
+            out.set("founded", y);
         }
+        out
     }
 
     /// Ruling J's per-settlement town plan: pass only the keys that changed
@@ -26877,6 +26935,14 @@ impl WorldGen {
             None => None,
         };
         let population = get_i("population").map(|p| p.max(0) as u32);
+        // Ruling FO item 1: `founded` (an int year) sets the founding year, `founded_clear` (true) returns
+        // it to unknown. A year outside +-`FOUNDED_YEAR_LIMIT` is refused (not clamped), and so is asking
+        // for both at once, which has no answer.
+        let founded_set = get_i("founded");
+        let founded_clear = fields.get("founded_clear").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+        if founded_set.is_some_and(|y| y.unsigned_abs() > FOUNDED_YEAR_LIMIT) || (founded_set.is_some() && founded_clear) {
+            return false;
+        }
         let specialisation = get_s("specialisation");
         if let Some(sp) = specialisation.as_deref()
             && !cartalith_civ::roster::has_key(&cartalith_civ::roster::CIV_SPECIALISATIONS, sp)
@@ -26915,9 +26981,20 @@ impl WorldGen {
         if let Some(w) = get_i("walls") {
             civ.place_extras.set_walls(tid, w);
         }
+        if let Some(y) = founded_set {
+            civ.place_extras.set_founded(tid, Some(y));
+        } else if founded_clear {
+            civ.place_extras.set_founded(tid, None);
+        }
         // SG-01: a changed tier, faction or population moves territory,
         // roads and trade balances, none of which are re-derived here.
-        self.civ_dirty = true;
+        // Ruling FO item 1: a call that sets or clears only the founding year changes none of those (the year
+        // feeds no roads, territory, trade or layout), so it must not mark the civ layer stale and offer a
+        // pointless Recompute. Any other key in the same call still does.
+        let only_founded = fields.len() == usize::from(fields.get("founded").is_some()) + usize::from(fields.get("founded_clear").is_some());
+        if !only_founded {
+            self.civ_dirty = true;
+        }
         true
     }
 

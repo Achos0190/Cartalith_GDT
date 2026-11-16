@@ -2538,6 +2538,18 @@ func _build_urban(parent: Control, details: Dictionary) -> void:
 		DccWidgets.number(sec, "Age (yr)", 30.0, 1000.0, 1.0, float(age),
 			func(v: float): _apply({"age": int(v)}),
 			"Clamped to 30..1000, exactly as the reference's own field does.")
+	## Ruling FO item 1: the founding year. `founded` is ABSENT from the details for an unknown year (an old save,
+	## a world made without `civ.founding_year`), so Unknown is its own state and year 0 stays a year.
+	var founded_known: bool = details.has("founded")
+	DccWidgets.choice(sec, "Founded", ["Unknown", "Set"], 1 if founded_known else 0,
+		func(i: int):
+			_apply({"founded": int(bridge.get_civ_year())} if i == 1 else {"founded_clear": true})
+			_rebuild(),
+		"Unknown clears the founding year. Set starts from the year the timeline shows.")
+	if founded_known:
+		DccWidgets.number(sec, "Founded (year)", -100000.0, 100000.0, 1.0, float(int(details.get("founded", 0))),
+			func(v: float): _apply({"founded": int(v)}),
+			"Negative is before year 0 (the world as generated).")
 	var walls := int(details.get("walls", -1))
 	DccWidgets.choice(sec, "Walls", ["Auto", "No fortifications", "Fortified"],
 		0 if walls < 0 else (1 if walls == 0 else 2),
