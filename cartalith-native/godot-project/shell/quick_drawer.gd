@@ -79,6 +79,10 @@ var _reserve := 0.0
 var _scrim: ColorRect
 var _panel: PanelContainer
 var _list: VBoxContainer
+var _scroll: ScrollContainer
+## CQ-6: the touch reorder (`quick_pin_reorder.gd`), built on the first lift, and the long-press generation that arms it.
+var _reorder
+var _lp_gen := 0
 var _grip: Control
 
 ## Once, after `new()`: builds the scrim, the panel and the grip. `relayout()` is called once the node is in the
@@ -101,13 +105,13 @@ func setup(app) -> void:
 	_panel.add_theme_stylebox_override("panel", DccWidgets.box("line_soft", "panel", 8, 6))
 	_panel.visible = false
 	add_child(_panel)
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_panel.add_child(scroll)
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_list)
+	_scroll.add_child(_list)
 	_grip = Control.new()
 	_grip.name = "Grip"
 	_grip.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -121,6 +125,8 @@ func setup(app) -> void:
 ## New entries from `QuickBarPhone.refresh()`: rebuilds the rows. The caller frees the drawer when the list is
 ## empty, so an empty bar draws nothing.
 func set_entries(es: Array) -> void:
+	if _reorder != null:
+		_end_lift()
 	_entries = es
 	for c in _list.get_children():
 		_list.remove_child(c)
@@ -128,10 +134,12 @@ func set_entries(es: Array) -> void:
 	_list.add_child(DccTheme.mono_label("QUICK  %d" % es.size(), "text_dim", _font_px(10.0)))
 	for i in es.size():
 		var entry := es[i] as Dictionary
-		var b := _row(String(entry["title"]), QuickBarPhoneList._sub_for(entry), bool(entry["live"]), _tap.bind(entry))
+		var b := _row(String(entry["title"]), _sub_for(entry), bool(entry["live"]), _tap.bind(entry))
 		## A pin key holds a colon, which a node name cannot: the row is named by position, and carries its entry.
 		b.name = "Assistant" if String(entry["kind"]) == "assistant" else "Pin%d" % i
 		b.set_meta("entry", entry)
+		if String(entry["kind"]) == "pin":
+			b.gui_input.connect(_row_input.bind(b))
 		_list.add_child(b)
 	var cust := _row("Customise…", "Pin, unpin and reorder commands", true, _customise)
 	cust.name = "Customise"
@@ -301,7 +309,7 @@ func _draw_grip() -> void:
 
 # -- rows ---------------------------------------------------------------------------
 
-## One row, styled as `QuickBarPhoneList._row()` styles its own so the drawer and MENU's list read as one list. A
+## One row, styled like the retired `All...` sheet's rows (deleted 2026-11-16) so the drawer and MENU's list read as one list. A
 ## row that cannot run is dim but still tappable, so the tap can say why (a phone has no tooltip).
 func _row(title_text: String, sub: String, live: bool, on_press: Callable) -> Button:
 	var b := Button.new()
@@ -425,3 +433,106 @@ func _set_open(open: bool) -> void:
 	elif not open and _holding and _app != null:
 		_holding = false
 		_app.resume_from_context_surface()
+
+## The second line of an entry's row: the menu it lives in, or the reason it cannot run. Moved here from the deleted
+## `QuickBarPhoneList` (2026-11-16), whose only surviving caller was this drawer.
+static func _sub_for(e: Dictionary) -> String:
+	if not bool(e["live"]):
+		return String(e["reason"])
+	if String(e["kind"]) == "assistant":
+		return "Open the assistant panel"
+	return "%s menu" % String(e["group"]) if String(e["group"]) != "" else ""
+
+# -- CQ-6: long-press a pin row to lift it, drag it along the list, drop it to reorder ---------------------------------
+
+const QuickPinReorder := preload("res://shell/quick_pin_reorder.gd")
+## The long-press time and slop are the quick bar's own figures (`DccQuickBar.LONG_PRESS_SEC` 0.4, the platform's long-press
+## timeout, and `LONG_PRESS_SLOP`), so every long-press in the shell is one length.
+## Within this many phone units of the panel's top or bottom edge a lifted row scrolls the list (a labelled judgement: one row's
+## height, so a finger on the last visible row reaches the next).
+const EDGE_SCROLL_UNITS := 40.0
+const EDGE_SCROLL_PX := 18
+
+## A pin row's own touch events (the tap is the button's `pressed`, unchanged). A finger that goes down on the row and rests
+## for the long-press time within the slop LIFTS it: the press is cancelled (so the lift does not run the command), the list stops
+## scrolling under the finger (`scroll_deadzone` is raised for the gesture), and the finger now drags the row; the drop marker
+## shows where it will land and the release commits. The new order is written through `DccSettings.quick_bar_move_visible_to` (the
+## same order function the Customise window's Up and Down use), is the user's `[quick_bar]` setting and is never saved into a
+## world. Touch only: the press must be an emulated mouse press (`device < 0`) or a handset's, as the bar chips' long-press is.
+func _row_input(ev: InputEvent, row: Button) -> void:
+	if _reorder != null and _reorder.active and _reorder.item() == row:
+		_lift_input(ev, row)
+		return
+	if ev is InputEventMouseButton:
+		var mb := ev as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_lp_gen += 1
+		if mb.pressed and _reorder != null:
+			_end_lift()
+		if not mb.pressed or not DccTheme.is_touch() or not (mb.device < 0 or OS.has_feature("mobile")):
+			return
+		_lp_origin = mb.position
+		var gen := _lp_gen
+		get_tree().create_timer(DccQuickBar.LONG_PRESS_SEC).timeout.connect(func():
+			if gen != _lp_gen or not is_instance_valid(row) or not row.is_visible_in_tree():
+				return
+			_lp_gen += 1
+			var was: bool = row.disabled
+			row.disabled = true
+			row.disabled = was
+			_begin_lift(row, _lp_origin))
+	elif ev is InputEventMouseMotion:
+		if (ev as InputEventMouseMotion).position.distance_to(_lp_origin) > DccQuickBar.LONG_PRESS_SLOP:
+			_lp_gen += 1
+
+var _lp_origin := Vector2.ZERO
+
+func _pin_rows() -> Array:
+	var out: Array = []
+	for c in _list.get_children():
+		if c is Button and c.has_meta("entry") and String((c.get_meta("entry") as Dictionary)["kind"]) == "pin" and c.visible:
+			out.append(c)
+	return out
+
+func _begin_lift(row: Button, local: Vector2) -> void:
+	if _reorder == null:
+		_reorder = QuickPinReorder.new(self, false, _pin_rows)
+	if _reorder.begin(row, row.get_global_transform_with_canvas() * local):
+		_scroll.scroll_deadzone = 100000
+		if _app != null and _app.has_method("_haptic"):
+			_app.call("_haptic", "detent")
+
+func _end_lift() -> void:
+	_reorder.cancel()
+	_scroll.scroll_deadzone = 0
+
+func _lift_input(ev: InputEvent, row: Button) -> void:
+	var kind: String = QuickPinReorder.kind_of(ev)
+	if kind == "":
+		return
+	var gp: Vector2 = row.get_global_transform_with_canvas() * QuickPinReorder.pos_of(ev)
+	_reorder.update(gp)
+	row.accept_event()
+	if kind == "motion":
+		_edge_scroll(gp.y)
+		return
+	var key := String((row.get_meta("entry") as Dictionary)["key"])
+	var r: Dictionary = _reorder.finish()
+	_scroll.scroll_deadzone = 0
+	if bool(r["moved"]):
+		var dom := String(_app.call("active_domain")) if _app != null and _app.has_method("active_domain") else ""
+		if DccSettings.quick_bar_move_visible_to("bar", key, int(r["to"]), dom):
+			var pq = _app.get("phone_quick")
+			if pq != null:
+				pq.refresh()
+
+## While a row is lifted and the finger is within `EDGE_SCROLL_UNITS` of the panel's top or bottom edge, the list scrolls that way, so
+## a drop can reach a row that is off screen (a list holds up to 24 pins; the panel shows a handful).
+func _edge_scroll(global_y: float) -> void:
+	var pr := _panel.get_global_rect()
+	var edge := _px(EDGE_SCROLL_UNITS)
+	if global_y < pr.position.y + edge:
+		_scroll.scroll_vertical = maxi(0, _scroll.scroll_vertical - EDGE_SCROLL_PX)
+	elif global_y > pr.end.y - edge:
+		_scroll.scroll_vertical += EDGE_SCROLL_PX

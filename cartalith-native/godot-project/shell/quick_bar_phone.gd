@@ -22,9 +22,8 @@ class_name QuickBarPhone
 ##    `DccShell.set_phone_quick_drawer`.
 ##  * MENU's root screen -- a `Quick` section first in the list (`phone_menu.gd::_fill_quick`), built from
 ##    the same [`entries`].
-##  * [`QuickBarPhoneList`] -- the full-height list sheet. Nothing on the phone opens it now that the chip row's
-##    `All...` chip is gone (the drawer lists every pin itself); it is kept for the class-swap probe and is a
-##    candidate for deletion (`OUTSTANDING_WORK.md`).
+##  * (The `All...` list sheet, `QuickBarPhoneList`, was deleted 2026-11-16: nothing opened it once the drawer replaced
+##    the chip row; its row text helper `_sub_for` moved to `quick_drawer.gd`.)
 ##
 ## ## Nothing exists until it is needed (the pixel-identity bar)
 ##
@@ -56,7 +55,6 @@ const CHIP_DP := 48.0
 const _QuickDrawer := preload("res://shell/quick_drawer.gd")
 ## The mounted drawer, or null while there is nothing to show (that null is what keeps an empty bar drawing nothing).
 var _drawer: Control
-var _list: QuickBarPhoneList
 
 ## Remembers the app and follows the Assistant rule's inputs (module header). No node is created.
 func setup(app) -> void:
@@ -165,10 +163,6 @@ static func say(app, text: String, near: Control = null) -> void:
 func drawer() -> Control:
 	return _drawer
 
-## The `All...` list sheet, or null until it was first opened (for tests).
-func list_sheet() -> QuickBarPhoneList:
-	return _list
-
 ## Brings the phone's drawer up to date with the store and the Assistant rule. Does NOTHING when there is
 ## nothing to show and nothing is mounted (the identity bar); mounts the drawer on the first need; frees it when
 ## the last entry goes (releasing the world-pause depth first if it was open). Called after a world load, a
@@ -187,8 +181,6 @@ func refresh() -> void:
 		_app.set_phone_quick_drawer(_drawer)
 	_drawer.call("set_entries", es)
 	_drawer.call("relayout")
-	if _list != null and _list.visible:
-		_list.show_entries(es)
 
 ## Gives back the drawer's pause depth and frees it. Idempotent.
 func _free_drawer() -> void:
@@ -222,13 +214,3 @@ func _ensure_hub() -> void:
 ## CQ-8: a domain change re-derives the row (per-domain pins).
 func _on_workspace(_id: String) -> void:
 	refresh()
-
-## Opens the `All...` list sheet on the current entries.
-func open_list() -> void:
-	if _app == null:
-		return
-	if _list == null:
-		_list = QuickBarPhoneList.new()
-		_app.add_child(_list)
-		_list.setup(_app)
-	_list.open(entries(_app))

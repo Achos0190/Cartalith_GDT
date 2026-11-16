@@ -156,7 +156,7 @@ on `is_phone()`), and its tool options are the bottom sheet. So:
 differs from the sketch above is listed there as deliberate divergences: an empty
 bar draws no row and no section (the owner's pixel-identity bar), so the first pin is
 made from `MORE ▸ Preferences ▸ Quick bar…` or a star; reorder is the Customise
-window's Up and Down, not a long press.
+window's Up and Down, not a long press. **Superseded 2026-11-16: the long-press reorder was built** (`shell/quick_pin_reorder.gd`; the tablet bar's chips and the phone drawer's rows lift on a 0.4 s rest, drag, and commit on the lift through `DccSettings.quick_bar_move_visible_to`; `STATUS.md`).
 
 ### 3.3 The pin: identity, kinds, what is not pinnable
 

@@ -463,13 +463,14 @@ func _long_press() -> void:
 	## long-press, still, then lift
 	await _down(_centre(chip))
 	await _wait(LONG_S)
-	_ok(menu.visible, "a finger resting on the pin for 0.55 s opens its menu")
+	## CQ-6 (2026-11-16): the rest LIFTS the pin; the menu now opens on the lift when the finger never left its place.
+	_ok(not menu.visible and _bar()._reorder != null and _bar()._reorder.active, "a finger resting on the pin for 0.55 s lifts it (its menu waits for the lift)")
 	_ok(not _vault_open(), "the pin has not run while the finger is down")
-	await _shot("02_chip_menu")
 	await _up(_centre(chip))
 	await _wait(0.3)
 	_ok(not _vault_open(), "lifting after the long-press does NOT run the pin")
-	_ok(menu.visible, "the menu stays open after the lift")
+	_ok(menu.visible, "the menu opens on the lift of a rest that never left its place")
+	await _shot("02_chip_menu")
 	var rows := PackedStringArray()
 	for r in menu.item_count:
 		rows.append(menu.get_item_text(r))

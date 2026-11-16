@@ -1186,7 +1186,7 @@ const REP_CF_FILTER := "active"
 ## every one of them (open, state, expect, scroll node), so a half-added window fails loudly (`push_error`) and not silently.
 const REP_ORDER := ["faction_roster_window", "place_editor_window", "world_data_window", "city_viewer_window",
 	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
-	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
+	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog",
 	"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window",
 	"new_world_dialog", "asset_library_window", "vault_window"]
 ## The vault (batch 5): a bound folder with two notes; the first is open in Preview with a two-step session undo.
@@ -1233,10 +1233,9 @@ const REP_EX_PATH := "C:/probe_export/map.jpg"
 ## The popover is a `PopupPanel` (always borderless) so the borderless check does not tell its class; its own `_phone` does.
 ## The Data manager is borderless on every class (a full-bleed window with its own bar), so its `borderless` tells nothing either.
 const REP_NO_BORDER_CHECK := ["layers_popover", "data_manager_window", "asset_library_window"]
-## The non-vacuity floor of "the layout equals a fresh open's" (8 lines by default): the phone's `All...` sheet, with no pins in
-## this fixture, is one title, one count and the Customise row.
+## The non-vacuity floor of "the layout equals a fresh open's" (8 lines by default).
 ## The tablet's credits dialog is a scroll holding one text label: three lines.
-const REP_MIN_LINES := {"quick_bar_phone_list": 6, "_credits_dialog": 2}
+const REP_MIN_LINES := {"_credits_dialog": 2}
 ## The scroll check is vacuous for a window with nothing to scroll in this fixture, so the fixture asserts a scroll with room
 ## exists, and only for these.
 const REP_SCROLLED := ["new_world_dialog", "faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog",
@@ -1303,7 +1302,6 @@ func _rep_init() -> void:
 		"export_dialog": {"open": true, "scroll": REP_SCROLL, "width": REP_EX_WIDTH, "format": REP_EX_FORMAT, "quality": REP_EX_QUALITY,
 			"tier": REP_EX_TIER, "settle": true, "path": REP_EX_PATH, "layers": {"routes": true, "labels": false},
 			"space": "sRGB", "look": "Current look", "title": "Export map image", "note": "", "note_on": false},
-		"quick_bar_phone_list": {"open": true, "scroll": 0},
 		## The tab is 0 and the share key empty in this bag because the phone has no ring tabs (a round trip through it drops
 		## them, by design: `QuickBarWindow.represent_restore`); the ring tabs have their own block, `_rep_qb_tab()`.
 		"quick_bar_window": {"open": true, "tab": 0, "share_key": "", "search": REP_QB_QUERY, "unpinnable": true, "page": -1,
@@ -1395,9 +1393,6 @@ func _rep_state(field: String) -> Dictionary:
 				"settle": bool(w._settle.button_pressed), "width": int(w._selected_width()), "path": String(w._path),
 				"routes": bool(lb["routes"].button_pressed), "labels": bool(lb["labels"].button_pressed),
 				"quality_row": bool(w._quality_row.visible), "phone": bool(w._phone)}
-		"quick_bar_phone_list":
-			## No build-site branch: `phone_window()` makes it borderless on the phone and nothing else differs.
-			return {"open": w.visible, "phone": w.borderless}
 		"quick_bar_window":
 			## `_phone_ready` is set by the first `open()` on a phone, so it is the window's own record of the class it laid out for.
 			return {"open": w.visible, "search": String(w._search.text), "unpinnable": bool(w._show_unpinnable.button_pressed),
@@ -1467,7 +1462,6 @@ func _rep_expect(field: String) -> Dictionary:
 		"_credits_dialog": return {"open": true}
 		"export_dialog": return {"open": true, "format": 1, "quality": 55.0, "tier": 2, "settle": true, "width": 4096,
 			"path": "C:/probe_export/map.jpg", "routes": true, "labels": false, "quality_row": true}
-		"quick_bar_phone_list": return {"open": true}
 		"quick_bar_window": return {"open": true, "search": "view", "unpinnable": true, "tab": 0, "cat_key": String(_rep_bag[field]["cat_key"])}
 		"assistant_settings_window": return {"open": true, "model": "probe-model-x", "stored": "probe-model-x"}
 		"travel_library_window": return {"open": true, "kind": "vessel", "has_id": true, "id": String(_rep_bag[field]["id"]), "filter": "new",
@@ -1630,7 +1624,6 @@ func _rep_open(field: String) -> void:
 					_ok(not ex._sizes.is_item_disabled(i), "the export fixture's width %d is affordable in this world" % REP_EX_WIDTH)
 					ex._sizes.select(i)
 			ex.set_destination(REP_EX_PATH)
-		"quick_bar_phone_list": _app.phone_quick.open_list()
 		"quick_bar_window":
 			_app.open_quick_bar_window()
 			await _frames(8)

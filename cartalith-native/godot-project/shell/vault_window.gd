@@ -139,6 +139,7 @@ var _reader_edit: TextEdit
 var _pick_template := ""
 ## `_pick_template`'s value for the blank note (Ruling FJ); a template's own value is its vault-relative path, never this.
 const BLANK_TEMPLATE := "(blank)"
+const VaultTemplateChooser := preload("res://shell/vault_template_chooser.gd")
 
 ## The picked note (the tree's selection, and the note pane's subject) and
 ## the section an attach copies ("" = the whole document).
@@ -1031,20 +1032,13 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		src_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		src_label.custom_minimum_size.x = 160
 		sec.add_child(src_label)
-	var labels: Array = []
-	var rels: Array = []
-	for t in templates:
-		var d: Dictionary = t
-		labels.append(String(d.get("label", "?")))
-		rels.append(String(d.get("rel", "")))
-	labels.append("(blank note)")
-	rels.append(BLANK_TEMPLATE)
-	## The first template stays the default (as before); a vault with none defaults to the blank note.
-	if not rels.has(_pick_template):
-		_pick_template = String(rels[0])
-	DccWidgets.choice(sec, "Template", labels, maxi(0, rels.find(_pick_template)),
-		func(i: int): _pick_template = String(rels[i]),
-		"The notes in the template folder your Obsidian settings name -- or, when none is set, every .md whose path contains \"template\". Cartalith ships none of its own -- your templates are yours.")
+	## The first template stays the default (as before); a vault with none defaults to the blank note. VE-6: the chooser
+	## (`vault_template_chooser.gd`) lists them and previews the chosen one; the blank choice is last, as it always was here.
+	var first := String(templates[0].get("rel", "")) if not templates.is_empty() else BLANK_TEMPLATE
+	if _pick_template == "" or (_pick_template != BLANK_TEMPLATE and not _template_rels().has(_pick_template)):
+		_pick_template = first
+	VaultTemplateChooser.build(sec, bridge, _entity_label, _pick_template, BLANK_TEMPLATE, false,
+		func(_i: int, value: String): _pick_template = value)
 
 	var suggested := bridge.vault_suggested_path(_kind, _entity_label)
 	var path_edit := LineEdit.new()
@@ -1093,6 +1087,14 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		_browse_phone_pane = "preview"
 		_rebuild())
 	create.tooltip_text = "Copies the template as Obsidian would -- {{title}} becomes the new note's name, {{date}} and {{time}} today's -- with %s in its name placeholders, then links it to this entity. Refuses if that path already exists -- nothing is ever overwritten." % _entity_label
+
+
+## The vault-relative paths of the vault's templates, in the order `vault_templates` lists them (VE-6's chooser values).
+func _template_rels() -> Array:
+	var out: Array = []
+	for t in bridge.vault_templates():
+		out.append(String((t as Dictionary).get("rel", "")))
+	return out
 
 
 # -- The browser: one layout for browsing and for an entity (Ruling BE) -----

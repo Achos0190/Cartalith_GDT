@@ -2331,7 +2331,7 @@ func _perform_class_swap() -> void:
 ## (`--leg represent`); `S4_INVENTORY.md` section 18 says which windows are still not here and so still hold a swap.
 const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "world_data_window", "city_viewer_window",
 		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
-		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
+		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog",
 		"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window", "open_project_dialog",
 		"new_world_dialog", "asset_library_window", "vault_window"]
 ## **The windows that are KEPT across a swap** (MS-1 S4.5, `S4_INVENTORY.md` section 18.11): the same two methods, but the
@@ -2341,17 +2341,8 @@ const KEPT_WINDOWS := ["assistant_window"]
 ## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
 ## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
 ## rebuilds one that exists.
-const LAZY_WINDOWS := ["conflicts_window", "saved_journeys_window", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
+const LAZY_WINDOWS := ["conflicts_window", "saved_journeys_window", "_credits_dialog", "export_dialog"]
 
-## The phone quick bar's `All...` sheet belongs to `QuickBarPhone` (a `RefCounted` that builds it on first use), not to this node;
-## this property is the field `REPRESENTED_WINDOWS` and `LAZY_WINDOWS` name it by, forwarding to the owner so one mechanism
-## serves every window. Null until it was first opened, and while `phone_quick` does not exist.
-var quick_bar_phone_list: QuickBarPhoneList:
-	get:
-		return phone_quick.list_sheet() if phone_quick != null else null
-	set(v):
-		if phone_quick != null:
-			phone_quick._list = v
 ## What `_capture_windows()` read, by field name, until `_represent_windows()` and `_restore_windows()` have used it.
 var _window_bags: Dictionary = {}
 ## The desktop Find dialog's share of the same swap (`DccShell.search_represent_capture()`), which is the shell's own plain dialog.
@@ -2420,10 +2411,6 @@ func _make_window(field: String) -> Node:
 			w = EXPORT_DIALOG.new()
 			w.setup(self)
 			add_child(w)
-		"quick_bar_phone_list":
-			w = QuickBarPhoneList.new()
-			add_child(w)
-			w.setup(self)
 		"quick_bar_window":
 			w = QuickBarWindow.new()
 			add_child(w)

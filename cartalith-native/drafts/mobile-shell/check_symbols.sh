@@ -28,7 +28,6 @@ need phone_menu.gd _fill_quick _head _menu_buttons _row _chevron _push_screen _g
   _stack _Step _screen_title _render _fill_story_section is_open close \
   _fill_popup _band _popup_row _clean STORY_ROWS _trail_label _push SCREEN_LEVEL
 need quick_bar_phone.gd entries press _list _app
-need quick_bar_phone_list.gd _sub_for show_entries
 need menus.gd _shell _bridge _host _theme_mode _overflow _file _world _story _edit _assets _data _preferences \
   _window _help _apply_theme_mode _connect_session_gate _on_help _open_landmark_dock _build_help_shortcuts_row _live
 need dcc_shell.gd _set_sheet_open _close_all_phone_overlays phone_present_popup

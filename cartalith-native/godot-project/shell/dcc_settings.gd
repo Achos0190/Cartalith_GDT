@@ -1986,6 +1986,24 @@ static func quick_bar_move_visible(list: String, pin_key: String, delta: int, do
 		j += step
 	return false
 
+## Moves `pin_key` so it takes INDEX `to` among the pins visible in `domain` (CQ-6's touch drop: the finger names a place, not a
+## step). It is `quick_bar_move_visible` repeated, so hidden pins keep their order and the result is the same one a run of the
+## Customise window's Up or Down presses would reach. False when the pin is not in the visible list, `to` is out of range, or
+## `to` is where the pin already is (nothing is written). An unknown `domain` moves among all pins.
+static func quick_bar_move_visible_to(list: String, pin_key: String, to: int, domain: String) -> bool:
+	var vis: Array = quick_bar_pins_for(list, domain)
+	var at := -1
+	for i in vis.size():
+		if String(vis[i]["k"]) == pin_key:
+			at = i
+	if at < 0 or to < 0 or to >= vis.size() or to == at:
+		return false
+	var step := 1 if to > at else -1
+	for _i in absi(to - at):
+		if not quick_bar_move_visible(list, pin_key, step, domain):
+			return false
+	return true
+
 ## What the user must be told about the stored quick bar, as sentences (empty when all is well). Computed
 ## from the file on every call, so it holds no state to go stale. **Nothing the user pinned is lost without
 ## a line here** (CQ-8: "a corrupt entry falls back with a notice, never crashes or silently drops"):

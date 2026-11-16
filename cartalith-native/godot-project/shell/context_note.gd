@@ -69,6 +69,7 @@ const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark":
 
 ## The shared vault-folder chooser (owner, 2026-11-13); see `vault_folder_pick.gd`.
 const VaultFolderPick := preload("res://shell/vault_folder_pick.gd")
+const VaultTemplateChooser := preload("res://shell/vault_template_chooser.gd")
 
 
 func _init(a) -> void:
@@ -297,15 +298,13 @@ func _say(text: String) -> void:
 func _build_create(r: Dictionary) -> void:
 	var bridge = app.bridge
 	var templates: Array = bridge.vault_templates()
-	var labels: Array = ["(blank note)"]
+	## VE-6: the shared chooser lists the templates and previews the chosen one; blank first and the default here.
 	var rels: Array = [""]
 	for t in templates:
-		labels.append(String((t as Dictionary).get("label", "?")))
 		rels.append(String((t as Dictionary).get("rel", "")))
 	var pick := {"i": 0}
-	var ch := DccWidgets.choice(_top, "Template", labels, 0, func(i: int): pick["i"] = i,
-		"The vault's own templates. Cartalith ships none; a blank note holds the title only.")
-	ch.name = "NoteTemplate"
+	VaultTemplateChooser.build(_top, bridge, String(r["name"]), "", "", true,
+		func(i: int, _value: String): pick["i"] = i)
 	var suggested: String = bridge.vault_suggested_path(String(r["vk"]), String(r["name"]))
 	var edit := LineEdit.new()
 	edit.name = "NotePath"

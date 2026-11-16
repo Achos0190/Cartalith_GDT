@@ -86,6 +86,7 @@ const ID_PROFILE_BASE := 1100
 ## `ViewConfiguration.getLongPressTimeout()`, recalled and labelled), the same figure
 ## `DccWidgets.TouchScroll.LIFT_HOLD_SEC` uses for a held tile, so every long-press in the shell is one length.
 const LONG_PRESS_SEC := 0.4
+const QuickPinReorder := preload("res://shell/quick_pin_reorder.gd")
 ## How far (in this node's own units, which on a tablet are dp at UI scale 1) the finger may wander while it
 ## waits and still count as resting. Android's touch slop is 8 dp; a chip is 44 or more, so a labelled 10.
 const LONG_PRESS_SLOP := 10.0
@@ -120,6 +121,8 @@ var _chip_menu_key := ""
 ## pressed chip's own coordinates.
 var _lp_gen := 0
 var _lp_origin := Vector2.ZERO
+## CQ-6: the touch reorder in progress (`quick_pin_reorder.gd`), built on the first lift; its `active` says whether a pin is up.
+var _reorder: QuickPinReorder
 ## How many pins were shown, in the last layout.
 var _shown := 0
 ## The index of the last `refresh()`; rebuilt for every press so a press is never stale.
@@ -298,7 +301,7 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 	b.set_meta("pin_key", pin_key)
 	b.set_meta("title", title)
 	b.gui_input.connect(func(ev: InputEvent): _chip_input(ev, b, pin_key))
-	b.gui_input.connect(func(ev: InputEvent): _long_press_input(ev, b, func(): open_chip_menu(b, pin_key)))
+	b.gui_input.connect(func(ev: InputEvent): _long_press_input(ev, b, func(): open_chip_menu(b, pin_key), true))
 	move_child(b, _plus.get_index())
 	var tip := title
 	if row.is_empty():
@@ -573,12 +576,23 @@ func _chip_input(ev: InputEvent, chip: Button, pin_key: String) -> void:
 ## chip would otherwise stay "pressed" and a later lift over it would run the command the user meant only to
 ## manage. Toggling `disabled` is the engine's own way to clear a press in progress (`BaseButton.set_disabled`
 ## clears `press_attempt` and `pressing_inside`); the chip's prior state is restored at once.
-func _long_press_input(ev: InputEvent, chip: Button, opener: Callable) -> void:
+##
+## **CQ-6 (2026-11-16): on a PIN the rest now LIFTS the chip instead of opening its menu** (`liftable`; the Assistant chip is
+## not a pin and keeps CQ-5's menu at the rest). The finger then drags it along the bar and the drop marker follows;
+## lifting there commits the new order. A rest that is lifted without leaving its place opens the pin's menu, so the menu
+## is still one long-press away, now on release instead of on the rest.
+func _long_press_input(ev: InputEvent, chip: Button, opener: Callable, liftable: bool = false) -> void:
+	## CQ-6: a pin that is LIFTED (below) owns the finger until it lifts: motion moves the drop marker, the release ends it.
+	if _reorder != null and _reorder.active and _reorder.item() == chip:
+		_lift_input(ev, chip, opener)
+		return
 	if ev is InputEventMouseButton:
 		var mb := ev as InputEventMouseButton
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
 		_lp_gen += 1
+		if mb.pressed and _reorder != null:
+			_reorder.cancel()
 		if not mb.pressed:
 			return
 		if not DccTheme.is_touch() or not (mb.device < 0 or OS.has_feature("mobile")):
@@ -592,10 +606,50 @@ func _long_press_input(ev: InputEvent, chip: Button, opener: Callable) -> void:
 			var was: bool = chip.disabled
 			chip.disabled = true
 			chip.disabled = was
+			## CQ-6: a pin lifts (and its menu waits for the lift without a drag); the Assistant chip is not a pin and
+			## opens its menu at once, as CQ-5 built it.
+			if liftable and _begin_lift(chip, _lp_origin):
+				return
 			opener.call())
 	elif ev is InputEventMouseMotion:
 		if (ev as InputEventMouseMotion).position.distance_to(_lp_origin) > LONG_PRESS_SLOP:
 			_lp_gen += 1
+
+## CQ-6: lifts `chip` (a pin chip) with the finger at `local` (chip coordinates). The items are the pin chips drawn on the bar.
+func _begin_lift(chip: Button, local: Vector2) -> bool:
+	if _reorder == null:
+		_reorder = QuickPinReorder.new(self, true, func() -> Array:
+			var out: Array = []
+			for c in _chips:
+				if c.visible and c.is_visible_in_tree():
+					out.append(c)
+			return out)
+	var ok := _reorder.begin(chip, chip.get_global_transform_with_canvas() * local)
+	if ok and _app != null and _app.has_method("_haptic"):
+		_app.call("_haptic", "detent")
+	return ok
+
+## CQ-6: the lifted chip's events. A release that moved it commits the new order (the same store call as the Customise window's
+## Up/Down, `DccSettings.quick_bar_move_visible_to`) and redraws; a release that never left its place opens the chip's menu,
+## which is where the old long-press went before the reorder; a press of another finger or a cancel drops it unchanged.
+func _lift_input(ev: InputEvent, chip: Button, opener: Callable) -> void:
+	var kind: String = QuickPinReorder.kind_of(ev)
+	if kind == "":
+		return
+	var gp: Vector2 = chip.get_global_transform_with_canvas() * QuickPinReorder.pos_of(ev)
+	_reorder.update(gp)
+	chip.accept_event()
+	if kind == "motion":
+		return
+	var far := _reorder.travelled() > LONG_PRESS_SLOP
+	var from_key := String(chip.get_meta("pin_key", ""))
+	var r: Dictionary = _reorder.finish()
+	if bool(r["moved"]):
+		if DccSettings.quick_bar_move_visible_to("bar", from_key, int(r["to"]), current_domain()):
+			refresh()
+			pins_changed.emit()
+	elif not far:
+		opener.call()
 
 ## Pops the chip's context menu (Remove, Move left, Move right). Public so a probe can reach it
 ## through a real right-click on the chip and also assert its rows.
