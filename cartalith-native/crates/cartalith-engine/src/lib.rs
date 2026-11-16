@@ -5660,6 +5660,42 @@ mod tests {
         assert!(off * 100 < n * 2, "GPU vs CPU world plate_id differ on {off}/{n} cells");
     }
 
+    /// The 16k integrated-Radeon defect (`PERFORMANCE_BENCHMARKS.md` §13.6):
+    /// a GPU dispatch whose readback succeeds but is all zeros (plate 0
+    /// everywhere, in range, no error) used to become the world. With a zeroed
+    /// readback injected for this grid, `generate_terrain` must reject both GPU
+    /// kernels, record none as used, and return a world **bit-identical** to
+    /// the `use_gpu = false` one (plate ids, height field and the rest).
+    ///
+    /// Protects: `cartalith_gpu`'s result vetting at the engine boundary -- a
+    /// failed GPU result falls back to the CPU, never to garbage. Skips, saying
+    /// so, when no GPU stage runs on this machine.
+    #[test]
+    fn a_zeroed_gpu_readback_falls_back_to_a_cpu_identical_world() {
+        let (gw, gh) = (131usize, 67usize); // a size no other test uses: the injection is keyed on it
+        let mut cpu_p = WorldParams::defaults(gw, gh, 4242);
+        cpu_p.world = true;
+        let mut gpu_p = cpu_p.clone();
+        gpu_p.use_gpu = true;
+        let clean = generate_terrain(&gpu_p);
+        if clean.gpu_stages_used.is_empty() {
+            eprintln!("no GPU stage ran on this machine -- nothing to refuse");
+            return;
+        }
+        let guard = cartalith_gpu::inject_zeroed_readback(gw as u32, gh as u32);
+        let faulted = generate_terrain(&gpu_p);
+        drop(guard);
+        let cpu = generate_terrain(&cpu_p);
+        assert!(faulted.gpu_stages_used.is_empty(), "a rejected kernel was recorded as run on the GPU: {:?}", faulted.gpu_stages_used);
+        assert!(cpu.plate_id.iter().any(|&i| i != 0), "the fixture needs more than one plate to mean anything");
+        assert_eq!(faulted.plate_id, cpu.plate_id, "plate ids must be the CPU's");
+        assert_eq!(
+            faulted.field.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            cpu.field.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            "the height field must be bit-identical to the CPU world's"
+        );
+    }
+
     /// v2.57's `plateBaseBlurR()` (`RC_ENGINE_CHANGES.md` §6i), asserted as
     /// literals rather than against the constants: `max(2, blurR * K)`, with K
     /// 0.18 when the v2.57 flag is on and the reference's 0.35 when it is off.

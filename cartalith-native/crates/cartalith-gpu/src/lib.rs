@@ -3248,9 +3248,13 @@ pub fn gauss_blur_grid_gpu_with(
     height: u32,
     wrap_x: bool,
 ) -> Option<Vec<f32>> {
+    let cells = u64::from(width) * u64::from(height);
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_gauss_blur_with(gpu);
-        dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
+        let mut out = dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)?;
+        let injected = apply_injected_fault(width, height, &mut out);
+        vet(gpu, cells, "gaussian blur", injected, || blur_output_plausible(src, &out))?;
+        Some(out)
     })
 }
 
@@ -3434,10 +3438,214 @@ pub fn assign_plates_grid_gpu_with(
     warp_y: Option<&[f32]>,
     world: bool,
 ) -> Option<Vec<i32>> {
+    let cells = u64::from(width) * u64::from(height);
     on_grid(gpu, width, height, || {
         let ctx = init_gpu_jfa_plates_with(gpu);
-        dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y, world)
+        let mut ids = dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y, world)?;
+        let injected = apply_injected_fault(width, height, &mut ids);
+        // The readback "succeeded"; that proves nothing (see `vet`).
+        vet(gpu, cells, "plate assignment", injected, || {
+            plate_ids_plausible(&ids, width, height, plate_x, plate_y, warp_x, warp_y, world)
+        })?;
+        Some(ids)
     })
+}
+
+// -- Result vetting: a readback that succeeds is not a result that is right ---
+//
+// **The defect (`PERFORMANCE_BENCHMARKS.md` §13.6, reproduced 2026-11-16).** At
+// 16 384 x 8 192 on the 9800X3D's integrated Radeon, the plate-assignment
+// dispatch returned `Ok` from `map_async` with NO device-lost message and a
+// buffer in which every cell was plate 0: 126.8 M of 134.2 M cells differed from
+// the CPU's, one distinct id in the whole grid. The driver had dropped the work
+// (a watchdog reset or a silently failed submit) and handed back the zeros of a
+// buffer it never wrote. [`read_back`] cannot see that -- the map is healthy --
+// and the engine's only check (`0 <= id < plates`) passes, because 0 is a valid
+// plate. The world that followed was plausible, wrong, and 3x quicker to
+// generate (fewer boundaries, so less tectonic work), which is how it was found.
+//
+// The rule these functions enforce: **a GPU stage's output is evidence only
+// once it has been shown to be the stage's output.** Each check is cheap (no
+// stage is recomputed) and is sound in one direction only -- it rejects output
+// that no correct run can produce, and a rejected run costs a CPU recompute,
+// never a wrong world. A rejection records the size against the adapter
+// ([`multi::note_readback_failure`], which the Preferences GPU row reads) and
+// marks the device lost, exactly as a failed readback does.
+
+/// Grid sizes at which a test has asked every vetted dispatch to hand back a
+/// corrupted result ([`inject_zeroed_readback`]). Keyed on the exact grid so a
+/// test that injects at 97x53 cannot disturb a parallel test at another size.
+static INJECTED_ZEROED: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+/// Test hook: make the next vetted dispatches **on a `width` x `height` grid**
+/// return all zeros, as the integrated Radeon did at 16k. Returns a guard that
+/// removes the injection when dropped. Public (and `doc(hidden)`) only because
+/// the engine's CPU-fallback test lives in another crate; production code never
+/// calls it, and the list it consults is empty in a shipped run.
+#[doc(hidden)]
+#[must_use]
+pub fn inject_zeroed_readback(width: u32, height: u32) -> ZeroedReadbackGuard {
+    if let Ok(mut v) = INJECTED_ZEROED.lock() {
+        v.push((width, height));
+    }
+    ZeroedReadbackGuard { width, height }
+}
+
+/// Removes one [`inject_zeroed_readback`] entry on drop.
+#[doc(hidden)]
+pub struct ZeroedReadbackGuard {
+    width: u32,
+    height: u32,
+}
+
+impl Drop for ZeroedReadbackGuard {
+    fn drop(&mut self) {
+        if let Ok(mut v) = INJECTED_ZEROED.lock()
+            && let Some(i) = v.iter().position(|&g| g == (self.width, self.height))
+        {
+            v.remove(i);
+        }
+    }
+}
+
+/// Zero `out` when a test injected a fault for this grid (see
+/// [`inject_zeroed_readback`]) and say whether it did; otherwise one empty-list
+/// lock and nothing else.
+fn apply_injected_fault<T: Default + Copy>(width: u32, height: u32, out: &mut [T]) -> bool {
+    let hit = INJECTED_ZEROED.lock().is_ok_and(|v| v.contains(&(width, height)));
+    if hit {
+        out.fill(T::default());
+    }
+    hit
+}
+
+/// Run `plausible`; if it says the output is impossible, print why, record the
+/// size against the adapter, mark the device lost and return `None` so the
+/// caller falls back to the CPU. Also refuses a result produced on a device
+/// whose lost callback fired during or just after the dispatch (the callback
+/// can arrive after the map completes).
+///
+/// `injected` is true only for a test's [`inject_zeroed_readback`]: the result
+/// is still refused, but the two process-wide side effects (the size ban and
+/// the lost flag, both shared with every concurrently running GPU test) are
+/// skipped so one test's simulated fault cannot switch the GPU off for the
+/// others.
+fn vet(ctx: &impl DispatchDevice, cells: u64, what: &str, injected: bool, plausible: impl FnOnce() -> bool) -> Option<()> {
+    let lost = ctx.lost().load(std::sync::atomic::Ordering::Relaxed);
+    if !lost && plausible() {
+        return Some(());
+    }
+    if injected {
+        eprintln!("cartalith-gpu: {what} result rejected (injected zeroed readback) -- falling back to CPU");
+        return None;
+    }
+    let (name, vendor, backend) = ctx.identity();
+    eprintln!(
+        "cartalith-gpu: {what} on {name} at {cells} cells returned {} -- discarding it, this device is done for \
+         this run; falling back to CPU (HARDWARE_ACCELERATION.md §27)",
+        if lost { "after the device was reported lost" } else { "output no correct run can produce" }
+    );
+    multi::note_readback_failure(name, vendor, backend, cells);
+    ctx.lost().store(true, std::sync::atomic::Ordering::Relaxed);
+    None
+}
+
+/// Whether `ids` can be a plate assignment of this grid. Three tests, each one
+/// sound in a single direction (a correct dispatch always passes):
+/// 1. length is `width*height` and every id is in `0..plates`;
+/// 2. every plate's own home cell holds that plate (the JFA seeds it at
+///    distance 0 and a strict `<` never overwrites it; where two plates share
+///    a cell the later one wins, as in the seeding loop). This alone rejects an
+///    all-zero grid whenever there are two plates;
+/// 3. on [`PLATE_SAMPLE`] cells spread evenly over the grid, the assigned
+///    plate's warped distance is within 25% (plus 4 cells squared) of the true
+///    nearest plate's. Jump flooding is approximate -- 30 of 134 M cells differ
+///    from the CPU's own jump flood -- so a few misses are allowed (5% of the
+///    sample); a stale, shifted or zeroed grid misses on most.
+///
+/// The 25% / 4 / 5% figures are labelled judgements, not measurements: wide
+/// enough that the approximate flood never trips them (measured 17 of 8.4 M
+/// cells differing at 4096, 8 of 33.6 M at 8192), tight enough that a grid of
+/// one plate id fails 13 of 14 plates' worth of samples.
+#[allow(clippy::too_many_arguments)]
+fn plate_ids_plausible(
+    ids: &[i32],
+    width: u32,
+    height: u32,
+    plate_x: &[f32],
+    plate_y: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+    world: bool,
+) -> bool {
+    let (w, h) = (width as usize, height as usize);
+    let np = plate_x.len();
+    if ids.len() != w * h || ids.iter().any(|&id| id < 0 || id as usize >= np) {
+        return false;
+    }
+    // Home cells, last writer wins (the kernel's seeding order).
+    let mut home: std::collections::HashMap<usize, i32> = std::collections::HashMap::new();
+    for (p, (&px, &py)) in plate_x.iter().zip(plate_y).enumerate() {
+        let cx = px as i32;
+        if cx < 0 || cx >= width as i32 {
+            continue;
+        }
+        let cy = (py as i32).clamp(0, height as i32 - 1) as usize;
+        home.insert(cy * w + cx as usize, p as i32);
+    }
+    if home.iter().any(|(&cell, &p)| ids[cell] != p) {
+        return false;
+    }
+    // Sampled near-optimality. The stride is odd so rows and columns both vary.
+    let n = w * h;
+    let stride = (n / PLATE_SAMPLE).max(1) | 1;
+    let d2 = |cell: usize, p: usize| -> f64 {
+        let (x, y) = ((cell % w) as f64, (cell / w) as f64);
+        let ax = x + warp_x.map_or(0.0, |v| f64::from(v[cell]));
+        let ay = y + warp_y.map_or(0.0, |v| f64::from(v[cell]));
+        let mut dx = ax - f64::from(plate_x[p]);
+        if world {
+            dx -= (dx / w as f64).round() * w as f64;
+        }
+        let dy = ay - f64::from(plate_y[p]);
+        dx * dx + dy * dy
+    };
+    let (mut sampled, mut bad) = (0usize, 0usize);
+    let mut cell = 0usize;
+    while cell < n {
+        let best = (0..np).map(|p| d2(cell, p)).fold(f64::INFINITY, f64::min);
+        if d2(cell, ids[cell] as usize) > best * 1.25 + 4.0 {
+            bad += 1;
+        }
+        sampled += 1;
+        cell += stride;
+    }
+    bad * 20 <= sampled
+}
+
+/// How many cells [`plate_ids_plausible`] spot-checks against the exact nearest
+/// plate. Each costs `plates` distance evaluations, so 4096 is microseconds;
+/// the figure is a labelled judgement (enough that a 5% tolerance means
+/// something, few enough to be free beside a 134 M-cell dispatch).
+const PLATE_SAMPLE: usize = 4096;
+
+/// Whether `out` can be the blur of `src`: same length, finite, inside the
+/// input's range (a box average cannot leave it; the slack is f32 rounding),
+/// and not constant unless the input is. Rejects the all-zero readback of a
+/// dropped dispatch whenever the input is not itself all zero, and cannot
+/// reject a correct blur.
+fn blur_output_plausible(src: &[f32], out: &[f32]) -> bool {
+    if out.len() != src.len() || src.is_empty() {
+        return out.len() == src.len();
+    }
+    let range = |v: &[f32]| v.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+    if out.iter().any(|x| !x.is_finite()) {
+        return false;
+    }
+    let (slo, shi) = range(src);
+    let (olo, ohi) = range(out);
+    let slack = 1e-4 * (shi - slo).abs().max(f32::EPSILON) + 1e-6;
+    olo >= slo - slack && ohi <= shi + slack && (shi == slo || ohi > olo)
 }
 
 /// `HARDWARE_ACCELERATION.md` §9's self-test, made concrete: run the real
@@ -6185,5 +6393,114 @@ mod tests {
             );
             assert!(out.acc.iter().all(|v| v.is_finite()), "no NaN/Inf in the GPU accumulation");
         }
+    }
+
+    // -- Result vetting (the 16k integrated-Radeon defect) ----------------------
+
+    /// Exact nearest-plate ids on a flat grid with no warp: the fixture's
+    /// ground truth, independent of the function under test.
+    fn exact_ids(w: u32, h: u32, px: &[f32], py: &[f32]) -> Vec<i32> {
+        (0..w * h)
+            .map(|c| {
+                let (x, y) = ((c % w) as f32, (c / w) as f32);
+                (0..px.len())
+                    .min_by(|&a, &b| {
+                        let da = (x - px[a]).powi(2) + (y - py[a]).powi(2);
+                        let db = (x - px[b]).powi(2) + (y - py[b]).powi(2);
+                        da.total_cmp(&db)
+                    })
+                    .unwrap() as i32
+            })
+            .collect()
+    }
+
+    /// Protects: the plate-id vetting that stops the integrated Radeon's
+    /// all-zero 16k readback (every cell plate 0, in range, no error) becoming
+    /// a world. Literals, not the function's own constants: a correct grid
+    /// passes; all-zero, a rotated id, an out-of-range id, a wrong-length grid
+    /// and "home cells right, rest zero" each fail.
+    #[test]
+    fn plate_ids_plausible_accepts_the_truth_and_rejects_each_corruption() {
+        let (w, h) = (96u32, 48u32);
+        let (px, py) = ([10.0f32, 80.0, 45.0, 20.0], [10.0f32, 12.0, 35.0, 40.0]);
+        let truth = exact_ids(w, h, &px, &py);
+        let ok = |ids: &[i32]| plate_ids_plausible(ids, w, h, &px, &py, None, None, false);
+        assert!(ok(&truth), "the exact assignment must pass");
+        assert!(!ok(&vec![0; truth.len()]), "all-zero (the 16k iGPU readback) must fail");
+        assert!(!ok(&truth.iter().map(|&i| (i + 1) % 4).collect::<Vec<_>>()), "rotated ids must fail");
+        let mut oob = truth.clone();
+        oob[5] = 4;
+        assert!(!ok(&oob), "an id past the last plate must fail");
+        assert!(!ok(&truth[..truth.len() - 1]), "a short readback must fail");
+        // One home cell wrong in an otherwise exact grid: too few cells for the
+        // sampled test to see, so only the home-cell test can reject it.
+        let mut one_home = truth.clone();
+        one_home[py[2] as usize * w as usize + px[2] as usize] = 3;
+        assert!(!ok(&one_home), "a plate whose own home cell holds another plate must fail");
+        // Homes right, everything else plate 0: only the sampled test can see it.
+        let mut homes_only = vec![0; truth.len()];
+        for p in 0..4 {
+            homes_only[py[p] as usize * w as usize + px[p] as usize] = p as i32;
+        }
+        assert!(!ok(&homes_only), "correct home cells with a zeroed body must fail the sampled test");
+    }
+
+    /// Protects: `plate_ids_plausible`'s tolerance. A jump flood is
+    /// approximate, so a handful of wrong cells (here 1% of the grid, every
+    /// 100th reassigned to a neighbouring plate) must still pass -- a vetting
+    /// that rejected the real kernel would switch the GPU off for nothing.
+    #[test]
+    fn plate_ids_plausible_tolerates_a_few_percent_of_misses() {
+        let (w, h) = (96u32, 48u32);
+        let (px, py) = ([10.0f32, 80.0, 45.0, 20.0], [10.0f32, 12.0, 35.0, 40.0]);
+        let mut ids = exact_ids(w, h, &px, &py);
+        for c in (7..ids.len()).step_by(100) {
+            ids[c] = (ids[c] + 1) % 4;
+        }
+        assert!(plate_ids_plausible(&ids, w, h, &px, &py, None, None, false));
+    }
+
+    /// Protects: `blur_output_plausible` -- the real blur passes, the dropped
+    /// dispatch's zeros, NaN, an out-of-range value and a flattened field fail,
+    /// and a genuinely constant input may blur to a constant.
+    #[test]
+    fn blur_output_plausible_accepts_a_blur_and_rejects_corruption() {
+        let src = synthetic_field(64 * 64, 5);
+        let blurred = gpu_gauss_blur_grid_cpu(&src, 6.0, 64, 64, false);
+        assert!(blur_output_plausible(&src, &blurred), "a real blur must pass");
+        assert!(!blur_output_plausible(&src, &vec![0.0; src.len()]), "zeros must fail");
+        let mut nan = blurred.clone();
+        nan[3] = f32::NAN;
+        assert!(!blur_output_plausible(&src, &nan));
+        let mut big = blurred.clone();
+        big[3] = 1.0e6;
+        assert!(!blur_output_plausible(&src, &big), "a value outside the input's range must fail");
+        assert!(!blur_output_plausible(&src, &blurred[1..]));
+        assert!(blur_output_plausible(&[2.0; 16], &[2.0; 16]), "a constant input blurs to a constant");
+    }
+
+    /// Protects: the end-to-end rule on a real device -- with a zeroed
+    /// readback injected for one grid size, both vetted dispatches return
+    /// `None` (so the caller recomputes on the CPU), and at the same size
+    /// without the injection they return `Some` (so the test is not simply
+    /// refusing everything). Skips, saying so, when no GPU is present.
+    #[test]
+    fn injected_zeroed_readback_is_refused_and_a_clean_run_is_not() {
+        let Ok(set) = multi::init_gpu_device_set() else {
+            eprintln!("no GPU on this machine -- nothing to refuse");
+            return;
+        };
+        let gpu = set.primary();
+        let (w, h) = (97u32, 53u32);
+        let (px, py) = ([10.0f32, 80.0, 45.0, 20.0], [10.0f32, 12.0, 35.0, 40.0]);
+        let src = synthetic_field((w * h) as usize, 9);
+        let plates = || assign_plates_grid_gpu_with(gpu, w, h, &px, &py, None, None, false);
+        let blur = || gauss_blur_grid_gpu_with(gpu, &src, 4.0, w, h, false);
+        assert!(plates().is_some() && blur().is_some(), "a clean run at {w}x{h} must be accepted");
+        let guard = inject_zeroed_readback(w, h);
+        assert!(plates().is_none(), "zeroed plate ids must be refused");
+        assert!(blur().is_none(), "a zeroed blur must be refused");
+        drop(guard);
+        assert!(plates().is_some() && blur().is_some(), "dropping the guard must restore normal service");
     }
 }

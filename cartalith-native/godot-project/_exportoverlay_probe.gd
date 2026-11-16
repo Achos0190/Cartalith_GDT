@@ -158,6 +158,22 @@ const _SegCullProbe := preload("res://_segcull_probe.gd")
 ## **Labelled judgement**: 4, against that 1 pixel.
 const MAX_ISOLATED_TIES := 4
 
+## The same bound for **town plans**, which are many small filled polygons and
+## so meet the effect above more often. Measured 2026-11-16 (`OUTSTANDING_WORK.md`
+## "`_exportoverlay_probe` red"): at Sevjuniana, 512 px around a town, the
+## **origin control alone -- one tile shifted by (37, 23) px, no seam anywhere
+## -- differs from the single tile by 5 lone pixels** (max delta 155), and the
+## cut-through-the-centre stitch by 6, of which the printed ones sit 1, 2, 3, 4,
+## 7 and 18 px from the seam: not seam-localised, and swapping two polygon
+## colours across one edge pixel (e.g. `[214,199,153,255]` against
+## `[126,108,69,229]`). That is the f32-edge tie above, not a stitching defect;
+## the previous 4 had been set against a pin-and-label region where it was 1.
+## **Labelled judgement**: 8, the observed 6 with a margin of two and the
+## control's own 5 under it. A real seam fault is a connected run of hundreds of
+## pixels (the mutant that set this bound: stitching one column off), which
+## `isolated` and this count both refuse.
+const TOWN_PLAN_MAX_ISOLATED_TIES := 8
+
 ## `{diff, max_delta, aa, big, isolated}` over two equal-size RGBA8 (or RGB8,
 ## `stride` 3) buffers `w` pixels wide: differing pixels, the largest channel
 ## difference, how many differ by at most the AA delta, how many by more, and
@@ -196,9 +212,9 @@ func _stats(a: PackedByteArray, b: PackedByteArray, stride: int = 4, w: int = 0)
 ## Two tilings agree: the AA-class pixels inside `_segcull_probe`'s tolerance
 ## (fraction of `px`), and at most `MAX_ISOLATED_TIES` larger differences, each
 ## a lone pixel.
-func _within_aa(s: Dictionary, px: int) -> bool:
+func _within_aa(s: Dictionary, px: int, max_ties: int = MAX_ISOLATED_TIES) -> bool:
 	return float(s["aa"]) / float(px) <= _SegCullProbe.AA_AGREEMENT_MAX_DIFF_FRACTION \
-		and int(s["big"]) <= MAX_ISOLATED_TIES and bool(s["isolated"])
+		and int(s["big"]) <= max_ties and bool(s["isolated"])
 
 ## One `r x r` tile at `(rx, ry)` against the same pixels cut out of one larger
 ## tile whose origin is `(37, 23)` px up and left: no seam crosses the region,
@@ -349,9 +365,15 @@ func _seams(app: Node, ov: Control, bridge: Node, W: int, H: int, first_px: Vect
 			print("  town %s at %s, cut through its centre: %d inked px on the seams; stitched vs single: %s"
 				% [s0.get("name", "?"), tp, uink, us])
 			_describe(up[0], up[1], R2, ux, uy, ucx, ucy)
-			print("  shifted origin, no seam: %s" % await _origin_control(eu, ux, uy, R2, up[0]))
+			var uctl: Dictionary = await _origin_control(eu, ux, uy, R2, up[0])
+			print("  shifted origin, no seam: %s" % uctl)
 			_ok(uink > 100, "the seams cut through the town plan (%d px)" % uink)
-			_ok(_within_aa(us, R2 * R2), "town plans: the stitched tiles agree with one tile (%s; %d AA px, %d lone ties)"
+			## The control (origin moved, no seam) must itself sit inside the bound:
+			## if it does not, the bound is describing the rasteriser, not the stitch.
+			_ok(not uctl.is_empty() and _within_aa(uctl, R2 * R2, TOWN_PLAN_MAX_ISOLATED_TIES),
+				"town plans: moving only the tile origin stays inside the lone-tie bound (%s)" % uctl)
+			_ok(_within_aa(us, R2 * R2, TOWN_PLAN_MAX_ISOLATED_TIES),
+				"town plans: the stitched tiles agree with one tile (%s; %d AA px, %d lone ties)"
 				% ["exact" if int(us["diff"]) == 0 else "within tolerance", us["aa"], us["big"]])
 	eu.queue_free()
 
