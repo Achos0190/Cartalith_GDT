@@ -3844,3 +3844,7 @@ After `cfa1cf0d` (Ruling FI: ports 5 to 10, sea lanes 1 to 5; five river-mouth t
 1. **MS-3: a tool palette only.** The phone and tablet domain sheet gets a row of the domain's own tools at its top (for example Sculpt and Paint in WORLD, Pins and Measure in CARTO); no second chip strip (the section headers already serve as chips).
 2. **CQ-8's three deferred extras are all wanted:** export and import of the quick-bar layout as a file; a pin may replace one of the ring's four diagonal slots; a domain's own tools can be pinned to the bar.
 3. **Parallelising the serial generation floor waits for the refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`), where the fills are unified anyway and an exact parallel fill is a candidate (`TERRAIN_COMPUTE_METHODS_RESEARCH.md`).
+
+## Ruling FM: Ruling D superseded (owner, 2026-11-16)
+
+The docs audit (`DOCS_AUDIT_2026-11-16.md`) found Ruling D's (2026-09-07) per-stage *Run stage NN* tablet button was never built (`TABLET_UI_SPEC.md` had claimed it). Owner: **superseded** -- the later shell rulings (DT, DY, EG) reshaped the tablet and phone shells, and the pipeline is run from Generate.
