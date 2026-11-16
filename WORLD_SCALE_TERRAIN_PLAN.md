@@ -215,7 +215,7 @@ shading, tile drawing) may use floats freely since they change no saved data. Me
 16k is off the table on phones and tablets (about 10-15 GB peak). Owner's own test: **a 4k world generated on the
 Pad 3 peaked at about 2.5 GB** of memory (read from the device, 2026-11-16) -- inside the estimated 1.5-3 GB, so 4k is
 feasible on the tablet. 8k (about 33.5 M cells, estimated 6-10 GB peak, 3-5 min) is to be measured on the Pad after the
-PC 16k/32k runs, with per-stage time, peak memory and the device's per-app memory limit.
+PC 16k/32k runs, with per-stage time, peak memory and the device's per-app memory limit. **Owner's own 8k test (2026-11-16): an 8k world generated on the Pad 3 in 392.2 s, CPU only, peaking at about 5.4 GB** -- under the 6-10 GB estimate, so 8k fits on the tablet; generation time is the cost (about 6.5 min).
 
 ## 12. Which agent for which job
 
