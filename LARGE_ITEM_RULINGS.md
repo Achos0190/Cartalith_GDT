@@ -3832,3 +3832,9 @@ After `8919dc7c` (Ruling FF items 5 and 6) cut ports from 15 to 5 at 384 (sea la
 ## Ruling FJ: one note entry on the card; the vault holds the detail (owner, 2026-11-16)
 
 Owner, on the phone card (screenshot of a capital's card showing both NOTE ▸ *Create note…* and INFO ▸ *Attach note to …*): *"There's two options for notes here, should maybe just open the vault and have these options in detail there."* The card (desktop, tablet, phone) shows a **single** note entry for the selected thing: *Open note* when one is linked, otherwise *Note…*, which opens the vault focused on this place. The vault then offers the detail: create a new note (with the folder chooser), attach an existing note, unlink, and the place's linked notes. The separate *Create note…* and *Attach note to …* rows are removed from the card. Owning documents: `VAULT_EDITOR_PROPOSAL.md`, `MAP_CONTEXT_SCOPE.md`.
+
+## Ruling FK: harbour towns lay out to their water; port reach about 4 km (owner, 2026-11-16)
+
+After `cfa1cf0d` (Ruling FI: ports 5 to 10, sea lanes 1 to 5; five river-mouth towns left their river and some harbour walls stand 400-650 m from their own sea):
+1. **Harbour towns lay out to the water**: keep the shore nudge; the town layout grows toward its sea (quay, harbour district) and a river-mouth town's river runs through the town to the sea, so no harbour stands inland of its own water.
+2. **Port reach shrinks to about 4 km** (from `civ_is_coastal`'s 12.5 km), so only towns that can reach the shore are port candidates.
