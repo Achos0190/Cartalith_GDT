@@ -210,6 +210,13 @@ shading, tile drawing) may use floats freely since they change no saved data. Me
 4. Then a scope for the tiled two-level pipeline (stage-by-stage locality census, a two-level drainage prototype at
    16k in 4k blocks, storage measurements) and the two save types.
 
+## 11a. Mobile sizes (owner, 2026-11-16)
+
+16k is off the table on phones and tablets (about 10-15 GB peak). Owner's own test: **a 4k world generated on the
+Pad 3 peaked at about 2.5 GB** of memory (read from the device, 2026-11-16) -- inside the estimated 1.5-3 GB, so 4k is
+feasible on the tablet. 8k (about 33.5 M cells, estimated 6-10 GB peak, 3-5 min) is to be measured on the Pad after the
+PC 16k/32k runs, with per-stage time, peak memory and the device's per-app memory limit.
+
 ## 12. Which agent for which job
 
 | Job | Agent | Why |
