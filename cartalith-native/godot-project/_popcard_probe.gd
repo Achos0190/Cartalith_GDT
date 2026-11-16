@@ -220,6 +220,10 @@ func _run() -> void:
 	_ok(bool(_bridge.vault_connect(_root, "Chronicle").get("ok", false)), "a throw-away vault binds")
 	var pid: int = _bridge.poi_add(float(s["x"]) + 0.5 + 0.12, float(s["y"]) + 0.5 + 0.05, "tavern", "Popcard Tavern")
 	_ok(pid >= 0, "a POI beside the market")
+	## A second POI on the far side: the first one's head sits UNDER the town's card (the card opens beside its pin and is
+	## 322 px wide), so a click there lands on the card and rightly never reaches the map. K needs a pin the card leaves clear.
+	var pid2: int = _bridge.poi_add(float(s["x"]) + 0.5 - 0.10, float(s["y"]) + 0.5 - 0.05, "shop", "Popcard Shop")
+	_ok(pid2 >= 0, "a second POI on the other side of the market")
 	_app.viewport.refresh_annotations()
 	_app.arm_tool("inspect")
 	var cv: CityViewerWindow = _app.city_viewer_window
@@ -299,15 +303,24 @@ func _run() -> void:
 	await _close_card()
 
 	# ---- K: click-through in the pop-out
-	var kp := _pin_index(cv, true)
-	_ok(kp >= 0, "K0: the viewer shows the POI pin")
+	await _click_in(cv, at)
+	_ok(_card_open(), "K1: the town's card is open")
+	## The POI pin whose head the open card leaves uncovered (read from the product's own card rectangle, not assumed).
+	var kp := -1
+	var want_id := -1
+	var card_rect := Rect2(_card().position, _card().size) if _card_open() else Rect2()
+	for w in 2:
+		var cand := _pin_index(cv, true, w)
+		if cand >= 0 and not card_rect.has_point(_head_in_window(cv, cand)) and Rect2(Vector2.ZERO, cv._canvas.size).has_point(_head_in_window(cv, cand)):
+			kp = cand
+			want_id = int((cv._pins()[cand] as Dictionary)["poi"])
+			break
+	_ok(kp >= 0, "K0: a POI pin stands in the window and clear of the open card (card %s)" % str(card_rect))
 	if kp >= 0:
-		await _click_in(cv, at)
-		_ok(_card_open(), "K1: the town's card is open")
 		var at_p := _head_in_window(cv, kp)
 		await _click_in(cv, at_p)
 		var h2: Array = _app.context_broker.last_request.get("hits", [])
-		_ok(_card_open() and h2.size() == 1 and String(h2[0]["kind"]) == "poi" and int(h2[0]["id"]) == pid, "K2: a click on another pin with a card open opens THAT pin's card (%s)" % str(h2))
+		_ok(_card_open() and h2.size() == 1 and String(h2[0]["kind"]) == "poi" and int(h2[0]["id"]) == want_id, "K2: a click on another pin with a card open opens THAT pin's card (%s)" % str(h2))
 		_ok(_card().get_parent() == cv, "K2: still inside the pop-out")
 	await _close_card()
 

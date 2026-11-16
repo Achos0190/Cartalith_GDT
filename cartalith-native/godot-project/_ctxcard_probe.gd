@@ -9,7 +9,13 @@ extends Node
 ## argument aborts the run (exit 2), as does a boot that came up as a phone.
 ##
 ## **Windowed, not `--headless`**: leg P reads pixels, and the card is an
-## embedded `Window` whose rect is part of what is asserted. Leg P FORCES each
+## embedded `Window` whose rect is part of what is asserted. Under `--headless` two
+## checks fail by construction and nothing is wrong with the product: leg W's clipboard
+## read comes back empty (no display server to hold one) and leg P's two palettes draw
+## identical grounds (no framebuffer is ever filled). The probe therefore REFUSES
+## `--headless` and exits 2 (the same guard `_cl11_probe` has; MISTAKES.md: pixel
+## probes run windowed). Checked 2026-11-16: windowed 153/153 on origin/main
+## (`96131242`); headless 93/95 with exactly those two failing. Leg P FORCES each
 ## palette (after the shell boots -- `apply_theme()` before boot is inert) and
 ## asserts the card's ground differs between the two before trusting either.
 ##
@@ -1037,6 +1043,10 @@ func _ready() -> void:
 	## `-- --vp WxH` sizes the host viewport (default 1600x900);
 	## `--force-touch` is the shell's own flag. Anything else is refused, loudly.
 	var vp_size := Vector2i(1600, 900)
+	if DisplayServer.get_name() == "headless":
+		print("### CTXCARD ABORT: needs a window (leg W reads the clipboard, leg P reads pixels); run it without --headless ###")
+		get_tree().quit(2)
+		return
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
