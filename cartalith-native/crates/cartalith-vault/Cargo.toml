@@ -9,3 +9,11 @@ description = "Markdown Vault integration (MARKDOWN_VAULT_SCOPE.md): section-awa
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+# The pure-Rust `gif` decoder (MIT/Apache-2.0), reached through `image`'s `gif` feature: it composites each
+# frame onto the canvas honouring disposal and the global/local palette (`gif.rs`). Nothing else of `image`'s
+# format zoo is enabled here; `cartalith-assets` enables png on the same 0.25.10 for itself.
+image = { version = "0.25.10", default-features = false, features = ["gif"] }
+
+[dev-dependencies]
+# Builds the test fixtures (a GIF with known delays and disposal); the same crate `image` decodes with.
+gif = "0.14"

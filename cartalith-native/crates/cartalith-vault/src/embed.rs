@@ -22,7 +22,8 @@
 //! root), and failing that **by bare name anywhere in the vault** (VE-7), as Obsidian does: the
 //! provider lists attachments ([`provider::VaultProvider::list_attachments`]). Two images of one name
 //! are [`Embed::Ambiguous`], never a pick; Obsidian chooses the shortest path, a choice the author did not
-//! write. A `.gif` is listed but is [`Embed::Unsupported`], because Godot cannot decode it.
+//! write. A `.gif` is an [`Embed::Image`] like the rest, but Godot cannot decode it, so the shell reads it with
+//! [`VaultSession::read_gif`] (the [`crate::gif`] decoder, animated within its caps).
 //! On Android the bytes come through the provider's `read_bytes` ([`VaultSession::read_image`]).
 
 use std::path::Path;
@@ -44,10 +45,11 @@ pub const EXCERPT_MAX_CHARS: usize = 4000;
 /// larger file in a note's Preview would stall the editor and the memory is not recoverable.
 pub const IMAGE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Image extensions Godot's `Image.load_from_file` decodes (checked against its documented list:
-/// png, jpg, webp, bmp, svg and others). `gif` and `avif` are Obsidian images that Godot cannot
-/// decode, so they are [`Embed::Unsupported`] with that reason rather than a silent blank.
-pub const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "svg"];
+/// Image extensions Preview draws: the ones Godot's `Image.load_from_file` decodes (checked against its
+/// documented list: png, jpg, webp, bmp, svg), plus `gif`, which Godot cannot decode and [`crate::gif`] does
+/// (VE-7, 2026-11-16). `avif` is an Obsidian image nothing here decodes, so it is [`Embed::Unsupported`] with
+/// that reason rather than a silent blank.
+pub const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "bmp", "svg", "gif"];
 
 /// What follows the `#` of an embed target.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,8 +316,8 @@ impl VaultSession {
         let ext = ext_of(&p.target);
         if !ext.is_empty() && crate::notelinks::is_attachment(&p.target) {
             if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
-                let why = if matches!(ext.as_str(), "gif" | "avif") {
-                    format!("a .{ext} image is not drawn here (Godot cannot decode it)")
+                let why = if ext == "avif" {
+                    format!("a .{ext} image is not drawn here (nothing here decodes it)")
                 } else {
                     format!("a .{ext} file is not drawn in a note's Preview")
                 };
@@ -398,6 +400,18 @@ impl VaultSession {
             Err(FragmentError::HeadingMissing(h)) => Ok(Embed::FragmentMissing { path, fragment: format!("#{h}") }),
             Err(FragmentError::BlockMissing(b)) => Ok(Embed::FragmentMissing { path, fragment: format!("#^{b}") }),
         }
+    }
+
+    /// A `.gif` of the vault decoded to RGBA frames and delays ([`crate::gif::decode_gif`], capped to a first
+    /// frame past its limits). The bytes come through [`Self::read_image`], so the path rule, containment and
+    /// [`IMAGE_MAX_BYTES`] (on Android, the provider's `read_bytes`) apply unchanged. `Err` carries words for
+    /// Preview; a file that is not a GIF at all is an error here, not a guess at another format.
+    pub fn read_gif(&self, rel: &str) -> Result<crate::gif::GifFrames, String> {
+        if ext_of(rel) != "gif" {
+            return Err("not a .gif".to_string());
+        }
+        let bytes = self.read_image(rel).map_err(|e| e.to_string())?;
+        crate::gif::decode_gif(&bytes)
     }
 
     /// The bytes of an image inside the vault, for Preview to draw. `rel` is a path
@@ -525,7 +539,8 @@ mod tests {
         for s in ["a.png", "A.PNG", "x/y.jpg", "z.jpeg", "w.webp", "b.bmp", "s.svg"] {
             assert!(is_drawable_image(s), "{s}");
         }
-        for s in ["a.gif", "a.avif", "a.pdf", "a", "a.png.txt", "png"] {
+        assert!(is_drawable_image("a.gif"), "gif is drawn since 2026-11-16");
+        for s in ["a.avif", "a.pdf", "a", "a.png.txt", "png"] {
             assert!(!is_drawable_image(s), "{s}");
         }
     }
@@ -628,6 +643,7 @@ mod tests {
                 ("Dir/pic.png", b"\x89PNG"),
                 ("top.png", b"\x89PNG"),
                 ("note.gif", b"GIF"),
+                ("note.avif", b"AVIF"),
             ],
         );
         let top = vec!["A.md".to_string()];
@@ -655,7 +671,8 @@ mod tests {
             o => panic!("{o:?}"),
         }
         assert!(matches!(s.embed_open("A.md", "gone.png", &top).unwrap(), Embed::Missing { .. }));
-        assert!(matches!(s.embed_open("A.md", "note.gif", &top).unwrap(), Embed::Unsupported { .. }));
+        assert!(matches!(s.embed_open("A.md", "note.gif", &top).unwrap(), Embed::Image { .. }), "a gif is an image now");
+        assert!(matches!(s.embed_open("A.md", "note.avif", &top).unwrap(), Embed::Unsupported { .. }), "an avif still is not");
         assert!(matches!(s.embed_open("A.md", "https://x.test/a.png", &top).unwrap(), Embed::Unsupported { .. }));
         let _ = std::fs::remove_dir_all(root);
     }
@@ -750,8 +767,8 @@ mod tests {
 
     /// Protects: VE-7's bare-name pictures over a real folder, with literals: `![[map.png]]` finds the one file of
     /// that name in any folder, case-blind; a path tail (`img/map.png`) does too; the note's own folder and the root
-    /// still win over a deeper copy; two files of one name are `Ambiguous` (sorted), never a pick; a `.gif` is listed
-    /// but is `Unsupported`; a note is not found as a picture; a missing name is still `Missing`.
+    /// still win over a deeper copy; two files of one name are `Ambiguous` (sorted), never a pick; a `.gif` is found
+    /// like any picture; a note is not found as a picture; a missing name is still `Missing`.
     #[test]
     fn a_picture_is_found_by_bare_name_anywhere_in_the_vault() {
         let (root, s) = vault(
@@ -790,7 +807,7 @@ mod tests {
             Embed::Ambiguous { candidates, .. } => assert_eq!(candidates, vec!["a/x/pic.webp", "b/x/pic.webp"]),
             o => panic!("{o:?}"),
         }
-        assert!(matches!(s.embed_open("A.md", "anim.gif", &top).unwrap(), Embed::Unsupported { .. }));
+        assert_eq!(img("anim.gif", "A.md"), "Assets/anim.gif", "a gif is found by bare name");
         assert!(matches!(s.embed_open("A.md", "secret.png", &top).unwrap(), Embed::Missing { .. }), "dot-folders are never listed");
         assert!(matches!(s.embed_open("A.md", "nothing.png", &top).unwrap(), Embed::Missing { .. }));
         // A found picture's path reads back through `read_image`.
@@ -879,6 +896,22 @@ mod tests {
         assert!(s.read_image("A.md").is_err(), "a note is not a picture");
     }
 
+    /// Protects: a GIF works through the provider's `read_bytes` too (Android's SAF path, no filesystem): the same
+    /// animated fixture decodes to its three frames, and a GIF over the 16 MiB read cap is refused before decoding.
+    #[test]
+    fn a_gif_is_read_through_a_provider_without_a_path() {
+        let mut files = std::collections::BTreeMap::new();
+        files.insert("A.md".to_string(), b"a".to_vec());
+        files.insert("anim.gif".to_string(), include_bytes!("../../../godot-project/_gif_fixtures/anim.gif").to_vec());
+        files.insert("huge.gif".to_string(), vec![0u8; (IMAGE_MAX_BYTES + 1) as usize]);
+        let mut s = VaultSession::default();
+        s.connect_provider(Box::new(NoFs(files)), Some("fake")).unwrap();
+        let g = s.read_gif("anim.gif").unwrap();
+        assert_eq!((g.frames.len(), g.delays_ms), (3, vec![100, 100, 100]));
+        assert!(matches!(s.embed_open("A.md", "anim.gif", &["A.md".to_string()]).unwrap(), Embed::Image { .. }));
+        assert!(s.read_gif("huge.gif").is_err());
+    }
+
     /// Protects: the trait's default `read_bytes` refuses, so a provider that cannot read a picture is `Err`, never an
     /// empty picture, and the default `list_attachments` stays empty (a bare name is then `Missing`, as before VE-7).
     #[test]
@@ -934,5 +967,28 @@ mod tests {
         assert!(s.read_image("big.png").is_err());
         assert_eq!(s.read_image("fits.png").unwrap().len() as u64, IMAGE_MAX_BYTES, "exactly the cap is read");
         let _ = std::fs::remove_dir_all(root);
+    }
+    /// Protects: `read_gif` over a real folder: an animated GIF comes back as its frames, a file with a
+    /// `.gif` name and no GIF in it is an error with words (not a panic, not a blank), and a non-gif name is
+    /// refused before any read.
+    #[test]
+    fn read_gif_decodes_a_real_file_and_refuses_the_rest() {
+        let mut gif = Vec::new();
+        {
+            let mut enc = ::gif::Encoder::new(&mut gif, 2, 2, &[]).unwrap();
+            for (c, d) in [(10u8, 4u16), (20, 9)] {
+                let f = ::gif::Frame { width: 2, height: 2, delay: d, buffer: std::borrow::Cow::Owned(vec![0; 4]), palette: Some(vec![c, c, c]), ..::gif::Frame::default() };
+                enc.write_frame(&f).unwrap();
+            }
+        }
+        let (root, s) = vault("readgif", &[("a.gif", &gif), ("bad.gif", b"GIF89a oops"), ("p.png", b"not a gif"), ("disguised.png", &gif)]);
+        let g = s.read_gif("a.gif").unwrap();
+        assert_eq!((g.frames.len(), g.delays_ms.clone()), (2, vec![40, 90]));
+        assert_eq!(&g.frames[1][..4], &[20, 20, 20, 255]);
+        assert!(s.read_gif("bad.gif").is_err());
+        assert!(s.read_gif("p.png").is_err());
+        assert!(s.read_gif("disguised.png").is_err(), "a GIF under a .png name is not read as one: the name decides");
+        assert!(s.read_gif("../a.gif").is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

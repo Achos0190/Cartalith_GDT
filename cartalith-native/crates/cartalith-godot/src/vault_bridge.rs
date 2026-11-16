@@ -1828,6 +1828,30 @@ impl WorldGen {
         }
     }
 
+    /// A `.gif` of the vault as frames for Preview (`cartalith_vault::gif`, VE-7): `{ok, width, height, frames:
+    /// [PackedByteArray of width*height*4 RGBA bytes], delays_ms: PackedInt32Array, capped, note}`. `capped` is
+    /// true when a limit (frames, decoded bytes, side) held the animation to its first frame, and `note` then
+    /// says which, for a quiet line under the picture; `note` is empty otherwise. `{ok: false, error}` for a
+    /// path the vault refuses, a file over the 16 MiB read cap, or a GIF that is damaged or too large to decode
+    /// at all: words, never a panic (the decoder runs under `catch_unwind`). Writes nothing.
+    #[func]
+    fn vault_read_gif(&self, rel: GString) -> VarDictionary {
+        let g = match self.vault.read_gif(&rel.to_string()) {
+            Ok(g) => g,
+            Err(e) => return err(e),
+        };
+        let frames: Array<PackedByteArray> = g.frames.iter().map(|f| PackedByteArray::from(f.as_slice())).collect();
+        let delays: PackedInt32Array = g.delays_ms.iter().map(|&d| d as i32).collect();
+        let mut d = ok();
+        d.set("width", i64::from(g.width));
+        d.set("height", i64::from(g.height));
+        d.set("frames", &frames);
+        d.set("delays_ms", &delays);
+        d.set("capped", g.capped.is_some());
+        d.set("note", g.capped.map(|c| c.note()).unwrap_or(""));
+        d
+    }
+
     /// The Chronos events in the ` ```chronos ` blocks of `text` (`cartalith_vault::chronos::parse`,
     /// pure): `{ok, blocks, events: [{kind, start, end?, name, color?, group?, description?}],
     /// skipped: [line]}`. `events` is in source order; a line that did not parse is in `skipped`, never

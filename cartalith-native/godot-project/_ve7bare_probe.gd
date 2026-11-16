@@ -7,7 +7,7 @@ extends Node
 ## **Windowed**, with a scratch APPDATA; binds a throw-away vault in TEMP. Exit 0 pass, 1 a check failed, 2 could not run.
 ## What it protects (VE-7's Rust half): a picture embedded by BARE NAME (`![[crest.png]]`) resolves to the file in another folder
 ## of the vault, in the browse preview and in the editor's Preview, is drawn as an image (`[img` in the bbcode); two pictures of
-## one name are named ambiguous rather than picked; a gif is said unsupported; a missing name is said missing. A control note
+## one name are named ambiguous rather than picked; a fake gif is said unreadable; a missing name is said missing. A control note
 ## embeds by full path. Scratch vault in TEMP.
 
 var _vp: SubViewport
@@ -158,7 +158,7 @@ None: ![[nothing.png]]
 	_ok("browse: the bare-name picture is drawn as an image", body != null and body.text.contains("[img"), body.text if body != null else "")
 	var shown := body.get_parsed_text() if body != null else ""
 	_ok("browse: two of one name are called ambiguous, not picked", shown.contains("could mean 2 files"), shown)
-	_ok("browse: the gif is said unsupported", shown.to_lower().contains("gif"), shown)
+	_ok("browse: a gif that is not a real GIF is said unreadable (real GIFs: _gif_probe)", shown.to_lower().contains("gif"), shown)
 	_ok("browse: the missing name is said missing", shown.to_lower().contains("nothing.png"), shown)
 	await _shot("browse")
 

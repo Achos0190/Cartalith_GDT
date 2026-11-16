@@ -114,6 +114,7 @@ rather than re-implementing a ZIP writer.
 | **DEFLATE** | native `CompressionStream('deflate-raw')`, added v1.90 | via `zip`, or `flate2` |
 | **CRC32** | hand-written | `crc32fast`, via `zip` |
 | **PNG** | canvas `toBlob` | `image` crate |
+| **GIF** (vault Preview only; the HTML app has no GIF reader) | none | [`gif`](https://docs.rs/gif) 0.14 (MIT or Apache-2.0, pure Rust) through `image` 0.25.10's `gif` feature: `GifDecoder::into_frames` composites frames, honouring offsets, disposal and the global or local palette (`cartalith-vault/src/gif.rs`) |
 | **JSON** | `JSON.stringify` / `parse` | `serde` + `serde_json` |
 | **GeoJSON** | hand-built, RFC 7946 shape | `geojson` crate, or hand-built again |
 | **`.f32` field dumps** | raw `Float32Array` bytes | plain little-endian reads — see `SAVEFILE_COMPAT.md` |

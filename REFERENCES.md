@@ -74,6 +74,12 @@ reproduce it. Read them to understand *why* the parameters behave as they do.
 The app's own credits screen also names the erosion work it studied — see
 `PROVENANCE.md`.
 
+## Adopted for the vault
+
+- **[`gif`](https://github.com/image-rs/image-gif)** (0.14; MIT or Apache-2.0, pure Rust, with `weezl` and `color_quant`) via
+  the `image` crate's `gif` feature, for animated GIFs in the Markdown Vault's Preview (2026-11-16). Caps and their sources
+  are in `crates/cartalith-vault/src/gif.rs`.
+
 ## Not adopted
 
 - **`bevy`** — rejected as the framework in `DECISIONS.md` §3. Its ecosystem may

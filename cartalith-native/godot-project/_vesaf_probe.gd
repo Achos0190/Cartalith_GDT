@@ -338,7 +338,7 @@ func _pictures(bridge) -> void:
 	_ok("read_bytes" in d.calls, "the bytes really came through the driver's read_bytes")
 	_ok(bridge.vault_read_image("../x.png").is_empty() and bridge.vault_read_image("Notes/N.md").is_empty(), "an escape and a note are empty")
 	_ok(String(bridge.vault_embed_open("Notes/N.md", "twin.png", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "ambiguous", "two pictures of one name are ambiguous, not picked")
-	_ok(String(bridge.vault_embed_open("Notes/N.md", "anim.gif", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "unsupported", "a gif is unsupported")
+	_ok(String(bridge.vault_embed_open("Notes/N.md", "anim.gif", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "image", "a gif is an image since the decoder (2026-11-16)")
 	_ok(String(bridge.vault_embed_open("Notes/N.md", "secret.png", PackedStringArray(["Notes/N.md"])).get("kind", "")) == "missing", "a picture in a dot-folder is missing")
 	## The size cap is asked of the handler before it reads.
 	var big := d.add("Art/huge.png", "x")

@@ -2949,7 +2949,12 @@ static func _embed_image(r: Dictionary, inner: String) -> String:
 	var w := int(got.get("w", IMG_MAX_PX))
 	if r.has("width"):
 		w = int(r["width"])
-	return "[img width=%d]%s[/img]" % [clampi(w, 1, IMG_MAX_PX), String(got["src"])]
+	var tag := "[img width=%d]%s[/img]" % [clampi(w, 1, IMG_MAX_PX), String(got["src"])]
+	## A GIF a cap held to its first frame says so, quietly, under the picture (`vault_read_gif`'s `note`).
+	if String(got.get("note", "")) != "":
+		tag += "
+[color=#%s][i]%s[/i][/color]" % [_tok_hex("text_dim"), _esc(String(got["note"]))]
+	return tag
 
 
 ## A note embed as a block: a header (`▸` name, a toggle when there is more than the collapsed

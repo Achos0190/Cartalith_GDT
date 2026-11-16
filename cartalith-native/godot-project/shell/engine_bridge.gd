@@ -8585,6 +8585,14 @@ func vault_embed_open(from: String, inner: String, stack: PackedStringArray) -> 
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_embed_open(from, inner, stack)
 
+## A vault `.gif` as RGBA frames (`WorldGen.vault_read_gif`, VE-7): `{ok, width, height, frames, delays_ms, capped, note}`,
+## or `{ok: false, error}`. Past a cap the one frame is the first and `note` says which cap.
+func vault_read_gif(rel: String) -> Dictionary:
+	if generating or not _has("vault_read_gif"):
+		return {"ok": false, "error": "this build cannot decode a GIF"}
+	return world_gen.vault_read_gif(rel)
+
+
 ## The bytes of a vault image for Preview (`WorldGen.vault_read_image`, VE-7). Empty on any refusal.
 func vault_read_image(rel: String) -> PackedByteArray:
 	if generating:

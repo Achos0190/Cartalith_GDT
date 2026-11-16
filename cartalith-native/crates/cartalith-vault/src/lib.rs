@@ -63,6 +63,7 @@ pub mod chronos;
 pub mod embed;
 pub mod export;
 pub mod frontmatter;
+pub mod gif;
 pub mod links;
 pub mod markdown;
 pub mod noteedit;

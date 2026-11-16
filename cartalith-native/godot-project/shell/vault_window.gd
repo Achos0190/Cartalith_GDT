@@ -2279,7 +2279,9 @@ func _embed_image(r: Dictionary) -> Dictionary:
 	var stamp := String(r.get("stamp", ""))
 	var hit: Variant = _img_cache.get(rel)
 	if hit != null and String((hit as Dictionary)["stamp"]) == stamp:
-		return {"src": hit["src"], "w": hit["w"], "h": hit["h"]}
+		return {"src": hit["src"], "w": hit["w"], "h": hit["h"], "note": String(hit.get("note", ""))}
+	if rel.get_extension().to_lower() == "gif":
+		return _embed_gif(rel, stamp)
 	var bytes: PackedByteArray = bridge.vault_read_image(rel)
 	if bytes.is_empty():
 		return {}
@@ -2311,6 +2313,64 @@ func _embed_image(r: Dictionary) -> Dictionary:
 	tex.take_over_path(src)
 	_img_cache[rel] = {"stamp": stamp, "src": src, "w": img.get_width(), "h": img.get_height(), "tex": tex}
 	return {"src": src, "w": img.get_width(), "h": img.get_height()}
+
+
+## Animated pictures on screen, by vault path: `{stamp, tex, frames: Array[Image], delays: PackedInt32Array, i, left}`.
+## Only a GIF that kept every frame is here; a capped one is a still and never ticks. `_process` advances them.
+var _gifs: Dictionary = {}
+
+
+## A `.gif` for Preview (VE-7, 2026-11-16): the crate decodes it (`vault_read_gif`, capped: frames, decoded bytes and side;
+## past a cap it is the first frame alone and `note` says so), a texture is registered under a name as `_embed_image`
+## does, and a frame cycler (`_process`) re-uploads the next frame into that one texture when its delay is up. Returns
+## `{src, w, h, note}`, or `{}` for a GIF that is damaged or too large to decode (Preview then says it could not be read).
+func _embed_gif(rel: String, stamp: String) -> Dictionary:
+	var got: Dictionary = bridge.vault_read_gif(rel)
+	if not bool(got.get("ok", false)):
+		return {}
+	var w := int(got["width"])
+	var h := int(got["height"])
+	var frames: Array[Image] = []
+	for raw in got["frames"]:
+		frames.append(Image.create_from_data(w, h, false, Image.FORMAT_RGBA8, raw))
+	if frames.is_empty():
+		return {}
+	var tex := ImageTexture.create_from_image(frames[0])
+	var src := "%s%s_%s.gif.png" % [IMG_REG_PREFIX, rel.md5_text(), stamp.replace(":", "_")]
+	tex.take_over_path(src)
+	var note := String(got.get("note", ""))
+	_img_cache[rel] = {"stamp": stamp, "src": src, "w": w, "h": h, "tex": tex, "note": note}
+	if frames.size() > 1:
+		_gifs[rel] = {"stamp": stamp, "tex": tex, "frames": frames, "delays": got["delays_ms"], "i": 0,
+			"left": float(got["delays_ms"][0]) / 1000.0}
+		set_process(true)
+	else:
+		_gifs.erase(rel)
+	return {"src": src, "w": w, "h": h, "note": note}
+
+
+## Steps every animated picture by the frame time. Nothing runs while the window is hidden (the note is not on screen),
+## and the cycler switches itself off when no animated picture is held.
+func _process(delta: float) -> void:
+	if _gifs.is_empty():
+		set_process(false)
+		return
+	if not visible:
+		return
+	for rel in _gifs:
+		var g: Dictionary = _gifs[rel]
+		var left := float(g["left"]) - delta
+		var n: int = (g["frames"] as Array).size()
+		var i: int = g["i"]
+		## A long frame time (a stalled window) advances at most one frame per tick, never a burst.
+		if left <= 0.0:
+			i = (i + 1) % n
+			left += float((g["delays"] as PackedInt32Array)[i]) / 1000.0
+			if left <= 0.0:
+				left = 0.001
+			(g["tex"] as ImageTexture).update((g["frames"] as Array)[i])
+			g["i"] = i
+		g["left"] = left
 
 
 ## A chronos row was clicked in Preview (VE-7): move Cartalith's year to the row's through the shell's one writer,

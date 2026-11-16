@@ -54,7 +54,7 @@ fn no_source_file_touches_the_network() {
 
 /// Protects: the dependency list is exactly `serde_json` plus the workspace's own `cartalith-vault`
 /// (Ruling DP: the one shared private-note rule lives there; the Vault crate itself depends only on
-/// `serde` and `serde_json`, checked below, so it adds no socket path). Adding any other dependency
+/// `serde`, `serde_json` and `image` with its `gif` feature alone, checked below, so it adds no socket path). Adding any other dependency
 /// (or a `[dev-dependencies]` section) fails here and needs a ruling-level reason.
 #[test]
 fn no_network_dependency() {
@@ -79,8 +79,12 @@ fn no_network_dependency() {
         .take_while(|l| !l.starts_with('['))
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .collect();
-    assert_eq!(vdeps.len(), 2, "{vdeps:?}");
+    // The vault's third dependency is `image` with ONLY its `gif` feature (animated GIFs in notes, 2026-11-16): a
+    // pure decoder over `gif`, `weezl` and `color_quant`, with no socket or HTTP path. Any other feature or crate
+    // fails here and needs a reason of the same weight.
+    assert_eq!(vdeps.len(), 3, "{vdeps:?}");
     assert!(vdeps[0].starts_with("serde = ") && vdeps[1].starts_with("serde_json "), "{vdeps:?}");
+    assert_eq!(vdeps[2], "image = { version = \"0.25.10\", default-features = false, features = [\"gif\"] }", "{vdeps:?}");
     assert!(!manifest.contains("[dev-dependencies]"));
     assert!(!manifest.contains("[build-dependencies]"));
 }
