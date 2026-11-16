@@ -3861,3 +3861,10 @@ From `7c865fb4`/`12cb6983` (PC-4, PC-6; `STATUS.md`):
 3. **Picking a conflict always moves the year to its start**, as built.
 4. **The planner window's minimum width is accepted** as it is.
 5. **The tablet's collapsed year strip grows to 44 px and gains the slider.**
+
+## Ruling FP: custom pins as an asset category (owner, 2026-11-16)
+
+Owner: *"under assets we should maybe create a category for the pins. So a user can add their own they so please."* Answers:
+1. **Each added icon is a new placeable kind** in CARTO's pin palette, under a *Custom* category, with a user-chosen name and category colour. (Overriding a built-in kind's icon was not chosen.)
+2. **Custom pins travel in asset packs**, so they can be shared and imported with other art (`ASSET_PACK_TOOLS_PROPOSAL.md`'s pack format).
+3. **They live in the user's asset library, usable in every world**; a world saves which custom pins it uses (kind id, name, colour and the icon itself or its pack reference) so it still opens and draws correctly on another device or without the library.
