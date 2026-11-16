@@ -761,7 +761,7 @@ fn the_km_grain_is_the_per_cell_grain_at_the_anchor() {
     let on = TerrainAppearance::default();
     let off = TerrainAppearance { land_grain_warp: 0.0, ..TerrainAppearance::default() };
     for cpp in [1.0, 0.25, 0.01] {
-        let gs = Some(render::GrainScale { km_per_cell: KM_PER_CELL, cells_per_px: cpp });
+        let gs = Some(render::GrainScale { km_per_cell: KM_PER_CELL, cells_per_px: cpp, relief_fade: false });
         for k in 0..300 {
             let (x, y) = (k as f64 * 3.17 + 0.5, k as f64 * 1.91 + 0.25);
             let (a, b) = (render::land_grain(&on, x, y, gw, None), render::land_grain(&on, x, y, gw, gs));
@@ -781,8 +781,8 @@ fn the_km_grain_is_the_per_cell_grain_at_the_anchor() {
 #[test]
 fn the_km_grain_is_capped_in_km_and_fades_by_footprint() {
     let l = 40075.0 / 2048.0;
-    let base = render::GrainScale { km_per_cell: l, cells_per_px: 1.0 };
-    let deep = render::GrainScale { km_per_cell: l, cells_per_px: 0.01 };
+    let base = render::GrainScale { km_per_cell: l, cells_per_px: 1.0, relief_fade: false };
+    let deep = render::GrainScale { km_per_cell: l, cells_per_px: 0.01, relief_fade: false };
     let (f, vis) = render::grain_lattice(0.06, base);
     assert_eq!(f, l / 20.0);
     assert_eq!(vis, 0.0, "a 1-cell lattice at one pixel per cell must fade out");
@@ -796,12 +796,239 @@ fn the_km_grain_is_capped_in_km_and_fades_by_footprint() {
     // `150/gw` lattice is 3.4 cells = 8 km, kept bit for bit and never faded
     // (it is under the cap), even at one pixel per cell where 3.4 cells is
     // inside the fade band -- the fade is for capped lattices only.
-    let r = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 0.05 };
+    let r = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 0.05, relief_fade: false };
     assert_eq!(render::grain_lattice(0.06, r).0, 1200.0 / 512.0 / 20.0);
     assert_eq!(render::grain_lattice(150.0 / 512.0, r), (150.0 / 512.0, 1.0));
-    let r1 = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 1.0 };
+    let r1 = render::GrainScale { km_per_cell: 1200.0 / 512.0, cells_per_px: 1.0, relief_fade: false };
     assert_eq!(render::grain_lattice(150.0 / 512.0, r1), (150.0 / 512.0, 1.0));
     assert_eq!(render::LAND_GRAIN_MAX_KM, 20.0);
+}
+
+// ---- Ruling FG, F3 leftover: the low-relief fade ------------------------
+
+/// A world-sized scale: 40 075 km over 2 048 cells, at `px_km` kilometres per
+/// output pixel.
+fn world_scale(px_km: f64) -> render::GrainScale {
+    let l = 40075.0 / 2048.0;
+    render::GrainScale { km_per_cell: l, cells_per_px: px_km / l, relief_fade: true }
+}
+
+/// The luma standard deviation of `(luma, x, y)` samples after removing their
+/// best-fit plane (lighting is a plane; what is left is mottle and grain).
+fn plane_std(v: &[(f64, f64, f64)]) -> f64 {
+    let (mut sl, mut sx, mut sy, mut sxx, mut syy, mut sxl, mut syl) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let cnt = v.len() as f64;
+    for &(l, x, y) in v {
+        sl += l; sx += x; sy += y; sxx += x * x; syy += y * y; sxl += x * l; syl += y * l;
+    }
+    let (mx, my, ml) = (sx / cnt, sy / cnt, sl / cnt);
+    let (bx, by) = ((sxl / cnt - mx * ml) / (sxx / cnt - mx * mx), (syl / cnt - my * ml) / (syy / cnt - my * my));
+    let var = v.iter().map(|&(l, x, y)| { let r = l - (ml + bx * (x - mx) + by * (y - my)); r * r }).sum::<f64>() / cnt;
+    var.sqrt()
+}
+
+/// Protects: `grain_relief_keep` written out as literals -- 1 on steep ground
+/// (`>= 0.010`), on any ground at under 0.5 km/px, and for no known slope;
+/// `0.25` (the flat keep) on flat ground (`<= 0.002`) at `>= 2` km/px; and the
+/// two ramps' midpoints (`smoothstep` is 0.5 at the middle of its range, so
+/// slope 0.006 at far zoom is `1 - 0.5 * 0.75 = 0.625`, and slope 0 at
+/// 1.25 km/px is the same). The constants are asserted as literals so
+/// mutating any one of them fails here.
+#[test]
+fn the_low_relief_fade_is_one_where_it_should_be_and_a_quarter_on_flat_far_ground() {
+    let keep = |px_km: f64, slope: f64| render::grain_relief_keep(world_scale(px_km), slope);
+    assert_eq!(keep(2.5, 0.010), 1.0, "steep ground faded");
+    assert_eq!(keep(2.5, 0.5), 1.0, "steep ground faded");
+    assert_eq!(keep(0.5, 0.0), 1.0, "a 0.5 km/px view faded");
+    assert_eq!(keep(0.05, 0.0), 1.0, "a deep zoom faded");
+    assert_eq!(keep(2.5, f64::INFINITY), 1.0, "no slope must mean no fade");
+    assert_eq!(keep(2.5, f64::NAN), 1.0, "a NaN slope must mean no fade");
+    assert_eq!(keep(2.0, 0.002), 0.25, "flat far ground keeps a quarter");
+    assert_eq!(keep(40.0, 0.0), 0.25);
+    assert!((keep(2.5, 0.006) - 0.625).abs() < 1e-12, "slope ramp midpoint: {}", keep(2.5, 0.006));
+    assert!((keep(1.25, 0.0) - 0.625).abs() < 1e-12, "distance ramp midpoint: {}", keep(1.25, 0.0));
+    assert_eq!(render::LAND_GRAIN_FLAT_KEEP, 0.25);
+    assert_eq!(render::LAND_GRAIN_FAR_KM_PX, (0.5, 2.0));
+    assert_eq!(render::LAND_GRAIN_FLAT_SLOPE, (0.002, 0.010));
+}
+
+/// Protects: the fade scales a **capped** lattice's visibility and nothing
+/// else. At x8 on the world (2.5 km/px, so the 20 km lattice is 8 px and fully
+/// visible) every one of the three samples' deviation from its mean on flat
+/// ground is exactly the flat keep times the steep ground's -- the fade is a
+/// scale about `0.5`, `0.6 a + 0.4 b` included -- and a lattice the cap does
+/// not touch ignores `keep` altogether.
+#[test]
+fn the_low_relief_fade_scales_a_capped_lattice_about_its_mean() {
+    let a = TerrainAppearance::default();
+    let gs = Some(world_scale(2.5));
+    let mut moved = 0;
+    for k in 0..200 {
+        let (x, y) = (k as f64 * 2.13 + 0.5, k as f64 * 1.07 + 0.25);
+        let steep = render::land_grain_at(&a, x, y, 2048, gs, 0.5);
+        let flat = render::land_grain_at(&a, x, y, 2048, gs, 0.0);
+        assert_eq!(steep, render::land_grain(&a, x, y, 2048, gs), "a steep pixel must be the unfaded jitter");
+        for (s, f) in [(steep.0, flat.0), (steep.1, flat.1), (steep.2, flat.2)] {
+            assert!(((f - 0.5) - 0.25 * (s - 0.5)).abs() < 1e-12, "flat {f} is not a quarter of steep {s} about the mean");
+        }
+        if (steep.0 - 0.5).abs() > 0.05 {
+            moved += 1;
+        }
+    }
+    assert!(moved > 50, "premise: the unfaded lattice varies ({moved} of 200 moved)");
+    // The screen raster (`relief_fade: false`) never fades, whatever its km per
+    // cell: its pixel is a cell the viewer magnifies, not a real output pixel.
+    let raster = Some(render::GrainScale { relief_fade: false, ..world_scale(2.5) });
+    for k in 0..50 {
+        let (x, y) = (k as f64 * 2.13 + 0.5, k as f64 * 1.07 + 0.25);
+        assert_eq!(render::land_grain_at(&a, x, y, 2048, raster, 0.0), render::land_grain_at(&a, x, y, 2048, raster, 0.5), "the raster faded on flat ground");
+    }
+    // An uncapped lattice (a 200 km / 2048 map's, 0.1 km/cell) ignores keep.
+    let small = render::GrainScale { km_per_cell: 0.1, cells_per_px: 1.0, relief_fade: true };
+    assert_eq!(render::grain_lattice_relief(0.06, small, 0.25), (0.06, 1.0));
+    assert_eq!(render::grain_lattice_relief(0.06, small, 0.25), render::grain_lattice(0.06, small));
+}
+
+/// Protects: Ruling FG's B6 at the lattice -- the 800 km / 2 048 anchor's three
+/// samples are the per-cell jitter **bit for bit at every slope and every
+/// footprint**, from a deep tile to 40 km a pixel, because no anchor lattice is
+/// capped and so none can fade.
+#[test]
+fn the_low_relief_fade_never_touches_the_anchor() {
+    let gw = 2048;
+    let a = TerrainAppearance::default();
+    for px_km in [0.01, 0.4, 1.0, 2.5, 40.0] {
+        let gs = Some(render::GrainScale { km_per_cell: KM_PER_CELL, cells_per_px: px_km / KM_PER_CELL, relief_fade: true });
+        for slope in [0.0, 0.001, 0.006, 0.05] {
+            for k in 0..60 {
+                let (x, y) = (k as f64 * 3.17 + 0.5, k as f64 * 1.91 + 0.25);
+                let (p, q) = (render::land_grain(&a, x, y, gw, None), render::land_grain_at(&a, x, y, gw, gs, slope));
+                assert_eq!((p.0.to_bits(), p.1.to_bits(), p.2.to_bits()), (q.0.to_bits(), q.1.to_bits(), q.2.to_bits()), "anchor moved at {px_km} km/px, slope {slope}");
+            }
+        }
+    }
+}
+
+/// Protects: the fade is wired to the **land's own slope** through the
+/// export pixel (`land_color`'s `slope` into `land_grain_at`), not only
+/// correct in isolation: on a 1 252 km / 64-cell map (19.6 km a cell, the 40 075 km
+/// world's) rendered at 2.5 km a pixel, a hot dry flat patch carries under
+/// four fifths of the mottle (luma standard deviation after removing a plane)
+/// of the same patch on a sawtooth of 0.0105-a-cell slope. Measured 2026-11-16:
+/// flat 0.0327 against 0.0497 sloped (0.66); with `land_color` reading no slope
+/// (the mutant that passes infinity) 0.0459 (0.92). The ratio is not a quarter
+/// because the flat patch keeps the lattices' `LAND_GRAIN_FLAT_KEEP` and every
+/// other grain; the bound sits between the two measurements.
+#[test]
+fn a_flat_desert_at_far_zoom_is_smoother_than_a_sloped_one() {
+    let n = GW * GH;
+    let (temp, rain) = (vec![30.0f32; n], vec![0.05f32; n]);
+    let flat = vec![0.5f32; n];
+    let mut saw = vec![0f32; n];
+    for y in 0..GH {
+        for x in 0..GW {
+            saw[y * GW + x] = (0.45 + 0.0105 * (x % 16) as f64) as f32;
+        }
+    }
+    let km = 40075.0 / 2048.0 * GW as f64;
+    let step = 2.5 / (40075.0 / 2048.0);
+    let patch = |field: &Vec<f32>| -> f64 {
+        let c = RenderCtx::with_appearance(field, &temp, &rain, None, GW, GH, SEA, false, 55.0, 5.0, plain()).with_map_scale(km);
+        let bf = BakeFields::new(&c);
+        // 40 x 40 pixels at 0.128 cells: 5 cells across, inside one sawtooth tooth.
+        let m = 40;
+        let (x0, y0) = (17.0, 20.0);
+        let mut v = Vec::with_capacity(m * m);
+        for j in 0..m {
+            for i in 0..m {
+                let p = bf.pixel_at(&c, x0 + i as f64 * step, y0 + j as f64 * step, (step, step), None);
+                v.push((0.2126 * p.0 + 0.7152 * p.1 + 0.0722 * p.2, i as f64, j as f64));
+            }
+        }
+        plane_std(&v)
+    };
+    let (s_flat, s_steep) = (patch(&flat), patch(&saw));
+    println!("flat {s_flat:.5} steep {s_steep:.5}");
+    assert!(s_steep > 0.003, "premise: the sloped desert carries mottle ({s_steep})");
+    assert!(s_flat < 0.8 * s_steep, "flat desert at 2.5 km/px kept {s_flat:.5} of {s_steep:.5}");
+}
+
+/// Protects: the same wiring through a **deep-zoom tile** (`render_biome_tile_rgba`'s
+/// `ctx.grain_scale(.., true)`): a 40 x 40 texel tile 5 cells wide on the
+/// 19.6 km-a-cell world (2.5 km a texel) over the flat field carries under
+/// four fifths of the mottle of the same tile over the sawtooth field.
+#[test]
+fn a_flat_desert_tile_at_far_zoom_is_smoother_than_a_sloped_one() {
+    let n = GW * GH;
+    let (temp, rain) = (vec![30.0f32; n], vec![0.05f32; n]);
+    let flat = vec![0.5f32; n];
+    let mut saw = vec![0f32; n];
+    for y in 0..GH {
+        for x in 0..GW {
+            saw[y * GW + x] = (0.45 + 0.0105 * (x % 16) as f64) as f32;
+        }
+    }
+    let km = 40075.0 / 2048.0 * GW as f64;
+    let m = 40usize;
+    let bounds = TileBounds { x: 17.0, y: 20.0, w: 5.0, h: 5.0 };
+    let tile_std = |field: &Vec<f32>| -> f64 {
+        let c = RenderCtx::with_appearance(field, &temp, &rain, None, GW, GH, SEA, false, 55.0, 5.0, plain()).with_map_scale(km);
+        let tf = TileFields::new(&c, None).without_lakes();
+        // The tile's own heights: the field's value at each texel (bilinear in x only, the field varies in x).
+        let mut th = vec![0f32; m * m];
+        for j in 0..m {
+            for i in 0..m {
+                let gx = bounds.x + bounds.w * i as f64 / (m - 1) as f64;
+                let (x0, fx) = (gx.floor() as usize, gx - gx.floor());
+                let y0 = (bounds.y.floor() as usize).min(GH - 1);
+                let v = field[y0 * GW + x0] as f64 * (1.0 - fx) + field[y0 * GW + (x0 + 1).min(GW - 1)] as f64 * fx;
+                th[j * m + i] = v as f32;
+            }
+        }
+        let px = render::render_biome_tile_rgba(&c, &th, m, m, bounds, &tf);
+        assert_eq!(px.len(), m * m * 4);
+        let v: Vec<(f64, f64, f64)> = px.chunks(4).enumerate().map(|(k, p)| (0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64, (k % m) as f64, (k / m) as f64)).collect();
+        plane_std(&v)
+    };
+    let (s_flat, s_steep) = (tile_std(&flat), tile_std(&saw));
+    println!("tile flat {s_flat:.4} steep {s_steep:.4}");
+    assert!(s_steep > 0.5, "premise: the sloped desert tile carries mottle ({s_steep})");
+    assert!(s_flat < 0.8 * s_steep, "flat desert tile at 2.5 km/px kept {s_flat:.4} of {s_steep:.4}");
+}
+
+/// Protects: the screen raster is **exempt** from the fade (`ctx.grain_scale(1.0,
+/// false)` in `cell_color`): on a 150 km / 64-cell map (2.3 km a cell, the 1 200
+/// km / 512 region's scale) the flat patch keeps at least seven tenths of the
+/// sloped patch's mottle (measured 2026-11-16: 0.052 against 0.066, 0.80; with
+/// the raster faded, the mutant, 0.041, 0.62). The raster's pixel is a cell the viewer magnifies, so
+/// its km per pixel says nothing about how far away the viewer is.
+#[test]
+fn the_screen_raster_does_not_fade_on_flat_ground() {
+    let n = GW * GH;
+    let (temp, rain) = (vec![30.0f32; n], vec![0.05f32; n]);
+    let flat = vec![0.5f32; n];
+    let mut saw = vec![0f32; n];
+    for y in 0..GH {
+        for x in 0..GW {
+            saw[y * GW + x] = (0.45 + 0.0105 * (x % 16) as f64) as f32;
+        }
+    }
+    let km = 2.34 * GW as f64;
+    let raster_std = |field: &Vec<f32>| -> f64 {
+        let c = RenderCtx::with_appearance(field, &temp, &rain, None, GW, GH, SEA, false, 55.0, 5.0, plain()).with_map_scale(km);
+        let mut v = Vec::new();
+        for y in 8..40 {
+            for x in 17..31 {
+                let p = render::cell_color(&c, x, y);
+                v.push((0.2126 * p.0 + 0.7152 * p.1 + 0.0722 * p.2, x as f64, y as f64));
+            }
+        }
+        plane_std(&v)
+    };
+    let (s_flat, s_steep) = (raster_std(&flat), raster_std(&saw));
+    println!("raster flat {s_flat:.5} steep {s_steep:.5}");
+    assert!(s_steep > 0.003, "premise: the raster carries mottle ({s_steep})");
+    assert!(s_flat >= 0.7 * s_steep, "the raster faded on flat ground: {s_flat:.5} of {s_steep:.5}");
 }
 
 /// Protects: Ruling FG's biome roughness `ρ` -- the findings' F1 values at
@@ -829,7 +1056,7 @@ fn the_detail_roughness_follows_the_biome() {
 fn the_world_warp_is_capped_with_its_lattices() {
     let l = 40075.0 / 2048.0;
     let a = TerrainAppearance::default();
-    let gs = render::GrainScale { km_per_cell: l, cells_per_px: 0.01 };
+    let gs = render::GrainScale { km_per_cell: l, cells_per_px: 0.01, relief_fade: false };
     let k = a.land_grain_warp * 0.5;
     assert!(k > 0.0, "premise: the shipped look warps the grain");
     let p = 20.0 / l;

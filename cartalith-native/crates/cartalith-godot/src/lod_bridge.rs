@@ -2763,6 +2763,111 @@ mod tests {
         assert!(p50 < 900.0 && b50 < 1400.0, "a context build regressed past its measured cost by 4x: {p50:.1} / {b50:.1} ms");
     }
 
+    /// **Deep-zoom tile time and peak memory per pyramid level** -- the phone
+    /// pass Ruling FG's F2 left open (it deepened the pyramid to
+    /// [`MAX_LEVEL`] = 16), kept runnable for `PERFORMANCE_BENCHMARKS.md`
+    /// section 12.7. For each map width in `TILE_BENCH_KM` (kilometres,
+    /// comma-separated; default `1200,40075`) it builds a 2048x1311 context
+    /// under the shipped Vibrant look (the kilometre law on) and times
+    /// `TILE_BENCH_RUNS` (default 5) tiles at every level in `TILE_BENCH_LEVELS`
+    /// (default `6,10,13,16`), printing the median with min..max, the map's own
+    /// deepest level ([`max_level_for_map`]), and the process's peak resident
+    /// set so far (`VmHWM` on Linux and Android; PowerShell's
+    /// `PeakWorkingSet64` elsewhere).
+    ///
+    /// **Not a real world**: the field is the fixture's smooth ramp, so the
+    /// kilometre law sizes its octaves from a gentle relief. A tile's cost is
+    /// the same per octave whatever the relief, so the per-level *shape* is
+    /// the real one; the level's absolute figure on a mountain is the same
+    /// order. The tile is read at fixed fractions of the level's grid, away
+    /// from the fixture's western sea.
+    ///
+    /// ```text
+    /// cargo test -p cartalith-godot --release --lib -- --ignored --nocapture --test-threads=1 deep_tile_cost_by_level
+    /// ```
+    ///
+    /// Protects: nothing by assertion (it is a measurement, never a budget);
+    /// it asserts only that each tile came back the size `tile_size_px` says,
+    /// so a timed empty tile cannot pass.
+    #[test]
+    #[ignore = "a measurement for PERFORMANCE_BENCHMARKS.md 12.7; run alone, in release"]
+    fn deep_tile_cost_by_level() {
+        fn peak_rss_mb() -> String {
+            if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
+                if let Some(l) = s.lines().find(|l| l.starts_with("VmHWM:")) {
+                    let kb: f64 = l.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    return format!("{:.0} MB", kb / 1024.0);
+                }
+            }
+            let out = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).PeakWorkingSet64", std::process::id())])
+                .output();
+            match out.ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|t| t.trim().parse::<f64>().ok()) {
+                Some(b) => format!("{:.0} MB", b / 1_048_576.0),
+                None => "n/a".to_string(),
+            }
+        }
+        let list = |key: &str, default: &str| -> Vec<f64> {
+            std::env::var(key).unwrap_or_else(|_| default.to_string()).split(',').filter_map(|v| v.trim().parse().ok()).collect()
+        };
+        let widths = list("TILE_BENCH_KM", "1200,40075");
+        let levels = list("TILE_BENCH_LEVELS", "6,10,13,16");
+        let runs = env_usize("TILE_BENCH_RUNS", 5);
+        let (gw, gh) = (2048usize, 1311usize);
+        let mut field = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let (u, v) = (x as f64 / gw as f64, y as f64 / gh as f64);
+                field[y * gw + x] = (0.60 + 0.12 * (u * 6.0).sin() * (v * 5.0).cos() + 0.02 * (u * 61.0).sin()) as f32;
+            }
+        }
+        let mut temp = vec![0f32; gw * gh];
+        let mut rain = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let (u, v) = (x as f64 / gw as f64, y as f64 / gh as f64);
+                temp[y * gw + x] = (24.0 - 38.0 * v) as f32;
+                rain[y * gw + x] = (0.28 + 0.60 * (u * 3.0 + 0.7).sin().abs()) as f32;
+            }
+        }
+        println!("start: peak {}", peak_rss_mb());
+        for km in widths {
+            let a = TestWorld::appearance();
+            let pre = render::GridPrecompute::build(&field, &temp, &rain, Some(&field), gw, gh, TEST_SEA, false, &a, Some(km));
+            let t0 = std::time::Instant::now();
+            let ctx = render::RenderCtx::from_precomputed(&field, &temp, &rain, Some(&field), gw, gh, TEST_SEA, false, 55.0, 5.0, TestWorld::appearance(), &pre).expect("the precompute is for this grid");
+            let tf = TileFields::new(&ctx, None);
+            let ctx_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            let map_max = max_level_for_map(render::zoom_detail_km_law(Some(km), gw, TestWorld::appearance().zoom_detail_km, 0.0).map(|k| k.km_per_cell));
+            println!("map {km} km: km/cell {:.3}, map max level {map_max}, context+fields {ctx_ms:.0} ms, peak {}", km / gw as f64, peak_rss_mb());
+            for &lz in &levels {
+                let z = lz as i32;
+                let n = 1i64 << z;
+                // Tiles at fixed map fractions (land side of the fixture), one per run.
+                let spots = [(0.62, 0.40), (0.70, 0.50), (0.78, 0.35), (0.66, 0.60), (0.85, 0.45)];
+                let tile = |k: usize| {
+                    let (fx, fy) = spots[k % spots.len()];
+                    ((fx * n as f64) as i32, (fy * n as f64 * gh as f64 / gw as f64) as i32)
+                };
+                let (c0, r0) = tile(0);
+                let _ = synthesize_tile_rgba(&ctx, &tf, z, c0, r0, 1234).expect("warm tile");
+                let mut ms: Vec<f64> = (0..runs)
+                    .map(|k| {
+                        let (c, r) = tile(k);
+                        let t = std::time::Instant::now();
+                        let (px, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, c, r, 1234).expect("tile");
+                        let e = t.elapsed().as_secs_f64() * 1000.0;
+                        assert_eq!((tw, th), tile_size_px(gw, gh, z));
+                        assert_eq!(px.len(), tw * th * 4);
+                        e
+                    })
+                    .collect();
+                ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                println!("  level {z:2}: {:.2} ms ({:.2}..{:.2}) over {runs} tiles, peak {}", ms[ms.len() / 2], ms[0], ms[ms.len() - 1], peak_rss_mb());
+            }
+        }
+    }
+
     // -- what a stored pyramid actually costs ------------------------------
 
     /// Reads an environment variable as `usize`, falling back to `default` when it

@@ -78,6 +78,7 @@ its rule before you start.
 | **Reserve a file from every lane** | Reservation strands the fix that needs it: three lanes needed index rows, none could write them | Give the shared file to exactly one lane, or have the main loop land those edits before the batch is done |
 | **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks" summarised `04-left-dock.md` §3, which gates **one node of ten**, and an owner accepted "this hides controls" on it | Quote the spec's own condition column |
 | **Claim a mechanism is "derived, not hardcoded"** | Check every line: the mode switch derived **visibility** but hardcoded node source, labels and refresh | Name derived and non-derived parts separately |
+| **Gate a render stage on "km per output pixel" (or any footprint)** | Ask **what the pixel is** at each call site. The screen raster's pixel is a grid cell the viewer then magnifies, so its km per pixel says nothing about how far away the viewer is: a low-relief fade keyed to it changed a 1 200 km / 512-cell map's fit view (2026-11-16, Ruling FG leftover) | Diff the map area of before/after frames for the **configs the change is not meant to touch**, not only the one it fixes; give each call site its own flag (`GrainScale::relief_fade`) |
 | **Write a probe's usage header** | The header is a claim about the probe's code: a documented `--resolution` it never read (`-- --vp WxH`) measured **the same box three times as three densities** | Grep the flag in the body; make the harness **fail loudly** on an unknown argument |
 | **Add anything to an approved artboard** | **Content added below the fold evicts content above it**: a ~225 px block took `scrollHeight` 1 457 to 1 754 against a declared 1 012 frame and pushed CONTRAST out of frame | Measure `scrollHeight` vs the frame's `h` before and after; raise the frame in `canvas.json` **and** the root height together |
 | **Delete a surface** | **Inventory it item by item, each with a stated home or drop.** Folding a window found 11 items: 6 homed, 2 to build, 2 dropped, **1 silent capability loss** | Grep each binding for other consumers; grep the class name across probes and `.tscn` (eight probes referenced this one) |
@@ -780,6 +781,14 @@ Rule: any "new" action resets every identity field (path, name, dirty flag), tes
 - **Rule:** write an owner file inside the lock directory that names you, wait while the lock exists, and remove the directory ONLY if its owner file is yours (`grep` for your own tag before `rm -rf`); release in a `finally`/`trap`; a hard timeout on every run so a crash cannot strand it. A lock whose owner is not you is never yours to remove, however old it looks: report it instead.
 - **How to verify:** start a run while another holds the lock: it must wait. Kill a run mid-way: its `trap` removes the lock because the owner file names it, and a second agent's lock is left standing.
 - **Session:** the VE-5 session (2026-11-08), recorded from the PC-4 and VE-4 reports. **[verified]**: the lock wrapper used for this session's probes (`ve5_run.sh`) takes it with `mkdir`, writes the owner file, and releases only when that file names this session.
+
+## 27. A footprint-keyed fade also fired on the screen raster, whose pixel is a magnified cell
+
+- **Preflight trigger:** *Gate a render stage on "km per output pixel"*
+- **Root cause:** `land_grain`'s low-relief fade (Ruling FG leftover) was first keyed to `GrainScale`'s km per pixel for every caller. The tile and export paths have a real output pixel; `cell_color`'s `grain_scale(1.0)` is one grid cell, which the viewer magnifies, so a coarse-celled map (1 200 km over 512 cells: 2.3 km a cell) read as "far zoom" at its own fit view. The first full capture changed every `region512` frame, the `w1200` and `w5000` ones too (the latter fit views by up to 62 levels), none of which the change was meant to touch.
+- **Rule:** a stage keyed to a footprint takes a per-call-site flag for whether that footprint is real; the screen raster is exempt unless a bar says otherwise.
+- **How to verify:** pixel-diff the map area of the before and after captures for every config in the sweep and list which changed; 50 of 74 are byte-identical after the fix (`land-grain-flat-2026-11-16/metrics.txt`), and `the_screen_raster_does_not_fade_on_flat_ground` fails if the raster fades.
+- **Session:** the Ruling FG leftovers session (2026-11-16). **[verified]**: the frame diff and the test.
 
 ## Suggested handling
 

@@ -1,0 +1,32 @@
+=== rep=2 km=40075 level=16
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 895 ms, peak 112 MB
+  level 16: 88.72 ms (84.73..100.38) over 9 tiles, peak 112 MB
+=== rep=2 km=40075 level=10
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 898 ms, peak 100 MB
+  level 10: 74.62 ms (62.95..83.55) over 9 tiles, peak 100 MB
+=== rep=2 km=1200 level=16
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 930 ms, peak 100 MB
+  level 16: 94.38 ms (77.35..104.28) over 9 tiles, peak 100 MB
+=== rep=2 km=1200 level=10
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 887 ms, peak 115 MB
+  level 10: 83.43 ms (65.98..106.54) over 9 tiles, peak 115 MB
+=== rep=3 km=40075 level=16
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 872 ms, peak 100 MB
+  level 16: 91.48 ms (79.40..122.29) over 9 tiles, peak 100 MB
+=== rep=3 km=40075 level=10
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 881 ms, peak 111 MB
+  level 10: 76.97 ms (67.77..127.68) over 9 tiles, peak 111 MB
+=== rep=3 km=1200 level=16
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 906 ms, peak 121 MB
+  level 16: 94.06 ms (84.16..99.39) over 9 tiles, peak 121 MB
+=== rep=3 km=1200 level=10
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 896 ms, peak 110 MB
+  level 10: 77.41 ms (65.99..86.89) over 9 tiles, peak 110 MB

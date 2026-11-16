@@ -1,0 +1,41 @@
+=== km=1200 level=10 10:27:17
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 966 ms, peak 101 MB
+  level 10: 79.40 ms (73.77..95.71) over 7 tiles, peak 101 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.58s
+=== km=1200 level=16 10:27:36
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 916 ms, peak 126 MB
+  level 16: 96.96 ms (78.16..114.21) over 7 tiles, peak 126 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.57s
+=== km=1200 level=6 10:27:55
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 889 ms, peak 122 MB
+  level  6: 68.59 ms (63.31..80.30) over 7 tiles, peak 122 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.38s
+=== km=1200 level=13 10:28:13
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 1200 km: km/cell 0.586, map max level 11, context+fields 897 ms, peak 131 MB
+  level 13: 81.64 ms (73.19..110.47) over 7 tiles, peak 131 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.45s
+=== km=40075 level=10 10:28:32
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 892 ms, peak 121 MB
+  level 10: 73.49 ms (62.14..81.12) over 7 tiles, peak 121 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.39s
+=== km=40075 level=16 10:28:51
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 886 ms, peak 128 MB
+  level 16: 86.86 ms (81.98..99.14) over 7 tiles, peak 128 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.58s
+=== km=40075 level=6 10:29:09
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 873 ms, peak 119 MB
+  level  6: 69.47 ms (59.47..86.76) over 7 tiles, peak 119 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.37s
+=== km=40075 level=13 10:29:28
+test lod_bridge::tests::deep_tile_cost_by_level ... start: peak 44 MB
+map 40075 km: km/cell 19.568, map max level 16, context+fields 900 ms, peak 126 MB
+  level 13: 83.08 ms (70.92..90.76) over 7 tiles, peak 126 MB
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1394 filtered out; finished in 3.45s
+ALLDONE

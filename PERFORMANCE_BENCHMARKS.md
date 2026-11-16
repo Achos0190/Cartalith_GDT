@@ -1187,3 +1187,65 @@ flow: every edit is inside a `use_gpu` branch, the civ layer's CPU calls, or the
 **Reproducing:** the commands of 12.6, and on the handset
 `SNAP_REPS=1 SNAP_WARM=1 SNAP_GPU=1 ./<binary> device_stage_bench --ignored --nocapture --test-threads 1` (the driver
 used is a 20-line shell loop: one process per run, 20 s sleep, the app guard).
+
+### 12.9 Deep-zoom tile time and memory per pyramid level, the 6T against the PC (2026-11-16, Ruling FG's F2 leftover)
+
+**The question** (`OUTSTANDING_WORK.md`, "World emboss"): Ruling FG's F2 deepened the LOD pyramid to 16 levels
+(`lod_bridge::MAX_LEVEL`; `max_level_for_map` gives a 40 075 km / 2 048-cell world level 16 and a 1 200 km one level 11),
+measured only on the PC (tile 7.2-7.7 -> 8.9-9.5 ms from level 10 to 16, working set 2.02 -> 2.03 GB). Does the 6T
+pay for it?
+
+**Harness:** `lod_bridge::tests::deep_tile_cost_by_level` (`#[ignore]`d; added by this pass). It builds a 2048 x 1311
+context under the shipped Vibrant look (the kilometre law on) for one map width, times `TILE_BENCH_RUNS` tiles at the
+level in `TILE_BENCH_LEVELS` through `synthesize_tile_rgba`, and prints the process's peak resident set (`VmHWM` on
+Android, PowerShell's `PeakWorkingSet64` on the PC). **One process per width and level**, so the peak is that level's
+alone. **The field is the fixture's smooth ramp, not a generated world**: a tile's cost per octave does not depend on
+the relief, so the shape across levels is real, the absolute figure on a mountain is the same order and untested.
+Commands, as in 12.5: `cargo ndk -t arm64-v8a test --release -p cartalith-godot --lib --no-run`, push to
+`/data/local/tmp`, run under `adb shell`; on the PC `cargo test --release -p cartalith-godot --lib --no-run` and the
+executable directly, run alone (other sessions' builds were at 4-8 % load). The 6T had the installed Cartalith app
+resident and idle (about 10 % of one core, 708 MB PSS), 8 s to 15 s between runs, battery 21-22 degC. The 6T binary is
+this change's tree; its tile path differs from the PC build's only by the new relief fade, one comparison per pixel.
+Raw output: `cartalith-native/docs/evidence/land-grain-flat-2026-11-16/` (`phone_6t_tile_bench.txt`,
+`phone_6t_tile_bench_reps.txt`, `pc_tile_bench.txt`, `scripts/phone_loop.sh`).
+
+**Results, one 256 px tile, median ms (min..max).** The 6T: level 10 and 16 are three separate processes (7 then 9 and
+9 tiles each, the median of the three medians shown, then the three spreads); levels 6 and 13 one process. The PC: one
+process of 7 tiles.
+
+| map | level | 6T | PC | 6T / PC |
+|---|---|---|---|---|
+| 40 075 km (km/cell 19.6, map max 16) | 6 | 69.5 (59.5..86.8) | 8.10 (8.02..8.45) | 8.6x |
+| | 10 | **74.6** (73.5, 75.0, 77.0 medians; 62..128) | 9.60 (9.47..9.80) | 7.8x |
+| | 13 | 83.1 (70.9..90.8) | 10.81 (10.61..11.32) | 7.7x |
+| | 16 | **88.7** (86.9, 88.7, 91.5 medians; 79..122) | 11.96 (11.94..13.91) | 7.4x |
+| 1 200 km (km/cell 0.59, map max 11) | 6 | 68.6 (63.3..80.3) | 8.62 (8.49..8.99) | 8.0x |
+| | 10 | **79.4** (79.4, 83.4, 77.4; 66..107) | 10.24 (10.08..10.91) | 7.8x |
+| | 13 | 81.6 (73.2..110.5) | 11.12 (11.04..11.47) | 7.3x |
+| | 16 (beyond the app's 11) | **94.4** (97.0, 94.4, 94.1; 77..114) | 11.95 (11.61..12.70) | 7.9x |
+
+Level 16 against level 10 costs the 6T 1.19x on both widths and the PC 1.25x and 1.17x: the deepening adds about
+14 ms a tile on the 6T. The context (`GridPrecompute` plus `TileFields`) takes the 6T 0.87-0.97 s and the PC 0.225 s,
+once per world (4x, the same 12.4-style gap as generation). **Peak resident set:** the 6T 100-131 MB in every run
+(44 MB at start), with no pattern across levels or widths (the spread is allocator noise: the same level read 100,
+112 and 128 MB); the PC 148-149 MB (39-40 MB at start). A tile is 256 x 256 x 4 bytes whatever its level, so the tile
+cache (`budget_for_tier`: 32-35 tiles, about 9 MB) does not grow either; the deepening adds no memory to anything
+this bench can see. For scale the idle Cartalith app held 708 MB PSS with a world loaded, on a device with 7.8 GB
+and about 2.9 GB available.
+
+**The budget, stated before the verdict (labelled judgement, not a measured limit).** (1) The deepest level's tile
+costs at most 1.5x the same device's level-10 tile, because level 10 is what shipped and F2 must not make a tile on
+the phone worse per level than it was; (2) a deepest-level tile at most 150 ms on the 6T (about nine 60 Hz frames, and
+tiles are built off the main thread); (3) the deepening adds at most 100 MB of peak resident set, and the whole bench
+stays under 5 % of the device's RAM. Measured: 1.19x, 122 ms in the worst single tile of any level-16 run, and no
+measurable addition with a 131 MB maximum (1.7 % of 7.8 GB). **All three are met, so no cap was applied** and
+`tier_max_for_map` is unchanged: Android already clamps Quality to Balanced (`render::recommended_quality_tier`), Balanced keeps
+the map's own depth, and Performance one level shallower. A rule of "tile time over 3x the PC's" would not have been a
+test of F2: the 6T is 7.3-8.6x the PC **at every level, including the shipped level 6 and 10**, which is the 845's
+speed (compare 12.4), not the deepening's cost.
+
+**Not measured, and why it matters.** The app's own peak with a deep-zoom pyramid on screen (driving the installed app
+would disturb its state, and `run-as` is out of bounds), tiles over a real mountain world rather than the fixture's
+gentle ramp, several tiles in flight at once under the app's `max_in_flight` (the bench runs one tile at a time on the
+pool), and sustained thermal behaviour over minutes. If a real session at depth stutters on the 6T the place to look
+is the number of tiles in flight, not the level.

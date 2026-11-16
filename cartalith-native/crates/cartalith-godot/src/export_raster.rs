@@ -3512,18 +3512,33 @@ mod adjust_census_tests {
     /// graded (screen `c8ccbd392357704a` -> `b8f16f53779f81cf`, river `b2bdfa51afcd5cb2` -> `ae19e7cae54b4d07`, screen_p3 `6063a4ae6bc1ad40` -> `55bcaa2455414613`, river_p3 `e22ce901929f7983` -> `9a7b45075c2d5160`, export `59cd9b20ff25d48c` -> `4b62fefbf1b712d3`, banded `59cd9b20ff25d48c` -> `4b62fefbf1b712d3`, crop `cba3ab40ad832616` -> `3a6eac645774a3ee`, tile `00b42099db05d215` -> `2b8f957ac4e1e427`);
     /// antique (screen `7fca3a251c65239d` -> `5f05026b3901c83e`, river `521f9e9e2b7749cb` -> `2e9f436d82a51911`, screen_p3 `acc666ffd7ad0ec9` -> `3aac1679f075bb1f`, river_p3 `35822b95fd82a56b` -> `6dd863d89db62f09`, export `947882011c732c44` -> `6ff983fa2c1b7731`, banded `947882011c732c44` -> `6ff983fa2c1b7731`, crop `4d041437e630f9e9` -> `e78105cb326592f2`, tile `ed22828fcecb7aad` -> `8e06da50b9acb6da`);
     /// satellite (screen `bd01eee2a9e52276` -> `9a73323870452c50`, river `895026335de0b58b` -> `a33b0831066d545f`, screen_p3 `28baa9926c723d4a` -> `463f5a0be5f900d4`, river_p3 `2d525003219a9d96` -> `4c7f851cc4fdab98`, export `00c4f0c7e6da05e5` -> `afe6542a22946667`, banded `00c4f0c7e6da05e5` -> `afe6542a22946667`, crop `9e3896ad1f796180` -> `2a5aa83cf3590b90`, tile `d0c1514e882bca47` -> `7ff7ed3107406428`).
+    ///
+    /// **RE-BASELINED AGAIN 2026-11-16 under Ruling FG's F3 leftover** (the
+    /// low-relief fade, `render::grain_relief_keep`, `DECISIONS.md` 7p): this
+    /// fixture's flat, far-zoom export pixels now draw a capped lattice at a
+    /// quarter strength, so the **export, banded and crop** columns of the four
+    /// app looks moved; the screen, river, screen_p3, river_p3, tile and
+    /// fingerprint columns and every `js_reference` column did not (the screen
+    /// raster is exempt by `GrainScale::relief_fade`; no look key was added).
+    /// Old -> new, export = banded: default `a2653d8cea5a66df` ->
+    /// `4def868d09349a96`, crop `bbdb95cce9d6e045` -> `30b34efdb56d3e74`;
+    /// graded `4b62fefbf1b712d3` -> `3ded135755f23af3`, crop
+    /// `3a6eac645774a3ee` -> `f851537558febba1`; antique `6ff983fa2c1b7731` ->
+    /// `85c78c158b762a2c`, crop `e78105cb326592f2` -> `fa99eb2662562443`;
+    /// satellite `afe6542a22946667` -> `dd5a82ba9953187e`, crop
+    /// `2a5aa83cf3590b90` -> `2e17edcacce82036`.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0xa2653d8cea5a66df, 0xa2653d8cea5a66df, 0xbbdb95cce9d6e045, 0x9b391be2e04c9805, 0x6f9734dec5cce1ee],
+            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0x4def868d09349a96, 0x4def868d09349a96, 0x30b34efdb56d3e74, 0x9b391be2e04c9805, 0x6f9734dec5cce1ee],
         ),
         (
             "graded",
-            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x4b62fefbf1b712d3, 0x4b62fefbf1b712d3, 0x3a6eac645774a3ee, 0x2b8f957ac4e1e427, 0x895fa0ef90c68152],
+            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x3ded135755f23af3, 0x3ded135755f23af3, 0xf851537558febba1, 0x2b8f957ac4e1e427, 0x895fa0ef90c68152],
         ),
         (
             "antique",
-            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x6ff983fa2c1b7731, 0x6ff983fa2c1b7731, 0xe78105cb326592f2, 0x8e06da50b9acb6da, 0xb7eacdb1e21f4123],
+            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x85c78c158b762a2c, 0x85c78c158b762a2c, 0xfa99eb2662562443, 0x8e06da50b9acb6da, 0xb7eacdb1e21f4123],
         ),
         (
             "js_reference",
@@ -3557,7 +3572,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xafe6542a22946667, 0xafe6542a22946667, 0x2a5aa83cf3590b90, 0x7ff7ed3107406428, 0xb599bc24f6ac0d2b],
+            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xdd5a82ba9953187e, 0xdd5a82ba9953187e, 0x2e17edcacce82036, 0x7ff7ed3107406428, 0xb599bc24f6ac0d2b],
         ),
     ];
 

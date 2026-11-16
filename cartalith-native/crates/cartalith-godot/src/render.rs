@@ -5479,12 +5479,13 @@ impl<'a> RenderCtx<'a> {
     /// (Ruling FG, F3; [`land_grain`]), for an output pixel `cells_per_px` grid
     /// cells wide: `None` -- the per-cell lattices exactly as before -- under
     /// the reference branch (`land_grain_warp <= 0`), without a map width, or
-    /// for a degenerate footprint.
-    pub fn grain_scale(&self, cells_per_px: f64) -> Option<GrainScale> {
+    /// for a degenerate footprint. `relief_fade` is [`GrainScale::relief_fade`]:
+    /// the screen raster passes `false`, a tile and an export `true`.
+    pub fn grain_scale(&self, cells_per_px: f64, relief_fade: bool) -> Option<GrainScale> {
         if self.appearance.land_grain_warp <= 0.0 || !(cells_per_px.is_finite() && cells_per_px > 0.0) {
             return None;
         }
-        Some(GrainScale { km_per_cell: self.km_per_cell()?, cells_per_px })
+        Some(GrainScale { km_per_cell: self.km_per_cell()?, cells_per_px, relief_fade })
     }
 
     /// Distance to the nearest land in **km** at the integer cell `i`, for
@@ -6667,6 +6668,14 @@ pub struct GrainScale {
     /// Grid cells per output pixel: `1` for the screen raster, the step for
     /// an export, the texel for a tile.
     pub cells_per_px: f64,
+    /// Whether [`grain_relief_keep`]'s low-relief fade applies: **`true` for a
+    /// tile texel and an export pixel, `false` for the screen raster.** The
+    /// raster's "pixel" is one grid cell that the viewer then magnifies, so its
+    /// km per pixel says nothing about how far the viewer is: a 1 200 km /
+    /// 512-cell map's raster has 2.3 km cells yet is shown at 0.66 km per
+    /// screen pixel, where its 20 km blotches are 30 px wide and not a
+    /// speckle. A tile's and an export's pixel is the real output pixel.
+    pub relief_fade: bool,
 }
 
 /// The longest wavelength, in km, any [`land_grain`] lattice may have once
@@ -6700,13 +6709,86 @@ const LAND_GRAIN_NYQ_PX: f64 = CANOPY_NYQ_PX;
 /// (`bio_jitter`'s `150/gw` is under one cell on a 128-cell grid).
 #[inline]
 pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+    grain_lattice_relief(f, gs, 1.0)
+}
+
+/// [`grain_lattice`] with the **low-relief fade** (Ruling FG's F3 leftover):
+/// `keep` ([`grain_relief_keep`], `1.0` = no fade) scales a **capped**
+/// lattice's visibility and nothing else -- a lattice the cap does not touch
+/// returns `(f, 1.0)` whatever `keep` is, so the 800 km anchor, whose
+/// longest lattice is under [`LAND_GRAIN_MAX_KM`], is the same float as
+/// before at every slope and footprint.
+#[inline]
+pub(crate) fn grain_lattice_relief(f: f64, gs: GrainScale, keep: f64) -> (f64, f64) {
     if (1.0 / f) * gs.km_per_cell <= LAND_GRAIN_MAX_KM {
         return (f, 1.0);
     }
     let f2 = gs.km_per_cell / LAND_GRAIN_MAX_KM;
     let px = gs.cells_per_px * LAND_GRAIN_NYQ_PX;
-    (f2, smoothstep(px, 2.0 * px, 1.0 / f2))
+    (f2, smoothstep(px, 2.0 * px, 1.0 / f2) * keep)
 }
+
+/// **Ruling FG's F3 leftover: the low-relief fade.** `WORLD_EMBOSS_FINDINGS_
+/// 2026-11-15.md` proposed it and the first F3 build declined it, reasoning
+/// that the footprint fade already removes every capped lattice at a world's
+/// fit view. That held at the fit view and **not at x8**: on the 40 075 km
+/// world a capped 20 km lattice spans ~7 output pixels there, so it is fully
+/// visible, and on uniform desert (no relief, no material change to hide
+/// behind) it reads as a fairly uniform speckle (the FG agent's note, and
+/// `metrics.txt`'s `world40075_x8`).
+///
+/// The factor on a capped lattice's visibility, in `[LAND_GRAIN_FLAT_KEEP, 1]`:
+///
+/// ```text
+/// keep = 1 - far * (1 - flatness) * (1 - LAND_GRAIN_FLAT_KEEP)
+/// far      = smoothstep(LAND_GRAIN_FAR_KM_PX.0, LAND_GRAIN_FAR_KM_PX.1, km per output pixel)
+/// flatness = 1 - smoothstep(LAND_GRAIN_FLAT_SLOPE.0, LAND_GRAIN_FLAT_SLOPE.1, slope)
+/// ```
+///
+/// so it is `1` on steep ground, at any zoom where a pixel is under
+/// `LAND_GRAIN_FAR_KM_PX.0` km (every deep zoom, every region and the
+/// anchor), and for a non-finite `slope` (no relief known: [`land_grain`]'s
+/// 5-argument form). `slope` is [`land_color`]'s own `slope` argument: the
+/// height field's gradient in height units per grid cell, the same quantity
+/// the B3 bar's "flattest decile" is chosen by.
+///
+/// Applies only where [`GrainScale::relief_fade`] is set (tiles and exports, not
+/// the screen raster).
+///
+/// Must never be read by anything but [`land_grain_at`].
+#[inline]
+pub(crate) fn grain_relief_keep(gs: GrainScale, slope: f64) -> f64 {
+    if !slope.is_finite() {
+        return 1.0;
+    }
+    let far = smoothstep(LAND_GRAIN_FAR_KM_PX.0, LAND_GRAIN_FAR_KM_PX.1, gs.cells_per_px * gs.km_per_cell);
+    if far <= 0.0 {
+        return 1.0;
+    }
+    let flat = 1.0 - smoothstep(LAND_GRAIN_FLAT_SLOPE.0, LAND_GRAIN_FLAT_SLOPE.1, slope);
+    1.0 - far * flat * (1.0 - LAND_GRAIN_FLAT_KEEP)
+}
+
+/// The kilometres per **output pixel** between which [`grain_relief_keep`]'s
+/// fade comes in. **A labelled judgement.** Below `0.5` km/px nothing fades:
+/// a 1 200 km map at its fit view is 0.66 km/px, and anything zoomed in
+/// further (every native map and every deep zoom) is under it. By `2` km/px
+/// (a 40 075 km world at x8 is ~2.7) it is full.
+pub const LAND_GRAIN_FAR_KM_PX: (f64, f64) = (0.5, 2.0);
+
+/// The grid slope (height units per cell) between which flat ground stops
+/// being flat for [`grain_relief_keep`]. **A labelled judgement from the
+/// measured distribution** (`docs/evidence/land-grain-flat-2026-11-16/
+/// slope_hist.txt`: on the 40 075 km, 2048-wide world 81 % of land cells are
+/// under `0.002` and 88 % under `0.004`; the steepest 3 % are over `0.016`).
+/// Flat is under `0.002`, steep is over `0.010`.
+pub const LAND_GRAIN_FLAT_SLOPE: (f64, f64) = (0.002, 0.010);
+
+/// The fraction of a capped lattice flat ground at far zoom keeps. **A
+/// labelled judgement**: not `0`, so a desert is never pure flat colour (the
+/// shipped renderer keeps its other grain, the stipple and the micro band),
+/// and `0.25` is what the speckle bar in the evidence was met with.
+pub const LAND_GRAIN_FLAT_KEEP: f64 = 0.25;
 
 /// `0.5 + (n − 0.5)·vis` -- a lattice faded toward its mean -- with `vis >= 1`
 /// returning `n` itself, so a fully visible lattice is byte-identical.
@@ -6742,15 +6824,25 @@ fn grain_fade(n: f64, vis: f64) -> f64 {
 /// mean where its wavelength is under [`LAND_GRAIN_NYQ_PX`] output pixels. So a world's base
 /// map draws terrain, not continent-scale noise, and the jitter arrives as the
 /// view zooms in, at the scale a region has it. The findings also proposed a
-/// fade on **low relief** at far zoom; it is not built, because the footprint
-/// fade already removes every capped lattice at a world's far zoom, and on a
-/// region the anchor's lattices are untouched by construction -- a relief term
-/// would have nothing left to fade. `None` (no map width) is the per-cell
+/// fade on **low relief** at far zoom, first declined (the footprint fade
+/// removes every capped lattice at the fit view) and then **built**
+/// ([`grain_relief_keep`], [`land_grain_at`]'s `slope`): at x8 on a 40 075 km
+/// world the capped 20 km lattice is ~7 px wide and fully visible, a uniform
+/// speckle on flat desert, and it now fades there. On a region or the anchor it
+/// has nothing to fade (no capped lattice, or under [`LAND_GRAIN_FAR_KM_PX`]).
+/// `None` (no map width) is the per-cell
 /// branch exactly as before.
 ///
 /// Must never be read by anything but [`land_color`]: the jitter's whole
 /// meaning is the colour it moves.
 pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
+    land_grain_at(a, x, y, gw, grain, f64::INFINITY)
+}
+
+/// [`land_grain`] with the land's `slope` (see [`grain_relief_keep`]) so a
+/// capped lattice fades on flat ground at far zoom -- Ruling FG's F3 leftover.
+/// `f64::INFINITY` is [`land_grain`]'s behaviour exactly.
+pub(crate) fn land_grain_at(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>, slope: f64) -> (f64, f64, f64) {
     if a.land_grain_warp <= 0.0 {
         return (vnoise(x * 0.06, y * 0.06, 11), vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23), bio_jitter(x, y, gw));
     }
@@ -6770,10 +6862,11 @@ pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain
     // Each lattice at its own frequency `f` (cycles per cell), displaced by
     // the shared warp in units of its own cell; under Ruling FG at its capped
     // frequency and faded by footprint.
+    let keep = grain.filter(|gs| gs.relief_fade).map_or(1.0, |gs| grain_relief_keep(gs, slope));
     let at = |f: f64, seed: i32| match grain {
         None => vnoise(rx * f + wu, ry * f + wv, seed),
         Some(gs) => {
-            let (f2, vis) = grain_lattice(f, gs);
+            let (f2, vis) = grain_lattice_relief(f, gs, keep);
             if vis <= 0.0 { 0.5 } else { grain_fade(vnoise(rx * f2 + wu, ry * f2 + wv, seed), vis) }
         }
     };
@@ -7324,7 +7417,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // why that identity has to be a branch and not a formula.
     let stack_default = appearance.layers.is_default();
 
-    let (n_low, n_hi, n_bio) = land_grain(appearance, x, y, gw, grain);
+    let (n_low, n_hi, n_bio) = land_grain_at(appearance, x, y, gw, grain, slope);
 
     // B4's ecotone widener (`eK`, reference 7763-7765). `1.0` is the
     // reference's own "off" and the value every caller passed before the
@@ -10310,7 +10403,7 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             // outside Satellite relief).
             ctx.volcano_at(x as f64, y as f64, 1.0),
             // Ruling FG's F3: the land jitter in km, at one pixel per cell.
-            ctx.grain_scale(1.0));
+            ctx.grain_scale(1.0, false));
         // Ruling ET follow-up: a dried lake basin's salt flat, on the land colour.
         let c = playa_apply(&ctx.appearance, ctx.playa, c, x as f64, y as f64, ctx.gw, ctx.gh, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
@@ -10845,7 +10938,7 @@ impl BakeFields {
                 ctx.volcano_at(gx, gy, step.0.max(step.1)),
                 // Ruling FG's F3: the land jitter in km at this export's own
                 // footprint.
-                ctx.grain_scale(step.0.max(step.1)),
+                ctx.grain_scale(step.0.max(step.1), true),
             );
             // Ruling ET follow-up: the salt flat, in `cell_color`'s slot.
             let c = playa_apply(&ctx.appearance, ctx.playa, c, gx, gy, gw, gh, sea_grain(&ctx.appearance, gx, gy, gw));
@@ -13995,7 +14088,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     // Ruling CI's canopy texture at this tile's texel footprint (`None` =
     // off), once per tile.
     let canopy_k = ctx.canopy_scale(cx.max(cy));
-    let grain_k = ctx.grain_scale(cx.max(cy));
+    let grain_k = ctx.grain_scale(cx.max(cy), true);
     // Whether this tile's heights carry the kilometre zoom-detail law -- the
     // same test `tile_amplify_opts` makes -- which decides the slope the
     // materials read below and whether the sub-cell relief becomes tone.
