@@ -62,7 +62,7 @@ opening the tab at a heading (S).
 | MS-4 MENU mirrors the eight menus | DONE | `phone_menu.gd::_fill_root`, `_fill_popup`; `_ms4_probe` green again 2026-11-14 | `9bae6952` 2026-11-08 | desktop-dumped menus compared; 6T walk partial |
 | MS-5 Tool strip, fan, context card, map control row | DONE | `tool_strip.gd`, `tool_fan.gd`, `dcc_shell.gd` control row; only the card's `param` rows on the phone are unbuilt (optional) | `a2200e5b` 2026-11-08, `c302a4ed`, `8fcab5fc`, `e6f3cfbd` 2026-11-09 | windowed only: "no Android build" in all four steps |
 | MS-6 STORY tab | DONE | STORY sheet of four segments over the shown band's rows (`3b04e444`); `phone_menu.gd::open_story`, `_fill_story_rows`. Left: a year in TIME's subtitle, live `journey A to B` | `3b04e444` 2026-11-09 | windowed |
-| MS-7 Tablet docking, collapse, readouts | **PARTLY** | `DccTheme.tablet_dock_plan()`, `tablet_bar_whole()`, `_set_dock_floating()`. **Missing:** the pin on a floating dock; the ≥ 1 920 dp menu-bar readouts | `263a7b26` 2026-11-09 | Pad 3 sizes windowed; no glass pass |
+| MS-7 Tablet docking, collapse, readouts | DONE (2026-11-16) | `DccTheme.tablet_dock_plan()`, `tablet_bar_whole()`, `tablet_readouts_shown()`, `_set_dock_floating()`, `_left_pin`/`_right_pin`, `_apply_tablet_readouts()`; `_ms7_probe.gd`. The pin and the readouts are built | `263a7b26` 2026-11-09 | Pad 3 sizes windowed; no glass pass |
 | MS-8 New World AUTO-POPULATE | DONE | `auto_populate.gd`, `new_world_dialog.gd`; switches remove what Generate made when off (2026-11-13). Open edge: generated label list view-dependent (OUTSTANDING row) | `99566ee5` 2026-11-12 | **6T, owner: "seems to work perfectly"** (2026-11-12) |
 | MS-9 Search runs every command | DONE | `CommandIndex.run_search`, `search_block`, `row_state`; `DccShell._run_search_command` | `763448c3` 2026-11-12 | 6T: phone search timing recorded (`ad613410`) |
 | MS-10 Device passes: 6T, tablet, 4K window | **OPEN** | none by definition (device work). Partial 6T evidence is listed on MS-1, 2, 3, 8, 9 only | n/a | not done |
@@ -84,7 +84,7 @@ opening the tab at a heading (S).
 | VE-9 Landmark notes, notes scope in Find, private badge, caps | DONE | `PlaceSearch._add_landmarks`, `vault_privacy.gd`, `_sync_private_notice`; caps routed to `LIST_CAP` (the bar's `grep 2000` was closed 2026-11-13) | `923cb657` 2026-11-08, `df36f8d1` 2026-11-09 | no |
 
 Leftovers: VE-7 pictures by bare name, Android pictures, the browse preview's embeds, a drawn chronos track (M);
-VE-5 end-of-Preview copy and the tablet form (S); VE-6 a fuller template chooser (S); probes that call the 17 new
+VE-5 end-of-Preview copy (S; the tablet form built 2026-11-16); VE-6 a fuller template chooser (S); probes that call the 17 new
 `vault_*` functions (S); the 6T rows for VE-0, VE-4 (SAF) and VE-8 (S, owner-run, needs `adb run-as` or a connected
 folder, which `vault_connect_saf` does not yet give).
 
@@ -164,8 +164,8 @@ claim is false (S); Android folder import on glass (S, device).
 | Plan | Done / partly / open / superseded | Open items (size) |
 |---|---|---|
 | PC shell | 10 / 1 / 0 / 0 | PC-6 leftovers: save-with-world preference + card + world-file slot, note chip and note-card routing, linked names/years, task chips, "Ask about this" (**M**); PC-4 Inspect edit mode, roads, founding year, F7 year move (**M**); PC-10/PC-5 pop-outs, PC-3 collapsed slider and undo, PC-8 M2 and floor (**S** each) |
-| Mobile shell | 8 / 2 / 1 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run); MS-3 node chips + tool palette atop the domain sheet and MAP's own tool domain (**S-M**); MS-7 pin on a floating dock and ≥ 1 920 dp readouts (**S**); MS-1 B7/B9/B10 device and probe rows (**S**); delete the unreachable `QuickBarPhoneList` sheet (**S**); MS-5 card `param` rows, only if the owner wants them (**S**) |
-| Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); VE-7 pictures by bare name, Android pictures, browse embeds, drawn chronos track (**M**); VE-5 tablet form, VE-6 template chooser, 17-function probes (**S**) |
+| Mobile shell | 8 / 2 / 1 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run); MS-3 node chips + tool palette atop the domain sheet and MAP's own tool domain (**S-M**, NOT built 2026-11-16: the proposal gives only a sentence, "the node's chips, the domain's tool palette, then every category", and the dock's accordion headers already are the chips; what is undecided is whether a second chip strip duplicates them, and which tools the palette holds per domain, the rail having tools on desktop only; an owner design call); MS-1 B7/B9/B10 device and probe rows (**S**); delete the unreachable `QuickBarPhoneList` sheet (**S**); MS-5 card `param` rows, only if the owner wants them (**S**) |
+| Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); VE-7 pictures by bare name, Android pictures, browse embeds, drawn chronos track (**M**); VE-5 end-of-Preview copy, 17-function probes (**S**) |
 | Custom quick bar | 7 / 1 / 0 / 1 | CQ-5 Pad pass (**S**, owner-run); CQ-6 long-press reorder and 6T bars (**S**); CQ-8's three deferrals, each needing an owner answer (**M**); ring parts overhanging a dock panel not clickable, phone tool cell 3.5-5 px high (**S**) |
 | Story menus | 7 / 0 / 0 / 0 | nothing scheduled; §8 later rows unscheduled by Ruling EA item 7 (each **M**, blocked on a ruling) |
 | Map context | 6 / 1 / 0 / 0 | CM-4 device check of the pen barrel button and haptics (**S**, owner-run); F5's tablet edge sliders and further ring customisation (**M**, unscheduled) |

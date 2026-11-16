@@ -405,7 +405,7 @@ static func accelerator_text(row: Dictionary) -> String:
 	if idx < 0:
 		return ""
 	var accel: int = (popup as PopupMenu).get_item_accelerator(idx)
-	return OS.get_keycode_string(accel) if accel != 0 else ""
+	return DccTheme.key_hint(OS.get_keycode_string(accel)) if accel != 0 else ""
 
 # -- running a pin --------------------------------------------------------------------
 

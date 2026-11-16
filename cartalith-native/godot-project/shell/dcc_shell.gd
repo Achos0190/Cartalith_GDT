@@ -989,6 +989,7 @@ func _mount_composition() -> void:
 	_bar_whole_built = not _phone and DccTheme.is_tablet() 		and DccTheme.tablet_bar_whole(float(DccTheme.layout().get("dp", Vector2.ZERO).x))
 	_apply_dock_plan()
 	_apply_dock_plan.call_deferred()
+	_apply_tablet_readouts()
 	## Deferred, and it has to be: this function runs as `super._ready()` from
 	## `DccApp._ready()`, which only creates `EngineBridge` and `ViewportHost` on
 	## the lines *after* it returns. A deferred call lands after every `_ready()`
@@ -1093,6 +1094,7 @@ func _unmount_composition() -> void:
 	_rail_exp_heads.clear()
 	_rail_node_rows.clear()
 	_status_labels.clear()
+	_readout_gaps.clear()
 	_status_cells.clear()
 	_status_rules.clear()
 	_status_dot = null
@@ -1377,8 +1379,10 @@ var _desktop_root: Control
 # probe asserts with literals; everything below is its effect on nodes. TABLET ONLY, inside the tablet shell (Ruling
 # EG puts the phone/tablet line at 900 dp of shortest width; Ruling DY MQ-1 (c) makes the width classes layout
 # classes inside it): `_make_dock_slot()` is called only when `DccTheme.is_tablet()`, so the desktop's nodes are the
-# nodes it always had. **Not built here:** the pin (a floating dock that stays open on a map press); the proposal
-# draws it, `OUTSTANDING_WORK.md` lists it.
+# nodes it always had. **The pin** (MS-7, 2026-11-16): an open floating dock shows a 44 dp pin under its handle;
+# pinned, a press on the map no longer closes it (it stays over the map until the pin or the handle is pressed).
+# The pin is per dock, session-only, and clears when the dock closes or stops floating, so a dock never comes back
+# pinned and invisible-by-default.
 #
 # The unit: the tablet's root content scale makes `get_viewport_rect()` dp (MS-1 S2), so every width here is dp.
 
@@ -1394,6 +1398,11 @@ var _right_floating := false
 ## The edge tab of each floating dock: the 44 dp target that opens it, and while it is open the handle that closes it.
 var _left_tab: Button
 var _right_tab: Button
+## The pin under each open floating dock's handle (MS-7), and whether it is on. Pinned = a map press leaves the dock open.
+var _left_pin: Button
+var _right_pin: Button
+var _left_pinned := false
+var _right_pinned := false
 ## The last `DccTheme.tablet_dock_plan()` result applied, `{}` before the first (probes read it).
 var last_dock_plan: Dictionary = {}
 
@@ -1419,12 +1428,32 @@ func _make_dock_slot(dock: Control, is_left: bool) -> Control:
 	tab.custom_minimum_size = Vector2(DccTheme.TABLET_DOCK_TAB_DP, 56.0)
 	tab.pressed.connect(_toggle_dock.bind(is_left))
 	slot.add_child(tab)
+	var pin := Button.new()
+	pin.focus_mode = Control.FOCUS_NONE
+	pin.visible = false
+	pin.text = DccIcons.SYMBOLS["pin"]
+	pin.tooltip_text = "Pin the %s dock open: a press on the map no longer closes it" % side
+	pin.accessibility_name = "Pin the %s dock" % side
+	pin.toggle_mode = true
+	pin.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	pin.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
+		pin.add_theme_stylebox_override(state, DccTheme.flat(DccTheme.c("panel")))
+	pin.custom_minimum_size = Vector2(DccTheme.TABLET_DOCK_TAB_DP, DccTheme.TABLET_DOCK_TAB_DP)
+	pin.toggled.connect(func(on: bool) -> void:
+		if is_left:
+			_left_pinned = on
+		else:
+			_right_pinned = on)
+	slot.add_child(pin)
 	if is_left:
 		_left_slot = slot
 		_left_tab = tab
+		_left_pin = pin
 	else:
 		_right_slot = slot
 		_right_tab = tab
+		_right_pin = pin
 	return slot
 
 ## The width of the row's fixed parts, in dp: everything in the tablet row that is neither a dock slot nor the map
@@ -1532,6 +1561,26 @@ func _sync_dock_slot(is_left: bool) -> void:
 	var open_glyph: String = DccIcons.SYMBOLS["collapse"] if is_left else DccIcons.SYMBOLS["expand"]
 	var shut_glyph: String = DccIcons.SYMBOLS["expand"] if is_left else DccIcons.SYMBOLS["collapse"]
 	tab.text = open_glyph if overlay else shut_glyph
+	## The pin: only on an open floating dock, directly under the handle (56 dp down), on the dock's open edge. A dock that
+	## is not open over the map is never pinned (the flag is cleared here, so it cannot outlive the state it describes).
+	var pin := _left_pin if is_left else _right_pin
+	if pin != null and is_instance_valid(pin):
+		if not overlay:
+			if is_left:
+				_left_pinned = false
+			else:
+				_right_pinned = false
+			pin.set_pressed_no_signal(false)
+		pin.visible = overlay
+		pin.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		pin.anchor_left = 0.0 if is_left else 1.0
+		pin.anchor_right = pin.anchor_left
+		pin.anchor_top = 0.0
+		pin.anchor_bottom = 0.0
+		pin.offset_left = x
+		pin.offset_right = x + t
+		pin.offset_top = 60.0
+		pin.offset_bottom = 60.0 + t
 
 ## A press on the map while a floating dock is open closes it (Ruling DU Q8). Never consumes the event: the press
 ## still reaches the map. A press inside the open dock, or outside the map (the menu bar, the rail), is left alone.
@@ -1552,10 +1601,11 @@ func _input(ev: InputEvent) -> void:
 		var floating: bool = _left_floating if is_left else _right_floating
 		var dock := left_dock if is_left else right_dock
 		var tab := _left_tab if is_left else _right_tab
-		## The tab is excluded: its own press closes the dock, and closing here as well would reopen it on release.
-		if floating and not is_dock_collapsed("left" if is_left else "right") \
+		## The tab and the pin are excluded: the tab's own press closes the dock, and closing here as well would reopen it on release.
+		var pinned: bool = _left_pinned if is_left else _right_pinned
+		if floating and not pinned and not is_dock_collapsed("left" if is_left else "right") \
 				and dock != null and not dock.get_global_rect().has_point(pos) \
-				and not tab.get_global_rect().has_point(pos):
+				and not tab.get_global_rect().has_point(pos) 				and not (_left_pin if is_left else _right_pin).get_global_rect().has_point(pos):
 			_toggle_dock(is_left)
 
 ## Scales a fixed desktop pixel height for the current form factor: raw on a pointer
@@ -1858,6 +1908,24 @@ func _on_resize_settled() -> void:
 	_apply_unit(_unit_factor())
 	## MS-7: a settled resize or a changed UI scale moves the row's width, so the docking rule is decided again.
 	_apply_dock_plan()
+	_apply_tablet_readouts()
+
+## The bar's readout cells' trailing gaps, by `_status_labels` key, so a hidden readout takes its gap with it (MS-7).
+var _readout_gaps: Dictionary = {}
+
+## MS-7: the tablet's menu bar draws the desktop cost readouts (resolution, CPU, GPU, memory) only from
+## `DccTheme.TABLET_READOUTS_DP`; below it they are hidden and the world label stays. A visibility rule, not a remount:
+## the labels keep their text (`set_status` still writes them, `menus.gd`'s memory read and the phone list are unaffected).
+## Off the tablet it shows them all, which is the desktop bar's own state. Idempotent; called wherever the docking rule is.
+func _apply_tablet_readouts() -> void:
+	var dp_x := float(DccTheme.layout().get("dp", Vector2.ZERO).x)
+	var show := (not DccTheme.is_tablet()) or DccTheme.tablet_readouts_shown(dp_x)
+	for slot in ["res", "cpu", "gpu", "mem"]:
+		var key: String = "top_" + slot
+		if _status_labels.has(key) and is_instance_valid(_status_labels[key]):
+			(_status_labels[key] as Control).visible = show
+		if _readout_gaps.has(key) and is_instance_valid(_readout_gaps[key]):
+			(_readout_gaps[key] as Control).visible = show
 
 ## MS-7: whether the tablet's menu bar was built whole (the desktop's eight menus, from `TABLET_WHOLE_BAR_DP`).
 ## Written by `_mount_composition()`; compared by `_swap_needed()`.
@@ -2499,6 +2567,7 @@ func _build_menu_bar() -> Control:
 		var gap := Control.new()
 		gap.custom_minimum_size.x = 22
 		row.add_child(gap)
+		_readout_gaps["top_" + slot] = gap
 
 	## Design child 8: `◐`, the same `var(--ctl)` square, `color:var(--sec)`,
 	## `margin-left:8px`. The 22 px gap the readout loop above emits after its

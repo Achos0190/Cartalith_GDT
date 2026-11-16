@@ -24,6 +24,11 @@ extends Node
 ##      the open dock does not;
 ##   6. the menu bar: the titles are the whole bar's eight, or the short bar's five, as the runner says, every
 ##      title is at least 44 dp tall, and the bar's own minimum width fits the viewport (nothing is clipped);
+##   6b. the pin (MS-7, 2026-11-16): an open floating dock shows a pin of at least 44 x 44 dp under its handle; pinned,
+##      a real tap on the map leaves the dock open; unpinned again, the same tap closes it; a closed dock has no pin
+##      and is never pinned;
+##   6c. the cost readouts (resolution, CPU, GPU, memory) are drawn on the tablet's bar from 1 920 dp only
+##      (`--expect-readouts shown|hidden`; the world label is always drawn);
 ##   7. the documented menu-open time: File's popup, shown and drawn, in milliseconds (recorded, not judged:
 ##      the performance pass is a later task).
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument, 3 watchdog.
@@ -58,7 +63,7 @@ func _args_ok() -> bool:
 		var a := String(args[i])
 		if a == "--force-touch":
 			i += 1
-		elif a in ["--vp", "--density", "--ui-scale", "--expect-left", "--expect-right", "--expect-bar"]:
+		elif a in ["--vp", "--density", "--ui-scale", "--expect-left", "--expect-right", "--expect-bar", "--expect-readouts", "--shot"]:
 			i += 2
 		elif a == "--pure-only":
 			i += 1
@@ -125,6 +130,7 @@ func _pure() -> void:
 	_ok(plan.call(1367.0, 48.0, 400.0, 400.0) == "D/F/875", "plan: a map of 519 floats the right dock")
 	_ok(DccTheme.tablet_bar_whole(1180.0) and not DccTheme.tablet_bar_whole(1179.0), "bar: whole from 1180, short at 1179")
 	_ok(not DccTheme.tablet_bar_whole(1190.0, 0) and DccTheme.tablet_bar_whole(1196.0, 0), "bar: a short bar needs 1196 (1180 + 16) to turn whole")
+	_ok(DccTheme.tablet_readouts_shown(1920.0) and not DccTheme.tablet_readouts_shown(1919.0), "readouts: from 1920 dp, not 1919")
 	_ok(DccTheme.tablet_bar_whole(1170.0, 1) and not DccTheme.tablet_bar_whole(1163.0, 1), "bar: a whole bar holds to 1164 (1180 - 16)")
 
 func _row_titles() -> Array:
@@ -200,6 +206,14 @@ func _shell(vw: int, vh: int) -> void:
 		## A real tap on the tab opens the dock OVER the map.
 		await _tap(tab.get_global_rect().get_center())
 		_ok(not _app.is_dock_collapsed(side), "%s: a tap on the tab opens the dock" % side)
+		var pin: Button = _app._left_pin if is_left else _app._right_pin
+		if _arg("--shot", "") != "":
+			await _frames(3)
+			_vp.get_texture().get_image().save_png("%s_%s_open.png" % [_arg("--shot", ""), side])
+		_ok(pin.visible and pin.size.x >= 44.0 - 0.5 and pin.size.y >= 44.0 - 0.5,
+			"%s: the open floating dock shows a pin of at least 44 x 44 dp (is %s %.1f x %.1f)" % [side, str(pin.visible), pin.size.x, pin.size.y])
+		_ok(not pin.button_pressed, "%s: the pin starts off" % side)
+		_ok(not pin.get_global_rect().intersects(tab.get_global_rect()), "%s: the pin does not sit on the handle" % side)
 		_ok(absf(_app.viewport_area.size.x - map0) < 0.5,
 			"%s: open over the map, the map's width unchanged (%.1f vs %.1f)" % [side, _app.viewport_area.size.x, map0])
 		_ok(dock.size.x >= 232.0 - 1.0 and dock.get_global_rect().intersects(_app.viewport_area.get_global_rect()),
@@ -208,11 +222,19 @@ func _shell(vw: int, vh: int) -> void:
 		## A tap inside the open dock does not close it.
 		await _tap(dock.get_global_rect().get_center())
 		_ok(not _app.is_dock_collapsed(side), "%s: a tap inside the open dock leaves it open" % side)
-		## A tap on the map, clear of the dock, closes it.
+		## Pinned, a tap on the map leaves it open; unpinned, the same tap closes it.
 		var map_rect: Rect2 = _app.viewport_area.get_global_rect()
 		var clear_x: float = map_rect.end.x - 40.0 if is_left else map_rect.position.x + 40.0
+		await _tap(pin.get_global_rect().get_center())
+		_ok(pin.button_pressed, "%s: a tap on the pin pins the dock" % side)
+		await _tap(Vector2(clear_x, map_rect.get_center().y))
+		_ok(not _app.is_dock_collapsed(side), "%s: pinned, a tap on the map leaves the dock open" % side)
+		await _tap(pin.get_global_rect().get_center())
+		_ok(not pin.button_pressed, "%s: a second tap unpins" % side)
+		## A tap on the map, clear of the dock, closes it.
 		await _tap(Vector2(clear_x, map_rect.get_center().y))
 		_ok(_app.is_dock_collapsed(side), "%s: a tap on the map closes the dock" % side)
+		_ok(not pin.visible and not pin.button_pressed, "%s: a closed dock has no pin, and it is not pinned" % side)
 	var titles := _row_titles()
 	var whole := ["File", "Edit", "Assets", "Records", "Story", "Preferences", "Window", "Help"]
 	var short := ["☰", "File", "World", "Records", "Story"]
@@ -222,6 +244,15 @@ func _shell(vw: int, vh: int) -> void:
 		if c is MenuButton and (c as MenuButton).visible:
 			_ok((c as MenuButton).size.y >= 44.0 - 0.5 and (c as MenuButton).size.x >= 44.0 - 0.5,
 				"menu '%s' is at least 44 x 44 dp (is %.1f x %.1f)" % [(c as MenuButton).text, (c as MenuButton).size.x, (c as MenuButton).size.y])
+	if _arg("--shot", "") != "":
+		await _frames(3)
+		_vp.get_texture().get_image().save_png("%s_bar.png" % _arg("--shot", ""))
+	var ro_want := _arg("--expect-readouts", "")
+	if ro_want != "":
+		for slot in ["res", "cpu", "gpu", "mem"]:
+			var lbl: Control = _app._status_labels["top_" + slot]
+			_ok(lbl.is_visible_in_tree() == (ro_want == "shown"), "readout top_%s is %s on the bar" % [slot, ro_want])
+		_ok((_app._status_labels["top_world"] as Control).is_visible_in_tree(), "the world label is always on the bar")
 	var root: Control = _app._desktop_root
 	_ok(root.get_combined_minimum_size().x <= dpw + 0.5, "nothing forces the shell wider than the viewport (min %.1f, viewport %.1f)" % [root.get_combined_minimum_size().x, dpw])
 	## Menu-open time: recorded, not judged (this is not the performance pass).

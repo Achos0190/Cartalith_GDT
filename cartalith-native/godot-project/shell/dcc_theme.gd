@@ -1350,6 +1350,17 @@ static func set_touch(v: bool) -> void:
 static func is_touch() -> bool:
 	return _touch
 
+## The keyboard-accelerator text a touch form must not draw (2026-11-16, the 6T
+## phone welcome / "touch forms drop the Ctrl+O hint" row). Returns `chord` on the
+## desktop and `""` on a tablet or a phone, where there is no key to press and a
+## right-aligned "Ctrl+Z" only steals width from the label beside it. Every
+## producer of a row's `shortcut` (the quick bar's `accelerator_text`, the ring's
+## cardinals) goes through this one function, so the context card, the ring caption
+## and the quick-bar tooltip all follow without each re-deciding. Never use it for a
+## state mark such as the "on" tick: that is not a key.
+static func key_hint(chord: String) -> String:
+	return "" if _touch else chord
+
 ## The narrower question: is this the **phone** composition, not merely a touch
 ## one? Published the same way and for the same reason as `_touch` -- the widget
 ## factories are static and cannot reach the shell -- and needed separately
@@ -1539,6 +1550,15 @@ const TABLET_DOCK_TAB_DP := 44.0
 ## its word: the eight titles plus the touch padding need about this much beside the quick cluster (to be read
 ## on glass; `_ms7_probe.gd` measures that no title clips at 900, 1 179 and 1 180 dp).
 const TABLET_WHOLE_BAR_DP := 1180.0
+
+## From this width in dp the tablet's menu bar adds the desktop readouts (resolution, CPU, GPU, memory):
+## `MOBILE_SHELL_PROPOSAL.md` section 2.2's width table ("from 1 920 ... the menu bar adds the desktop readouts"),
+## the 4K-class line (a 3 840 px panel at density 2). A proposal number taken at its word, a labelled judgement.
+const TABLET_READOUTS_DP := 1920.0
+
+## True when a tablet of this width in dp shows the cost readouts in its menu bar. Pure; the line is inclusive.
+static func tablet_readouts_shown(width_dp: float) -> bool:
+	return width_dp >= TABLET_READOUTS_DP
 
 ## Which docks of a tablet stay docked, by the docking rule. `row_w` is the width of the row the rail, docks and
 ## map share; `fixed_w` everything in it that is neither a dock nor the map (the rail); `left_w` and `right_w` the

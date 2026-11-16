@@ -399,6 +399,8 @@ const SYMBOLS := {
 	## a parse error. Not in Plex Mono: it draws through `DccTheme.mono()`'s
 	## system-font fallback.
 	"locked": "\U01F512",
+	## U+1F4CC PUSHPIN, six hex digits (see "locked"): the tablet floating-dock pin (MS-7).
+	"pin": "\U01F4CC",
 	## The journey planner mockup's own three severity glyphs (`design/Journey
 	## Planner DCC.dc.html`), used verbatim -- dingbat-class Unicode symbols
 	## like the rest of this table, not colour emoji.

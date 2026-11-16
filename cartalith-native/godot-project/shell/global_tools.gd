@@ -473,12 +473,12 @@ static func ring_cardinals(app, req: Dictionary) -> Dictionary:
 	var finalized := bool(req.get("finalized", false))
 	var armed := String(req.get("armed_tool", ""))
 	var out := {}
-	out["N"] = {"label": "Inspect", "glyph": "tool_inspect", "shortcut": "V",
+	out["N"] = {"label": "Inspect", "glyph": "tool_inspect", "shortcut": DccTheme.key_hint("V"),
 		"armed": armed == "inspect", "enabled": true,
 		"callable": func() -> void: app.arm_tool("inspect")}
-	out["E"] = {"label": "Measure", "glyph": "tool_measure", "shortcut": "M",
+	out["E"] = {"label": "Measure", "glyph": "tool_measure", "shortcut": DccTheme.key_hint("M"),
 		"armed": armed == "measure", "enabled": true, "children": _measure_ring_children(app)}
-	out["W"] = {"label": "Region", "glyph": "tool_region", "shortcut": "R",
+	out["W"] = {"label": "Region", "glyph": "tool_region", "shortcut": DccTheme.key_hint("R"),
 		"armed": armed == "region", "enabled": true,
 		"callable": func() -> void: app.arm_tool("region")}
 	## Undo (S). `undo_stats()`'s own `label` is a peek at what the NEXT
@@ -489,7 +489,7 @@ static func ring_cardinals(app, req: Dictionary) -> Dictionary:
 	var can_undo: bool = app.can_undo_any() if app.bridge != null else false
 	var undo_label: String = app.undo_target_label() if app.bridge != null else ""
 	var depth := 1 if can_undo else 0
-	var undo_row := {"glyph": "sym:undo", "shortcut": "Ctrl+Z", "armed": false}
+	var undo_row := {"glyph": "sym:undo", "shortcut": DccTheme.key_hint("Ctrl+Z"), "armed": false}
 	if depth <= 0:
 		undo_row["label"] = "Undo"
 		undo_row["enabled"] = false

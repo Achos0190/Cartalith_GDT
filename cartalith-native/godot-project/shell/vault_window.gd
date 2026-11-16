@@ -114,6 +114,14 @@ const SafConnect := preload("res://shell/vault_saf_connect.gd")
 ## panel beside a Split-capable editor needs about 1 300; 1 100 keeps Write comfortable (about 540) and
 ## gives up Split only on the narrower side of the line.
 const SIDE_RIGHT_MIN_W := 1100
+## The same line on a tablet (VE-5, `VAULT_EDITOR_PROPOSAL.md` section 5's table: "the side panel joins Preview below
+## 900 dp"): a tablet's window gets the panel beside the editor from 900, not 1 100. The proposal's own figure, taken at
+## its word; the desktop keeps its labelled 1 100 above. Tablet only (`DccTheme.is_tablet()`: touch and not phone).
+const SIDE_RIGHT_MIN_W_TABLET := 900
+
+## The window width from which the panel sits beside the editor on this form factor.
+func side_right_min_w() -> int:
+	return SIDE_RIGHT_MIN_W_TABLET if DccTheme.is_tablet() else SIDE_RIGHT_MIN_W
 
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `vault_*` call in this window goes through it.
@@ -2651,7 +2659,7 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	_sync_private_notice()
 	## VE-5: the editor and its side panel share one host, side by side on a wide window and stacked on a
 	## narrow one (`SIDE_RIGHT_MIN_W`). The host fills the pane exactly as the bare editor did.
-	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W and not docked
+	var wide := (not _phone) and size.x >= side_right_min_w() and not docked
 	var host: BoxContainer = HBoxContainer.new() if wide else VBoxContainer.new()
 	host.name = "VaultEditorHost"
 	host.add_theme_constant_override("separation", 10)
@@ -2814,7 +2822,7 @@ func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
 func _side_wanted() -> bool:
 	if _side_user >= 0:
 		return _side_user == 1
-	return (not _phone) and size.x >= SIDE_RIGHT_MIN_W
+	return (not _phone) and size.x >= side_right_min_w()
 
 
 func _toggle_side_panel() -> void:

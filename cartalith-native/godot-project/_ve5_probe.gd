@@ -244,7 +244,7 @@ func _lines(t: String) -> PackedStringArray:
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var s := String(a)
-		if s.begins_with("--") and not (s in ["--vp", "--touch", "--shots", "--force-touch", "--debug"]):
+		if s.begins_with("--") and not (s in ["--vp", "--touch", "--shots", "--force-touch", "--debug", "--density"]):
 			print("VE5 ABORT unknown flag %s" % s)
 			get_tree().quit(2)
 			return
@@ -351,7 +351,9 @@ end
 
 	# == 0. Where the panel sits and whether it can be toggled =================
 	## A literal, not `vw.SIDE_RIGHT_MIN_W`: asserting a constant against itself passes whatever it is set to.
-	var wide: bool = (not _phone) and vw.size.x >= 1100
+	## A literal per form (VE-5's table: the tablet's panel joins the editor from 900 dp, the desktop's from 1 100).
+	var side_line := 900 if (_touch and not _phone) else 1100
+	var wide: bool = (not _phone) and vw.size.x >= side_line
 	if wide:
 		_ok("wide window: the panel is open and to the RIGHT of the editor", sp.visible and sp.get_global_rect().position.x >= ed.get_global_rect().end.x - 2.0, "%s vs %s" % [sp.get_global_rect(), ed.get_global_rect()])
 	else:
@@ -683,12 +685,26 @@ end
 	# == 5. A narrow window puts the panel BELOW the editor ====================
 	if not _phone:
 		await _open("Rhosk.md")
-		vw.size = Vector2i(1000, 800)
+		## The tablet's own line (VE-5: 900 dp, not the desktop's 1 100): at 1 000 a tablet window already has the panel
+		## BESIDE the editor, open; the desktop's does not (below).
+		if _touch:
+			vw.size = Vector2i(1000, 800)
+			await _frames(4)
+			vw._rebuild()
+			await _frames(6)
+			var beside: bool = vw._side_panel != null and vw._side_panel.visible and vw._side_panel.get_global_rect().position.x >= vw._editor.get_global_rect().end.x - 2.0
+			_ok("a 1000-wide window: the panel is beside the editor on a tablet and not on the desktop", beside == (not _phone))
+			if beside:
+				for b in vw._side_panel.find_children("*", "Button", true, false):
+					if (b as Button).is_visible_in_tree():
+						_ok("tablet panel button '%s' is at least 44 tall" % (b as Button).text.left(20), (b as Button).size.y >= 43.5)
+		## 860 on a tablet (its line is 900), 1000 on the desktop (its line is 1 100): narrow on both.
+		vw.size = Vector2i(860 if (_touch and not _phone) else 1000, 800)
 		await _frames(4)
 		vw._rebuild()
 		await _frames(6)
 		_grab()
-		var nar := vw.size.x < 1100
+		var nar := vw.size.x < side_line
 		_ok("CONTROL: the window is narrow now (%d)" % vw.size.x, nar)
 		if nar and sp != null and not sp.visible:
 			await _press(vw._side_toggle)

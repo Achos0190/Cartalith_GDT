@@ -196,9 +196,10 @@ func setup() -> void:
 	show_tab(tab)
 
 
-## The 44 dp touch floor on the phone (`DccWidgets.chip` and `segment` do not apply it themselves).
+## The 44 dp touch floor on every touch form, phone AND tablet (VE-5's tablet form, 2026-11-16: it was the phone's alone, and
+## a tablet's tabs and rows measured under 44; `DccWidgets.chip` and `segment` do not apply it themselves).
 func _floor(b: Button) -> void:
-	if phone:
+	if phone or DccTheme.is_touch():
 		b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, 44.0)
 
 
@@ -558,7 +559,7 @@ func _build_prop_row(key: String, is_list: bool, values, editable: bool) -> void
 
 
 func _floor_field(f: LineEdit) -> void:
-	if phone:
+	if phone or DccTheme.is_touch():
 		f.custom_minimum_size.y = maxf(f.custom_minimum_size.y, 44.0)
 
 
