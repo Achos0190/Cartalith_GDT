@@ -199,5 +199,6 @@ This audit is a dated cut; these landed or were ruled after it and contradict ro
 - **VE-6** "a fuller template chooser (S)": built in `3f7ea940` (`_ve6tpl_probe.gd`). **VE-5** tablet form: built in
   `8dd94baf`; the end-of-Preview copy and the 17-function probes remain.
 - **MS-3** "NOT built ... needs an owner design call": the call was made by Ruling FL item 1 (a tool palette only, no node
-  chips); still not built.
-- **CQ-8**'s three deferrals "each needing an owner answer": answered by Ruling FL item 2 (all three wanted); not built.
+  chips); **built 2026-11-16** (see the next entry).
+- **CQ-8**'s three deferrals "each needing an owner answer": answered by Ruling FL item 2 (all three wanted) and **built the same day**.
+- **MS-3** (Ruling FL item 1) **built 2026-11-16**: the phone domain sheet's tool palette (`DccApp._sync_phone_tool_palette`, from the one `_domain_tools` registry; no node chips). The MS-3 row, the Mobile shell row and the CQ-8 rows above read as written; `STATUS.md`, "Ruling FL items 1 and 2 built", is the answer.

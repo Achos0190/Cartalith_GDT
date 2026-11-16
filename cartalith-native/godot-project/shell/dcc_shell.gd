@@ -9120,6 +9120,9 @@ func _refresh_phone_sheet_body() -> void:
 	_mount_dock_in_sheet(dom)
 	if _dock_in_sheet and dom:
 		_sync_dom_rows(true)
+	## Ruling FL item 1: the domain's tool palette heads the sheet while the dock is in it (see `DccApp._sync_phone_tool_palette`).
+	if has_method("_sync_phone_tool_palette"):
+		call("_sync_phone_tool_palette", _dock_in_sheet and dom)
 	_refresh_phone_map_row()
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
 		## On the MAP tab with the idle Inspect tool the tool-options row holds only a caption, and as an expanding

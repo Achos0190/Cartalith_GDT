@@ -107,6 +107,8 @@ const PATHS := {
 	"tool_region": '<path d="M2 2.6 H5" /><path d="M7 2.6 H9"/><path d="M11 2.6 H14 V5"/><path d="M14 7 V9"/><path d="M14 11 V13.4 H11"/><path d="M9 13.4 H7"/><path d="M5 13.4 H2 V11"/><path d="M2 9 V7"/><path d="M2 5 V2.6"/>',
 	"tool_pan": '<path d="M5.4 8.4 V4.2 A1 1 0 0 1 7.4 4.2 V7.6"/><path d="M7.4 7.4 V3.2 A1 1 0 0 1 9.4 3.2 V7.6"/><path d="M9.4 7.6 V4.4 A1 1 0 0 1 11.4 4.4 V9.6"/><path d="M5.4 8.4 V6.6 A1 1 0 0 0 3.4 6.6 V10 C3.4 12.6 5.4 14.4 8 14.4 C10.6 14.4 11.4 12.4 11.4 10"/>',
 	"tool_paint": '<path d="M5.4 2.6 H10.6 V6.4 A2 2 0 0 1 8.6 8.4 H7.4 A2 2 0 0 1 5.4 6.4 Z"/><path d="M8 8.6 V11.2"/><path d="M8 11.4 C8 11.4 9.2 12.6 9.2 13.3 A1.2 1.2 0 0 1 6.8 13.3 C6.8 12.6 8 11.4 8 11.4 Z"/>',
+	## FL-1 (Ruling FL item 1): Sculpt as a palette cell, a ridge profile over its base line (the same family as the thirteen sculpt-feature glyphs).
+	"tool_sculpt": '<path d="M2 12.6 L5.6 6.2 L8 9.4 L10.4 4.6 L14 12.6 Z"/>',
 	"tool_settlement": '<path d="M2.4 7.6 L8 2.8 L13.6 7.6"/><path d="M4 7 V13.4 H12 V7"/><path d="M6.8 13.4 V9.8 H9.2 V13.4"/>',
 	"tool_poi": '<path d="M8 2.2 L13.8 8 L8 13.8 L2.2 8 Z"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"tool_territory": '<path d="M2.2 5 L7.6 2.6 L13.8 5.4 L11 13.2 L4 12.4 Z"/><path d="M4 6.6 L6.4 11.8"/><path d="M6.8 5.4 L9.4 12.2"/><path d="M9.6 5.2 L11.4 10.4"/>',

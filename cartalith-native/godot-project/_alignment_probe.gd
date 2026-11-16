@@ -614,8 +614,10 @@ func _phone() -> void:
 		var bi := _insets(cb[k], c.get_global_rect())
 		_ok(cb[k].size != Vector2.ZERO and bi[0] >= 0 and bi[1] >= 0 and bi[2] >= 0 and bi[3] >= 0, "%s: border fully inside its cell (insets %s)" % [nm3, bi])
 	print("== 5e. dock tool buttons ==")
-	# The TOOLS block lives in the left dock, which the phone presents as a sheet.
-	_app._set_sheet_open("left", true)
+	# Ruling FL item 1 (2026-11-16): the tools are the palette row at the top of the DOMAIN sheet
+	# (`DccApp._sync_phone_tool_palette`), no longer a TOOLS block inside the left dock's sheet. Raise the domain sheet.
+	_app._pick_phone_tab("domain", false)
+	_app._set_phone_detent("full", false)
 	await _settle(30)
 	var tools: Array = []
 	for b in _app.find_children("*", "Button", true, false):

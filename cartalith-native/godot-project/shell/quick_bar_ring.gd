@@ -85,6 +85,16 @@ static func _run(app, key: String) -> void:
 	if why != "":
 		DccQuickBar.say_on(app, why)
 
+## The ring row that takes a diagonal's place when the user replaced it (Ruling FL item 2b): `_item()` for `pin`, as a
+## top-level slot. `builtin` is the slot it displaces, kept only as `builtin_label` so the hover caption and the
+## Customise window can name what the user can put back; none of the built-in's `children` or `callable` is
+## carried, so a replaced diagonal opens no sub-ring. Marked `replaced`.
+static func replacement_item(app, idx: CommandIndex, pin: Dictionary, builtin: Dictionary) -> Dictionary:
+	var it := _item(app, idx, pin)
+	it["replaced"] = true
+	it["builtin_label"] = String(builtin.get("label", ""))
+	return it
+
 ## The ring DOCK's items: the conditional Assistant chip first (CQ-7) when it is shown, then the
 ## stored pins in order (at most `QUICK_BAR_MAX_DOCK`, enforced by the store on read). `[]` when the
 ## Assistant chip is hidden and nothing is docked -- the shipped state, which builds no index and

@@ -546,7 +546,11 @@ func _build() -> void:
 	## than by child index, because `tools_block()` returns nothing and a
 	## positional read of a shared factory's output is a silent breakage the day
 	## that factory adds a node.
+	## Ruling FL item 1: Sculpt joins Biome paint as a SCULPT-mode cell, so the one registry now answers "which tools
+	## does WORLD have" for the desktop palette bar AND the phone domain sheet's palette row (`DccApp._sync_phone_tool_palette`).
+	## It arms the same `sculpt` tool the Terrain feature buttons arm (`_on_feature_button_armed`).
 	DccWidgets.tools_block(self, app, app.tool_group, [
+		{"id": "sculpt", "glyph": "tool_sculpt", "label": "Sculpt", "modes": ["b"]},
 		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)", "modes": ["b"]},
 	])
 	_paint_tool_row = _find_tool_row("Biome paint (B)")

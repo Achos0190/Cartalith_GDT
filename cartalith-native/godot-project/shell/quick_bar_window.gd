@@ -52,6 +52,23 @@ class_name QuickBarWindow
 ##    instead of guessing). A diagonal that is a single tool (CARTO Label, CIVIL Route) is listed
 ##    disabled with the reason it cannot share.
 ##
+## ## Ruling FL item 2 (2026-11-16): replacing a diagonal, tool pins of a domain, and the layout as a file
+##
+##  * **Replace slot** (a fourth tab, desktop and tablet): the Ring slots chooser again, but over ALL twelve
+##    diagonals, the single-tool ones included. `Add` puts the selected command in the diagonal's place (one pin per
+##    diagonal, `DccSettings.quick_bar_replace_set`); `Remove` (or Delete) puts the built-in back, and `Reset` puts
+##    every built-in back. The built-in's own label and item count are read from the live ring and shown above the
+##    list. The cardinals are not listed: they stay global and fixed.
+##  * **A domain's own tools** are catalogue rows in the `Tools` group beside the three global ones
+##    (`CommandIndex._add_tools`); a Bar or Ring dock pin made from one is limited to that domain, which the
+##    `Shown in` row can widen.
+##  * **Export layout... / Import layout...** under the two columns, on every form factor. The layout is the
+##    `[quick_bar]` settings only, never a world. Desktop picks the file with the shell's own browser; a phone or
+##    tablet writes a cache copy and opens the Android share sheet (export) or the Android document picker (import),
+##    the two paths `File > Share project` and the project pickers already use. Import parses the whole file
+##    (`DccSettings.quick_bar_parse_layout`), refuses an invalid one with its reason and changes nothing, and asks
+##    before it replaces the current layout.
+##
 ## ## CQ-8 (Ruling EH item 3): per-domain visibility, toggles and tools
 ##
 ## On the Bar and Ring dock tabs a pin has a `Shown in` row of three check boxes (World, Civilization,
@@ -128,6 +145,14 @@ var _foot: Label
 var _msg: Label
 var _detail: Label
 var _reset_dlg: ConfirmationDialog
+## Ruling FL item 2a: the Export / Import row, the confirmation that precedes an import, the parsed layout text it
+## would install, and the test seam (a Callable set by a probe replaces the file picker and the share sheet).
+var _io_row: HBoxContainer
+var _export_btn: Button
+var _import_btn: Button
+var _import_dlg: ConfirmationDialog
+var _import_text := ""
+var _picker_spy: Callable = Callable()
 ## The two columns and the box that holds them, kept so the phone layout can restack them (CQ-6).
 var _cols: Control
 var _left: VBoxContainer
@@ -239,6 +264,7 @@ func setup(a) -> void:
 	_tabs.add_tab("Bar")
 	_tabs.add_tab("Ring dock")
 	_tabs.add_tab("Ring slots")
+	_tabs.add_tab("Replace slot")
 	_tabs.focus_mode = Control.FOCUS_ALL
 	if tablet:
 		_tabs.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
@@ -344,6 +370,16 @@ func setup(a) -> void:
 	_remove_btn.name = "Remove"
 	_reset_btn = _button(right, "Reset to empty", _ask_reset)
 	_reset_btn.name = "Reset"
+	_io_row = HBoxContainer.new()
+	_io_row.name = "LayoutFile"
+	_io_row.add_theme_constant_override("separation", 6)
+	root.add_child(_io_row)
+	_export_btn = _button(_io_row, "Export layout…", export_layout)
+	_export_btn.name = "ExportLayout"
+	_export_btn.tooltip_text = "Save the bar, the ring dock, the shared and replaced ring slots and the Assistant chip switch as a file. Never includes a world."
+	_import_btn = _button(_io_row, "Import layout…", import_layout)
+	_import_btn.name = "ImportLayout"
+	_import_btn.tooltip_text = "Replace this layout with one from a file. A file that is not a quick bar layout is refused and nothing changes."
 	_msg = DccTheme.label("", "warn", DccTheme.FS_SMALL)
 	_msg.name = "Message"
 	_msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -696,6 +732,9 @@ func _pins_now() -> Array:
 			return DccSettings.quick_bar_value("dock")
 		"share":
 			return DccSettings.quick_bar_share_pins(_share_key)
+		"replace":
+			var pin := DccSettings.quick_bar_replace_pin(_share_key)
+			return [pin] if not pin.is_empty() else []
 	return DccSettings.quick_bar_value("bar")
 
 ## The word the catalogue puts after `on the` for a command already in the edited list.
@@ -705,6 +744,8 @@ func _where() -> String:
 			return "ring dock"
 		"share":
 			return "sub-ring"
+		"replace":
+			return "slot"
 	return "bar"
 
 ## The cap of the edited list right now (24, 4, or the diagonal's allowance).
@@ -714,11 +755,13 @@ func _cap_now() -> int:
 			return DccSettings.QUICK_BAR_MAX_DOCK
 		"share":
 			return DccSettings.quick_bar_share_allowance(maxi(0, _share_builtin)) if _share_builtin >= 0 else 0
+		"replace":
+			return 1
 	return DccSettings.QUICK_BAR_MAX_BAR
 
 ## A tab was chosen: switch the edited list, redraw both columns.
 func _on_tab_changed() -> void:
-	_target = ["bar", "dock", "share"][clampi(_tabs.current_tab, 0, 2)]
+	_target = ["bar", "dock", "share", "replace"][clampi(_tabs.current_tab, 0, 3)]
 	_msg.text = ""
 	_render_diagonals()
 	_apply_target_chrome()
@@ -727,8 +770,10 @@ func _on_tab_changed() -> void:
 
 ## Shows or hides the diagonal chooser and writes the explanation line for the current tab.
 func _apply_target_chrome() -> void:
-	_diag.visible = _target == "share"
-	_builtin_lbl.visible = _target == "share"
+	_diag.visible = _target == "share" or _target == "replace"
+	_builtin_lbl.visible = _target == "share" or _target == "replace"
+	_add_btn.text = "＋ Replace the slot" if _target == "replace" else "＋ Add to bar"
+	_reset_btn.text = "Put every built-in back" if _target == "replace" else "Reset to empty"
 	match _target:
 		"bar":
 			_tab_note.text = "Pins on the bar beside the tool palette."
@@ -736,6 +781,8 @@ func _apply_target_chrome() -> void:
 			_tab_note.text = "Up to %d buttons under the cartwheel, beside its eight slots." % DccSettings.QUICK_BAR_MAX_DOCK
 		"share":
 			_tab_note.text = "Pins go after a diagonal's own items (at most %d). Single-tool diagonals cannot take pins." % DccSettings.QUICK_BAR_MAX_SHARE
+		"replace":
+			_tab_note.text = "A pin can take the place of one of the four diagonal slots. Remove it to put the built-in slot back; the North, East, South and West slots never change."
 	_tab_note.visible = not _phone_ready
 
 ## Fills the diagonal chooser from the live rings: one entry per domain and diagonal, a single-tool
@@ -756,6 +803,14 @@ func _render_diagonals() -> void:
 			var usable := false
 			if not built.has(dir):
 				text = "%s  --  %s" % [head, "load a world to read this ring" if not world else "no ring here"]
+			elif _target == "replace":
+				## Ruling FL item 2b: every readable diagonal can be replaced, a single tool included.
+				var b2: Dictionary = built[dir]
+				row["label"] = String(b2["label"])
+				row["children"] = int(b2["children"])
+				var rp := DccSettings.quick_bar_replace_pin(key)
+				text = "%s · %s  --  %s" % [head, String(b2["label"]), ("replaced by " + String(rp.get("t", rp.get("k", "")))) if not rp.is_empty() else "built in"]
+				usable = true
 			else:
 				var b: Dictionary = built[dir]
 				row["label"] = String(b["label"])
@@ -803,6 +858,13 @@ func _on_diagonal_selected() -> void:
 
 ## The read-only list of the selected diagonal's built-in children (or why there is none).
 func _update_builtin_label() -> void:
+	if _target == "replace" and _share_key != "":
+		var rparts := _share_key.split(".")
+		var rkids := QuickBarRing.builtin_child_labels(app, rparts[0], rparts[1])
+		var rb: Dictionary = QuickBarRing.builtin_diagonals(app, rparts[0]).get(rparts[1], {})
+		_builtin_lbl.text = "Built in: %s%s. Remove the pin to put it back." % [String(rb.get("label", rparts[1])),
+			(" (opens %d items: %s)" % [rkids.size(), ", ".join(PackedStringArray(rkids))]) if not rkids.is_empty() else " (a single tool)"]
+		return
 	if _share_key == "":
 		var world: bool = app.bridge != null and app.bridge.has_world
 		_builtin_lbl.text = "Load or generate a world first: a diagonal's built-in items are read from the live ring, and how many more fit depends on them." if not world \
@@ -874,7 +936,7 @@ func _render_pins(select_key: String = "") -> void:
 	for p in pins:
 		var k := String(p["k"])
 		var row := _idx.find_pin(k)
-		var i := _pins_list.add_item(pin_text(row, String(p["t"]), k) + (domain_suffix(p) if _target != "share" else ""))
+		var i := _pins_list.add_item(pin_text(row, String(p["t"]), k) + (domain_suffix(p) if _target == "bar" or _target == "dock" else ""))
 		_pin_keys.append(k)
 		if not row.is_empty() and bool(row.get("pinnable", false)):
 			_pins_list.set_item_tooltip(i, String(row.get("blurb", "")))
@@ -889,6 +951,8 @@ func _render_pins(select_key: String = "") -> void:
 			_count.text = "ON THE RING DOCK  %d / %d" % [pins.size(), _cap_now()]
 		"share":
 			_count.text = ("ON %s  %d / %d" % [_share_key.to_upper(), pins.size(), _cap_now()]) if _share_key != "" else "NO DIAGONAL"
+		"replace":
+			_count.text = ("SLOT %s  %s" % [_share_key.to_upper(), "REPLACED" if not pins.is_empty() else "BUILT IN"]) if _share_key != "" else "NO DIAGONAL"
 		_:
 			_count.text = "ON THE BAR  %d / %d" % [pins.size(), _cap_now()]
 	_sync_buttons()
@@ -924,7 +988,7 @@ func _sync_buttons() -> void:
 	_up_btn.disabled = i <= 0
 	_down_btn.disabled = i < 0 or i >= n - 1
 	_remove_btn.disabled = i < 0
-	_reset_btn.disabled = n == 0
+	_reset_btn.disabled = (DccSettings.quick_bar_value("replace") as Dictionary).is_empty() if _target == "replace" else n == 0
 
 # -- actions -------------------------------------------------------------------------------
 
@@ -941,7 +1005,8 @@ func _add_selected() -> String:
 func add_row(row: Dictionary) -> String:
 	var why := add_refusal(row)
 	if why == "":
-		why = _add_to_target(String(row["pin_key"]), String(row["title"]))
+		## Ruling FL item 2c: a domain's own tool is pinned shown in that domain only (see `CommandIndex._add_tools`).
+		why = _add_to_target(String(row["pin_key"]), String(row["title"]), [String(row["domain"])] if row.has("domain") else [])
 	if why != "":
 		_say(why)
 		return why
@@ -952,23 +1017,33 @@ func add_row(row: Dictionary) -> String:
 ## Appends to the edited list through `DccSettings`, whose caps and sentences are the store's: ""
 ## on success, else the sentence to show. A diagonal that cannot share is refused here with the
 ## chooser's own reason (the store refuses a leaf too, but the window knows which one is chosen).
-func _add_to_target(pin_key: String, title: String) -> String:
+func _add_to_target(pin_key: String, title: String, domains: Array = []) -> String:
 	match _target:
 		"dock":
-			return DccSettings.quick_bar_add("dock", pin_key, title)
+			return DccSettings.quick_bar_add("dock", pin_key, title, domains)
 		"share":
 			if _share_key == "":
 				return "Load a world, then choose a diagonal that opens a sub-ring."
 			return DccSettings.quick_bar_share_add(_share_key, pin_key, title, _share_builtin)
-	return DccSettings.quick_bar_add("bar", pin_key, title)
+		"replace":
+			if _share_key == "":
+				return "Load a world, then choose a diagonal to replace."
+			if String(DccSettings.quick_bar_replace_pin(_share_key).get("k", "")) == pin_key:
+				return "That slot already shows this command."
+			return DccSettings.quick_bar_replace_set(_share_key, pin_key, title)
+	return DccSettings.quick_bar_add("bar", pin_key, title, domains)
 
 ## `quick_bar_move` / `_remove` for the edited list.
 func _move_in_target(key: String, delta: int) -> bool:
+	if _target == "replace":
+		return false
 	if _target == "share":
 		return DccSettings.quick_bar_share_move(_share_key, key, delta)
 	return DccSettings.quick_bar_move("dock" if _target == "dock" else "bar", key, delta)
 
 func _remove_in_target(key: String) -> bool:
+	if _target == "replace":
+		return DccSettings.quick_bar_replace_clear(_share_key)
 	if _target == "share":
 		return DccSettings.quick_bar_share_remove(_share_key, key)
 	return DccSettings.quick_bar_remove("dock" if _target == "dock" else "bar", key)
@@ -992,7 +1067,7 @@ func _remove_selected() -> bool:
 	var title := String(_pins_list.get_item_text(i))
 	if not _remove_in_target(key):
 		return false
-	_say("Removed %s." % title.get_slice("  --  ", 0), "text_secondary")
+	_say(("The built-in slot is back." if _target == "replace" else "Removed %s." % title.get_slice("  --  ", 0)), "text_secondary")
 	## Select the neighbour that slides into the gap, so repeated Delete clears the list
 	## top to bottom without the focus going stale.
 	## (`_pin_keys` still holds the list as rendered before the removal.)
@@ -1009,9 +1084,20 @@ func _neighbour_after_remove(i: int) -> String:
 
 func _ask_reset() -> void:
 	var n := _pin_keys.size()
-	if n == 0:
+	if _target == "replace":
+		n = (DccSettings.quick_bar_value("replace") as Dictionary).size()
+		if n == 0:
+			_say("Every diagonal already shows its built-in slot.")
+			return
+	elif n == 0:
 		_say("The %s is already empty." % ("quick bar" if _target == "bar" else _where()))
 		return
+	if _target == "replace":
+		_reset_dlg.ok_button_text = "Put them back"
+		_reset_dlg.dialog_text = "Put the built-in slot back in all %d replaced diagonals? The commands themselves are not affected." % n
+		_reset_dlg.popup_centered()
+		return
+	_reset_dlg.ok_button_text = "Remove all pins"
 	_reset_dlg.dialog_text = "Remove all %d pins from the %s? The commands themselves are not affected." % [n, "quick bar" if _target == "bar" else ("ring dock" if _target == "dock" else "sub-ring %s" % _share_key)]
 	_reset_dlg.popup_centered()
 
@@ -1024,16 +1110,19 @@ func _do_reset() -> void:
 			ok = DccSettings.set_quick_bar_value("dock", [])
 		"share":
 			ok = DccSettings.quick_bar_share_clear(_share_key)
+		"replace":
+			ok = DccSettings.quick_bar_replace_reset()
 		_:
 			ok = DccSettings.set_quick_bar_value("bar", [])
 	if ok:
-		_say("The %s is empty." % ("quick bar" if _target == "bar" else _where()), "text_secondary")
+		_say("Every built-in slot is back." if _target == "replace" else "The %s is empty." % ("quick bar" if _target == "bar" else _where()), "text_secondary")
 		_changed("")
 
 ## Common tail of every change: re-render both lists, tell the shell.
 func _changed(select_key: String) -> void:
-	if _target == "share":
+	if _target == "share" or _target == "replace":
 		_render_diagonals()
+		_update_builtin_label()
 	_render_catalogue()
 	_render_pins(select_key)
 	pins_changed.emit()
@@ -1053,6 +1142,91 @@ func _pins_key(ev: InputEvent) -> void:
 		_move(1)
 		_pins_list.accept_event()
 
+
+# -- the layout as a file (Ruling FL item 2a) -----------------------------------------------
+
+## The name the exported file is offered under.
+const LAYOUT_FILE_NAME := "cartalith-quick-bar.json"
+
+## `Export layout...`. Desktop: the shell's own save browser, then a write (overwrite confirmed). Phone or tablet: a cache
+## copy under `user://` handed to the Android share sheet (`DccApp.share_user_file`), because there is no folder to
+## browse. Nothing is read from a world; the text is `DccSettings.quick_bar_export_text()`.
+func export_layout() -> void:
+	if DccTheme.is_touch():
+		var cache := "user://" + LAYOUT_FILE_NAME
+		var why := write_layout_file(cache)
+		if why != "":
+			_say(why)
+			return
+		_say(String(app.share_user_file(cache, "application/json", "Share quick bar layout")) if app.has_method("share_user_file") else "This build cannot open the share sheet.", "text_secondary")
+		return
+	## The picker seam is the DESKTOP half only: the touch half above reaches the share sheet's own seam (`_share_spy`).
+	if _picker_spy.is_valid():
+		_picker_spy.call("export")
+		return
+	var start := OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+	DccBrowseDialog.choose_save_path(app, "Export quick bar layout", "json", start, "", LAYOUT_FILE_NAME, func(path: String):
+		if FileAccess.file_exists(path) and app.has_method("_confirm"):
+			app._confirm("Overwrite %s?" % path.get_file(), "That file already exists. Exporting replaces it.", "Overwrite",
+				func(): _finish_export(path))
+			return
+		_finish_export(path))
+
+## Writes the layout to `path` and says so (or why not).
+func _finish_export(path: String) -> void:
+	var w := write_layout_file(path)
+	_say(w if w != "" else "Exported to %s." % path.get_file(), "text_secondary" if w == "" else "warn")
+
+## Writes the layout text to `path`. "" on success, else the sentence to show.
+func write_layout_file(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return "Could not write %s (error %d)." % [path.get_file(), FileAccess.get_open_error()]
+	f.store_string(DccSettings.quick_bar_export_text())
+	f.close()
+	return ""
+
+## `Import layout...`. Raises the shell's browser (desktop) or the Android document picker (`DccBrowseDialog.choose_file`
+## routes there on Android and hands back a local copy), then `import_from_path()`.
+func import_layout() -> void:
+	if _picker_spy.is_valid():
+		_picker_spy.call("import")
+		return
+	DccBrowseDialog.choose_file(app, "Import quick bar layout", PackedStringArray(["json"]), OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS), "",
+		func(path: String): import_from_path(path))
+
+## Reads `path`, validates it and, when it is a layout, asks before replacing the current one. Answers "" when the
+## confirmation was raised, else the refusal (also shown). Nothing is stored here: `_do_import()` stores, after
+## the user confirms.
+func import_from_path(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		var why := "Could not read %s (error %d)." % [path.get_file(), FileAccess.get_open_error()]
+		_say(why)
+		return why
+	var text := f.get_as_text()
+	f.close()
+	var r := DccSettings.quick_bar_parse_layout(text)
+	if not bool(r["ok"]):
+		_say(String(r["why"]))
+		return String(r["why"])
+	_import_text = text
+	## The shell's own confirm (wrapped prose, the phone's modal form), built per import so it is the same dialog every
+	## other destructive action here uses.
+	_import_dlg = DccWidgets.confirm(app, "Import a quick bar layout",
+		"Replace your quick bar layout with the one in %s (%s)? Your current layout is not kept." % [path.get_file(), String(r["counts"])],
+		"Replace my layout", _do_import, Callable(), 460)
+	return ""
+
+## The import confirmation's OK: installs the staged layout.
+func _do_import() -> void:
+	var why := DccSettings.quick_bar_import_text(_import_text)
+	_import_text = ""
+	if why != "":
+		_say(why)
+		return
+	_say("Imported the layout.", "text_secondary")
+	_changed("")
 
 ## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): what the user set in this visit, read BEFORE the swap
 ## unmounts anything. `open()` resets the search, the toggle, the tab and the target to defaults ("a fresh look each time"), so a

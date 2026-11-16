@@ -339,8 +339,8 @@ func _window_tabs() -> void:
 	print("== 1. the window's Ring dock and Ring slots tabs ==")
 	_app.open_quick_bar_window()
 	await _settle(6)
-	_ok(_win.visible and _win._tabs != null and _win._tabs.tab_count == 3, "the window has three tabs")
-	_ok(_win._tabs.get_tab_title(0) == "Bar" and _win._tabs.get_tab_title(1) == "Ring dock" and _win._tabs.get_tab_title(2) == "Ring slots", "named Bar, Ring dock, Ring slots")
+	_ok(_win.visible and _win._tabs != null and _win._tabs.tab_count == 4, "the window has four tabs (Ruling FL item 2b added Replace slot)")
+	_ok(_win._tabs.get_tab_title(0) == "Bar" and _win._tabs.get_tab_title(1) == "Ring dock" and _win._tabs.get_tab_title(2) == "Ring slots" and _win._tabs.get_tab_title(3) == "Replace slot", "named Bar, Ring dock, Ring slots, Replace slot")
 	if DccTheme.is_tablet():
 		_ok(_win._tabs.get_combined_minimum_size().y >= 44.0, "tablet: the tab strip is at least 44 px tall (%.0f)" % _win._tabs.get_combined_minimum_size().y)
 	## The Ring dock tab

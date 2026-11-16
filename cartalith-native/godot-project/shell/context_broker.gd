@@ -691,7 +691,28 @@ func ring_collect(req: Dictionary) -> Dictionary:
 			for dir in diag:
 				slots[dir] = diag[dir]
 	_append_shared_pins(slots, String(req.get("domain", "")))
+	_apply_replacements(slots, String(req.get("domain", "")))
 	return slots
+
+## Ruling FL item 2b: puts a user's pin in place of a diagonal's built-in slot, for each diagonal the user replaced
+## (`DccSettings` `replace`). Runs AFTER `_append_shared_pins()` so a replaced diagonal's shared pins are simply
+## not drawn (they stay stored and come back with the built-in). Only the four diagonals can change: the cardinals
+## (N, E, S, W) are global and fixed. A no-op, with no command index built, while nothing is replaced, which is the
+## shipped state, so the default ring is unchanged (`_quickbar_ringid_probe`). `QuickBarRing.replacement_item()`
+## resolves the pin against a fresh index, so a pin whose command vanished shows as unavailable rather than being
+## dropped, and removing the replacement in the Customise window puts the built-in slot back.
+func _apply_replacements(slots: Dictionary, domain: String) -> void:
+	if domain == "" or (DccSettings.quick_bar_value("replace") as Dictionary).is_empty():
+		return
+	var idx: CommandIndex = null
+	for dir in QuickBarRing.DIAGONALS:
+		var pin := DccSettings.quick_bar_replace_pin(QuickBarRing.share_key(domain, dir))
+		if pin.is_empty() or not slots.has(dir):
+			continue
+		if idx == null:
+			idx = CommandIndex.new()
+			idx.build(app, app.bridge)
+		slots[dir] = QuickBarRing.replacement_item(app, idx, pin, slots[dir] as Dictionary)
 
 ## CQ-4 (`CUSTOM_QUICK_BAR_SCOPE.md` s.4.3): appends the user's pins AFTER the built-in children of
 ## each diagonal that already has a sub-ring (`children`). The compass stays eight slots and the

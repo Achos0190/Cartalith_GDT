@@ -286,26 +286,45 @@ func _state_source_for(id: int) -> Callable:
 		return Callable()
 	return menus.state_source(id)
 
-## CQ-8 (Ruling EH item 3, scope Q10): the palette's global tools as pinnable `tool` rows -- Inspect, Measure
-## and Region select (`DccWidgets.GLOBAL_TOOL_ENTRIES`, the same table the palette draws, so a tool added there
-## is pinnable here with no second list). A domain's own tools are not offered: they exist only in their
-## domain's palette and their controls live in that domain's dock, so a chip that armed one from another
-## domain would arm a tool with nothing to control it. A tool row is a toggle whose state is "this tool is
-## armed" (`armed_tool`, the shell's own variable, read live).
+## CQ-8 (Ruling EH item 3, scope Q10) and its third extra (Ruling FL item 2c): the palette's tools as pinnable
+## `tool` rows. First the global ones -- Inspect, Measure and Region select (`DccWidgets.GLOBAL_TOOL_ENTRIES`, the
+## same table the palette draws, so a tool added there is pinnable here with no second list) -- then every
+## DOMAIN's own, read off the live registry the palette bar and the phone sheet's palette row draw
+## (`DccApp._domain_tools`, filled by each workspace's `tools_block()`), so a tool registered there is pinnable
+## with no third list. A domain tool's row carries `domain` (its registry key) and `add_row()` stores the pin
+## limited to that domain (CQ-8's `d`): its controls live in that domain's dock, so a chip that armed it
+## elsewhere would arm a tool with nothing to control it; the user can widen the pin in the Customise window.
+## The pin key is the global tools' own `tool:<id>` and `run_row()` arms through the same `arm_tool`: there is no
+## second pin path. A tool row is a toggle whose state is "this tool is armed" (`armed_tool`, the shell's own
+## variable, read live). An id already offered (a global one, or one two domains register) is listed once.
 func _add_tools() -> void:
 	if _app == null or not _app.has_method("arm_tool"):
 		return
+	var offered := {}
+	var entries: Array = []
 	for e in DccWidgets.GLOBAL_TOOL_ENTRIES:
-		if (e as Dictionary).has("legend"):
-			continue
+		if not (e as Dictionary).has("legend"):
+			entries.append([e, ""])
+	var reg = _app.get("_domain_tools")
+	if reg is Dictionary:
+		for dom in DccSettings.QUICK_BAR_DOMAINS:
+			for e in (reg as Dictionary).get(dom, []):
+				if e is Dictionary and (e as Dictionary).has("id") and (e as Dictionary).has("label"):
+					entries.append([e, dom])
+	for pair in entries:
+		var e: Dictionary = pair[0]
+		var dom := String(pair[1])
 		var tid := String(e["id"])
+		if offered.has(tid):
+			continue
+		offered[tid] = true
 		## "Measure (M)" -> "Measure": the key letter is the palette's tooltip, not the command's name.
 		var title := String(e["label"])
 		var paren := title.find(" (")
 		if paren > 0:
 			title = title.substr(0, paren)
 		var app = _app
-		_rows.append({
+		var row := {
 			"title": title,
 			"blurb": "Arms the %s tool, exactly as its palette button does" % title,
 			"group": "Tools",
@@ -320,7 +339,11 @@ func _add_tools() -> void:
 			"toggle": true,
 			"_state": func() -> bool: return String(app.armed_tool) == tid,
 			"refreshes_on_open": false,
-		})
+		}
+		if dom != "":
+			row["domain"] = dom
+			row["blurb"] += " (a %s tool: pinned there until you widen it)" % String(QuickBarRing.DOMAIN_NAMES.get(dom, dom))
+		_rows.append(row)
 
 ## Every menu row, walked off the live MenuBar. A `_todo` row is disabled and
 ## carries its reason as a tooltip -- both are read here, so the index reports

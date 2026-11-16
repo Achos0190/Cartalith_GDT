@@ -1417,7 +1417,10 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 ## has no top bar, and that request was about the desktop shell.
 static func tools_block(parent: Control, app, group: ButtonGroup,
 		domain_entries: Array = []) -> void:
-	if not DccTheme.is_phone() and app != null and app.has_method("set_domain_tools"):
+	if app != null and app.has_method("set_domain_tools"):
+		## Ruling FL item 1: the phone registers too. Its palette is the ROW AT THE TOP OF THE DOMAIN SHEET
+		## (`DccApp._sync_phone_tool_palette()`, drawn by `tool_palette_flow()` from this same registry), not a
+		## second copy of the cells inside each workspace panel, so there is one definition of a domain's tools.
 		app.set_domain_tools(String(parent.get("domain_id")), domain_entries)
 		return
 	var sec := section(parent, "Tools")
@@ -1425,6 +1428,22 @@ static func tools_block(parent: Control, app, group: ButtonGroup,
 	if not domain_entries.is_empty():
 		sec.add_child(_tools_row(domain_entries, app, group))
 	parent.add_child(DccTheme.rule())
+
+## Ruling FL item 1 (MS-3): the phone domain sheet's tool palette, one wrapping row of the tools every domain has
+## (`GLOBAL_TOOL_ENTRIES` less the Pan legend, which names a gesture and arms nothing) then `domain_entries`
+## (`DccApp._strip_entries()`, the registry the desktop palette bar reads). An `HFlowContainer`, as `_tools_row()`
+## is, because `DccShell.phone_fit()` stacks a caption under each glyph and a row of them is wider than a phone.
+## Each cell is `_tool_entry()`'s own button, so the sheet, the bar and the tool pins share the id meta, the
+## `ButtonGroup` and the arm call; `phone_fit()` floors them at 44 dp when they enter the sheet.
+static func tool_palette_flow(app, group: ButtonGroup, domain_entries: Array) -> HFlowContainer:
+	var entries: Array = []
+	for e in GLOBAL_TOOL_ENTRIES:
+		if not (e as Dictionary).has("legend"):
+			entries.append(e)
+	entries.append_array(domain_entries)
+	var row := _tools_row(entries, app, group) as HFlowContainer
+	row.name = "DomToolFlow"
+	return row
 
 ## `HFlowContainer`, not `HBoxContainer`, and only because of the phone: on a
 ## handset `DccShell.phone_fit()` puts each tool's *name* under its glyph

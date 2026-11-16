@@ -1679,6 +1679,7 @@ const QUICK_BAR_DEFAULTS := {
 	"bar": [],                 ## ordered {k, t} pins, <= QUICK_BAR_MAX_BAR
 	"dock": [],                ## ordered {k, t} pins under the cartwheel, <= QUICK_BAR_MAX_DOCK
 	"share": {},               ## "<domain>.<DIR>" -> ordered {k, t} pins appended to that sub-ring
+	"replace": {},             ## "<domain>.<DIR>" -> ONE {k, t} pin that REPLACES that diagonal's built-in slot (Ruling FL item 2b)
 	"assistant_button": true,  ## the user's switch for the conditional Assistant chip (CQ-7)
 }
 ## The user-settable keys and the Variant type each must carry.
@@ -1686,6 +1687,7 @@ const _QUICK_BAR_WRITABLE := {
 	"bar": TYPE_ARRAY,
 	"dock": TYPE_ARRAY,
 	"share": TYPE_DICTIONARY,
+	"replace": TYPE_DICTIONARY,
 	"assistant_button": TYPE_BOOL,
 }
 
@@ -1788,6 +1790,22 @@ static func _clean_share(raw) -> Dictionary:
 			out[String(k)] = pins
 	return out
 
+## `raw` as a clean replacement map (Ruling FL item 2b): `"<domain>.<DIR>"` -> one `{k, t}` pin, for a
+## diagonal of one of the three domains. A malformed entry or an unknown diagonal is DROPPED, never repaired
+## into a plausible one (`MISTAKES.md`); a pin whose command no longer exists is kept (the slot then says "No
+## longer available" and the user can put the built-in back).
+static func _clean_replace(raw) -> Dictionary:
+	var out := {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	for k in raw:
+		if not _is_share_key(k) or not QUICK_BAR_DOMAINS.has(String(k).split(".")[0]):
+			continue
+		var pins := _clean_pins([raw[k]], 1, false)
+		if pins.size() == 1:
+			out[String(k)] = pins[0]
+	return out
+
 ## The stored value of one `[quick_bar]` key, else its default; `null` for a key outside
 ## `QUICK_BAR_DEFAULTS` (a caller bug, never confusable with a value). A value of the wrong
 ## type, a section with an unreadable `version`, or an over-cap list reads as empty or cut,
@@ -1809,6 +1827,8 @@ static func quick_bar_value(key: String):
 			return _clean_pins(v, QUICK_BAR_MAX_DOCK)
 		"share":
 			return _clean_share(v)
+		"replace":
+			return _clean_replace(v)
 	return v if typeof(v) == typeof(dflt) else dflt
 
 ## Whether the user has ever stored `key` in a readable section. The Customise window can
@@ -1841,6 +1861,10 @@ static func set_quick_bar_value(key: String, value) -> bool:
 						or not _pins_valid(value[k], QUICK_BAR_MAX_SHARE):
 					return false
 			value = _clean_share(value)
+		"replace":
+			if not _replace_valid(value):
+				return false
+			value = _clean_replace(value)
 	_ensure_loaded()
 	if not _quick_bar_readable():
 		_cfg.erase_section(_SEC_QUICK_BAR)
@@ -1849,6 +1873,18 @@ static func set_quick_bar_value(key: String, value) -> bool:
 	_save()
 	if key == "assistant_button":
 		notify_assistant_state()
+	return true
+
+## The write-side strictness of `replace`: every key a diagonal of a known domain and every value one
+## well-formed `{k, t}` pin (the lenient read side is `_clean_replace`).
+static func _replace_valid(raw) -> bool:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return false
+	for k in raw:
+		if not _is_share_key(k) or not QUICK_BAR_DOMAINS.has(String(k).split(".")[0]):
+			return false
+		if typeof(raw[k]) != TYPE_DICTIONARY or not _pins_valid([raw[k]], 1):
+			return false
 	return true
 
 ## True when `raw` is an Array of at most `cap` well-formed pins with no repeated `k` --
@@ -2116,6 +2152,136 @@ static func quick_bar_share_clear(share_key: String) -> bool:
 	if not _is_share_key(share_key):
 		return false
 	return _quick_bar_share_set(share_key, [])
+
+# -- Replacing a ring diagonal's built-in slot (Ruling FL item 2b) ----------------------------
+#
+# `CUSTOM_QUICK_BAR_SCOPE.md` section 4.4 declined this for v1 for three reasons it named: the user needs a way
+# to restore the built-in, the displaced family needs a decision, and every combination needs a probe. Ruling FL
+# item 2 asks for it, so: the stored `replace` map holds at most ONE pin per diagonal; removing it is the way
+# back to the built-in (`quick_bar_replace_clear`, and `quick_bar_replace_reset` for all of them); the displaced
+# family is not deleted, only not drawn while the pin stands (its commands stay in the menus and the palette);
+# and a diagonal's shared pins (`share`) are kept in the store but not drawn while it is replaced, so putting the
+# built-in back brings them back too. The four cardinals are never replaceable. Nothing is stored by default, so
+# the shipped ring is unchanged.
+
+## The pin that replaces `share_key`'s built-in slot, `{k, t}`, or `{}` for none or a bad key.
+static func quick_bar_replace_pin(share_key: String) -> Dictionary:
+	if not _is_share_key(share_key):
+		return {}
+	var m: Dictionary = quick_bar_value("replace")
+	return (m[share_key] as Dictionary).duplicate(true) if m.has(share_key) else {}
+
+## Makes `pin_key` replace the built-in slot at `share_key` (`"cartography.NW"`), replacing any pin already there.
+## Answers "" on success, else the sentence to show.
+static func quick_bar_replace_set(share_key: String, pin_key: String, title: String) -> String:
+	if not _is_share_key(share_key) or not QUICK_BAR_DOMAINS.has(share_key.split(".")[0]):
+		return "That is not a ring diagonal."
+	if pin_key == "":
+		return "Nothing to pin."
+	var m: Dictionary = quick_bar_value("replace")
+	m[share_key] = {"k": pin_key, "t": title}
+	return "" if set_quick_bar_value("replace", m) else "Could not store the pin."
+
+## Puts the built-in slot back at `share_key`. False when it was not replaced. A real write of the map without the key.
+static func quick_bar_replace_clear(share_key: String) -> bool:
+	var m: Dictionary = quick_bar_value("replace")
+	if not m.has(share_key):
+		return false
+	m.erase(share_key)
+	return set_quick_bar_value("replace", m)
+
+## Puts every built-in slot back. False when none was replaced.
+static func quick_bar_replace_reset() -> bool:
+	if (quick_bar_value("replace") as Dictionary).is_empty():
+		return false
+	return set_quick_bar_value("replace", {})
+
+# -- Exporting and importing the layout (Ruling FL item 2a) -----------------------------------
+#
+# The layout is the user's `[quick_bar]` settings and nothing else: the bar, the ring dock, the shared and
+# replaced diagonals and the Assistant chip's switch. It is USER SETTINGS, never a world: nothing here reads a
+# project, and a file carries no world data. The file is JSON so a person can read it. Importing validates the
+# WHOLE file first and writes nothing unless every part is valid (all or nothing), and an invalid file is refused
+# with the first reason found. Opening and saving the file is the Customise window's (the in-shell browser, the
+# Android document picker and share sheet); this is the format.
+
+## The marker a layout file carries so any other JSON file is refused rather than read as an empty layout.
+const QUICK_BAR_FILE_FORMAT := "cartalith-quick-bar"
+## The only top-level keys a layout file may carry; any other is refused by name (a typo must not vanish silently).
+const _QUICK_BAR_FILE_KEYS := ["format", "version", "bar", "dock", "share", "replace", "assistant_button"]
+
+## The layout as the text of a layout file (tab-indented JSON): the READ view of the store, so a malformed or
+## newer-version section exports as the empty layout rather than as bytes this build cannot vouch for.
+static func quick_bar_export_text() -> String:
+	return JSON.stringify({
+		"format": QUICK_BAR_FILE_FORMAT,
+		"version": QUICK_BAR_VERSION,
+		"bar": quick_bar_value("bar"),
+		"dock": quick_bar_value("dock"),
+		"share": quick_bar_value("share"),
+		"replace": quick_bar_value("replace"),
+		"assistant_button": quick_bar_value("assistant_button"),
+	}, "\t")
+
+## Reads `text` as a layout file WITHOUT storing anything. `{ok: true, layout: {bar, dock, share, replace,
+## assistant_button}, counts: String}` or `{ok: false, why: String}` with a sentence for the user. A key the file
+## leaves out is the shipped default (empty, switch on), so a file always fully defines the layout it installs.
+static func quick_bar_parse_layout(text: String) -> Dictionary:
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return {"ok": false, "why": "That file is not valid JSON (line %d: %s)." % [json.get_error_line(), json.get_error_message()]}
+	var d = json.data
+	if typeof(d) != TYPE_DICTIONARY or String((d as Dictionary).get("format", "")) != QUICK_BAR_FILE_FORMAT:
+		return {"ok": false, "why": "That is not a Cartalith quick bar file."}
+	var ver = d.get("version")
+	if typeof(ver) not in [TYPE_INT, TYPE_FLOAT] or float(ver) != floorf(float(ver)) or float(ver) < 1.0:
+		return {"ok": false, "why": "The file's version is missing or not a whole number."}
+	if int(ver) > QUICK_BAR_VERSION:
+		return {"ok": false, "why": "The file was made by a newer build (layout version %d); this build reads up to %d." % [int(ver), QUICK_BAR_VERSION]}
+	for k in d:
+		if not _QUICK_BAR_FILE_KEYS.has(String(k)):
+			return {"ok": false, "why": "The file has an unknown entry \"%s\"." % String(k)}
+	var layout := {"bar": [], "dock": [], "share": {}, "replace": {}, "assistant_button": true}
+	if d.has("bar"):
+		if not _pins_valid(d["bar"], QUICK_BAR_MAX_BAR):
+			return {"ok": false, "why": "The bar list is not a list of at most %d pins, each with a command and a title." % QUICK_BAR_MAX_BAR}
+		layout["bar"] = _clean_pins(d["bar"], QUICK_BAR_MAX_BAR)
+	if d.has("dock"):
+		if not _pins_valid(d["dock"], QUICK_BAR_MAX_DOCK):
+			return {"ok": false, "why": "The ring dock list is not a list of at most %d pins, each with a command and a title." % QUICK_BAR_MAX_DOCK}
+		layout["dock"] = _clean_pins(d["dock"], QUICK_BAR_MAX_DOCK)
+	if d.has("share"):
+		if typeof(d["share"]) != TYPE_DICTIONARY:
+			return {"ok": false, "why": "The shared diagonals entry is not a table of diagonals."}
+		for k in d["share"]:
+			if not _is_share_key(k) or typeof(d["share"][k]) != TYPE_ARRAY or not _pins_valid(d["share"][k], QUICK_BAR_MAX_SHARE):
+				return {"ok": false, "why": "The shared pins for \"%s\" are not a diagonal's list of at most %d pins." % [String(k), QUICK_BAR_MAX_SHARE]}
+		layout["share"] = _clean_share(d["share"])
+	if d.has("replace"):
+		if not _replace_valid(d["replace"]):
+			return {"ok": false, "why": "The replaced diagonals entry does not name known diagonals with one pin each."}
+		layout["replace"] = _clean_replace(d["replace"])
+	if d.has("assistant_button"):
+		if typeof(d["assistant_button"]) != TYPE_BOOL:
+			return {"ok": false, "why": "The Assistant chip switch is not true or false."}
+		layout["assistant_button"] = bool(d["assistant_button"])
+	var shared := 0
+	for k in layout["share"]:
+		shared += (layout["share"][k] as Array).size()
+	return {"ok": true, "layout": layout, "counts": "%d on the bar, %d on the ring dock, %d on shared diagonals, %d replaced slots" % [
+		(layout["bar"] as Array).size(), (layout["dock"] as Array).size(), shared, (layout["replace"] as Dictionary).size()]}
+
+## Installs the layout in `text`, replacing the current one. Answers "" on success, else the reason it was
+## refused (nothing is written then). Parsed in full before the first write.
+static func quick_bar_import_text(text: String) -> String:
+	var r := quick_bar_parse_layout(text)
+	if not bool(r["ok"]):
+		return String(r["why"])
+	var layout: Dictionary = r["layout"]
+	for key in ["bar", "dock", "share", "replace", "assistant_button"]:
+		if not set_quick_bar_value(key, layout[key]):
+			return "Could not store the %s." % key
+	return ""
 
 # -- Asset library favourites and recent (AP-9) ---------------------------------
 

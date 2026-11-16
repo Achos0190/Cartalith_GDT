@@ -413,6 +413,41 @@ func set_domain_tools(domain: String, entries: Array) -> void:
 	_domain_tools[domain] = entries
 	if domain == active_domain():
 		_rebuild_tool_strip()
+		_sync_phone_tool_palette()
+
+## Ruling FL item 1 (MS-3), the phone's half of the palette: a row of the ACTIVE domain's tools at the TOP of the
+## domain sheet (`_phone_dom_host`, ahead of the Journeys row and the dock's mode switch). The cells are
+## `DccWidgets.tool_palette_flow()`'s, built from `_strip_entries()` -- the registry and the SCULPT-only gating the
+## desktop palette bar reads -- so there is one definition of a domain's tools and no second chip strip: the dock's
+## section headers stay the only chips. Rebuilt on every domain or mode change and whenever a workspace re-registers
+## (the same two triggers as `_rebuild_tool_strip()`); a no-op off the phone, and before the sheet exists. `on` false
+## (the sheet is not showing the dock: a tool is armed from the pin palette, or the MAP tab) frees the row so a hidden
+## copy cannot keep a shortcut live.
+func _sync_phone_tool_palette(on: bool = true) -> void:
+	if not _phone or _phone_dom_host == null or not is_instance_valid(_phone_dom_host):
+		return
+	if is_instance_valid(_phone_tool_palette):
+		_phone_dom_host.remove_child(_phone_tool_palette)
+		_phone_tool_palette.queue_free()
+	_phone_tool_palette = null
+	if not on:
+		return
+	## Inset like the dock's own rows (its content is 14 px in from the sheet edge); the first capture of the bare row
+	## had the Inspect cell flush against the screen edge.
+	var pad := MarginContainer.new()
+	pad.name = "DomToolPalette"
+	for side in ["left", "right"]:
+		pad.add_theme_constant_override("margin_" + side, phone_px(10))
+	pad.add_theme_constant_override("margin_top", phone_px(4))
+	pad.add_theme_constant_override("margin_bottom", phone_px(4))
+	pad.add_child(DccWidgets.tool_palette_flow(self, tool_group, _strip_entries()))
+	_phone_tool_palette = pad
+	_phone_dom_host.add_child(_phone_tool_palette)
+	_phone_dom_host.move_child(_phone_tool_palette, 0)
+	_sync_tool_strip(armed_tool)
+
+## The phone sheet's palette row (`_sync_phone_tool_palette()`); freed and rebuilt, so `is_instance_valid` first.
+var _phone_tool_palette: Control
 
 ## The active domain's entries, less any whose `modes` exclude the active mode
 ## (WORLD's Biome paint is SCULPT-only, Ruling L).
@@ -446,11 +481,12 @@ func _rebuild_tool_strip() -> void:
 ## the WORLD feature grid or Escape does not rebuild the palette, and its
 ## buttons are not the group's only members.
 func _sync_tool_strip(id: String) -> void:
-	if not is_instance_valid(_tool_strip_row):
-		return
-	for b in _tool_strip_row.find_children("*", "Button", true, false):
-		if (b as Button).toggle_mode:
-			(b as Button).set_pressed_no_signal(String(b.get_meta(DccWidgets.TOOL_ID_META, "")) == id)
+	for row in [_tool_strip_row, _phone_tool_palette]:
+		if not is_instance_valid(row):
+			continue
+		for b in (row as Control).find_children("*", "Button", true, false):
+			if (b as Button).toggle_mode:
+				(b as Button).set_pressed_no_signal(String(b.get_meta(DccWidgets.TOOL_ID_META, "")) == id)
 
 ## Registers `handler(gx, gy)` as tool `id`'s map-click action. One handler per
 ## id; a later registration replaces the earlier one.
@@ -2218,6 +2254,7 @@ func _unmount_app_composition() -> void:
 	tool_palette_bar = null
 	_tool_palette_row = null
 	_tool_strip_row = null
+	_phone_tool_palette = null
 	_quick_bar = null
 	_quick_rule = null
 	_stale_recompute = null
@@ -7522,6 +7559,23 @@ func _share_saved_file(path: String) -> void:
 		set_status("hint", "saved %s and showed it in the file manager" % path.get_file(), "text_ghost")
 	else:
 		set_status("hint", "saved %s; no file manager to show it in" % path.get_file(), "accent")
+
+## Ruling FL item 2a: hands one plain file (the quick bar layout, `application/json`) to the Android share sheet through the
+## same `CartalithPen.share_file` plugin call `_share_saved_file()` uses for a project, and answers the sentence to
+## show (also never silent: the caller says it). A build without the plugin says so. Off Android there is no share sheet
+## and the file stays where it was written. `_share_spy` replaces the platform call in a probe, as for a project.
+func share_user_file(path: String, mime: String, share_title: String) -> String:
+	if _share_spy.is_valid():
+		_share_spy.call(path)
+		return "sharing %s" % path.get_file()
+	if OS.get_name() == "Android":
+		if Engine.has_singleton("CartalithPen"):
+			var plugin: Object = Engine.get_singleton("CartalithPen")
+			if plugin.has_method("share_file"):
+				var ok: Variant = plugin.call("share_file", ProjectSettings.globalize_path(path), mime, share_title)
+				return "sharing %s" % path.get_file() if ok == true else "could not share %s" % path.get_file()
+		return "this build cannot open the share sheet"
+	return "saved %s" % ProjectSettings.globalize_path(path)
 
 ## Show `path` in the desktop file manager. Extracted from
 ## `show_project_on_disk()` so an export can end somewhere rather than in
