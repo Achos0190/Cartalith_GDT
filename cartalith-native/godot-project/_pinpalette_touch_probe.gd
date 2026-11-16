@@ -20,6 +20,12 @@ extends Node
 ## category and All brings it back, search finds by substring, chips/tiles/search/heads are at least 44 dp (115 px at this scale)
 ## after a rebuild too. P3 tap an icon, then tap the map: the tip lands within 1 px, one undo step. P4 Change kind from the phone
 ## card opens the sheet at half in change mode (the twelve-kind sheet is gone) and a tile pick is one undo step.
+## Landscape phone (`-- --vp 2340x1080 --force-touch --density 2.625`, leg L; the form is the phone, the viewport wider than tall).
+## The tool sheet docks on the RIGHT edge instead of the foot and the tool strip (recents) stays on the map's left, so the
+## portrait checks that assume "above the sheet" are replaced: L1 the recents sit on screen and clear of the sheet, L2 every icon
+## is listed and each tile sits inside the sheet's own width (none clipped sideways), the chips narrow and All restores, search
+## finds by substring, and chips/tiles/search/heads are at least 115 px laid out, L3 tap-to-arm then a tap on a map point that no
+## control covers drops the pin with its tip within 1 px of the tap, one undo step, L4 Change kind from the card.
 ## Exit 0 = held, 1 = a check failed, 2 = could not run.
 
 const Pin := preload("res://shell/pin_marker.gd")
@@ -34,7 +40,7 @@ var _checks := 0
 var _fails := 0
 var _out := ""
 var _tag := "pinpal_touch"
-var _legs := "TP"
+var _legs := "TPL"
 var _phone := false
 var _last_mouse := Vector2.ZERO
 
@@ -209,8 +215,9 @@ func _centre(c: Control) -> Vector2:
 
 
 ## Free spots on the plate (host coordinates of the pin's tip), clear of settlements, landmarks and pins, with the tip and the
-## head on screen and the tip above `max_y` (the phone's sheet covers the foot of the map).
-func _free_spots(n: int, max_y: float) -> Array:
+## head on screen and the tip above `max_y` (the phone's sheet covers the foot of the map) and outside every rect of `excl`
+## (host coordinates: the landscape sheet, strip and buttons cover the sides, not the foot).
+func _free_spots(n: int, max_y: float, excl: Array = []) -> Array:
 	var rect: Rect2 = _ov._displayed_rect()
 	var interior: Rect2 = _ov._interior_rect(rect)
 	var band: Rect2 = (app.viewport as Control).get_global_rect().grow(-60)
@@ -237,6 +244,9 @@ func _free_spots(n: int, max_y: float) -> Array:
 					near = true
 					break
 			var ht := _host(tip)
+			for er in excl:
+				if (er as Rect2).has_point(ht):
+					near = true
 			if not near and interior.has_point(tip) and interior.has_point(head) and band.has_point(ht) and band.has_point(_host(head)) and ht.y < max_y:
 				out.append(ht)
 			x += step
@@ -544,8 +554,16 @@ func _sheet_rect() -> Rect2:
 	return (app._phone_tool_sheet as Control).get_global_rect()
 
 
+func _landscape() -> bool:
+	return _vp.size.x > _vp.size.y
+
+
 func _run_phone() -> void:
 	_ok("P0: the phone form", DccTheme.is_phone())
+	if _landscape():
+		if _legs.contains("L"):
+			await _run_landscape()
+		return
 	if not _legs.contains("P"):
 		return
 	## Recents are per user and live in the settings; seed three so the sheet's peek has a row to show.
@@ -561,6 +579,64 @@ func _run_phone() -> void:
 	await _leg_p2()
 	await _leg_p3()
 	await _leg_p4()
+
+
+## Every visible Control that eats a finger over the map: the sheet, the strip, buttons, the rail, the header. A Control that
+## holds the overlay, or is most of the screen, is the map's own ancestry and is skipped.
+func _blockers() -> Array:
+	var out: Array = []
+	var vis := Rect2(Vector2.ZERO, Vector2(_vp.size))
+	var stack: Array = [app]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		if not (n is Control) or n == _ov or not (n as Control).is_visible_in_tree():
+			continue
+		var ctl := n as Control
+		if ctl.mouse_filter != Control.MOUSE_FILTER_STOP or ctl.is_ancestor_of(_ov):
+			continue
+		var r := ctl.get_global_rect()
+		if r.size.x * r.size.y > vis.size.x * vis.size.y * 0.5 or r.size.x < 2.0:
+			continue
+		out.append(r.grow(8.0))
+	return out
+
+
+func _run_landscape() -> void:
+	for k in ["tavern", "harbour", "castle"]:
+		DccSettings.pin_recent_push(k)
+	app.arm_tool("inspect")
+	await _frames(4)
+	app.set_phone_detent("peek")
+	await _frames(20)
+	app.call_arming_from_map(func() -> void: app.arm_tool("poi"))
+	await _frames(24)
+	await _leg_l1()
+	await _leg_p2(true)
+	await _leg_p3(true)
+	await _leg_p4()
+
+
+func _leg_l1() -> void:
+	print("== L1. landscape: the sheet docks right, the strip's recents beside it ==")
+	var pal := _palette()
+	_ok("L1: the palette is the phone tool sheet's body", pal != null and app._phone_tool_sheet.is_ancestor_of(pal) and pal.is_visible_in_tree())
+	var sheet := _sheet_rect()
+	_ok("L1: the sheet docks on the right half (x %d of %d), not the foot" % [int(sheet.position.x), _vp.size.x], sheet.position.x > _vp.size.x * 0.4 and sheet.end.x >= _vp.size.x - 80.0)
+	var strip := app.find_child("ToolStrip", true, false)
+	var rec: Button = strip.find_child("Recent_harbour", true, false) as Button if strip != null else null
+	_ok("L1: the strip's recents row has the three recents", rec != null and strip.find_child("Recent_castle", true, false) != null and strip.find_child("Recent_tavern", true, false) != null)
+	if rec != null:
+		var vis := Rect2(Vector2.ZERO, Vector2(_vp.size))
+		for nm in ["castle", "harbour", "tavern"]:
+			var tr := (strip.find_child("Recent_" + nm, true, false) as Control).get_global_rect()
+			_ok("L1: recent %s is on screen and clear of the sheet (%s vs sheet %s)" % [nm, str(tr), str(sheet)], vis.encloses(tr) and not tr.intersects(sheet))
+			var fl := _phone_floor_px()
+			_ok("L1: recent %s is at least 115 x 115 px as laid out" % nm, tr.size.x >= fl - 0.5 and tr.size.y >= fl - 0.5, str(tr.size))
+		await _tap(_centre(strip.find_child("Recent_harbour", true, false) as Control))
+		_ok("L1: a tap on a recent arms that kind", String(_ws._pin_state["kind"]) == "harbour", str(_ws._pin_state["kind"]))
+	await _shot("land_sheet_peek.png")
 
 
 func _leg_p1() -> void:
@@ -594,7 +670,7 @@ func _phone_floor_px() -> float:
 	return float(int(round(44.0 * float(app.phone_scale()))))
 
 
-func _leg_p2() -> void:
+func _leg_p2(landscape: bool = false) -> void:
 	print("== P2. the sheet at half: every icon, chips, search, 115 px targets ==")
 	app.set_phone_detent("half")
 	await _frames(24)
@@ -640,7 +716,22 @@ func _leg_p2() -> void:
 			narrow.append(t.name)
 	_ok("P2: every tile is at least 115 px wide", narrow.is_empty(), str(narrow.slice(0, 4)))
 	_floor_check("P2 search and category heads", floor_px, [pal.find_child("PinSearch", true, false)] + pal.find_children("Cat_*", "Button", true, false))
-	await _shot("phone_sheet_half.png")
+	if landscape:
+		## Every tile must lie inside the sheet's own width after a reveal: a grid wider than the right-docked sheet clips sideways.
+		var sheet := _sheet_rect()
+		var clipped: Array = []
+		for t in tiles:
+			var r := (t as Control).get_global_rect()
+			if r.position.x < sheet.position.x - 1.0 or r.end.x > sheet.end.x + 1.0:
+				clipped.append("%s %s" % [t.name, str(r)])
+		_ok("L2: every tile lies inside the sheet's width (none clipped sideways)", clipped.is_empty(), "; ".join(clipped.slice(0, 3)))
+		var last := tiles[tiles.size() - 1] as Control
+		await _reveal(last)
+		_ok("L2: the last icon scrolls into the sheet's view", (app._phone_tool_scroll as Control).get_global_rect().encloses(last.get_global_rect()), str(last.get_global_rect()))
+		await _shot("land_sheet_last.png")
+		app._phone_tool_scroll.scroll_vertical = 0
+		await _frames(4)
+	await _shot("land_sheet_half.png" if landscape else "phone_sheet_half.png")
 
 
 func _press_chip(id: String) -> void:
@@ -650,13 +741,13 @@ func _press_chip(id: String) -> void:
 	await _frames(4)
 
 
-func _leg_p3() -> void:
+func _leg_p3(landscape: bool = false) -> void:
 	print("== P3. tap an icon, tap the map ==")
 	var tile := _tile("Pin_", "castle")
 	await _reveal(tile)
 	await _tap(_centre(tile))
 	_ok("P3: a tap on a tile arms it (no pin yet)", String(_ws._pin_state["kind"]) == "castle" and _bridge.poi_list().is_empty(), str(_ws._pin_state["kind"]))
-	var spots := _free_spots(6, _sheet_rect().position.y - 40.0)
+	var spots := _free_spots(6, 1.0e9, _blockers()) if landscape else _free_spots(6, _sheet_rect().position.y - 40.0)
 	_ok("P3: free spots above the sheet exist", spots.size() >= 3, str(spots.size()))
 	if spots.is_empty():
 		return
@@ -668,9 +759,9 @@ func _leg_p3() -> void:
 	if pl.size() == 1:
 		var d := _tip_host(0).distance_to(at)
 		_ok("P3: the tip lands within 1 px of the tap (%.2f px)" % d, d < 1.0)
-	await _shot("phone_drop_name_prompt.png")
+	await _shot("land_drop_name_prompt.png" if landscape else "phone_drop_name_prompt.png")
 	await _dismiss_overlays()
-	await _shot("phone_dropped_pin.png")
+	await _shot("land_dropped_pin.png" if landscape else "phone_dropped_pin.png")
 	## The floating undo chip is up now (a drop is undoable); it must not cover a recent.
 	var chip := app.get("_phone_undo_chip") as Control
 	var strip := app.find_child("ToolStrip", true, false)

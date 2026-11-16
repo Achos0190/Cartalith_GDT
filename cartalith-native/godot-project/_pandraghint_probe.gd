@@ -167,16 +167,21 @@ func _check_toast_legible(img: Image, wrap: Control, label: Label, tag: String) 
 
 	## Text sample: the darkest pixel found scanning the label's own rect --
 	## the ink, wherever the scan lands on it, rather than an assumed centre.
+	## The ink is the pixel whose contrast against the sampled backing is HIGHEST, not the darkest: on the dark theme the glyphs
+	## are the bright pixels and the "darkest" scan returned the backing itself (1.00:1, the 2026-11-15 false red).
+	## The scan covers only the label's LEFT 30%: pan_drag_hint carries a colour-emoji glyph (the hand) that is yellow in any
+	## theme, so scanning the whole rect let it pass at 11.9:1 with the text itself unreadable (mutant M1 below). The left 30%
+	## of every one of the three toasts is plain text on both wrapped lines.
 	var darkest := bg
-	var darkest_lum := 2.0
+	var darkest_lum := -1.0
 	var steps := 24
 	for xi in steps:
 		for yi in steps:
-			var px := int(clampf(lr.position.x + lr.size.x * (float(xi) / float(steps - 1)), 0, iw - 1))
+			var px := int(clampf(lr.position.x + lr.size.x * 0.3 * (float(xi) / float(steps - 1)), 0, iw - 1))
 			var py := int(clampf(lr.position.y + lr.size.y * (float(yi) / float(steps - 1)), 0, ih - 1))
 			var p := img.get_pixel(px, py)
-			var lum := _rel_luminance(p)
-			if lum < darkest_lum:
+			var lum := _contrast_ratio(bg, p)
+			if lum > darkest_lum:
 				darkest_lum = lum
 				darkest = p
 
@@ -333,7 +338,17 @@ func _ready() -> void:
 	## have already been handled so a mark is not screenshotted/checked twice
 	## if it happens to still be findable a frame later.
 	var caught := {}
-	var out_dir := "C:/Users/Vincent/AppData/Local/Temp/claude/C--Users-Vincent-Cartalith-GDT/00ffe296-8aa1-4e76-b7ec-e81351b1a7b7/scratchpad/uidesign/"
+	## Frames go to `--out <dir>` (made if missing), default `user://pandraghint/`; `--tag <t>` prefixes the file names so a
+	## mutant run never overwrites the frames under review.
+	var out_dir := "user://pandraghint/"
+	var tag_pre := ""
+	var ua := OS.get_cmdline_user_args()
+	for ai in ua.size():
+		if ua[ai] == "--out" and ai + 1 < ua.size():
+			out_dir = String(ua[ai + 1]).rstrip("/") + "/"
+		if ua[ai] == "--tag" and ai + 1 < ua.size():
+			tag_pre = String(ua[ai + 1]) + "_"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out_dir))
 	var wanted := [
 		{"tag": "bottombar_tabs", "text": BOTTOMBAR_TEXT, "file": "coach_bottombar_tabs.png"},
 		{"tag": "sheet_handle", "text": SHEETHANDLE_TEXT, "file": "coach_sheet_handle.png"},
@@ -361,8 +376,8 @@ func _ready() -> void:
 			_check(opaque, "%s toast reached full opacity (modulate.a=1.0) before capture" % tag)
 			await _frames(1)
 			var img := get_viewport().get_texture().get_image()
-			img.save_png(out_dir + String(w["file"]))
-			_log("saved " + out_dir + String(w["file"]))
+			img.save_png(out_dir + tag_pre + String(w["file"]))
+			_log("saved " + out_dir + tag_pre + String(w["file"]))
 			_check_toast_legible(img, wrap, lbl, tag)
 			caught[tag] = true
 			if tag == "pan_drag_hint":
