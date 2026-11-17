@@ -166,6 +166,14 @@ func setup(app_ref, fan_ref, host: Control) -> void:
 	host.add_child(self)
 	host.resized.connect(_fit_width)
 	_fit_width()
+	## 2026-11-17 (the alignment probe's `⋮` failure): the strip is bottom-anchored and grows UPWARD, and it lives in the
+	## gap between the app bar and the sheet. At the sheet's FULL detent that gap is a few px, so the 56 px strip rode up
+	## over the app bar and, being `STOP`, swallowed taps on its search and `⋮` buttons. It now hides while the gap is
+	## shorter than the strip (the sheet's own tool palette row is the tools' home there, and the map is covered anyway).
+	_host = host
+	host.resized.connect(_gate_height)
+	minimum_size_changed.connect(_gate_height)
+	_gate_height()
 	## The strip grows and shrinks with its second row; the map's control row sits above it by `reserve()` and
 	## re-reads that only on `phone_insets_changed`, so a height change must say so (found by `_ms5b_probe`: the
 	## row overlapped a two-row strip by 14 px).
@@ -210,6 +218,23 @@ func _fit_width() -> void:
 		anchor_right = 1.0
 		offset_left = edge
 		offset_right = -edge
+
+
+## The container the strip is mounted in (the phone's content gap); `_gate_height` compares its height to the strip's.
+var _host: Control
+
+
+## Hides the strip while its container is shorter than the strip needs (`reserve()`), shows it again when it fits. A hidden
+## strip reserves 0, so the map's control row drops back down; the change is announced like any other height change.
+func _gate_height() -> void:
+	if _host == null or not is_instance_valid(_host):
+		return
+	var need: float = maxf(size.y, get_combined_minimum_size().y) - offset_bottom
+	var fits: bool = _host.size.y + 0.5 >= need
+	if fits != visible:
+		visible = fits
+		if app != null and is_instance_valid(app):
+			app.phone_insets_changed.emit()
 
 
 ## Height in device px of the band the strip takes above the bottom of its container (its own height plus the gap

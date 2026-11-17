@@ -10,8 +10,8 @@ extends Node
 ## **Windowed, never `--headless`.** Run with a scratch user dir (APPDATA) so the owner's asset library is never read
 ## or written; it only uses `as_*` calls on the session it clears first.
 ##
-## Protects: 1. a candidate slot's inspector offers `Move to…` enabled, a real click on it pops a menu listing exactly
-## the ground slots (labelled `Family · Slot`) and no sprite slot; 2. choosing `Splat channels · Grass` moves the
+## Protects: 1. a candidate slot's inspector offers `Move to…` enabled, a real click on it opens the Move-to sheet (2026-11-17: a themed, grouped, searchable list, rows 44 px
+## on touch, inside the window) listing exactly the ground slots (labelled `Family · Slot`) and no sprite slot; 2. choosing `Splat channels · Grass` moves the
 ## variant (the grass slot gains it with the same content hash, the candidate slot is gone, the status line says so,
 ## the inspector no longer points at the removed slot); 3. a sprite slot's menu lists no ground slot; 4. a pin slot's
 ## button is disabled with the reason in its tooltip; 5. an empty slot's button is disabled.
@@ -139,23 +139,78 @@ func _ready() -> void:
 	var btn: Button = win._insp_move_btn
 	_ok(btn != null and btn.visible and not btn.disabled, "Move to… is enabled for the candidate (tooltip: %s)" % btn.tooltip_text)
 	await _click(btn)
-	var menu: PopupMenu = win._insp_move_menu
-	print("    after click: items=%d visible=%s btn_rect=%s menu_pos=%s size=%s" % [menu.item_count, str(menu.visible), str(btn.get_global_rect()), str(menu.position), str(menu.size)])
+	var sheet: PopupPanel = win._move_sheet
+	var vp := get_viewport().get_visible_rect()
 	var labels: Array = []
-	for k in menu.item_count:
-		labels.append(menu.get_item_text(k))
-	_ok(menu.visible, "a real click on it pops the menu")
+	for row in win._move_rows:
+		labels.append(String(row["label"]))
+	print("    after click: rows=%d visible=%s sheet=%s viewport=%s" % [labels.size(), str(sheet.visible if sheet != null else false), str(Rect2(sheet.position, sheet.size)) if sheet != null else "-", str(vp)])
+	_ok(sheet != null and sheet.visible, "a real click on it opens the Move-to sheet")
 	var want := 0
+	var fams := {}
 	for f in ["textures", "biomes", "terrains"]:
 		want += (br.as_family_slots(f) as Array).size()
-	_ok(labels.size() == want and labels.has("Splat channels · Grass"), "the menu lists exactly the %d ground slots, labelled Family · Slot (%d: first %s)" % [want, labels.size(), str(labels.slice(0, 2))])
+	_ok(labels.size() == want and labels.has("Splat channels · Grass"), "the sheet lists exactly the %d ground slots, labelled Family · Slot (%d: first %s)" % [want, labels.size(), str(labels.slice(0, 2))])
 	_ok(not labels.any(func(l): return String(l).begins_with("Feature icons")), "and lists no sprite slot")
+	for l in labels:
+		fams[String(l).split(" · ")[0]] = true
+	_ok(win._move_heads.size() == fams.size() and fams.size() >= 2, "rows are grouped under one band per family (%d bands for %d families)" % [win._move_heads.size(), fams.size()])
+	# The window is the content plus the frame's shadow on every side; the content is what must lie inside the view.
+	var shadow: float = float((sheet.get_theme_stylebox("panel") as StyleBoxFlat).shadow_size)
+	var content := Rect2(Vector2(sheet.position) + Vector2(shadow, shadow), Vector2(sheet.size) - Vector2(2.0 * shadow, 2.0 * shadow))
+	print("    sheet content %s in viewport %s" % [str(content), str(vp)])
+	_ok(Rect2(vp.position - Vector2(1, 1), vp.size + Vector2(2, 2)).encloses(content) and content.size.y < vp.size.y, "the sheet lies inside the window (a 35-row list scrolls inside it, it does not run off)")
+	# Themed, not stock Godot: the frame is the shell's panel stylebox and a row carries the shell's ink.
+	var frame := sheet.get_theme_stylebox("panel") as StyleBoxFlat
+	_ok(frame != null and frame.bg_color.is_equal_approx(DccTheme.c("panel")) and frame.border_width_left == 1, "the sheet frame is the shell's bordered panel, not Godot's stock popup")
+	_ok(sheet.has_theme_stylebox_override("panel"), "the shell's frame is set on the sheet itself (not inherited from the engine's defaults)")
+	var first_btn: Button = win._move_rows[0]["btn"]
+	_ok(first_btn.get_theme_color("font_color").is_equal_approx(DccTheme.c("text")) and first_btn.has_theme_stylebox_override("hover"), "a row carries the shell's ink and amber hover")
+	# Row height: 44 on a touch composition, the menu pitch (28) otherwise, measured on screen.
+	# On the phone 44 DP is device px x the shell's phone scale (48 px at 1.094): a bare 44 px row would be 40 dp.
+	var floor_px := (float(_app.phone_tap(44)) if _mode == "phone" else 44.0) if DccTheme.is_touch() else 28.0
+	var short := 0
+	for row in win._move_rows:
+		var rb: Button = row["btn"]
+		if rb.size.y * rb.get_screen_transform().get_scale().y < floor_px - 0.5:
+			short += 1
+	var sc: float = first_btn.get_screen_transform().get_scale().y
+	print("    row height %.1f px on screen (floor %.0f), %d row(s) short" % [first_btn.size.y * sc, floor_px, short])
+	_ok(short == 0, "every row is at least %.0f px tall on screen" % floor_px)
+	var search: LineEdit = win._move_search
+	_ok(search.visible and search.is_visible_in_tree(), "the sheet has a search field")
 	await _shot("menu_open")
-	var gi := labels.find("Splat channels · Grass")
-	menu.hide()
+	# Search: "grass" keeps only matching rows and hides the bands with none; nonsense leaves nothing and says so.
+	search.text = "grass"
+	search.text_changed.emit("grass")
+	await _settle(3)
+	var shown: Array = []
+	for row in win._move_rows:
+		if (row["btn"] as Button).visible:
+			shown.append(String(row["label"]))
+	_ok(shown.size() >= 1 and shown.size() < labels.size() and shown.all(func(l): return String(l).to_lower().contains("grass")), "searching 'grass' leaves only matching rows (%d of %d: %s)" % [shown.size(), labels.size(), str(shown.slice(0, 3))])
+	var live_heads := 0
+	for h in win._move_heads:
+		if (h["head"] as Label).visible:
+			live_heads += 1
+	_ok(live_heads >= 1 and live_heads < win._move_heads.size(), "bands with no matching row are hidden (%d of %d left)" % [live_heads, win._move_heads.size()])
+	await _shot("menu_search")
+	search.text = "zzzz"
+	search.text_changed.emit("zzzz")
 	await _settle(2)
-	menu.id_pressed.emit(menu.get_item_id(gi))
+	var none_shown := 0
+	for row in win._move_rows:
+		if (row["btn"] as Button).visible:
+			none_shown += 1
+	_ok(none_shown == 0 and win._move_empty.visible, "a search with no match shows no rows and says so")
+	search.text = ""
+	search.text_changed.emit("")
+	await _settle(2)
+	var gi := labels.find("Splat channels · Grass")
+	# A real click on the row (it is inside the scroller, so it is brought into view first).
+	await _click(win._move_rows[gi]["btn"])
 	await _settle(8)
+	_ok(not sheet.visible, "choosing a row closes the sheet")
 	_ok(int(br.as_slot_summary("textures:grass").get("item_count", 0)) == 1, "the grass slot gained the variant")
 	_ok(String(br.as_item_summary("textures:grass", 0).get("hash", "")) == cand_hash and cand_hash != "", "with the same content hash")
 	_ok(not bool(br.as_slot_summary(cand).get("ok", true)), "the emptied candidate slot is gone")
@@ -169,9 +224,9 @@ func _ready() -> void:
 	await _settle(6)
 	await _click(win._insp_move_btn)
 	var sl: Array = []
-	for k in win._insp_move_menu.item_count:
-		sl.append(win._insp_move_menu.get_item_text(k))
-	win._insp_move_menu.hide()
+	for row in win._move_rows:
+		sl.append(String(row["label"]))
+	win._move_sheet.hide()
 	_ok(sl.size() > 0 and not sl.any(func(l): return String(l).begins_with("Splat") or String(l).begins_with("Biome") or String(l).begins_with("Terrain")), "a sprite's menu (%d rows) has no ground slot" % sl.size())
 
 	# A pin slot: disabled with the reason.

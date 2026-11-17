@@ -96,6 +96,9 @@ const PATHS := {
 	## so as text they render as tofu on at least one target platform. §12's
 	## "typographic symbols stay text" premise holds only for glyphs that
 	## actually exist somewhere in the chain.
+	## 2026-11-17: the sheet header's close mark, drawn so it is centred by construction (the `✕` font glyph's ink sat
+	## 1.5 px low of its cell at 450 dp, `_alignment_probe`). Two diagonals symmetric about (8, 8); 9 units span.
+	"close": '<path d="M3.5 3.5 L12.5 12.5"/><path d="M12.5 3.5 L3.5 12.5"/>',
 	"search": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/>',
 	"import": '<path d="M8 2.4 V10.4"/><path d="M4.8 7.4 L8 10.6 L11.2 7.4"/><path d="M2.6 13.4 H13.4"/>',
 

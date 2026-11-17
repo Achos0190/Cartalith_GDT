@@ -576,8 +576,18 @@ func _phone() -> void:
 		var row_r: Rect2 = close.get_parent().get_global_rect() if close.get_parent() != grab else grab.get_global_rect()
 		# The title row: the close button's row (it is the tallest cell in it).
 		var tink := await _label_ink(title)
-		var cink: Rect2 = (await _text_inks([close]))[0]
-		_check_centre("sheet header close glyph vs its button", cink, close.get_global_rect())
+		# 2026-11-17: the close mark is a drawn `DccIcons` child (the `✕` font glyph's ink sat 1.5 px low at 450 dp, a
+		# font-metric fault the layout cannot fix), so a child icon is measured by its box like the app bar's; a text glyph
+		# would still be measured by its ink. Neither present is a failure, not a pass.
+		var close_icon: Control = null
+		for cch in close.get_children():
+			if cch is Control and (cch as Control).visible:
+				close_icon = cch
+		if close.text.strip_edges() == "" and close_icon != null:
+			_check_centre("sheet header close glyph vs its button", close_icon.get_global_rect(), close.get_global_rect())
+		else:
+			var cink: Rect2 = (await _text_inks([close]))[0]
+			_check_centre("sheet header close glyph vs its button", cink, close.get_global_rect())
 		var sub: Label = _app._phone_sheet_subtitle
 		var tr := title.get_global_rect()
 		var sr := sub.get_global_rect() if sub.is_visible_in_tree() else tr
@@ -630,14 +640,26 @@ func _phone() -> void:
 	listed.append("dock tool buttons (%d visible)" % tools.size())
 	print("phone tool buttons visible: %d" % tools.size())
 	var tboxes := await _icon_boxes(tools)
-	var tinks := await _text_inks(tools)
+	# 2026-11-17: a caption's DESCENDER hangs below the line the eye centres on ("Inspect" has a `p`: its ink ran 4 px
+	# lower than "Measure"'s and the group read 1.5 px off at 450 dp, where "Measure" read -0.5). So the group is measured
+	# with each caption's descender letters (g j p q y) swapped for round letters of the same width: same line, no hang.
+	# The shipped captions are untouched afterwards; the swap is undone before any later capture.
+	var saved_text: Array = []
+	for tb0 in tools:
+		saved_text.append((tb0 as Button).text)
+		(tb0 as Button).text = _no_descenders((tb0 as Button).text)
+	await _settle(2)
+	var tinks_flat := await _text_inks(tools)
+	for k0 in tools.size():
+		(tools[k0] as Button).text = saved_text[k0]
+	await _settle(2)
 	for k in tools.size():
 		var tb: Button = tools[k]
 		var nm := "phone tool '%s'" % _name_of(tb)
 		_check_centre(nm + " icon", tboxes[k], tb.get_global_rect(), "x")
 		# The icon is stacked ABOVE its caption (`phone_fit`), so the thing that must be centred in
 		# the cell and its highlight, vertically, is the GROUP of icon box and caption ink.
-		var group: Rect2 = tboxes[k].merge(tinks[k]) if tinks[k].size != Vector2.ZERO else tboxes[k]
+		var group: Rect2 = tboxes[k].merge(tinks_flat[k]) if tinks_flat[k].size != Vector2.ZERO else tboxes[k]
 		# Both axes are ASSERTED (owner decision 2026-10-26: the cell grows so the group is centred; it was
 		# measured 3.5-5 px high before). The group is the icon box merged with the caption ink.
 		_check_centre(nm + " icon+caption group", group, tb.get_global_rect(), "xy")
@@ -651,6 +673,14 @@ func _phone() -> void:
 
 	await _shot("full")
 	print("PHONE CONTROLS MEASURED: " + "; ".join(listed))
+
+
+## `text` with every descender letter replaced by an `o` (see section 5e): the same line of text without the hang.
+func _no_descenders(text: String) -> String:
+	var out := text
+	for ch in ["g", "j", "p", "q", "y"]:
+		out = out.replace(ch, "o")
+	return out
 
 
 ## One phone app-bar button: a child icon (rect compared with the cell) or a glyph (ink compared).

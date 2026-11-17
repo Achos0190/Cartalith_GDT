@@ -952,7 +952,19 @@ var _insp_replace_btn: Button
 ## Inspector `Move to…` chip and its menu (2026-11-17): moves the previewed variant into another slot of its kind
 ## (`as_move_item`). The only way to give a `Ground candidates` tile the ground slot it was meant for.
 var _insp_move_btn: Button
-var _insp_move_menu: PopupMenu
+## The `Move to…` picker (2026-11-17): a themed, grouped, searchable list in a `PopupPanel`, replacing the stock
+## `PopupMenu` (unthemed Godot, and 35 rows tall on a phone). Built on the first press by `_build_move_sheet`.
+var _move_sheet: PopupPanel
+var _move_search: LineEdit
+var _move_list: VBoxContainer
+var _move_scroll: ScrollContainer
+var _move_empty: Label
+## One entry per `_move_targets` row, index-parallel: `{btn, label}`. Group headers are in `_move_heads`.
+var _move_rows: Array = []
+var _move_heads: Array = []
+## The tallest the picker may be, as a fraction of the view's height (its list scrolls inside). Labelled judgement: tall enough
+## to show a dozen 44 dp rows on a phone, short enough to leave the inspector's chip row visible above a desktop popover.
+const MOVE_SHEET_MAX_FRAC := 0.62
 ## The `[{uid, label}]` rows the open menu was built from (`as_move_targets`), index-parallel to its items.
 var _move_targets: Array = []
 ## Inspector `Variant` chip: import another image into the slot (AS-14).
@@ -3559,9 +3571,6 @@ func _build_inspector() -> Control:
 	_insp_replace_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_insp_move_btn = _chip(btn_row, "Move to…", _on_move_to_pressed)
 	_insp_move_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	_insp_move_menu = PopupMenu.new()
-	_insp_move_menu.id_pressed.connect(_on_move_target_picked)
-	add_child(_insp_move_menu)
 	_insp_variant_btn = _chip(btn_row, "%s Variant" % DccIcons.SYMBOLS["add"],
 		func(): _on_import_image(false), true)
 	_insp_variant_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
@@ -4054,21 +4063,190 @@ func _on_make_seamless() -> void:
 	_refine_added(int(r["index"]), "seamless")
 
 
-## The `Move to…` chip: lists the slots the previewed variant may move into and pops the menu under the chip.
+## The `Move to…` chip: lists the slots the previewed variant may move into in the picker sheet (`_build_move_sheet`).
+## Labels are `"<Family> · <slot>"` (`AssetLibrarySession::move_targets`); the sheet groups by the family part.
 func _on_move_to_pressed() -> void:
 	if _focused_uid == "":
 		return
 	_move_targets = _bridge.as_move_targets(_focused_uid, _preview_index)
-	_insp_move_menu.clear()
-	for i in _move_targets.size():
-		_insp_move_menu.add_item(String((_move_targets[i] as Dictionary).get("label", "")), i)
 	if _move_targets.is_empty():
 		return
-	var r := _insp_move_btn.get_global_rect()
-	_insp_move_menu.popup(Rect2i(Vector2i(r.position + Vector2(0, r.size.y)), Vector2i(maxi(int(r.size.x), 200), 0)))
+	_build_move_sheet()
+	## Everything below is in the root viewport's coordinates (`get_screen_transform` is, for a control inside an embedded
+	## window too), which is where `Window.popup(rect)` of an embedded popup reads its rect.
+	var xf := _insp_move_btn.get_screen_transform()
+	var r := Rect2(xf.origin, _insp_move_btn.size * xf.get_scale())
+	var touch := DccTheme.is_touch()
+	var vp: Rect2 = get_tree().root.get_visible_rect()
+	var margin := float(_move_px(8))
+	var max_h := vp.size.y * MOVE_SHEET_MAX_FRAC
+	## The list scrolls inside a frame no taller than MOVE_SHEET_MAX_FRAC of the view; a short list shrinks to fit.
+	var rows_h: float = _move_list.get_combined_minimum_size().y
+	_move_scroll.custom_minimum_size.y = 0.0
+	var chrome: float = _move_sheet.get_contents_minimum_size().y
+	_move_scroll.custom_minimum_size.y = minf(rows_h, maxf(120.0, max_h - chrome))
+	var h: float = minf(chrome + _move_scroll.custom_minimum_size.y, vp.size.y - 2.0 * margin)
+	## The sheet cannot be narrower than its content; a wide ask is clamped to the view.
+	var min_w: float = _move_sheet.get_contents_minimum_size().x
+	if DccTheme.is_phone():
+		## A phone gets a bottom sheet: the view's width less a margin each side, resting on its bottom edge. A tablet's
+		## view is wider than a list needs (measured: 1668 px), so it keeps the popover below, with its 44 px rows.
+		var w := vp.size.x - 2.0 * margin
+		_move_sheet.popup(Rect2i(Vector2i(int(vp.position.x + margin), int(vp.end.y - h - margin)), Vector2i(int(w), int(h))))
+	else:
+		## Under the chip, flipped above it when it would run off the bottom, clamped inside the view sideways.
+		var w: float = minf(maxf(maxf(r.size.x, 380.0 if touch else 320.0), min_w), vp.size.x - 2.0 * margin)
+		## Below the chip when it fits there, else above when it fits there, else on the roomier side with the list
+		## shortened to fit (it scrolls), so the sheet never covers the chip it came from.
+		var below: float = vp.end.y - margin - (r.end.y + 4.0)
+		var above: float = r.position.y - 4.0 - (vp.position.y + margin)
+		var go_below: bool = h <= below or (h > above and below >= above)
+		h = minf(h, below if go_below else above)
+		_move_scroll.custom_minimum_size.y = maxf(0.0, h - chrome)
+		var y: float = r.end.y + 4.0 if go_below else r.position.y - 4.0 - h
+		var x := clampf(r.position.x, vp.position.x + margin, vp.end.x - margin - w)
+		_move_sheet.popup(Rect2i(Vector2i(int(x), int(y)), Vector2i(int(w), int(h))))
+		## Focus only where a keyboard is a keystroke away: on a tablet it would raise the on-screen one over the list.
+		if not touch:
+			_move_search.grab_focus()
 
 
-## A target chosen from the `Move to…` menu: `as_move_item`, then the view follows. A refusal says why in the status
+## A figure of the Move-to sheet's, in the sheet's own pixels. The sheet is a popup `Window` of its own, which this
+## window's phone content scale does not reach (measured: a bare 44 drew 44 px, 40 dp at 1.094), so on a phone every
+## size is scaled by the shell's `phone_px` and a 44 dp row comes out 44 x scale. Tablet and desktop: unchanged.
+func _move_px(v: float) -> int:
+	return _host.phone_px(v) if DccTheme.is_phone() and _host != null else int(v)
+
+
+## Builds (or rebuilds, each press) the Move-to picker: search well, then the targets grouped under a mono band per family
+## (the shell's menu group band, `DccWidgets.style_popup`'s `font_separator` look), every row at least the menu pitch tall
+## (44 on touch, `DccTheme.MENU["pitch_t"]`). Typing filters rows by their full `Family · slot` label and hides a group
+## whose rows all drop out. Chosen row -> `_on_move_target_picked(i)` with `i` the index into `_move_targets`.
+func _build_move_sheet() -> void:
+	var touch := DccTheme.is_touch()
+	if _move_sheet == null:
+		_move_sheet = PopupPanel.new()
+		_move_sheet.name = "MoveSheet"
+		add_child(_move_sheet)
+		var pm := MarginContainer.new()
+		for side in ["left", "right", "top", "bottom"]:
+			pm.add_theme_constant_override("margin_" + side, _move_px(8))
+		_move_sheet.add_child(pm)
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", _move_px(6))
+		pm.add_child(v)
+		_move_search = LineEdit.new()
+		_move_search.name = "MoveSearch"
+		_move_search.placeholder_text = "Search slots…"
+		_move_search.clear_button_enabled = true
+		DccWidgets.well(_move_search, _move_px(10), _move_px(8) if touch else 4)
+		_move_search.add_theme_font_size_override("font_size", _move_px(DccTheme.menu("fs_item", touch)))
+		_move_search.text_changed.connect(_filter_move_sheet)
+		v.add_child(_move_search)
+		_move_scroll = ScrollContainer.new()
+		_move_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		_move_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		v.add_child(_move_scroll)
+		_move_list = VBoxContainer.new()
+		_move_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_move_list.add_theme_constant_override("separation", 0)
+		_move_scroll.add_child(_move_list)
+		_move_empty = Label.new()
+		_move_empty.text = "No slot matches."
+		_move_empty.visible = false
+		_move_empty.add_theme_font_override("font", DccTheme.mono(0))
+		_move_empty.add_theme_font_size_override("font_size", _move_px(DccTheme.FS_TINY))
+		_move_empty.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		v.add_child(_move_empty)
+	## The frame is repainted on every open so a palette flip since the last one shows (colours are baked at build).
+	var panel := DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1})
+	panel.border_color = DccTheme.c("border")
+	panel.shadow_color = Color(0, 0, 0, 0.55) if DccTheme.is_dark() else Color(0.137, 0.141, 0.122, 0.16)
+	panel.shadow_size = 24
+	## No margin of the stylebox's own, and the `PopupPanel` window is the content rect plus the shadow on every side (measured:
+	## +24 px each way for `shadow_size` 24), so a rect passed to `popup()` is the CONTENT's and the shadow bleeds outside it.
+	panel.set_content_margin_all(0)
+	panel.shadow_offset = Vector2.ZERO   ## a non-zero offset shifts the content off the rect asked for (measured: +10 px)
+	_move_sheet.add_theme_stylebox_override("panel", panel)
+	_move_search.text = ""
+	for c in _move_list.get_children():
+		_move_list.remove_child(c)
+		c.queue_free()
+	_move_rows.clear()
+	_move_heads.clear()
+	_move_empty.visible = false
+	var row_h := _move_px(DccTheme.menu("pitch", touch))
+	var fs := _move_px(DccTheme.menu("fs_item", touch))
+	var group := ""
+	var head: Label = null
+	var head_members: Array = []
+	for i in _move_targets.size():
+		var full := String((_move_targets[i] as Dictionary).get("label", ""))
+		var cut := full.find(" · ")
+		var fam := full.substr(0, cut) if cut >= 0 else ""
+		var slot := full.substr(cut + 3) if cut >= 0 else full
+		if fam != group or head == null:
+			group = fam
+			head = Label.new()
+			head.text = fam.to_upper()
+			head.add_theme_font_override("font", DccTheme.mono(2))
+			head.add_theme_font_size_override("font_size", _move_px(DccTheme.menu("fs_group", touch)))
+			head.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+			head.custom_minimum_size.y = row_h * 0.6
+			head.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+			_move_list.add_child(head)
+			head_members = []
+			_move_heads.append({"head": head, "members": head_members})
+		var b := Button.new()
+		b.text = slot
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size.y = row_h
+		b.add_theme_font_size_override("font_size", fs)
+		b.add_theme_color_override("font_color", DccTheme.c("text"))
+		b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+		b.add_theme_color_override("font_pressed_color", DccTheme.c("text_bright"))
+		var rest := DccTheme.flat(Color(0, 0, 0, 0))
+		rest.content_margin_left = _move_px(DccTheme.menu("pad_x", touch))
+		rest.content_margin_right = rest.content_margin_left
+		var hov := DccTheme.flat(DccTheme.menu_highlight())
+		hov.content_margin_left = rest.content_margin_left
+		hov.content_margin_right = rest.content_margin_left
+		b.add_theme_stylebox_override("normal", rest)
+		b.add_theme_stylebox_override("hover", hov)
+		b.add_theme_stylebox_override("pressed", hov)
+		b.pressed.connect(_on_move_row_pressed.bind(i))
+		_move_list.add_child(b)
+		head_members.append(i)
+		_move_rows.append({"btn": b, "label": full})
+		if touch:
+			DccWidgets.touch_release_button(b)
+
+
+## Row `i` of the picker was chosen: close the sheet, then the same path the menu took.
+func _on_move_row_pressed(i: int) -> void:
+	_move_sheet.hide()
+	_on_move_target_picked(i)
+
+
+## Search box edit: show only the rows whose `Family · slot` label contains the text (case-insensitive) and the group
+## bands that still have a row; say so when nothing matches.
+func _filter_move_sheet(text: String) -> void:
+	var q := text.strip_edges().to_lower()
+	var any := false
+	for h in _move_heads:
+		var shown := false
+		for i in (h["members"] as Array):
+			var row: Dictionary = _move_rows[i]
+			var on: bool = q == "" or String(row["label"]).to_lower().contains(q)
+			(row["btn"] as Button).visible = on
+			shown = shown or on
+		(h["head"] as Label).visible = shown
+		any = any or shown
+	_move_empty.visible = not any
+
+
+## A target chosen from the `Move to…` sheet: `as_move_item`, then the view follows. A refusal says why in the status
 ## line and changes nothing. When the move emptied a `Ground candidates` placeholder the slot is gone, so focus is dropped.
 func _on_move_target_picked(id: int) -> void:
 	if id < 0 or id >= _move_targets.size() or _focused_uid == "":

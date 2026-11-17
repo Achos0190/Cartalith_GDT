@@ -2020,6 +2020,7 @@ func _open_cited_note(rel: String, heading: String) -> void:
 
 ## Send: the gate, then the stream. A `consent_needed` gate turns the button into the consent card.
 func _on_send() -> void:
+	_end_reading()
 	var g := _gate()
 	var code := String(g.get("code", ""))
 	if code == "feature_off" or code == "consent_needed":
@@ -2654,7 +2655,8 @@ func _refresh_cards() -> void:
 	_sync_scroll_floor()
 
 
-## The transcript's floor (px) in the docked Ask tab while a proposal card waits for Apply or Dismiss. The 80 px floor of an
+## The transcript's floor (px) in the docked Ask tab while a proposal card waits for Apply or Dismiss, and (2026-11-17) while the
+## most recently applied card is being read, applied or undone (`_card_being_read`). The 80 px floor of an
 ## idle transcript showed the card through a slot about as tall as one of its own buttons (STATUS.md, 2026-11-17: "a card's
 ## buttons are seen through a small scroller"). The labelled judgement: a setting card with five changes, its refusal
 ## lines and the Apply row measures about 280 px at the dock's 304 px width, and a terrain-edit card with its preview
@@ -2666,7 +2668,7 @@ const PENDING_CARD_SCROLL_MIN := 380.0
 
 ## Sets the transcript's floor from what it holds now: 100 on the phone and 80 docked when idle (the values `_rebuild` and the
 ## save card's answer used to write), `CARD_SCROLL_MIN` while the first-use save question is shown, and
-## `PENDING_CARD_SCROLL_MIN` while a card is waiting, docked only (the phone's and the window form's transcript already
+## `PENDING_CARD_SCROLL_MIN` while a card is waiting or the newest one has just been applied or undone, docked only (the phone's and the window form's transcript already
 ## expands into the free space, and a raised floor there would push Send off the sheet's edge). Called after every change
 ## of a card or of the save question, and when the content is mounted. Pure layout: never touches a message.
 func _sync_scroll_floor() -> void:
@@ -2679,12 +2681,79 @@ func _sync_scroll_floor() -> void:
 		for c in cards:
 			if String(c.get("state", "")) == "new" and is_instance_valid(c["box"]):
 				want = maxf(want, PENDING_CARD_SCROLL_MIN)
+		## After Apply the card is still what the person reads: the result line, "Undone ..." and, on a settings card,
+		## the Undo-and-regenerate offer. The floor used to fall back to 80 the moment the card closed (2026-11-17, the
+		## OUTSTANDING_WORK GUI line), squeezing exactly that into a slot as tall as one of its buttons. It therefore
+		## holds for the card being read (`_card_being_read`: the most recently applied one, applied or undone) until a message is
+		## sent; a dismissal or a refusal (one short line) never holds it.
+		if _newest_card_being_read():
+			want = maxf(want, PENDING_CARD_SCROLL_MIN)
 	if absf(_scroll.custom_minimum_size.y - want) < 0.5:
 		return
 	var raised := want > _scroll.custom_minimum_size.y
 	_scroll.custom_minimum_size.y = want
 	if raised:
 		_reveal_transcript.call_deferred()
+
+
+## Brings a just-closed card's result line (and, below it, the Undo-and-regenerate offer) on screen in the docked Ask tab:
+## the transcript scrolls so the line is at ITS top (the offer follows within the 380 px floor), then the Ask tab's scroller
+## shows the whole transcript. Only for the card being read (`_card_being_read`; a reveal for an older one would fight it), two frames
+## after the close so the floor and the revealed text are laid out, and a frame between the two scrolls because a scroll
+## moves its children at the next sort (measured 2026-11-17: ensuring both in one frame left the line 99 px above the
+## window). Never touches a message.
+func _reveal_card_result(card: Dictionary) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if _card_being_read() != card or _scroll == null or not is_instance_valid(_scroll):
+		return
+	var rl = card.get("reason")
+	if rl == null or not is_instance_valid(rl) or not (rl as Control).is_visible_in_tree():
+		return
+	_scroll.scroll_vertical += int((rl as Control).get_global_rect().position.y - _scroll.get_global_rect().position.y)
+	await get_tree().process_frame
+	if not is_instance_valid(_scroll):
+		return
+	var n := _scroll.get_parent()
+	while n != null and not (n is ScrollContainer):
+		n = n.get_parent()
+	if n != null:
+		(n as ScrollContainer).ensure_control_visible(_scroll)
+
+
+## The card whose result the person is reading: the applied or undone card with the highest undo-group id (the most
+## recently applied), while no message has been sent since (`_read_done_gid`, set by `_on_send`). {} counts as none. The
+## list is not in creation order (a restored transcript puts older cards after the newest; measured in
+## `_llmundoregen_probe`), so recency is the group id, which only ever rises. `_sync_scroll_floor` keeps the transcript
+## tall for it and `_reveal_card_result` shows it.
+func _card_being_read() -> Dictionary:
+	var best := {}
+	var best_gid := _read_done_gid
+	for c in cards:
+		var st := String(c.get("state", ""))
+		var gid := int(c.get("group_id", 0))
+		if (st == "applied" or st == "undone") and gid > best_gid and is_instance_valid(c["box"]):
+			best = c
+			best_gid = gid
+	return best
+
+
+## Highest undo-group id among the cards when the last message was sent; a card at or below it is no longer "being read".
+var _read_done_gid := 0
+
+
+## Saying something ends the reading of the last result: every card up to the highest undo-group id so far stops being
+## "read" and the docked transcript's floor lets go (`_card_being_read`, `_sync_scroll_floor`). Called first thing by
+## `_on_send`, before any gate, because a refused send is still a message the person made.
+func _end_reading() -> void:
+	for c0 in cards:
+		_read_done_gid = maxi(_read_done_gid, int(c0.get("group_id", 0)))
+	_sync_scroll_floor()
+
+
+## True while a card is being read (`_card_being_read`).
+func _newest_card_being_read() -> bool:
+	return not _card_being_read().is_empty()
 
 
 ## Scrolls the Ask tab's own scroller (the one above the transcript, not the transcript's) so the transcript is on screen,
@@ -2714,6 +2783,10 @@ func _apply_blocked() -> String:
 func _close_card(card: Dictionary, state: String, text: String, token: String) -> void:
 	card["state"] = state
 	_sync_scroll_floor()
+	## The result line and the Undo-and-regenerate offer are what is read next: bring them on screen in the docked Ask tab
+	## (tablet probe 2026-11-17: the result line began 28 px above the Ask scroller's top after Apply, the offer below it).
+	if is_docked() and (state == "applied" or state == "undone"):
+		_reveal_card_result.call_deferred(card)
 	for k in ["apply", "dismiss", "undo_regen"]:
 		var b = card.get(k)
 		if b != null and is_instance_valid(b):

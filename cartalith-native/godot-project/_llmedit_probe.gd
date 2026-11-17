@@ -690,6 +690,13 @@ func _ready() -> void:
 		await _click_until(card["apply"], func(): return card["state"] != "new")
 		await _settle(10)
 		_ok(card["state"] == "applied", "seed %d: the click applied the card: %s" % [seed_, (card["reason"] as Label).text.left(110)])
+		if _win.is_docked():
+			## 2026-11-17: the floor used to fall back to 80 px at Apply; the applied card is what is being read.
+			var ts1: float = (_win._scroll as ScrollContainer).size.y
+			var rr1: Rect2 = (card["reason"] as Control).get_global_rect()
+			var fr1 := _frame_rect()
+			_ok(ts1 >= 300.0, "seed %d: the docked transcript stays %.0f px tall after Apply (80 before the fix)" % [seed_, ts1])
+			_ok(rr1.position.y >= fr1.position.y - 0.5 and rr1.end.y <= fr1.end.y + 0.5, "seed %d: the applied card's result line is on screen without scrolling (%s of %s)" % [seed_, str(rr1), str(fr1)])
 		var snap1 := _digest()
 		_ok(snap1["field"] != snap0["field"], "seed %d: the height field changed" % seed_)
 		_ok(snap1["params"] == snap0["params"] and snap1["ways_manual"] == snap0["ways_manual"] and snap1["colour_paint"] == snap0["colour_paint"], "seed %d: parameters, hand-drawn ways and colour paint are untouched" % seed_)

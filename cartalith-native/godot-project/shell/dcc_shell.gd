@@ -8992,7 +8992,17 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## whatever domain content was already showing. There is still no state to
 	## match `tab:null` onto; `peek` stands.
 	var close_btn := Button.new()
-	close_btn.text = "✕"
+	## A drawn icon, not the `✕` font glyph: the glyph's ink centre sat 1.5 px below its cell's at 450 dp (the font's
+	## ascent, not the layout; `_alignment_probe` "sheet header close glyph"). `DccIcons.rect` centres by anchors.
+	close_btn.accessibility_name = "Close"
+	var close_ic := DccIcons.rect("close", _pscale(13), "text_secondary")
+	close_ic.set_anchors_preset(Control.PRESET_CENTER)
+	var close_half := close_ic.custom_minimum_size * 0.5
+	close_ic.offset_left = -close_half.x
+	close_ic.offset_right = close_half.x
+	close_ic.offset_top = -close_half.y
+	close_ic.offset_bottom = close_half.y
+	close_btn.add_child(close_ic)
 	close_btn.focus_mode = Control.FOCUS_NONE
 	## The HIT area stays the 44 dp accessibility floor, unchanged -- only the
 	## ink drawn inside it shrinks, below.

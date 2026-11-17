@@ -237,6 +237,25 @@ func _ready() -> void:
 		_finish()
 		return
 	_ok(not (ub as Button).disabled, "the offer is enabled once the rebuild finished ('%s')" % (ub as Button).tooltip_text)
+	## 2026-11-17: the docked transcript's floor fell back to 80 px the moment the card closed, squeezing the result line and
+	## this very offer into a slot as tall as one button. It must hold while the applied card is the newest thing said.
+	if _win.is_docked():
+		var tsz: float = (_win._scroll as ScrollContainer).size.y
+		_ok(tsz >= 300.0, "docked: the transcript stays %.0f px tall after Apply (80 before the fix)" % tsz)
+		_ok(_win._card_being_read() == card, "docked: the applied card is the one being read (highest undo group id %d)" % int(card["group_id"]))
+		var askr: Rect2 = (_app.right_dock_ctrl._ask_scroll as ScrollContainer).get_global_rect()
+		var ubr: Rect2 = (ub as Control).get_global_rect()
+		var rr: Rect2 = (card["reason"] as Control).get_global_rect()
+		_ok(ubr.position.y >= askr.position.y - 0.5 and ubr.end.y <= askr.end.y + 0.5, "docked: the Undo-and-regenerate offer is on screen without scrolling (%s of %s)" % [str(ubr), str(askr)])
+		_ok(rr.position.y >= askr.position.y - 0.5 and rr.end.y <= askr.end.y + 0.5 and (card["reason"] as Label).visible, "docked: the applied card's result line is readable in full (%s of %s)" % [str(rr), str(askr)])
+		await _shot("2a_after_apply_as_left")   # untouched by the probe: what the person sees right after Apply
+		# Saying something releases it (`_end_reading`, which `_on_send` calls first, raises `_read_done_gid` to the cards' highest group id): the floor lets go.
+		var kept_gid: int = _win._read_done_gid
+		_win._end_reading()
+		_ok(_win._card_being_read().is_empty() and (_win._scroll as ScrollContainer).custom_minimum_size.y < 150.0, "docked: once a message has been sent the card is no longer being read and the floor lets go (%.0f px)" % (_win._scroll as ScrollContainer).custom_minimum_size.y)
+		_win._read_done_gid = kept_gid
+		_win._sync_scroll_floor()
+		_ok((_win._scroll as ScrollContainer).custom_minimum_size.y >= 300.0, "docked: and holds again when the card is the one being read (%.0f px)" % (_win._scroll as ScrollContainer).custom_minimum_size.y)
 	_ok(_settings_are(WANT), "the world was built WITH the applied settings")
 	var d1 := _digest()
 	_ok(d1 != d0, "the applied world differs from the first")
