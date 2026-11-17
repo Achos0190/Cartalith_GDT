@@ -2007,6 +2007,22 @@ A year listed in `timeline.json` with no corresponding territory entry is
 valid; it means that snapshot recorded no territory. A territory entry whose
 year is not listed in `timeline.json` MUST be ignored.
 
+### 10.3 `history/events.json` — events imported onto the timeline
+
+Added for Ruling GD (`CHRONOS_TIMELINE_DESIGN.md` §5, CT-5). **MAY**: a writer omits the member when no event was imported, an older reader ignores it (§14.3), and every older archive is unchanged. Engine-owned (its payload is `VaultSession::events`, so the shell does not round-trip it as text).
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `version` | integer | MUST | `1`. |
+| `next_id` | integer ≥ 1 | MUST | The next row id to issue. Ids are issued by the writer and **never reissued**, even after a row is removed. A reader that finds a row id at or above it MUST treat `max(row id) + 1` as the counter. |
+| `events` | array | MUST | The imported rows, below. |
+
+Each row: `id` (integer, MUST), `entity_kind` + `entity_id` (the map item it belongs to, §13.3.4's vocabulary, MUST), `kind` (`event`, `period`, `point` or `marker`, MUST), `start` (integer **engine year**, `epoch_offset` already applied, MUST), `start_month` / `start_day` / `end` / `end_month` / `end_day` (MAY, **absent when unknown**, never `0`), `color`, `group`, `description` (MAY), `title` (MUST), `vault_id` + `relative_path` + `line_key` (where it came from; `line_key` is the hash of kind, start date, end date and name as written in the note, MUST), `epoch_offset` (integer, MUST), `private` (boolean, MAY, absent = false: the source note was private, so the row is hidden from the assistant and from exports) and `source_removed` (boolean, MAY, absent = false: a re-sync found the line gone from the note; the row is kept). Months and days use the 365-day calendar of `cartalith_vault::chronos::MONTH_DAYS`.
+
+**Tolerance.** A malformed row costs that row and is reported; it is not a reason to refuse the document (§10.1's rule). An unreadable document leaves the project's events empty and says so. The imported list **never overrides** a snapshot: it is read-only context beside `years[]`.
+
+**An import never edits the note it read.** Tests: `cartalith-vault` `timelines::tests::import_offsets_dedups_and_undoes`, `events_doc_round_trip_and_tolerance`, `resync_added_removed_changed`.
+
 ---
 
 ## 11. `annotations/` — marks on the sheet
@@ -2424,9 +2440,10 @@ kind of thing from a mark drawn on the map.
 | `vaults` | array | SHOULD | Every vault this project references. Absent or empty is valid — a project with links but no vault entry is damaged filing, not a parse error; see §13.3.4. |
 | `links` | array | SHOULD | Every entity-to-note relationship. Absent or empty is valid and is the normal state of a project nobody has linked yet. |
 | `snapshots` | object, string → string | MAY | Generated map snapshots of an entity, keyed `<entity key>\|<radius>` (e.g. `settlement:42\|local`; `cartalith-vault`'s `snapshot_key`), each valued with the image's path **relative to the vault root**. Keyed by entity, not by link: a snapshot exists whether or not a note is attached. Omitted, not written empty, when there are none; an older document without it is valid. Added to this table 2026-09-24 — `LinkStore::snapshots` had been written without being specified here. |
+| `timelines` | array | MAY | What the user chose for each timeline found in a vault note (Ruling GD, `CHRONOS_TIMELINE_DESIGN.md` §4.4): objects `{vault_id, relative_path, form, ordinal, block_hash, decision, entity_kind?, entity_id?, epoch_offset?, decided}`. `form` is `chronos`, `frontmatter`, `year_list` or `table`; `decision` is `keep`, `ignore`, `link` or `import`; `decided` is Unix seconds. The key is `(vault_id, relative_path, form, ordinal)`; `block_hash` is `content_hash` of the block's text and detects a change after the decision (a changed block is a candidate again, its previous decision shown). A writer omits the member when it has none, an older reader ignores it (§14.3), and a row whose note no longer resolves is kept, never deleted. Old documents are unchanged. Tests: `cartalith-vault` `timelines::tests::link_store_carries_decisions_and_old_documents_are_unchanged`, `decision_json_omits_absent_members`. |
 
-A writer MAY omit `vault.json` entirely when `vaults`, `links` and
-`snapshots` are all empty (`LinkStore::is_empty`, the gate this port's writer
+A writer MAY omit `vault.json` entirely when `vaults`, `links`,
+`snapshots` and `timelines` are all empty (`LinkStore::is_empty`, the gate this port's writer
 uses). It MUST NOT omit it merely because `links` is empty: a project whose
 only vault state is a snapshot would lose it.
 

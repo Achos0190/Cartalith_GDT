@@ -102,6 +102,7 @@ pub mod religious_policy;
 /// at a user-set rate and derives none. Nothing in the simulation reads it.
 pub mod currency;
 pub mod timeline;
+pub mod timeline_items;
 pub mod tools;
 /// `GUI_GAP_REGISTER.md` **IN-13** -- trade *flows*: which settlement
 /// supplies which, over what water, along which way. Five of its six pieces

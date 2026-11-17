@@ -197,9 +197,9 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
-### Ruling GD, the chronos timeline: DESIGN WRITTEN, nothing built (2026-11-17)
+### Ruling GD / GE, the chronos timeline: BUILDING (2026-11-17, option (a), passive badge, every other default)
 
-`CHRONOS_TIMELINE_DESIGN.md` at the repository root. Read at the symbols (`chronos::parse`, `entity_chronos`, `add_chronos_event`, `tl_selection_events`, `tl_conflict_spans`, `PlaceExtras::founded`, `Conflict`, `Journey`, `OwnershipSpan`, `TimelineSnapshot`, `private::is_private`) and written without running any test. It recommends a consolidated view on the existing strip (option a) over making chronos the primary timeline (option b), and sets out recognition rules, the per-timeline prompt, saves and milestones CT-0..CT-9. No product code, save format or golden changed; the build waits on the owner's answers.
+`CHRONOS_TIMELINE_DESIGN.md` s.10 carries the build notes. **Built, Rust layer (CT-0, CT-1, CT-3, CT-6, CT-8 and the data halves of CT-4, CT-5, CT-7):** `cartalith_vault::timelines` (forms F1 chronos block, F2 closed-key frontmatter, F3 year list, F4 dated table; the read-budgeted `scan`; `TimelineDecision` in `LinkStore::timelines`; `EventsDoc` for `history/events.json` with import, dedup, private flag, re-sync and the founding comparison) and `cartalith_civ::timeline_items` (the `TimelineItem` read model, the three filters, `without_private`, `year_extent`, `export_chronos`). **Not yet wired to the shell**: no strip rows, badge, prompt or save slot until the bridge lands (see the next entry when it does). F5 (the Timelines plugin) is deferred (CT-9: its syntax was recalled, never read). No golden, `history/timeline.json` or generation output changed.
 
 ### Tablet brush edge sliders (2026-11-17, owner request; `MAP_CONTEXT_SCOPE.md` s.7.3, fork F5b): BUILT, GDScript only, probed windowed on tablet, desktop and phone, 8 literal mutants killed, frames looked at
 

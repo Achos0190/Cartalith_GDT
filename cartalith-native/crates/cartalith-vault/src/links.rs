@@ -738,6 +738,12 @@ pub struct LinkStore {
     /// than an empty object every reader then has to ignore.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub snapshots: BTreeMap<String, String>,
+    /// What the user chose for each timeline found in a note
+    /// (`CHRONOS_TIMELINE_DESIGN.md` §4.4, `SAVEFILE_COMPAT.md` 13.3 `timelines[]`).
+    /// Additive: an older store has none and writes none, and an unknown member in
+    /// an older reader is ignored -- the same arrangement as `snapshots`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timelines: Vec<crate::timelines::TimelineDecision>,
 }
 
 /// The key one entity's snapshot at one radius is filed under:
@@ -801,7 +807,7 @@ impl LinkStore {
     /// `vault_store.gd`'s header table, not the device binding, which is
     /// never in here (§5).
     pub fn is_empty(&self) -> bool {
-        self.vaults.is_empty() && self.links.is_empty() && self.snapshots.is_empty()
+        self.vaults.is_empty() && self.links.is_empty() && self.snapshots.is_empty() && self.timelines.is_empty()
     }
 
     /// The pretty-printed `vault.json` document: this store's own members

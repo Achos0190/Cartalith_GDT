@@ -71,6 +71,7 @@ pub mod notelinks;
 pub mod private;
 pub mod provider;
 pub mod suggest;
+pub mod timelines;
 pub mod template;
 mod textscan;
 
@@ -435,6 +436,11 @@ pub struct VaultSession {
     /// The user's *"don't ask me again"* choices. Device state — see
     /// [`WritePrefs`] for why it is not in `store`.
     pub prefs: WritePrefs,
+    /// The events imported onto the map's timeline (`CHRONOS_TIMELINE_DESIGN.md` §5, CT-5): the
+    /// payload of `history/events.json`. World state like `store.links` -- cleared with it when a
+    /// world is replaced -- and kept beside the link store because every row names a vault note.
+    /// An import **never edits the note** it read.
+    pub events: timelines::EventsDoc,
 }
 
 impl Default for VaultSession {
@@ -453,6 +459,7 @@ impl VaultSession {
             binding: None,
             backlinks: BacklinkIndex::new(),
             prefs: WritePrefs::default(),
+            events: timelines::EventsDoc::default(),
         }
     }
 
@@ -466,7 +473,20 @@ impl VaultSession {
             binding: None,
             backlinks: BacklinkIndex::new(),
             prefs: WritePrefs::default(),
+            events: timelines::EventsDoc::default(),
         })
+    }
+
+    /// Scans up to `max_reads` notes of the bound vault starting at note number `offset` for
+    /// timelines (CT-3, [`timelines::scan`]). Returns the scan and the **next offset** (`None` when
+    /// the whole list is covered), so a vault of thousands is walked over several calls rather than
+    /// one stall. Reads only; writes nothing, ever.
+    pub fn scan_timelines(&self, offset: usize, max_reads: usize) -> Result<(timelines::Scan, Option<usize>), Error> {
+        let all = self.list(usize::MAX)?;
+        let slice: Vec<String> = all.iter().skip(offset).take(max_reads).cloned().collect();
+        let got = timelines::scan(&slice, max_reads, |p| self.read(p).ok());
+        let end = offset + slice.len();
+        Ok((got, if end < all.len() { Some(end) } else { None }))
     }
 
     /// The store's own JSON — what a project saves into `vault.json`.

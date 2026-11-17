@@ -179,6 +179,7 @@ dependencies = [
  "cartalith-spatial",
  "cartalith-terrain",
  "cartalith-urban",
+ "cartalith-vault",
  "rayon",
  "serde_json",
 ]
