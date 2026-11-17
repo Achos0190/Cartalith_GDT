@@ -1,0 +1,51 @@
+Deep burgage plots, a prototype (owner Ruling FE item 3; TOWN_GENERATOR_JUDGEMENT.md change 4), 2026-11-17.
+Switch urban_burgage: false in WorldParams::defaults AND params::defaults (off at both boundaries until the owner
+rules). Design and labelled constants: cartalith-urban/src/burgage.rs.
+
+Census: cartalith-godot town_river_census.rs, the five town audits (audit.sh.txt; both_banks_audit,
+town_housing_audit, riverbank_gap_audit, harbour_front_audit, stretch_water_audit), seeds 483920, 912345, 246371,
+800 km, villages on, release test binary, one thread per audit, at 384 x 288 and 2048 x 1311, TOWN_RIVER_LIST=1.
+  off/: the app's defaults (urban_burgage off).   on/: EXTRA_ENV="TOWN_RIVER_BURGAGE=1".
+cmp.txt: cmp.py.txt off on (the must-hold bars of 096d1407 and the other rows). footprint.txt: foot.py.txt off on
+(each town's settled area on / off, paired by order; housed change). both_banks_audit's new "plots" line: depth /
+frontage over towns >= 1 500's four-cornered lots, lots over 40 m, settled area / 0.12 N^0.714 ha for towns >= 5 000.
+Switch off: byte-identical to origin/main's census at 384 (all five audits); at 2 048 off differs from origin/main
+5115cabd only by the item-1 roads of the commit before (9b5703f0), whose own town bars are unchanged
+(fi-crossings-2026-11-17/town_bars_before_after.txt). The final binary (after an equivalent edit to
+Graph::edges_within) reproduces on/both_banks_audit_384.txt byte for byte.
+
+Bars                                   384 off -> on       2048 off -> on      bar
+  depth / frontage median              1.42 -> 2.51        1.43 -> 2.42        >= 3      MISSED
+  lots over 40 m deep                  0.4 -> 6.1 %        0.3 -> 5.9 %        >= 10 %   MISSED
+  settled / 0.12 N^0.714, median       0.63 -> 0.76        0.61 -> 0.76        0.65-1.0  met
+  footprint per town (median, p90,max) x1.20, x1.68, x2.08 x1.20, x1.46, x1.64 ~x1.5
+  housed p10                           89 -> 83            85 -> 64            hold      FAILS
+  towns under 80 %                     2 -> 2              3 -> 6              hold      fails at 2048
+  wall / hull p90                      1.11 -> 1.18        1.09 -> 1.28        hold      FAILS
+  squares outside the wall             5 -> 5              2 -> 3              hold      fails at 2048
+  unbuilt patches over 1 ha            1 -> 0              0 -> 0              hold      holds
+  buildings in water                   0 -> 0              0 -> 0              hold      holds
+  riverside share (towns >= 1 500)     4.1 -> 3.4 %        3.7 -> 2.7 %        hold      FAILS
+Worst housed changes (census world): 2048: 912345 #2 (2 448) 104 -> 47 %, 912345 #29 166 -> 120 %, 912345 #1
+(20 000) 103 -> 77 %, 483920 #38 85 -> 64 %, 483920 #1 97 -> 81 %; 384: 483920 #0 160 -> 116 %, 912345 #2 86 -> 64 %,
+483920 #8 117 -> 98 %. Largest footprints: 384 483920 #12 x2.08 (housed 112 -> 199 %), 912345 #32 x1.82; 2048
+912345 #9 x1.64, 483920 #36 x1.56.
+
+Why housing falls: with the wider spacing grow places less street than its budget (two synthetic towns of 6 000:
+12.8 -> 9.9 km and 13.4 -> 10.0 km against a 12.6 km budget); lots per metre of street rise (0.35 -> 0.40 houses/m),
+not enough to make it up. Scaling the budget x1.3 and x1.6 placed no more street (9.7 / 11.4, 9.6 / 11.0 km), so the
+judgement's "street budget per head reduced to match" has nothing to give back and was not built.
+
+Plans (plans/, the census's own layouts at 384, seed 483920 #0, #1, #3, #10, #20; plan_* the whole box off | on,
+zoom_* 360 x 260 m round the market off | on): labelled as plans, not app frames.
+
+Frames: frames/pair_<seed>_<id>.png, City Viewer opening frames of the app's world at 384 x 288 (GPU terrain, so ids differ from the
+census's), off left and on right, taken by shots.sh.txt (window lock, scratch APPDATA) with _viewerframe_probe.gd --burgage 2: the
+switch set off, every id shot, then set on live and every id shot again; the probe asserts the layouts fetched after the toggle
+differ (5 of 5, 4 of 4, 5 of 5; probe_<seed>.log, building counts per id as BURGAGE0/1). Release DLL of this tree.
+Seen: large cities read as organic towns with larger blocks and yards; 483920 #4 loses its wall and most houses (670 -> 329
+buildings); 483920 #10's wall has a deep V notch; 483920 #0 keeps a wide unbuilt field inside its wall; small towns of about 1 700
+fill with fans of deep lots.
+
+Mutants: mutants.txt (mut.py.txt), 13 run, 12 killed; the survivor (edges_within's extra margin) was redundant and
+removed.

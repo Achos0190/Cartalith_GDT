@@ -196,6 +196,14 @@ fn market_scale(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_MS").map_or(p.urban_market_scale, |v| v != "0")
 }
 
+/// Whether the census lays towns out with deep burgage plots (owner Ruling FE
+/// item 3's prototype, `cartalith_urban::burgage`): the app's
+/// (`WorldParams::urban_burgage` from `params::defaults`, off) unless
+/// `TOWN_RIVER_BURGAGE=1` asks for the prototype (2026-11-17).
+fn burgage(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_BURGAGE").map_or(p.urban_burgage, |v| v == "1")
+}
+
 /// The river-town test the census lays towns out with: the app's
 /// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
 /// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
@@ -1605,7 +1613,7 @@ fn riverbank_gap_audit() {
         let mut seed_gap = Vec::new();
         let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1849,7 +1857,7 @@ fn town_housing_audit() {
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -1963,6 +1971,12 @@ fn both_banks_audit() {
     // patch inside it ([`unbuilt_inside_wall`]), in square metres.
     let (mut walled_all, mut market_out) = (0usize, 0usize);
     let mut patches: Vec<f64> = Vec::new();
+    // Deep burgage plots (owner Ruling FE item 3's prototype, 2026-11-17;
+    // `TOWN_GENERATOR_JUDGEMENT.md` change 4's bars): over the four-cornered
+    // lots of towns of 1 500 and up, depth / frontage and the lots over 40 m
+    // deep; and each town of 5 000 and up's settled area against the
+    // research's law, 0.12 N^0.714 ha (`MEDIEVAL_TOWN_GROWTH_RESEARCH.md`).
+    let (mut lot_ratio, mut lot_deep, mut law_ratio): (Vec<f64>, usize, Vec<f64>) = (Vec::new(), 0, Vec::new());
     // Villages' vacant lots (2026-11-15, the coordinator's item 4: a ring of
     // emptied plots round trimmed villages): parcels with no building whose
     // centroid stands in them, pooled over villages, and the villages with
@@ -2035,7 +2049,7 @@ fn both_banks_audit() {
             if only.as_ref().is_some_and(|o| !o.contains(&i)) {
                 continue;
             }
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
             // Ruling FN: a stretched town (its box larger than the reference's).
@@ -2096,6 +2110,28 @@ fn both_banks_audit() {
                     l.blocks.iter().map(|b| format!("[{}]", pts(b))).collect::<Vec<_>>().join(",")
                 );
                 let _ = std::fs::write(format!("{dir}/{seed}_{gw}_{i}.json"), json);
+            }
+            // Deep burgage plots' measures (see `lot_ratio`): a lot is
+            // `[p0, p1, q1, q0]`, frontage `p0 p1`, depth the mean of its sides.
+            if l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
+                for q in l.parcels.iter().filter(|q| q.poly.len() == 4) {
+                    let d = |a: Vec2, b: Vec2| (a.x - b.x).hypot(a.y - b.y);
+                    let (front, depth) = (d(q.poly[0], q.poly[1]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0);
+                    if front > 0.0 {
+                        lot_ratio.push(depth / front);
+                        lot_deep += usize::from(depth > 40.0);
+                    }
+                }
+                if !l.buildings.is_empty() {
+                    let bl: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|v| (v.x, v.y)).collect()).collect();
+                    let settled_ha = settled_area_m2(&bl) / 1e4;
+                    if l.pop_target >= 5000.0 {
+                        law_ratio.push(settled_ha / (0.12 * l.pop_target.powf(0.714)));
+                    }
+                    if list {
+                        println!("  plots #{i} target {:.0} housed {:.0} settled {settled_ha:.2} ha", l.pop_target, l.pop);
+                    }
+                }
             }
             let r = 100.0 * l.pop / l.pop_target;
             let class = usize::from(l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP);
@@ -2374,6 +2410,13 @@ fn both_banks_audit() {
         over(2.0)
     );
     println!("  buildings in water: river channel {wet_ch}, sea or lake cell {wet_open}, water_poly {wet_poly}; within half river_w of a coast's shoreline polyline (not water) {wet_shore}");
+    let n_lots = lot_ratio.len();
+    println!(
+        "  plots (towns >= 1500, four-cornered lots {n_lots}): depth / frontage {}; over 40 m deep {lot_deep} ({:.1} %); settled area / 0.12 N^0.714 ha (towns >= 5000) {}",
+        spread2(&mut lot_ratio),
+        100.0 * lot_deep as f64 / n_lots.max(1) as f64,
+        spread2(&mut law_ratio)
+    );
 }
 
 /// How far from its water, metres, a harbour's nearest building may stand and
@@ -2490,7 +2533,7 @@ fn harbour_front_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p),
                 harbour_front: hf,
                 river_stretch: river_stretch(&p).then_some(others.as_slice()),
                 ..Default::default()
@@ -2705,7 +2748,7 @@ fn stretch_water_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p),
                 harbour_front: p.urban_harbour_front,
                 river_stretch: Some(others.as_slice()),
                 ..Default::default()

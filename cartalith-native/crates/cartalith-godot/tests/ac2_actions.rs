@@ -121,14 +121,14 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     for d in c.dropped.iter().filter(|d| !d.id.starts_with("menu:")) {
         eprintln!("AC1 dropped (non-menu): {} ({})", d.id, d.why);
     }
-    assert_eq!(by("params"), 131, "every offered registry row is an entry (130 until Ruling FO item 1's `civ.founding_year`, 2026-11-16; 129 until Ruling FN's `urban_river_stretch`, 2026-11-16; 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach`, 2026-11-16; 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings`, 2026-11-16; 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box`, 2026-11-15; 122 until `urban_market_scale`, judgement change 6, 2026-11-15; 121 until `urban_street_village`, Ruling FE item 2, 2026-11-15; 120 until `urban_riverbank`)");
+    assert_eq!(by("params"), 132, "every offered registry row is an entry (131 until Ruling FE item 3's `urban_burgage`, 2026-11-17; 130 until Ruling FO item 1's `civ.founding_year`, 2026-11-16; 129 until Ruling FN's `urban_river_stretch`, 2026-11-16; 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach`, 2026-11-16; 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings`, 2026-11-16; 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box`, 2026-11-15; 122 until `urban_market_scale`, judgement change 6, 2026-11-15; 121 until `urban_street_village`, Ruling FE item 2, 2026-11-15; 120 until `urban_riverbank`)");
     assert_eq!(by("view"), 10 + 3, "ten layers plus the style preset, zoom and the (withheld) landmark filter");
     assert_eq!(by("window"), 10);
     assert_eq!(by("context"), 26, "31 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear; world.sculpt_here, MS-5, passes unexempted)");
     assert_eq!(by("tool"), 14, "the 14 `arm_tool` literals in the shell; 13 until CL-11's CARTO `poi` tool (`449bb22a`) was added to `action_static_sources.json`, 2026-11-17");
     assert_eq!(by("timeline"), 1);
     assert_eq!(by("menu"), 32, "66 rows less 10 merged into windows and 24 refused (AC-5 allow-listed undo_history)");
-    assert_eq!(c.entries().len(), 131 + 14 + 10 + 26 + 13 + 1 + 32);
+    assert_eq!(c.entries().len(), 132 + 14 + 10 + 26 + 13 + 1 + 32); // 131 params until `urban_burgage` (2026-11-17)
     assert_eq!(c.derived_desc_count(), 0, "AC-5: every real row carries a written description (the work list was 27 at AC-5's start)");
     // Accounting: each of the 66 rows is an entry, a merge or a refusal.
     for r in &facts.menu_rows {
@@ -631,7 +631,7 @@ fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
         }
     }
     eprintln!("AC3 proposable by route: {by:?}");
-    assert_eq!(by.get("param"), Some(&131)); // 130 until Ruling FO item 1's `civ.founding_year`; 129 until Ruling FN's `urban_river_stretch`; 127 until Ruling FK's two switches; 125 until Ruling FI's two switches; 123 until Ruling FF's two switches; 122 until `urban_market_scale` (judgement change 6); 121 until `urban_street_village` (Ruling FE item 2)
+    assert_eq!(by.get("param"), Some(&132)); // 131 until Ruling FE item 3's `urban_burgage`; 130 until Ruling FO item 1's `civ.founding_year`; 129 until Ruling FN's `urban_river_stretch`; 127 until Ruling FK's two switches; 125 until Ruling FI's two switches; 123 until Ruling FF's two switches; 122 until `urban_market_scale` (judgement change 6); 121 until `urban_street_village` (Ruling FE item 2)
     assert_eq!(by.get("window"), Some(&10));
     assert_eq!(by.get("tool"), Some(&14)); // 13 until the `poi` tool (CL-11) entered the static scan, 2026-11-17
     assert_eq!(by.get("year"), Some(&1));

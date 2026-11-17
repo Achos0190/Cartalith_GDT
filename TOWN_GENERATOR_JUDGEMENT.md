@@ -124,6 +124,8 @@ Ranked by visual impact against cost. "Cost" is my estimate of builder effort, n
 
 ### 4. Deep plots and backland, as a measured prototype first
 
+*Prototype built 2026-11-17 behind `urban_burgage`, off at both boundaries (owner Ruling FE item 3); measured in `STATUS.md`, "Deep burgage plots, a prototype". Against the bars below: depth / frontage median 2.51 (384) and 2.42 (2 048), lots over 40 m 6.1 % and 5.9 %, both missed; settled area 0.76 of the law, met; housing and the must-hold bars worse (housed p10 89 -> 83 and 85 -> 64). The "street budget per head reduced to match" did not hold: with the wider spacing `grow` already places less street than its budget. The fans of lots in the organic plan's triangular blocks, not the platting, are what keep the look from the "long blocks" expected below.*
+
 - **What.** A second rules preset for the organic plan:
   - streets further apart (about two plot depths, 60 to 70 m, against today's 24 m minimum spacing and 56 m median segment);
   - narrower frontages, with the house on the street and a yard or garden behind;

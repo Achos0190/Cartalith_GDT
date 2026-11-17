@@ -319,7 +319,36 @@ pub fn build_parcels(
     site: &Site,
     rules: Option<&Rules>,
 ) -> Vec<Parcel> {
+    build_parcels_with(seed, g, blocks, anchors_market, epochs, site, rules, false)
+}
+
+/// [`build_parcels`], with `burgage` (**not the reference**, owner Ruling FE
+/// item 3's prototype, `crate::burgage`): deeper block-uniform target depths
+/// ([`crate::burgage::DEPTH_CORE_M`] / [`crate::burgage::DEPTH_M`], capped at
+/// [`crate::burgage::DEPTH_MAX_M`]) and lots reaching
+/// [`crate::burgage::WAIST`] of the way across their block. `false` is the
+/// reference's 22 / 30 m, 46 m and 0.42, the same arithmetic on the same
+/// literals, so [`build_parcels`] is unchanged by control flow. Every draw is
+/// the reference's, in its order: only the numbers a draw is scaled by move.
+#[allow(clippy::too_many_arguments)]
+pub fn build_parcels_with(
+    seed: u32,
+    g: &Graph,
+    blocks: &[Block],
+    anchors_market: Vec2,
+    epochs: i32,
+    site: &Site,
+    rules: Option<&Rules>,
+    burgage: bool,
+) -> Vec<Parcel> {
     let p = rules.unwrap_or(&DEFAULT_RULES).parcels;
+    // (core depth, depth, depth cap, waist): the reference's M-PAR-2 literals,
+    // or the prototype's.
+    let (depth_core, depth_far, depth_cap, waist) = if burgage {
+        (crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)
+    } else {
+        (22.0, 30.0, 46.0, 0.42)
+    };
     let mut parcels: Vec<Parcel> = Vec::new();
     let mut pid = 0usize;
     // This port's own stream, kept apart from every geometry draw. See
@@ -345,8 +374,8 @@ pub fn build_parcels(
         let depth_target = js_max(
             14.0,
             js_min(
-                46.0,
-                r_b.logn(if d_m < 160.0 { 22.0 } else { 30.0 }, p.plot_depth_variance),
+                depth_cap,
+                r_b.logn(if d_m < 160.0 { depth_core } else { depth_far }, p.plot_depth_variance),
             ),
         );
 
@@ -379,7 +408,7 @@ pub fn build_parcels(
                 }
             }
             bis.push(b);
-            cap.push(js_max(2.0, js_min(t_min * 0.42, depth_target * 1.35)));
+            cap.push(js_max(2.0, js_min(t_min * waist, depth_target * 1.35)));
         }
 
         // Per-edge depth clamp, cast from the edge midpoint along the inward
@@ -403,7 +432,7 @@ pub fn build_parcels(
                     t_min = js_min(t_min, h.t * 2000.0);
                 }
             }
-            edge_depth.push(js_min(depth_target, t_min * 0.42));
+            edge_depth.push(js_min(depth_target, t_min * waist));
         }
 
         // Per-edge cells -> strip parcels.

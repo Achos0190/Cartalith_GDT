@@ -1,0 +1,60 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 55af96b83871
+ERROR: Couldn't open directory at path "C:/cw/plots_scratch/appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5338)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2815)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  urban_burgage set to 2
+  PASS  the world generated (233 settlements)
+canvas (1296.0, 888.0)
+  TOWN #0 at (10,54) pop 20998
+  TOWN #1 at (1,115) pop 2165
+  TOWN #2 at (22,113) pop 24229
+  TOWN #3 at (16,34) pop 1760
+  TOWN #4 at (142,235) pop 24802
+  TOWN #6 at (253,254) pop 23571
+  TOWN #7 at (25,71) pop 1976
+  TOWN #9 at (8,74) pop 1944
+  TOWN #10 at (120,220) pop 2327
+  TOWN #11 at (152,262) pop 17913
+  TOWN #14 at (359,258) pop 1957
+  TOWN #15 at (269,127) pop 21802
+  TOWN #17 at (4,240) pop 18188
+  TOWN #23 at (77,195) pop 7086
+MEASURE seed 483920 grid 384x288: 233 settlements, 0 river-kind, 0 with water geometry, 0 with water in the opening frame, 0 MISS: []
+  PASS  a river 30 m off pulls the frame to it plus one river width, 140 m ([P: (0.0, -10.0), S: (140.0, 110.0)])
+  PASS  a river 100 m off (over 0.6 of 100 m) leaves the frame alone
+  PASS  a river through the built mass leaves the frame alone
+  PASS  no water leaves the frame alone
+  PASS  a 20 m hamlet reaches a river 25 m off (the 30 m floor, [P: (0.0, -3.375), S: (49.0, 23.375)])
+  PASS  a water body 20 m off pulls the frame to it
+  PASS  a map-water mask run 15 m off pulls the frame to it
+  PASS  urban_burgage set live to 0
+  BURGAGE0 #0 buildings 4218
+  BURGAGE0 #4 buildings 670
+  BURGAGE0 #11 buildings 3899
+  BURGAGE0 #23 buildings 2101
+  BURGAGE0 #10 buildings 528
+  PASS  urban_burgage set live to 1
+  BURGAGE1 #0 buildings 5116
+  BURGAGE1 #4 buildings 329
+  BURGAGE1 #11 buildings 4582
+  BURGAGE1 #23 buildings 2846
+  BURGAGE1 #10 buildings 755
+  PASS  the live toggle changed 5 of 5 towns' layouts
+RESULT: PASS (0 failed) checks=12
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

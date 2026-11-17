@@ -69,6 +69,7 @@
 pub mod amenities;
 pub mod astar;
 pub mod blocks;
+pub mod burgage;
 pub mod citadel;
 pub mod cleanup;
 pub mod courtyard;

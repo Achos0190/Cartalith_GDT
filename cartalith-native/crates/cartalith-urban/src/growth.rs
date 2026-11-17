@@ -256,6 +256,14 @@ pub struct GrowOpts {
     /// approach and through roads), so a street village's lanes stay by its
     /// road. `None` (the `Default`, every reference path) tests nothing.
     pub road_reach: Option<f64>,
+    /// **Not the reference** (owner Ruling FE item 3's deep-plot prototype,
+    /// `crate::burgage`): the parallel-street spacing test looks for streets
+    /// as far away as `parallel_street_spacing` (`Graph::edges_within`). The
+    /// reference's query (`Graph::edges_near` at the new street's midpoint)
+    /// reaches about one 26 m index cell, so a spacing wider than that is only
+    /// partly enforced. `false` (the `Default`, every reference path) is the
+    /// reference's query by control flow.
+    pub wide_spacing: bool,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -703,7 +711,7 @@ pub fn grow(
             if !explore && r.u() > w * 1.35 {
                 continue;
             }
-            let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "") else {
+            let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing) else {
                 continue;
             };
             for eid in made {
@@ -775,6 +783,7 @@ fn legalize_street(
     explore: bool,
     ep: i32,
     prov_tail: &str,
+    wide_spacing: bool,
 ) -> Option<Vec<usize>> {
     // segment lengths M-NET-4
     let l = js_min(
@@ -871,7 +880,11 @@ fn legalize_street(
     // (M-BLK-4).
     let midp = o.lerp(b, 0.5);
     let mut too_close = false;
-    for eid2 in g.edges_near(midp, midp) {
+    // `GrowOpts::wide_spacing` (the deep-plot prototype): every street within
+    // the spacing, not only the index cells next to the midpoint. The test
+    // below is an `any`, so the candidates' order cannot change its answer.
+    let near = if wide_spacing { g.edges_within(midp, s.parallel_street_spacing) } else { g.edges_near(midp, midp) };
+    for eid2 in near {
         let Some(e2) = g.edges.get(eid2) else { continue };
         if !e2.alive {
             continue;
@@ -1030,7 +1043,7 @@ pub fn grow_far_bank(
         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
             continue;
         }
-        let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV) else {
+        let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing) else {
             continue;
         };
         for eid in made {

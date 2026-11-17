@@ -2260,6 +2260,9 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::market_scale`], carried to `GenOpts::market_scale`
     /// (`TOWN_GENERATOR_JUDGEMENT.md` change 6).
     pub market_scale: bool,
+    /// [`PlaceOverrides::burgage`], carried to `GenOpts::burgage` (owner
+    /// Ruling FE item 3's deep-plot prototype).
+    pub burgage: bool,
     /// [`PlaceOverrides::harbour_front`] where the town's box holds sea
     /// ([`UmWater::sea_frac`] above [`BOX_SEA_FRAC`], the harbour badge's own
     /// test, `um_box_has_sea`), carried to `GenOpts::harbour_front` (Ruling FK
@@ -2382,6 +2385,14 @@ pub struct PlaceOverrides<'a> {
     /// unmoved by control flow. The app sets it from
     /// `WorldParams::urban_river_stretch` (`DECISIONS.md` section 7p).
     pub river_stretch: Option<&'a [(f64, f64, f64)]>,
+    /// Owner Ruling FE item 3 (2026-11-15): deep burgage plots, a prototype
+    /// (`cartalith_urban::GenOpts::burgage`, `cartalith_urban::burgage`).
+    /// **Not a `_umPlaceContext` field** and not in the reference, so `false`
+    /// (the `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_burgage`, off in the app until the owner rules
+    /// (`DECISIONS.md` section 7p).
+    pub burgage: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2486,6 +2497,7 @@ pub fn um_place_context_with(
             riverbank: o.riverbank,
             street_village: o.street_village,
             market_scale: o.market_scale,
+            burgage: o.burgage,
             harbour_front,
             site_box,
             river_stretch,
@@ -3074,6 +3086,7 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         riverbank: ctx.riverbank,
         street_village: ctx.street_village,
         market_scale: ctx.market_scale,
+        burgage: ctx.burgage,
         harbour_front: ctx.harbour_front,
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.

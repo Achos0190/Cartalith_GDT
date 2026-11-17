@@ -1,0 +1,16 @@
+#!/bin/bash
+# audit.sh <exe> <outdir> [sizes] [audits]: the five town audits, seeds 483920 912345 246371, 800 km, villages on, app defaults
+# (plus EXTRA_ENV, e.g. TOWN_RIVER_BURGAGE=1). After town-leftovers-2026-11-17/audit.sh.txt, its paths changed.
+set -u
+EXE=$1; OUT=$2; mkdir -p $OUT
+cd C:/cw/plots/cartalith-native/crates/cartalith-godot
+for sz in ${3:-384:288 2048:1311}; do
+  gw=${sz%%:*}; gh=${sz##*:}
+  for a in ${4:-both_banks_audit town_housing_audit riverbank_gap_audit harbour_front_audit stretch_water_audit}; do
+    env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 ${EXTRA_ENV:-} \
+      $EXE $a --ignored --nocapture --test-threads 1 > $OUT/${a}_$gw.txt 2>&1 &
+  done
+  wait
+  echo "$gw done $(date +%T)"
+done
+echo ALLDONE

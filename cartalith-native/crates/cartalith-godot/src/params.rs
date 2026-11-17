@@ -492,6 +492,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_river_stretch", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns stretch along their river", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_river_stretch), set_fn: |p, v| p.urban_river_stretch = v != 0.0 },
+    // Owner Ruling FE item 3 (2026-11-15): deep burgage plots, a PROTOTYPE
+    // (`cartalith_urban::burgage`). OFF at both boundaries: `defaults()` above
+    // leaves `WorldParams::defaults`' `false` until the owner rules on the
+    // measurements (`STATUS.md`, "Deep burgage plots, a prototype"). No
+    // reference control. A save without the key loads OFF
+    // (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for, so it
+    // invalidates nothing and `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_burgage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Deep burgage plots (prototype)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_burgage), set_fn: |p, v| p.urban_burgage = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1202,6 +1212,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_harbour_front", ""),
     // Port-only (Ruling FN); the reference lays every town out in one box.
     ("urban_river_stretch", ""),
+    // Port-only (Ruling FE item 3's prototype); the reference plats house-deep lots.
+    ("urban_burgage", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1558,6 +1570,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // River towns stretched along their river (Ruling FN, 2026-11-16): every
     // save without the key drew its river towns in the reference's box.
     ("urban_river_stretch", Value::Bool(false)),
+    // Deep burgage plots (Ruling FE item 3's prototype, 2026-11-17): every
+    // save without the key drew the reference's house-deep lots.
+    ("urban_burgage", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

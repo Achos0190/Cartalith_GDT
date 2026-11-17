@@ -298,6 +298,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         water_to_sea: None,
         site_box: None,
         river_stretch: None,
+        // Nor deep burgage plots (Ruling FE item 3's prototype).
+        burgage: false,
     }
 }
 

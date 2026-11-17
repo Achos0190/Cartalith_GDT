@@ -75,7 +75,7 @@
 //! `site.economy`.
 
 use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, build_markets_within};
-use crate::blocks::{Block, Parcel, build_blocks, build_parcels};
+use crate::blocks::{Block, Parcel, build_blocks};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::courtyard::build_courtyard_rings;
 use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys};
@@ -255,6 +255,15 @@ pub struct GenOpts {
     /// plan, on a river site with a centreline. `None` is the reference's
     /// growth round the market, by control flow.
     pub river_stretch: Option<crate::stretch::StretchPlan>,
+    /// **Not the reference** -- owner Ruling FE item 3 (2026-11-15: *"Deep
+    /// burgage plots with backland are built behind their own switch, measured
+    /// and shown in frames before the owner decides"*), a prototype
+    /// ([`crate::burgage`]): streets further apart, deeper lots, fewer interior
+    /// lanes. Read only on the organic plan of a town that
+    /// is not a street village. `false` is the reference's layout, by control
+    /// flow. The host sets it from `WorldParams::urban_burgage`, off in the
+    /// app until the owner rules.
+    pub burgage: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -771,6 +780,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     let street_village = opts.street_village && pop_target < crate::plaza::PLAZA_MARKET_POP && profile.planning != "radial";
     // Its lanes: a quarter of a town's street a head, with no floor.
     let target_len = if street_village { pop_target * crate::village::STREET_PER_HEAD_M } else { target_len };
+    // **Not the reference** (owner Ruling FE item 3's prototype,
+    // `crate::burgage`): deep plots, on the organic plan of a town that is not
+    // a street village (the radial plan never calls `grow`; a street village
+    // has its tofts). Its street rules and, below, the deeper platting and
+    // fewer lanes; `false` touches nothing.
+    let burgage = opts.burgage && !street_village && profile.planning != "radial";
+    let rules = if burgage { crate::burgage::rules(rules) } else { rules };
     // **Not the reference** (Ruling FN, `GenOpts::site_box`): a stretched
     // river town's larger box; `None` is the reference's.
     let (wm, hm) = opts.site_box.unwrap_or((SITE_WM, SITE_HM));
@@ -1038,6 +1054,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             pop: pop_target,
             // A street village's lanes start by the roads only.
             road_reach: street_village.then_some(crate::village::ROAD_REACH_M),
+            wide_spacing: burgage,
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -1080,8 +1097,11 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
 
     // Up to three interior lane passes, stopping the first time one adds
     // nothing (`if(!lanePass(...))break`).
+    // The deep-plot prototype (`crate::burgage`) splits only larger faces;
+    // `None` is the reference's 12 000 m2.
+    let lane_min = burgage.then_some(crate::burgage::LANE_MIN_AREA_M2);
     for _ in 0..3 {
-        if lane_pass(seed, &site, &anchors, &mut g, epochs, None) == 0 {
+        if lane_pass(seed, &site, &anchors, &mut g, epochs, lane_min) == 0 {
             break;
         }
     }
@@ -1129,7 +1149,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         crate::village::landing_lane(&site, &mut g, anchors.market);
     }
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
-    let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
+    let mut parcels = crate::blocks::build_parcels_with(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules), burgage);
     // **Not the reference** (Ruling FE item 2, `crate::village::plat_tofts`): a
     // street village's roads are lined with tofts up to its target, after the
     // block lots (which they never overlap) and before the wall hug, so a

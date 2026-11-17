@@ -3,7 +3,7 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--quick 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--burgage 0|1] [--quick 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
@@ -14,6 +14,10 @@ extends Node
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
 ## `--stretch 0|1` does the same for `urban_river_stretch` (Ruling FN, 2026-11-16: river towns stretched along their river).
+## `--burgage 0|1` does the same for `urban_burgage` (Ruling FE item 3's deep-plot prototype, 2026-11-17); with `--shots`
+## the frames are named `viewer_<seed>_<id>_burgage<0|1>.png`. `--burgage 2` shoots every id with the switch off, then
+## turns it on in the same session and shoots them again, and checks that the layouts fetched after the live toggle
+## differ from those before it for at least one id (the switch is read live, not from a stale cache).
 ## `--quick 1` (Ruling FQ) skips the water-in-frame measure and its two bars and lists every town of 1 500 and up with its cell.
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
 
@@ -178,6 +182,7 @@ func _ready() -> void:
 	var dump := ""
 	var riverbank := -1
 	var stretch := -1
+	var burgage := -1
 	## `--villages 0` makes the world without villages, as the FH-R2 harness
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
 	## as the shell's probes ask.
@@ -200,6 +205,7 @@ func _ready() -> void:
 			"--dump": dump = args[i + 1]
 			"--riverbank": riverbank = int(args[i + 1])
 			"--stretch": stretch = int(args[i + 1])
+			"--burgage": burgage = int(args[i + 1])
 			"--villages": villages = int(args[i + 1]) != 0
 			"--quick": quick = int(args[i + 1]) != 0
 			"--ids":
@@ -229,6 +235,8 @@ func _ready() -> void:
 		_ok(bridge.param_set("urban_riverbank", riverbank == 1), "urban_riverbank set to %d" % riverbank)
 	if stretch >= 0:
 		_ok(bridge.param_set("urban_river_stretch", stretch == 1), "urban_river_stretch set to %d" % stretch)
+	if burgage >= 0:
+		_ok(bridge.param_set("urban_burgage", burgage == 1), "urban_burgage set to %d" % burgage)
 	var places: Array = bridge.settlements()
 	_ok(places.size() > 70 or gw != 384, "the world generated (%d settlements)" % places.size())
 	app.open_city_viewer(0)
@@ -311,21 +319,43 @@ func _ready() -> void:
 			_dump_layout(bridge.urban_layouts(PackedInt32Array([id]))[0], dump.path_join("%d_%d_%d.json" % [seed_n, gw, id]))
 	if shots != "":
 		DirAccess.make_dir_recursive_absolute(shots)
-		for id in ids:
-			app.open_city_viewer(id)
-			for _f in 12:
-				await get_tree().process_frame
-			cv.size = Vector2i(1560, 960)
-			cv.position = Vector2i(20, 20)
-			for _f in 8:
-				await get_tree().process_frame
-			cv._reset_view()
-			for _f in 6:
-				await get_tree().process_frame
-			await RenderingServer.frame_post_draw
-			var img: Image = vp.get_texture().get_image()
-			var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
-			img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
-			cv.hide()
+		## One phase, or (`--burgage 2`) the switch off then on in this session.
+		var phases: Array[int] = []
+		if burgage == 2:
+			phases.assign([0, 1])
+		else:
+			phases.append(burgage)
+		var counts_before := {}
+		for phase in phases:
+			if burgage == 2:
+				_ok(bridge.param_set("urban_burgage", phase == 1), "urban_burgage set live to %d" % phase)
+				var lays: Array = bridge.urban_layouts(PackedInt32Array(ids))
+				var changed := 0
+				for k in ids.size():
+					var n: int = (lays[k] as Dictionary).get("buildings", []).size()
+					if phase == 0:
+						counts_before[ids[k]] = n
+					elif n != int(counts_before.get(ids[k], -1)):
+						changed += 1
+					print("  BURGAGE%d #%d buildings %d" % [phase, ids[k], n])
+				if phase == 1:
+					_ok(changed > 0, "the live toggle changed %d of %d towns' layouts" % [changed, ids.size()])
+			for id in ids:
+				app.open_city_viewer(id)
+				for _f in 12:
+					await get_tree().process_frame
+				cv.size = Vector2i(1560, 960)
+				cv.position = Vector2i(20, 20)
+				for _f in 8:
+					await get_tree().process_frame
+				cv._reset_view()
+				for _f in 6:
+					await get_tree().process_frame
+				await RenderingServer.frame_post_draw
+				var img: Image = vp.get_texture().get_image()
+				var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
+				var tag: int = phase if burgage == 2 else burgage
+				img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d_burgage%d.png" % [seed_n, id, tag]) if burgage >= 0 else ("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
+				cv.hide()
 	print("RESULT: %s (%d failed) checks=%d" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)

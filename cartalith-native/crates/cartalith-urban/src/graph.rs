@@ -231,6 +231,33 @@ impl Graph {
         out
     }
 
+    /// **Not the reference** (owner Ruling FE item 3's deep-plot prototype,
+    /// `crate::burgage`): every edge indexed in a cell the square of half-side
+    /// `r` round `p` touches, in first-seen order (row by row). A superset of
+    /// the edges within `r` of `p`: an edge is indexed in every cell along it
+    /// (`cells_for_seg`), so the cell holding its point nearest `p`, which
+    /// lies in the square, holds it. [`Self::edges_near`] reaches only the
+    /// index cells next to its segment, about one 26 m cell. Must never be
+    /// read on a reference path.
+    pub(crate) fn edges_within(&self, p: Vec2, r: f64) -> Vec<usize> {
+        let (cx0, cy0) = (((p.x - r) / self.cell).floor() as i64, ((p.y - r) / self.cell).floor() as i64);
+        let (cx1, cy1) = (((p.x + r) / self.cell).floor() as i64, ((p.y + r) / self.cell).floor() as i64);
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for cy in cy0..=cy1 {
+            for cx in cx0..=cx1 {
+                if let Some(arr) = self.grid.get(&(cx, cy)) {
+                    for &id in arr {
+                        if seen.insert(id) {
+                            out.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// `n.adj.filter(id => g.edges[id].alive)` — the incident edges of `nid`
     /// that are still alive, **in `adj` order**.
     ///

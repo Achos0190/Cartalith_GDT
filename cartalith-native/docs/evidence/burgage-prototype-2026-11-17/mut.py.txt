@@ -1,0 +1,64 @@
+"""mut.py: deep-plot prototype mutants (cartalith-urban). Exact literal replace (occurs once), cargo test of the urban
+crate's lib tests, restore in finally, sha256 checked. BUILD_ERROR is reported apart from SURVIVED."""
+import hashlib, os, subprocess
+
+SRC = "C:/cw/plots/cartalith-native/crates/cartalith-urban/src/"
+ROOT = "C:/cw/plots/cartalith-native"
+ENV = dict(os.environ, CARGO_TARGET_DIR="C:/cw/plots_target_u")
+TEST = ["cargo", "test", "--release", "-p", "cartalith-urban", "--lib", "--", "--skip", "golden_build_site"]  # release-only NaN sign flake, pre-existing
+
+MUTANTS_ALL = [
+    ("generate.rs", "gate admits street villages", "let burgage = opts.burgage && !street_village && profile.planning != \"radial\";", "let burgage = opts.burgage && profile.planning != \"radial\";"),
+    ("generate.rs", "gate admits the radial plan", "let burgage = opts.burgage && !street_village && profile.planning != \"radial\";", "let burgage = opts.burgage && !street_village;"),
+    ("generate.rs", "street rules not applied", "let rules = if burgage { crate::burgage::rules(rules) } else { rules };", "let rules = rules;"),
+    ("generate.rs", "wide spacing query off", "wide_spacing: burgage,", "wide_spacing: false,"),
+    ("generate.rs", "reference lane threshold", "let lane_min = burgage.then_some(crate::burgage::LANE_MIN_AREA_M2);", "let lane_min: Option<f64> = None;"),
+    ("generate.rs", "reference platting", "&site, Some(&rules), burgage);", "&site, Some(&rules), false);"),
+    ("blocks.rs", "reference waist", "(crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)", "(crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, 0.42)"),
+    ("blocks.rs", "reference depth targets", "(crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)", "(22.0, 30.0, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)"),
+    ("blocks.rs", "reference depth cap", "(crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)", "(crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, 46.0, crate::burgage::WAIST)"),
+    ("burgage.rs", "spacing 24 (reference)", "pub const STREET_SPACING_M: f64 = 60.0;", "pub const STREET_SPACING_M: f64 = 24.0;"),
+    ("burgage.rs", "segment median 56 (reference)", "pub const SEGMENT_MEDIAN_M: f64 = 80.0;", "pub const SEGMENT_MEDIAN_M: f64 = 56.0;"),
+    ("graph.rs", "edges_within without its margin", "let (cx0, cy0) = (((p.x - r) / self.cell).floor() as i64 - 1, ((p.y - r) / self.cell).floor() as i64 - 1);", "let (cx0, cy0) = (((p.x - r) / self.cell).floor() as i64, ((p.y - r) / self.cell).floor() as i64);"),
+    ("growth.rs", "wide query ignored", "let near = if wide_spacing { g.edges_within(midp, s.parallel_street_spacing) } else { g.edges_near(midp, midp) };", "let near = g.edges_near(midp, midp);"),
+]
+
+import sys
+KEEP = sys.argv[1:]
+MUTANTS = [m for m in MUTANTS_ALL if not KEEP or m[1] in KEEP]
+
+def h(b):
+    return hashlib.sha256(b).hexdigest()
+
+origs = {f: open(SRC + f, "rb").read() for f in {m[0] for m in MUTANTS}}
+hashes = {f: h(b) for f, b in origs.items()}
+results = []
+try:
+    for f, name, a, b in MUTANTS:
+        s = origs[f].decode("utf-8")
+        n = s.count(a)
+        if n != 1:
+            results.append((name, f"PATTERN x{n}"))
+            print(name, f"PATTERN x{n}", flush=True)
+            continue
+        open(SRC + f, "wb").write(s.replace(a, b).encode("utf-8"))
+        p = subprocess.run(TEST, cwd=ROOT, env=ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out = p.stdout + p.stderr
+        if "error[" in out or "could not compile" in out and "test failed" not in out:
+            verdict = "BUILD_ERROR"
+        elif p.returncode == 0:
+            verdict = "SURVIVED"
+        else:
+            failed = [l.split()[1] for l in out.splitlines() if l.startswith("test ") and l.endswith("FAILED")]
+            verdict = "KILLED by " + ",".join(failed[:4])
+        results.append((name, verdict))
+        print(name, verdict, flush=True)
+        open(SRC + f, "wb").write(origs[f])
+finally:
+    for f, b in origs.items():
+        open(SRC + f, "wb").write(b)
+for f in origs:
+    assert h(open(SRC + f, "rb").read()) == hashes[f], "restore failed " + f
+print("restored", {f: v[:10] for f, v in hashes.items()})
+for r in results:
+    print(f"{r[1][:60]:60s} {r[0]}")

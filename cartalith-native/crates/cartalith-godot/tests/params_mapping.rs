@@ -1512,6 +1512,9 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.civ.port_reach && !parity.civ.port_reach, "ports only within about 4 km of the ocean, Ruling FK item 2");
     assert!(app.civ.founding_year && !parity.civ.founding_year, "settlements carry a founding year in the app only, Ruling FO item 1");
     assert!(app.urban_river_stretch && !parity.urban_river_stretch, "river towns stretch along their river for new worlds, Ruling FS");
+    // Protects Ruling FE item 3's prototype being OFF at BOTH boundaries until
+    // the owner rules (not the usual on-in-the-app split).
+    assert!(!app.urban_burgage && !parity.urban_burgage, "deep burgage plots are a prototype, off in the app too");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });

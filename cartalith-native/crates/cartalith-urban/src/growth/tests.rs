@@ -351,6 +351,7 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
         let mut ws = wall_state_from(c);
         let opts = GrowOpts {
             road_reach: None,
+            wide_spacing: false,
             target_len: c.target_len,
             max_rf: c.max_rf,
             walls: c.walls,

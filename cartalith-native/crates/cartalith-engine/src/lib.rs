@@ -1337,6 +1337,20 @@ pub struct WorldParams {
     /// loads it off (`params::LOADS_WHEN_ABSENT`), so a reopened world draws
     /// the towns it was saved with.
     pub urban_river_stretch: bool,
+    /// **Deep burgage plots, a prototype** (owner Ruling FE item 3,
+    /// 2026-11-15: *"Deep burgage plots with backland are built behind their
+    /// own switch, measured and shown in frames before the owner decides"*;
+    /// `TOWN_GENERATOR_JUDGEMENT.md` change 4): a town on the organic plan,
+    /// not a street village, lays its streets further apart and plats deep,
+    /// narrow lots with the house on the street and the yard behind
+    /// (`cartalith_urban::burgage`, `cartalith_urban::GenOpts::burgage`).
+    ///
+    /// **`false` here AND in the shipped app** (`params::defaults`) until the
+    /// owner rules on the prototype's measurements (`DECISIONS.md` §7p;
+    /// `STATUS.md`, "Deep burgage plots, a prototype"). Read fresh each time a
+    /// layout is asked for (never stored), so it moves no generated field and
+    /// needs no regeneration. A save without the key loads it off.
+    pub urban_burgage: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1573,6 +1587,7 @@ impl WorldParams {
             urban_harbour_front: false,
             // Ruling FN: the reference's square-ish box round the market.
             urban_river_stretch: false,
+            urban_burgage: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

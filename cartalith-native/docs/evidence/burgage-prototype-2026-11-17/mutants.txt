@@ -1,0 +1,38 @@
+gate admits street villages KILLED by burgage::tests::burgage_leaves_street_villages_and_the_radial_plan_alone
+gate admits the radial plan KILLED by burgage::tests::burgage_leaves_street_villages_and_the_radial_plan_alone
+street rules not applied KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+wide spacing query off KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+reference lane threshold KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+reference platting KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+reference waist SURVIVED
+reference depth targets KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+reference depth cap SURVIVED
+spacing 24 (reference) KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+segment median 56 (reference) KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+edges_within without its margin SURVIVED
+wide query ignored KILLED by burgage::tests::burgage_plats_deeper_lots_on_larger_blocks
+restored {'burgage.rs': 'f1bccbfc36', 'blocks.rs': 'b0e767b2d5', 'growth.rs': '734d660f6f', 'graph.rs': '1e981af1bf', 'generate.rs': '6974686e07'}
+KILLED by burgage::tests::burgage_leaves_street_villages_and gate admits street villages
+KILLED by burgage::tests::burgage_leaves_street_villages_and gate admits the radial plan
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large street rules not applied
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large wide spacing query off
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large reference lane threshold
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large reference platting
+SURVIVED                                                     reference waist
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large reference depth targets
+SURVIVED                                                     reference depth cap
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large spacing 24 (reference)
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large segment median 56 (reference)
+SURVIVED                                                     edges_within without its margin
+KILLED by burgage::tests::burgage_plats_deeper_lots_on_large wide query ignored
+
+Rerun after two tests were added (burgage_lots_reach_the_waist_and_past_the_reference_cap):
+reference waist KILLED by burgage::tests::burgage_lots_reach_the_waist_and_past_the_reference_cap
+reference depth cap KILLED by burgage::tests::burgage_lots_reach_the_waist_and_past_the_reference_cap
+edges_within without its margin SURVIVED
+restored {'graph.rs': '1e981af1bf', 'blocks.rs': 'b0e767b2d5'}
+KILLED by burgage::tests::burgage_lots_reach_the_waist_and_p reference waist
+KILLED by burgage::tests::burgage_lots_reach_the_waist_and_p reference depth cap
+SURVIVED                                                     edges_within without its margin
+
+edges_within's margin: redundant (see STATUS), removed; the mutant no longer exists.

@@ -743,6 +743,9 @@ impl WorldGen {
             // Ruling FN: river towns stretch along their river, short of
             // the other settlements. Read live, like the five above.
             river_stretch: self.params.urban_river_stretch.then_some(stretch_others),
+            // Ruling FE item 3's deep-plot prototype, off in the app until
+            // the owner rules. Read live, like the six above.
+            burgage: self.params.urban_burgage,
         }
     }
 
