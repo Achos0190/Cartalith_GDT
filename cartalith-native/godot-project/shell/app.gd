@@ -4088,6 +4088,8 @@ func _tl_sync_collapsed_slider(sl: HSlider) -> void:
 
 ## §4.2's three rows, plus a fourth this build owes the reader -- see
 ## `_build_timeline_layers()`.
+const ChronosItemsScript := preload("res://shell/chronos_items.gd")
+
 func _build_timeline_expanded() -> void:
 	## §3.7's expanded box: `padding:8px var(--pad)` and **auto height**. Both
 	## are restores -- the collapsed form above pins a height and drops the
@@ -4217,6 +4219,9 @@ func _build_timeline_expanded() -> void:
 
 	# Row 3c -- PC-3: the event list (conflicts and the selection's chronos entries).
 	col.add_child(_build_timeline_events())
+
+	# Row 3d -- Ruling GD/GE: the consolidated timeline items, their filters and the passive vault badge.
+	col.add_child(ChronosItemsScript.new().setup(self, false))
 
 	# Row 4 -- the note the six toggles owe the reader. See below.
 	var note := DccTheme.mono_label("Simulation layers — %s." % TL_LAYER_NOTE,

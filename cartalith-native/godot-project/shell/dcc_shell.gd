@@ -11710,6 +11710,8 @@ func _build_phone_sim_strip() -> Control:
 	## the construction still reads in §6.2's own left-to-right order; only the
 	## parent differs, and `col` already holds `row` so this lands beneath it.
 	col.add_child(_phone_sim_slider)
+	# Ruling GD/GE: the consolidated timeline items, a closed body behind an Items button on the phone.
+	col.add_child(preload("res://shell/chronos_items.gd").new().setup(self, true))
 	_phone_sim_transport.append(_phone_sim_slider)
 
 	for mult in TL_SPEEDS:
