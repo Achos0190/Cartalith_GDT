@@ -393,7 +393,7 @@ A feasibility sum, every term cited or labelled:
 So **deep plots fit the law's band (0.65-1.0) but not every site**: a one-bank river town of 20 000 that is not
 stretched has about 66 ha of front for about 100 ha of town. That is a likely reason housed p10 fell in both prototypes [inference: the prototypes' per-town housing was not split by bank or front]. It is
 the same for every option; D is the only one that lets a short town keep growing outward by the base's own rule.
-PS-0 makes it a go / no-go per town.
+PS-0 makes it a go / no-go per town. **Superseded in part by section 9.2-9.3 (Ruling GC): rear households and a footprint without a fixed 1.4x ceiling replace the single 1.2-1.5 figure.**
 
 ### 3.7 The options side by side
 
@@ -466,9 +466,17 @@ audit, but the "villages and radial" row is a design requirement, not a figure.
 - lot depth / frontage, median, four-cornered lots of towns 1 500+: **3 or more** (today 1.42 / 1.43);
 - lots over 40 m deep: **10 % or more** (today 0.4 / 0.4 %), with the census's unbuilt and streetless reaches at
   **56 m** (`burgage::UNBUILT_REACH_M`, Q8 of the judgement row, kept);
-- settled area / 0.12 N^0.714, towns 5 000+, median: 0.65-1.0 (today 0.64 / 0.65).
+- settled area / 0.12 N^0.714, towns 5 000+, median: 0.65-1.0 (today 0.64 / 0.65);
+- **needle lots (section 8.4's definition; Ruling GA)**: **5 % or less** of the lots of towns 1 500+ at PS-5 and
+  **never above today's 11 %** (11.1 / 11.4 % at 384 / 2 048) at any milestone; the scale-free taper leg **no worse
+  than today's 5.6 %**; needle buildings **0.6 % or less** (today 0.56 %). Also reported at the 3.3 m and 5.0 m width
+  floors, because the 4.15 m floor rests on a weak scale. Platting owns it (PS-5): deep lots are cut only where the
+  block is near-rectangular. A rear household's building (section 9.2) is held to the same definition;
+- **rear households (Ruling GC, section 9.2)**: rear dwellings only on lots **over 30 m deep**, at most one per lot,
+  and no more than **40 % of the lots** of any town carry one [judgement, so deep lots stay the minority the traces
+  show: 10 % over 40 m].
 
-### 5.3 Close scrutiny: block shape (the targets below are the scope's first ones; PS-0's traced replacements are section 8.1)
+### 5.3 Close scrutiny: block shape (targets replaced 2026-11-17 by PS-0's traced ones, section 8.1; Ruling GC)
 
 **Measured on which blocks:** the blocks outside the organic core (more than `0.38 * max_rf` from the market) of towns
 of 1 500 and up whose type gives them a grain (river-front or market-street, section 4). The organic core is held to
@@ -476,27 +484,35 @@ of 1 500 and up whose type gives them a grain (river-front or market-street, sec
 
 | bar | today (384) | target | source of the target |
 |---|---|---|---|
-| quads, by count | 50.3 % | **65 % or more** | planted and market-street plans 60-75 %, Monpazier about 90 % (section 2.5) |
-| compact triangles (3 corners, aspect under 2) | 7.0 % | **5 % or less** | no plan shows them as a share; real three-cornered blocks are long wedges |
-| all triangles | 10.7 % | **15 % or less** | the planned and market-street plans' 8-15 % (wedges at gates and walls; Noerdlingen about 15-20 %) |
-| block aspect, median | 1.57 | **2.5 or more** | spine and rib blocks 3-6, Monpazier 2-4 |
-| rectangularity, median | 0.70 | **0.85 or more** | no jitter reached 0.89; planned blocks are near rectangles [inference] |
-| depth across 83 m or more | 3.6 % | **15 % or more** | needed for 10 % of lots over 40 m from both long sides [arithmetic: 0.48 waist] |
+| quads, by count | 50.3 % | **60 % or more** (PS-2's go bar stays 65 %) | traced market-street towns 55-59 %, Straubing's Neustadt 95 % (section 8.1) |
+| compact triangles (3 corners, aspect under 2) | 7.0 % | **5 % or less** | traced compact triangles 0 %; real three-cornered blocks are long wedges |
+| all triangles | 10.7 % | **15 % or less** | traced 0-14 % (wedges at gates and walls) |
+| block aspect, median | 1.57 | **2.0 or more** | traced 1.9-3.0; the first 2.5 was above two of three traces |
+| rectangularity, median | 0.70 | **0.75 or more** | traced 0.63-0.88; the first 0.85 was above every traced market-street town |
+| depth across 83 m or more | 3.6 % | **15 % or more** (the 83 m target, unchanged; the traces' 32-40 % are upper bounds) | needed for 10 % of lots over 40 m from both long sides [arithmetic: 0.48 waist] |
 
 ### 5.4 First sight: the base's character (the owner's note, 2026-11-17)
 
 A fix that passes 5.3 but fails any of these fails the milestone:
 
 - **FS-1 silhouette.** Per town, the settled footprint (20 m cells within one cell of a building, the census's own
-  measure) on against off: area ratio **0.9-1.4** (deep plots need more ground, section 3.6), and **85 % or more** of
-  the off footprint's cells still settled; wall / hull p90 as 5.1.
-- **FS-2 town-scale variety.** Per town, orientation order phi: **median 0.25 or less and p90 0.45 or less** (today
-  0.08 / 0.25 at 384; the no-jitter variant's 0.60 / 0.83 is the failure this bar exists for); bearing entropy / max
-  median **0.90 or more** (today 0.98, no jitter 0.78), and **per town, phi on minus phi off at most 0.20** (the bar
-  is anchored to the base, because the owner's note is about the base's impression). This replaces the judgement's
+  measure) on against off: area ratio **0.9 or more, with no fixed upper cap** (Ruling GC replaced the 1.4 ceiling:
+  growth beyond 1.4x, far-bank growth included, is allowed wherever the ground gate of section 9.3 passes, and is
+  bounded by the law's 1.0 ceiling on settled area / 0.12 N^0.714 and by wall / hull below), and **85 % or more** of
+  the off footprint's cells still settled; wall / hull p90 as 5.1 (strict; footprint growth stops before it rises).
+- **FS-2 town-scale variety, by town type (Ruling GC).** Per town, orientation order phi. **Market-street towns
+  (section 4's type): phi per town at most 0.35** (owner; the traced Neumarkt and Dinkelsbuehl sit at 0.29-0.32), and
+  phi on minus phi off at most **0.30** [judgement: today's 0.08 plus the cap, so the delta cannot undercut the cap;
+  Q12]. **Every other type, river-front and organic-core towns included: median 0.25 or less and p90 0.45 or less,
+  and phi on minus off at most 0.20, as before.** **Planted grids stay out** (Q2): no type, no field, no cap. The
+  no-jitter variant's 0.60 / 0.83 is the failure this bar exists for (today 0.08 / 0.25 at 384); bearing entropy /
+  max median **0.90 or more** for every type (today 0.98, no jitter 0.78; Q12 asks whether market-street towns may
+  fall to 0.85 if 0.35 cannot meet 0.90). The delta bars are anchored to the base, because the owner's note is about
+  the base's impression. This replaces the judgement's
   "bearing entropy not below today's" (Q4), which parallel streets cannot meet by construction. PS-0 may tighten the
   caps from the traced plans but may **not loosen them**: a traced plan's phi above these caps is a reason to ask the
-  owner, not to raise the bar toward the no-jitter failure.
+  owner, not to raise the bar toward the no-jitter failure. PS-0 asked (Q11) and the owner loosened exactly one cap,
+  for exactly one type (Ruling GC); no other cap moves without a further ruling.
 - **FS-3 street rhythm.** Node degree 4 at **15 % or less** of nodes (today 10 %; a grid raises it), dead ends 8-15 %
   (today 11 %), segment length median within 0.8-1.5 times today's 24 m.
 - **FS-4 visual gate, first sight.** The City Viewer's opening frame and the map's town layer (fit zoom) of the same
@@ -526,24 +542,51 @@ Each milestone states its bars; every one runs the census at 384 and 2 048 and c
      market's primary) on eight towns a seed at 384. **Go** if quads 65 % or more, phi per town median 0.25 or less and
      housed p10 90 or more on those towns.
   4. Re-run the baseline from the tree of the day (all five audits at both sizes) before any comparison.
-- **PS-1, the field and the type rule** (behind the switch; no growth change yet). `cartalith_urban::field` (new):
-  sources, blend, strength; the type rule. Bars: every town 1 500+ gets a type and a field; a probe draws the field
-  over the City Viewer for 14 towns; off byte-identical; unit tests pin the blend on hand-built fixtures (literal
-  directions, mutation-tested).
-- **PS-2, field-guided branching** (`grow`, `legalize_street`): headings, module spacing, the oblique refusal.
-  Bars: 5.3 quads 60 % or more and rectangularity 0.80 or more; FS-2 and FS-3; 5.1 housed p10 within 3 points of
-  today.
-- **PS-3, the back-street candidate and the market spine** (D item 4; B's spine as a field source; a spindle market on
-  the spine with `urban_market_scale`). Bars: 5.3 in full; depth across 83 m or more 15 %; FS-1.
-- **PS-4, river-front towns**: the stretch frame as a field source, lanes to the water. Bars: riverside 4.3 / 3.7 %
-  or better; stretched towns refused no more than today; buildings in water 0.
-- **PS-5, platting by quarter**: depth targets by tier (42 m / 30 m core), lots from the long sides; the census's 56 m
-  reach. Bars: 5.2 in full.
-- **PS-6, integration**: walls (wall / hull), both banks, harbour, wall generations, villages and radial
-  byte-identical, `cargo test --workspace` and the shell parse checks. Bars: all of 5.1 at both sizes.
+- **PS-1, the field and the type rule** (behind the switch; no growth change yet; Ruling GC: first after this
+  re-scope). `cartalith_urban::field` (new): sources, blend, strength, and the **type rule with the Ruling GC split**:
+  each town 1 500+ gets one of market-street, river-front, organic-core or **no grain** (a planted grid is never
+  assigned; no founding fact exists, Q2), and the type picks FS-2's cap (0.35 market-street, 0.25 / 0.45 / delta 0.20
+  otherwise). Also the ground gate's measurement (section 9.3) as a pure function over `Site`, so PS-2 and PS-5 read
+  one answer. Bars: every town 1 500+ gets a type, a field and a ground figure; a probe draws the field over the City
+  Viewer for 14 towns; the ground recount of section 9.3 on all 28 / 22 towns of 5 000+ at both sizes (**go: 90 % or
+  more fit the section 9.3 rule on the market's bank plus the bridge-strip far bank**, else Q13); off byte-identical
+  (diff empty but for timing); unit tests pin the blend and the type rule on hand-built fixtures (literal
+  directions, mutation-tested). **Before / after frames:** the field drawn over the same 14 towns, off against on
+  (the layout is unchanged, so the frames show the field only).
+- **PS-2, back streets and cross lanes** (re-scoped 2026-11-17, section 9.1; `grow`, `legalize_street`,
+  `Graph::add_street`, `lane_pass`). **Step 0, a throwaway measurement on the same 24 towns of PS-0 before any product
+  code (a scratch worktree, `.txt` only):** back-street candidate plus closing cross lanes at gain 0.6. **Go:** quads
+  outside the core **60 % or more** (the 65 % PS-0 go bar was missed at 44-54 %; the traced 55-59 % set 60 %), compact
+  triangles 5 % or less, all triangles 15 % or less, housed p10 **90 or more**, FS-1's 85 % kept share in **28 of 35
+  towns or more** (PS-0: 17 of 35), phi per town within Ruling GC's caps by type. **No-go:** stop and report; do not
+  build a third heading variant. Then the product build behind the switch. Bars: 5.3 quads 60 %, aspect 2.0,
+  rectangularity 0.75, triangles as written; FS-2 by type and FS-3; 5.1 housed p10 within 3 points of today, wall /
+  hull p90 no higher than 5.1's row (the framed setting broke it at 1.12 / 1.13). **Before / after frames** (Ruling
+  GA): the 14 towns, opening frame, x4 and x16, off and on, one town a seed in full size.
+- **PS-3, the market spine and the back-street tier** (B's spine as a field source; a spindle market on the spine
+  with `urban_market_scale`; the back street's offset and the module depth tuned). Bars: 5.3 in full, **depth across
+  83 m or more at 15 % or more**; FS-1 (area ratio 0.9 or more, 85 % kept); wall / hull as 5.1. **Frames** as PS-2.
+- **PS-4, river-front towns**: the stretch frame as a field source, lanes to the water, **far-bank growth past 1.4x
+  where section 9.3's gate passes** (`grow_far_bank`'s `FAR_BANK_MAX_RATIO` read, not raised without a ruling). Bars:
+  riverside 4.3 / 3.7 % or better; stretched towns refused no more than today (5 / 6); buildings in water 0;
+  stretch-water audit flags 0. **Frames** as PS-2, river towns first.
+- **PS-5, platting by quarter and rear households**: depth targets by tier (42 m spine and river-front / 30 m core);
+  lots from the long sides; **a rear household on every lot over 30 m deep under section 9.2's order of filling**;
+  the census's 56 m unbuilt reach. Bars: 5.2 in full, **needle lots 5 % or less (never above 11 % at any
+  milestone), taper leg 5.6 % or less, needle buildings 0.6 % or less**; towns housed by the 5.1 rows; rear
+  dwellings only on lots over 30 m deep and on at most 40 % of the lots. **Frames** as PS-2, plus needle crops of the
+  same 260 m window as PS-0's.
+- **PS-6, integration**: walls (wall / hull), both banks, harbour, wall generations, villages and radial towns
+  byte-identical, planted-grid-free (no town gets a grid type), `cargo test --workspace` and the shell parse checks.
+  Bars: all of 5.1 at both sizes; off byte-identical; the five audits' summaries diffed against `census/base/`.
+  **Frames:** a final contact sheet per seed, off and on.
 - **PS-7, the visual gates and the owner's decision**: FS-4 and FS-5 on 14 towns, frames at several zooms in
   `cartalith-native/docs/evidence/`; the owner decides on, adjust or drop; on, `params::defaults` turns true and the
   `urban_burgage` remnants are scrubbed (Q7).
+
+**Every milestone reports with before / after frames** (owner, Ruling GA), the same 14 towns each time, off beside on,
+and **the milestone is not reported done without them**; a milestone whose change is invisible (PS-1) says so and
+shows the field instead.
 
 ---
 
@@ -557,16 +600,26 @@ Each milestone states its bars; every one runs the census at 384 and 2 048 and c
    the core's share growing with the town's age]
 4. **Replace the judgement's "bearing entropy not below today's"** with FS-2 (per-town phi cap, per-quarter order)?
    It cannot hold for any parallel-street design. [yes]
-5. **Backland households.** Every lot houses one household of 5.2, so deep lots need more ground (section 3.6).
-   Count a rear dwelling on lots over 30 m deep as a second household (research 2.6: backland fills over time)? [no;
-   decide after PS-0 item 2]
-6. **A larger footprint**, up to 1.4 times today's per town (inside the law's 0.65-1.0)? [yes]
+5. **Backland households.** **Answered, Ruling GC: yes**, a lot over about 30 m deep holds a rear household
+   (section 9.2).
+6. **A larger footprint.** **Answered, Ruling GC: yes, and beyond 1.4x where the ground allows, far-bank growth
+   included** (section 9.3).
 7. **`urban_burgage`.** Fold its depth targets into `urban_parallel_streets` and scrub `back_lane_pass`,
    `GrowOpts::wide_spacing` and `GrowOpts::whole_budget` at PS-7 if unused; until then it stays in and off. [yes]
 8. **Who judges FS-4 and FS-5?** [the owner, on 14 towns, after a verifier's pre-screen]
 9. **A spindle market street** on a market-street town's spine (judgement change 6 allowed one)? [yes, sized by
    `urban_market_scale`'s rule]
 10. **Must-hold bars strict** (no rise in wall / hull, no fall in riverside or housed p10)? [yes, strict]
+
+11. **Market-street towns' order cap.** **Answered, Ruling GC: about 0.35 per town**; other types keep 0.25 / 0.45 /
+    0.20; planted grids stay out (section 5.4).
+12. **New, from folding Ruling GC in.** (a) A market-street town's phi **delta** (on minus off): 0.30 so it cannot
+    undercut the 0.35 cap? [yes] (b) If 0.35 cannot meet the bearing-entropy floor of 0.90, may market-street towns
+    use 0.85? [no, unless PS-2's step 0 shows it is the binding bar; then ask]
+13. **New.** Rear households: the **40 % ceiling** on lots carrying one, and filling **front lots first** (section
+    9.2)? [yes to both]. If PS-1's ground recount finds under 90 % of towns fitting even with rear households and
+    far-bank growth: **let those towns keep today's layout** (no parallel grain), or raise the far-bank cap? [keep
+    today's layout]
 
 ---
 
@@ -770,3 +823,124 @@ defect.
    (0.6) keeps housing at 91 and phi near today's, with quads at 54 %.
 4. **Platting owns the needle bar (8.4).** It must cut deep lots only where the block is near-rectangular (PS-5).
 5. **Owner questions before PS-2:** Q5 and Q6 (the ground no-go, 8.2) and Q11 (8.1).
+   Answered by Ruling GC; folded in at section 9, with new questions Q12 and Q13 at section 7.
+
+---
+
+## 9. After PS-0: PS-2 re-scoped, rear households and footprint (2026-11-17, Ruling GC)
+
+Ruling GC (`LARGE_ITEM_RULINGS.md`): **both** Q5 and Q6; market-street towns may reach per-town phi of about 0.35,
+other types keep 0.25, planted grids stay out. Section 5's bars carry the numbers (5.2 needles and rear households,
+5.3 the traced targets, 5.4 FS-1 and FS-2 by type); section 6's milestones carry the order. This section holds the
+mechanism and the two rules. Everything here is a design read at the symbols plus PS-0's measurements; nothing was
+re-measured, so nothing below is a "measured" figure beyond section 8's.
+
+### 9.1 PS-2: why headings did not close blocks, and what changes
+
+**The mechanism at the symbols** (section 1.1's code, with PS-0's prototype added; the causes below are hypotheses
+PS-0 named and did not isolate, section 8.3):
+
+1. **`grow`** bends the *origin's* heading toward the field's axis (gain times strength) and so turns the street
+   (aligned street length outside the core 40 % to 67 %). But it chooses *where* a branch starts (a random live edge
+   of 38 m or more, 35-65 % along it) and *how far* it goes (`legalize_street`'s log-normal 30-125 m, median 56 m)
+   independently of any neighbouring parallel. Two parallels get a connecting street only if a random branch from
+   one happens to reach the other.
+2. **`legalize_street`** stops a candidate at the **first** street it crosses and accepts any junction angle from 25
+   degrees. A lane that ends on a street that is not on an axis (an old organic street, a wedge from a gate)
+   closes its block at an oblique angle, whatever heading it left with. The prototype's oblique refusal acts only
+   at the origin end.
+3. **`Graph::add_street`** then snaps each free end to a node within 11 m or an edge within 9 m
+   (`attach_point`) and splits every edge it crosses, which also **moves a T-junction by up to 11 m** along the
+   hit street and creates short stub edges; the junction lands where the geometry happens to be, not at a module
+   station.
+4. **`lane_pass`** (up to three passes) splits interior faces of 12 000 m2 or more by a lane joining the midpoints of
+   the two longest edges; on an almost-rectangular face this can cut a corner and make a triangle.
+5. So a block needs **both** ends square to two parallels, and each end is a separate random event. With each end
+   closing square perhaps one time in three, a block closing both is about one in ten [inference; the measured quad
+   share moved only from 50 % to 51-54 %].
+
+**What PS-2 changes** (behind `urban_parallel_streets`; off paths untouched by control flow):
+
+- **A back-street candidate** (Option D's item 4, section 3.4), a third candidate kind in `grow`: for a live edge of
+  a spine (market primary) or a river-front street, an origin on the perpendicular at the **block depth**, which is
+  the 83 m depth-across target plus one street width, about 90 m centreline to centreline [from 5.3's 83 m;
+  labelled], then walked outward **along the field axis** by the exploration step, to the extent the dry ground
+  and the growth front allow (section 9.3). The branch heading stays 90 degrees to the edge, as today.
+- **A cross lane** (new, after the back street exists; a `closing` mode of `legalize_street`): at stations spaced
+  by the block length target along the pair (length about twice the depth, so aspect 2.0 or more, jittered +/- 20 %,
+  never within 30 m of a node), a segment placed **with both ends exactly on the two parallels** and perpendicular
+  to them. It is **not** a first-hit stub: it is refused whole unless it reaches the far parallel within 5 degrees
+  of square at **both** ends, crosses nothing in between and passes the water, slope and gate rules as today. Both
+  ends are then given to `add_street` as exact points on edges, with an edge-snap, so the T-junction sits at the
+  station, not up to 11 m from it.
+- **The oblique refusal** at the *far* end: a candidate in a grain whose first hit is a street off the axes by more
+  than 0.35 rad is not accepted as a T there; it may continue to the next street or be dropped, so a wedge is a
+  seam, not a default.
+- **`lane_pass`** skips any face that is already four-cornered with rectangularity 0.75 or more, so a closed block
+  is not cut into a wedge afterwards.
+- **Kept as today:** the organic core inside `0.38 * max_rf`, the first-hit snap and the 25-degree rule for every
+  non-grain town, villages and radial towns byte-identical, the 0.6 gain (keeps housing at 91 and phi near today's,
+  section 8.3) rather than PS-0's framed 3.0.
+- **Seams** between two grains or a grain and the core may keep triangles; 5.3's 15 % ceiling is their allowance.
+
+The step-0 measurement (section 6) checks that the mechanism in 1-5 is the real one: if cross lanes with both ends
+exact do not move quads from 54 % past 60 %, the cause is elsewhere (`lane_pass`, seams) and the milestone stops
+at its no-go.
+
+### 9.2 Housing with rear households (Q5; Ruling GC)
+
+Today every four-cornered lot houses one household of 5.2 (`build_buildings`; section 3.6). The rule becomes:
+
+- **A rear household exists only on a lot more than 30 m deep** ("about 30 m", Ruling GC: the threshold is 30 m,
+  measured as the lot's depth along its front-to-back axis). Research 2.6: backland fills over time.
+- **At most one rear household per lot**, so a lot houses at most two. The rear dwelling is a building on the lot's
+  rear part, set back from the front building by at least 4 m, and it takes the lot's frontage as its width, so it
+  cannot be a needle (section 5.2): its short side is the lot width, never under 3 m.
+- **Order of filling, the deterministic rule** (so the count is reproducible, section 7p): front households first,
+  in the engine's existing lot order; a rear household is created **only for the demand the front households did
+  not house**, and in the order of the lots' distance from the market (nearer first: backland fills where land is
+  dear). A lot's rear household never exists unless the town needs it.
+- **Counting:** `housed` counts every household in either position; a rear household counts as one household of 5.2
+  and nothing else changes. The **40 % ceiling** (5.2; Q13) caps lots carrying one, so a town cannot be housed by
+  doubling every deep lot.
+- **Access:** a rear dwelling needs a way in: a back lane (the back-street tier, PS-3) within 30 m, or a side passage
+  of 2.5 m reserved in the lot [judgement; Q13 may reject]. A lot with neither gets no rear household.
+- A **building's** needle test and the 56 m unbuilt reach apply to the rear dwelling as to any other.
+
+### 9.3 The footprint beyond 1.4x, gated by ground (Q6; Ruling GC)
+
+PS-0 measured (8.2): on the market's bank, buildable ground over settled area has min 0.97, p10 1.16, median 1.36;
+all banks p10 1.67. The deep-plot footprint measured x1.20 median, p90 x1.68 (3.6). Ruling GC lifts the 1.4x ceiling
+**wherever the ground allows**. The gate, per town:
+
+- **Growable cell**: dry (`!site.is_water`), slope at most 0.34, inside the box's 40 m margin, within `max_rf` of the
+  market (the stretch frame where the town is stretched), **and** either on the market's bank or **on the far bank
+  inside the bridge strip** that `grow_far_bank` already serves (`FAR_BANK_MAX_RATIO` unchanged; raising it needs a
+  ruling). Far-bank growth is therefore **allowed, not unbounded**: it is `grow_far_bank`'s own rule, run in the
+  grain's field.
+- **Ground ratio** `g = growable area / today's settled area` in the same region (PS-0's measure).
+- **Never past the law or the wall**: the footprint stops when settled area / 0.12 N^0.714 would pass **1.0**, or
+  when wall / hull p90 would rise above 5.1's row; whichever binds first. A town that would pass either keeps the
+  footprint it has and shortens its plots instead (PS-5).
+- **No fixed multiple.** The footprint factor for a town is `min(g, law ceiling, wall ceiling)`; a town with `g`
+  under what its plots need gets **fewer deep plots**, never a worse housed share (5.1).
+
+**The feasibility rule, redone with both** (replaces 3.6's single "1.2-1.5 times" figure and PS-0 item 2's 1.4x
+test):
+
+1. Rear households carry a share `rho` of the households, at most 0.40 of the lots (9.2). The front lots a town
+   needs fall from H to `H / (1 + rho)`.
+2. The footprint the deep plots need is `F_req = F_deep / (1 + rho)`, with `F_deep` = PS-0's deep-plot figure (1.4 for
+   the median, the p90 figure 1.68 as the sensitivity) and `rho` taken at its **ceiling 0.40 only for the p90 case,
+   0.25 for the median** [judgement; both labelled]. That is **F_req about 1.1 (median) and 1.2 (p90 case)**.
+3. A town **fits** when `g >= F_req`, counting the market's bank plus the bridge-strip far bank.
+4. **Go for PS-1** when 90 % or more of towns 5 000+ fit at both sizes. From PS-0's distribution (min 0.97, p10 1.16
+   on the market's bank alone; 23 of 28 fit at x1.2) this is likely at about 1.1 [inference, **not measured**: the
+   recount at F_req on the far bank's strip is PS-1's bar, section 6]. A town that does not fit keeps today's
+   layout (Q13).
+
+### 9.4 What did not change
+
+The Option D recommendation, the switch's semantics and boundaries (section 4), the must-hold bars (5.1), FS-3,
+FS-4 and FS-5, and the rule that no bar is loosened without a ruling. The "planted grids stay out" decision is Q2's
+default, now restated by Ruling GC.
