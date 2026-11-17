@@ -3902,3 +3902,7 @@ From `8d7e131c` (`LLM_ASSISTANT_SCOPE.md` E10-E12) and `cd4448c7` (the deep burg
 2. **E11: colour paint inside a painted region** is an assistant edit operation (through Ruling CN's colour-paint marks and its undo).
 3. **E12: a seventh profile context tick for the painted region**, off in every built-in and new profile; reverses the recorded omission in `dcc_settings.gd` deliberately.
 4. **Deep plots: a second prototype** with back lanes two plot depths behind each street to make rectangular blocks (then the street budget), still OFF at both boundaries, re-measured against every must-hold bar, with real town plans beside the frames (`TOWN_GENERATOR_JUDGEMENT.md` §6).
+
+## Ruling FX: the assistant's context budget -- trim the flow and raise the local window, at the measured optimum (owner, 2026-11-17)
+
+From `eb12de8f` (live runs, qwen3.8-27b at 8 192 tokens): the three-group parameter flow sits at 75-82 % of the window, so one repeated `get_param_schema` round is refused by the size guard (1 of 3 runs). Owner (AQ6): *"Trim the flow and raise the local window, find the optimal balance."* Both: shorten what the flow sends (schema size, no repeated schema round) and raise the local preset's context, choosing the context length by measurement on this machine (first-token latency, tok/s, VRAM headroom on the RX 7800 XT, success over repeated live runs), not by a default. The preset, the size guard and the scope record the chosen figure and why.
