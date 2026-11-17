@@ -313,6 +313,7 @@ got. Status for everything below is in `STATUS.md`.
 | `EDIT_FROM_CONTEXT_AUDIT.md` | audit of editing actions reachable from the context card. Findings only |
 | `DELTA_GEOMETRY_RESEARCH.md` | research on river delta geometry for the river realism work |
 | `RIVER_ZOOM_VISIBILITY_RESEARCH.md` | research on how rivers stay visible across zoom levels |
+| `PARALLEL_STREETS_SCOPE.md` | Ruling FY's scope (2026-11-17): why `grow`'s blocks fail close up (measured), six licensed real plans by town type, five options rated on first sight and close scrutiny, recommended field-guided parallel growth behind `urban_parallel_streets`, bars including a first-sight gate, milestones PS-0…PS-7, owner questions. Defines, does not track |
 | **Directories** | |
 | `cartalith-native/` | the Cargo workspace and the Godot project (`ls cartalith-native/crates` for the crates; `ARCHITECTURE.md` for what each is) |
 | `cartalith-native/docs/` | **`STATUS.md`** — the single source of truth for progress. Also the **retired** `CHANGELOG.md` (frozen 2026-08-31, history only) and `3D_TERRAIN_RENDER_RESEARCH.md` |
