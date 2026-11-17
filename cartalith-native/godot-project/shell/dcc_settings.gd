@@ -1436,8 +1436,11 @@ const LLM_DEFAULTS := {
 	"ctx_notes": false,        ## context source: named Vault notes
 	"ctx_params": false,       ## context source: generation parameters (LLM-6a/6b; Ruling DI P3: its own box, off until ticked)
 	## LLM-7 (scope s.5c): the painted region's shape and measured heights, for an edit request. Its own box,
-	## off until ticked. NOT carried by profiles (`LLM_PROFILE_KEYS` omits it): a profile switch never turns
-	## it on, and an edit request is local-only whatever the profile (owner question E3's default).
+	## off until ticked. Carried by profiles as the SEVENTH "Send" tick since Ruling FW item 3 (owner,
+	## 2026-11-17, answering E12), which DELIBERATELY REVERSED the earlier omission: it is off in both
+	## built-in profiles and every new or duplicated one, and a profile stored before it existed loads it
+	## off. Switching to a profile that has it ticked therefore turns region sending on, which the consent
+	## card lists. An edit request is local-only whatever the profile (owner question E3's default).
 	"ctx_region": false,
 	## RK-5/RK-6 (Rulings DM and DN): the knowledge base is two SEPARATE context sources, both off until
 	## ticked (K1), and each is searched only for the words of a request. A hosted endpoint additionally
@@ -1471,7 +1474,7 @@ const LLM_DEFAULTS := {
 ## settings window shows. `key_account` is deliberately not here: a profile owns its account, the
 ## window never edits it.
 const LLM_PROFILE_KEYS := ["preset_id", "base_url", "model", "thinking", "max_tokens", "retry_limit", "gpu_override",
-	"ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"]
+	"ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault", "ctx_region"]
 
 ## Set by `LlmProfiles.install`: called (no arguments) after a profile-carried `[llm]` key was written
 ## outside a profile switch, so the active profile follows. Unset in a build or probe without profiles.
@@ -1526,7 +1529,7 @@ static func set_llm_value(key: String, value) -> bool:
 	notify_assistant_state()
 	return true
 
-## Stores several `[llm]` keys in one save and one notice (a profile switch writes fourteen).
+## Stores several `[llm]` keys in one save and one notice (a profile switch writes fifteen).
 ## **All or nothing**: if any key is outside `LLM_DEFAULTS` or of the wrong type, nothing is written
 ## and false is returned. Does NOT call the profile hook (the caller is the profile logic).
 static func set_llm_values(values: Dictionary) -> bool:

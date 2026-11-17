@@ -6,7 +6,7 @@ extends Node
 ##
 ##   desktop: godot --path . --resolution 1600x1000 _llmprofiles_probe.tscn -- --shots <dir>
 ##            godot --path . --resolution 1600x1000 _llmprofiles_probe.tscn -- --phase 2     (SAME user dir)
-##   tablet:  godot --path . --resolution 1280x800  _llmprofiles_probe.tscn -- --force-touch --shots <dir>
+##   tablet:  godot --path . --resolution 1700x1000 _llmprofiles_probe.tscn -- --force-touch --density 1.0 --shots <dir>
 ##   phone:   godot --path . --resolution 393x852   _llmprofiles_probe.tscn -- --force-touch --shots <dir>
 ##
 ## **Windowed, never `--headless`**, from a scratch copy with its own `config/name` and a wiped user dir
@@ -234,6 +234,10 @@ func _ready() -> void:
 		var a := args[i]
 		if a == "--force-touch":
 			pass
+		elif a == "--density" and i + 1 < args.size():
+			i += 1  ## read by the shell itself (the dp classifier)
+		elif a.begins_with("--density="):
+			pass
 		elif a == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]
@@ -241,7 +245,7 @@ func _ready() -> void:
 			i += 1
 			_phase = int(args[i])
 		else:
-			print("ABORT: unrecognised argument %s -- this probe reads --force-touch, --shots <dir> and --phase <1|2> only" % a)
+			print("ABORT: unrecognised argument %s -- this probe reads --force-touch, --density D, --shots <dir> and --phase <1|2> only" % a)
 			get_tree().quit(2)
 			return
 		i += 1
@@ -315,8 +319,8 @@ func _phase1(vp: Vector2) -> void:
 		and String(ext["live"]["model"]) == "claude-sonnet-5-5" and String(ext["live"]["thinking"]) == "default", "the shipped External: Anthropic, %s, claude-sonnet-5-5" % EXTERNAL_URL)
 	var phone_local: Dictionary = LlmProfiles.find(_bridge.llm_profiles_parse("", true), "local")
 	_ok(String(phone_local["live"]["base_url"]) == "" and String(phone_local["live"]["preset_id"]) == "lm_studio", "on a phone the shipped Local has NO address (the LAN address is the user's)")
-	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"]:
-		_ok(not bool(loc["live"][k]) and not bool(ext["live"][k]), "both shipped profiles have '%s' OFF" % k)
+	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault", "ctx_region"]:
+		_ok(loc["live"].has(k) and ext["live"].has(k) and not bool(loc["live"][k]) and not bool(ext["live"][k]), "both shipped profiles carry '%s' and have it OFF" % k)
 	await _shot("1_fresh_settings")
 	_set.hide()
 	_panel.open_window()
@@ -342,8 +346,8 @@ func _phase1(vp: Vector2) -> void:
 	_ok(String(live["thinking"]) == "none" and int(live["max_tokens"]) == 0 and int(live["retry_limit"]) == 1, "thinking off, cap not pinned, one retry")
 	_ok(String(DccSettings.llm_value("key_account")) == "lm_studio", "the key account is the profile's: lm_studio")
 	var all_off := true
-	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"]:
-		if bool(live[k]):
+	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault", "ctx_region"]:
+		if bool(live.get(k, true)):
 			all_off = false
 	_ok(all_off, "every context tick is off")
 	_ok(LlmProfiles.active_id() == "local", "Local is the active profile")
@@ -428,7 +432,7 @@ func _phase1(vp: Vector2) -> void:
 	_ok(not _card_open(), "Not now closes the card")
 	_ok(String(_live()["preset_id"]) == "lm_studio" and String(_live()["model"]) == "qwen3.8-27b" and int(_live()["max_tokens"]) == 300, "a decline put EVERY value back (Local, qwen3.8-27b, cap 300)")
 	_ok(LlmProfiles.active_id() == "local" and DccSettings.llm_consented_origins().is_empty(), "...Local is still active and no consent was recorded")
-	_ok((_p("profile") as OptionButton).get_item_text((_p("profile") as OptionButton).selected).begins_with("Local"), "...and the switch shows Local again")
+	_ok((_p("profile") as OptionButton).get_item_text((_p("profile") as OptionButton).selected).begins_with("Local"), "...and the switch shows Local again (reads '%s')" % (_p("profile") as OptionButton).get_item_text((_p("profile") as OptionButton).selected))
 	_ok(await _pick(_p("profile") as OptionButton, "External"), "External is picked again")
 	_ok(_card_open(), "the card is shown again")
 	await _press_escape()
@@ -458,6 +462,16 @@ func _phase1(vp: Vector2) -> void:
 	live = _live()
 	_ok(bool(live["ctx_notes"]) and bool(live["ctx_params"]) and not bool(live["ctx_entity"]) and String(live["model"]) == "qwen3-14b" and int(live["max_tokens"]) == 300, "Local's ticks (notes, params), model (qwen3-14b) and cap (300) came back; External's entity tick did not leak")
 	_ok(bool(_row("external")["live"]["ctx_entity"]) and not bool(_row("external")["live"]["ctx_notes"]) and int(_row("external")["live"]["max_tokens"]) == 512, "External's stored profile holds entity on, notes off, cap 512")
+	## Ruling FW item 3 (E12): the painted-region tick is a profile tick like the others. Local ticks it, External does
+	## not; switching moves the LIVE tick with the profile (a switch to a profile that has it on turns region sending on).
+	_ok(DccSettings.LLM_PROFILE_KEYS.has("ctx_region"), "ctx_region is one of the live keys a profile carries")
+	DccSettings.set_llm_value("ctx_region", true)
+	_ok(bool(_row("local")["live"].get("ctx_region", false)) and not bool(_row("external")["live"].get("ctx_region", true)), "ticking the region on Local writes it through to Local only")
+	_ok(await _pick(_p("profile") as OptionButton, "External"), "switch to External")
+	_ok(not bool(_live().get("ctx_region", true)) and not bool(DccSettings.llm_value("ctx_region")), "External has the region tick OFF: switching away turned region sending off")
+	_ok(await _pick(_p("profile") as OptionButton, "Local"), "switch back to Local")
+	_ok(bool(_live().get("ctx_region", false)) and bool(DccSettings.llm_value("ctx_region")), "Local's region tick came back ON with the switch")
+	DccSettings.set_llm_value("ctx_region", false)
 	## What would be sent: build the real request bytes (no socket) for each profile.
 	var world_ready := await _make_world()
 	_ok(world_ready, "a world with a selected place exists for the request check")
@@ -513,8 +527,8 @@ func _phase1(vp: Vector2) -> void:
 	live = _live()
 	_ok(String(live["preset_id"]) == "" and String(live["model"]) == "" and String(live["base_url"]) == "", "a NEW profile starts empty: nothing chosen (never a plausible default)")
 	var blank := true
-	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"]:
-		if bool(live[k]):
+	for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault", "ctx_region"]:
+		if bool(live.get(k, true)):
 			blank = false
 	_ok(blank, "...and every context tick is OFF")
 	_ok(DccSettings.llm_key_account() == work_acct, "the live key account is the new profile's")
@@ -787,6 +801,10 @@ func _phase1(vp: Vector2) -> void:
 	await _shot("12_settings_profile")
 	(_set._scroll as ScrollContainer).ensure_control_visible(_c("max_tokens"))
 	await _shot("12_settings_reply")
+	## Ruling FW item 3 (E12): the seventh Send tick is on the list, drawn, and off for this profile.
+	_ok(_c("ctx_region") != null, "the 'Send: the painted region' tick exists in the settings list")
+	(_set._scroll as ScrollContainer).ensure_control_visible(_c("ctx_region"))
+	await _shot("12_settings_send_ticks")
 	_set.hide()
 	_forget_all()
 	_finish_phase1_state()

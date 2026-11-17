@@ -389,7 +389,7 @@ func _ready() -> void:
 	# ---------------------------------------------------------------- 0. the switch
 	print("== 0. the Edit switch and its source ==")
 	_ok(DccSettings.llm_value("edit") == false and DccSettings.llm_value("ctx_region") == false, "Edit actions and the region source are OFF by default")
-	_ok(not DccSettings.LLM_PROFILE_KEYS.has("ctx_region"), "the region source is not carried by profiles (a profile switch never turns it on)")
+	_ok(DccSettings.LLM_PROFILE_KEYS.has("ctx_region"), "the region source IS carried by profiles since Ruling FW item 3 (E12; it reverses the earlier omission), and is off in the shipped defaults")
 	var sw := LlmSettingsWindow.new()
 	sw.app = _app
 	sw.bridge = _bridge

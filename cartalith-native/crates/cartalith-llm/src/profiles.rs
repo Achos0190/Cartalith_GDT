@@ -10,8 +10,8 @@
 //! delete hands back) is made here as pure functions, so the shell stays a thin display and
 //! the rules are tested with literals.
 //!
-//! WHAT A PROFILE HOLDS: provider preset id, base URL, model, thinking mode, the six
-//! "Send: ..." context ticks (separate per profile, default off), an optional pinned
+//! WHAT A PROFILE HOLDS: provider preset id, base URL, model, thinking mode, the seven
+//! "Send: ..." context ticks (seven since Ruling FW; separate per profile, default off), an optional pinned
 //! `max_tokens`, the retry limit (0 or 1, never more: scope s.4 rule 7), the local-provider GPU
 //! override (Ruling DF; meaningful only for a local preset) and `key_account`, the NAME of the
 //! credential-store entry its key lives under.
@@ -88,7 +88,10 @@ impl ThinkingMode {
     }
 }
 
-/// The six "Send: ..." context sources. Each defaults off; a profile's set is its own.
+/// The seven "Send: ..." context sources. Each defaults off; a profile's set is its own.
+/// `region` (the painted region and its heights) is the seventh, added by Ruling FW item 3 (E12,
+/// 2026-11-17), which deliberately reversed the earlier omission: it is off in both built-ins and
+/// every new or duplicated profile, and a stored profile without the key loads it off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Context {
     /// Current entity.
@@ -103,6 +106,8 @@ pub struct Context {
     pub rag_world: bool,
     /// Vault notes found by search.
     pub rag_vault: bool,
+    /// The painted region and its heights, for an Edit request (LLM-7; Ruling FW item 3).
+    pub region: bool,
 }
 
 /// One profile.
@@ -316,6 +321,7 @@ impl Profile {
         m.insert("ctx_params".into(), json!(self.context.params));
         m.insert("ctx_rag_world".into(), json!(self.context.rag_world));
         m.insert("ctx_rag_vault".into(), json!(self.context.rag_vault));
+        m.insert("ctx_region".into(), json!(self.context.region));
         m
     }
 
@@ -360,6 +366,7 @@ impl Profile {
             params: b("ctx_params", p.context.params),
             rag_world: b("ctx_rag_world", p.context.rag_world),
             rag_vault: b("ctx_rag_vault", p.context.rag_vault),
+            region: b("ctx_region", p.context.region),
         };
         p
     }
@@ -372,7 +379,8 @@ impl Profile {
             "preset_id": self.preset_id, "base_url": self.base_url, "model": self.model,
             "thinking": self.thinking.id(),
             "ctx": { "entity": c.entity, "selection": c.selection, "notes": c.notes,
-                     "params": c.params, "rag_world": c.rag_world, "rag_vault": c.rag_vault },
+                     "params": c.params, "rag_world": c.rag_world, "rag_vault": c.rag_vault,
+                     "region": c.region },
             "max_tokens": self.max_tokens.unwrap_or(0),
             "retry_limit": self.retry_limit,
             "gpu_override": self.gpu_override.id(),
@@ -417,6 +425,7 @@ impl Profile {
                 params: cb("params"),
                 rag_world: cb("rag_world"),
                 rag_vault: cb("rag_vault"),
+                region: cb("region"),
             },
             max_tokens: obj
                 .get("max_tokens")
@@ -607,6 +616,9 @@ impl ProfileSet {
         p.id = id.clone();
         p.name = name;
         p.builtin = false;
+        // Ruling FW item 3 (E12): the painted-region tick is never inherited. A copy keeps the other
+        // six ticks, but sending the user's heights is something each profile is asked for by name.
+        p.context.region = false;
         self.profiles.push(p);
         Ok(id)
     }
@@ -749,7 +761,19 @@ mod tests {
         }
         let id = s.add("Mine", None).unwrap();
         let c = s.get(&id).unwrap().context;
-        assert_eq!((c.entity, c.selection, c.notes, c.params, c.rag_world, c.rag_vault), (false, false, false, false, false, false));
+        assert_eq!((c.entity, c.selection, c.notes, c.params, c.rag_world, c.rag_vault, c.region), (false, false, false, false, false, false, false));
+    }
+
+    /// Protects: Ruling FW item 3 (E12) -- a duplicate of a profile that sends the painted region
+    /// keeps its other ticks but NOT that one. MUTATION: delete the `p.context.region = false` line in `add`.
+    #[test]
+    fn a_duplicate_does_not_inherit_the_region_tick() {
+        let mut s = set();
+        s.sync_live("local", &json!({"ctx_region": true, "ctx_notes": true})).unwrap();
+        let id = s.duplicate("local").unwrap();
+        let c = s.get(&id).unwrap().context;
+        assert!(c.notes && !c.region, "the copy keeps notes and drops the region tick");
+        assert!(s.get("local").unwrap().context.region, "the original is untouched");
     }
 
     /// Protects: the limits, by literal. MUTATION: change 16 or 40.
@@ -865,7 +889,7 @@ mod tests {
         let id = s.add("Cloud 2", None).unwrap();
         let live = json!({"preset_id": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-x",
             "thinking": "none", "max_tokens": 777, "retry_limit": 0, "gpu_override": "never",
-            "ctx_entity": true, "ctx_selection": false, "ctx_notes": true, "ctx_params": true, "ctx_rag_world": false, "ctx_rag_vault": true});
+            "ctx_entity": true, "ctx_selection": false, "ctx_notes": true, "ctx_params": true, "ctx_rag_world": false, "ctx_rag_vault": true, "ctx_region": true});
         s.sync_live(&id, &live).unwrap();
         s.set_last(&id).unwrap();
         s.set_default("external").unwrap();
@@ -874,10 +898,28 @@ mod tests {
         assert!(!back.newer && back.dropped.is_empty());
         let p = back.set.get(&id).unwrap();
         assert_eq!((p.max_tokens, p.retry_limit, p.thinking), (Some(777), 0, ThinkingMode::None));
-        assert_eq!((p.context.entity, p.context.selection, p.context.notes, p.context.params, p.context.rag_world, p.context.rag_vault),
-            (true, false, true, true, false, true));
+        assert_eq!((p.context.entity, p.context.selection, p.context.notes, p.context.params, p.context.rag_world, p.context.rag_vault, p.context.region),
+            (true, false, true, true, false, true, true));
         // `gpu_override` is kept only for a local preset: openai is remote, so it stayed automatic.
         assert_eq!(p.gpu_override, GpuOverride::Automatic);
+    }
+
+    /// Protects: Ruling FW item 3 (E12) -- a profile stored BEFORE the seventh tick existed (a `ctx`
+    /// object with the six old keys, `region` absent) loads with `region` off and the six as stored,
+    /// and a profile with `region: true` keeps it through `live()`. MUTATION: make `cb("region")`
+    /// default to true, or drop `ctx_region` from `live`.
+    #[test]
+    fn region_tick_is_off_for_an_old_profile_and_round_trips_when_on() {
+        let old = r#"{"version":1,"profiles":[{"id":"local","name":"Local","ctx":{"entity":true,"selection":false,"notes":true,"params":false,"rag_world":false,"rag_vault":true}}]}"#;
+        let parsed = ProfileSet::parse(old, false);
+        let c = parsed.set.get("local").unwrap().context;
+        assert!(!c.region, "an old profile must load the region tick off");
+        assert!(c.entity && c.notes && c.rag_vault, "the six old ticks load as stored");
+        let mut s = set();
+        s.sync_live("local", &json!({"ctx_region": true})).unwrap();
+        assert_eq!(s.get("local").unwrap().live()["ctx_region"], true);
+        assert!(ProfileSet::parse(&s.to_json(), false).set.get("local").unwrap().context.region);
+        assert_eq!(s.get("external").unwrap().live()["ctx_region"], false);
     }
 
     /// Protects: a profile NEVER holds a key. A hostile document with key-like fields, at the top
@@ -987,7 +1029,7 @@ mod tests {
         assert_eq!(check("", ""), vec![]);
     }
 
-    /// Protects: `live()` writes exactly the fourteen profile keys, none of them a switch or a
+    /// Protects: `live()` writes exactly the fifteen profile keys, none of them a switch or a
     /// secret, and the Ruling DF override is carried for a local profile only. MUTATION: add
     /// `enabled` to the map, or carry the override for a remote profile.
     #[test]
@@ -997,8 +1039,8 @@ mod tests {
         let live = s.get("local").unwrap().live();
         let mut keys: Vec<&str> = live.keys().map(String::as_str).collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["base_url", "ctx_entity", "ctx_notes", "ctx_params", "ctx_rag_vault", "ctx_rag_world", "ctx_selection",
-            "gpu_override", "key_account", "max_tokens", "model", "preset_id", "retry_limit", "thinking"]);
+        assert_eq!(keys, ["base_url", "ctx_entity", "ctx_notes", "ctx_params", "ctx_rag_vault", "ctx_rag_world", "ctx_region",
+            "ctx_selection", "gpu_override", "key_account", "max_tokens", "model", "preset_id", "retry_limit", "thinking"]);
         for forbidden in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed", "key_source", "env_var", "token_cap"] {
             assert!(!live.contains_key(forbidden), "{forbidden}");
         }

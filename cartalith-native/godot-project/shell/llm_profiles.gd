@@ -3,7 +3,7 @@ class_name LlmProfiles
 
 ## **Assistant profiles** -- the shell side (`LLM_ASSISTANT_SCOPE.md` s.5g, Ruling DQ, owner request
 ## 2026-10-26): a global Local / External switch backed by named, per-device bundles of provider,
-## address, model, thinking mode, the six "Send: ..." ticks, a reply cap, a retry limit and the
+## address, model, thinking mode, the seven "Send: ..." ticks, a reply cap, a retry limit and the
 ## local GPU override. Every RULE (what is valid, how many, naming, what a delete hands back) is
 ## `cartalith_llm::profiles`, reached through `EngineBridge.llm_profiles_parse/op`; this file only
 ## moves values between that, `DccSettings` and the windows.

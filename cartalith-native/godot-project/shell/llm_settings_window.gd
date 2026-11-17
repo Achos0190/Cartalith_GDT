@@ -124,7 +124,7 @@ const _CONTEXT := [
 	## LLM-7 (scope s.5c, owner question E3's default): an edit request shows the model the region you
 	## painted and its measured heights, so this is its own box, off until ticked.
 	{"key": "ctx_region", "label": "Send: the painted region and its heights",
-		"note": "Needed for edit actions: the model is shown the region's shape (a few rows of x ranges), its bounding box, cell count and area, and its lowest, mean and highest height, land share and mean slope, as numbers. Never a picture, never the rest of the map. Edit requests go only to a model on this computer or your local network."},
+		"note": "Needed for edit actions: the model is shown the region's shape (a few rows of x ranges), its bounding box, cell count and area, and its lowest, mean and highest height, land share and mean slope, as numbers. Never a picture, never the rest of the map. A profile carries this tick (off in a new one): switching profile can turn it on or off. Edit requests go only to a model on this computer or your local network."},
 	{"key": "ctx_params", "label": "Send: generation parameters and summary statistics",
 		"note": "Lets the assistant see your current settings and world-wide figures such as sea level and rainfall. It only reads."},
 	## RK-5 (Rulings DM and DN K1): the knowledge base's two sources, each its own box, both off.

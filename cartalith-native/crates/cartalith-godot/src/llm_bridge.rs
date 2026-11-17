@@ -488,7 +488,7 @@ fn live_json(d: &VarDictionary) -> serde_json::Value {
             m.insert(k.into(), serde_json::Value::from(v));
         }
     }
-    for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault"] {
+    for k in ["ctx_entity", "ctx_selection", "ctx_notes", "ctx_params", "ctx_rag_world", "ctx_rag_vault", "ctx_region"] {
         if let Some(v) = live.get(k).and_then(|v| v.try_to::<bool>().ok()) {
             m.insert(k.into(), serde_json::Value::Bool(v));
         }
@@ -497,7 +497,7 @@ fn live_json(d: &VarDictionary) -> serde_json::Value {
 }
 
 /// A set as the shell reads it: `{ok: true, json, id, last, default, startup, profiles: [...]}`.
-/// Each profile row is `{id, name, builtin, is_local, live: {the 14 live keys}, problems:
+/// Each profile row is `{id, name, builtin, is_local, live: {the 15 live keys}, problems:
 /// [{code, reason}]}`. `json` is the text to store; `id` is the profile an operation touched.
 fn profiles_result(set: &ProfileSet, id: &str) -> VarDictionary {
     let mut rows = VarArray::new();
