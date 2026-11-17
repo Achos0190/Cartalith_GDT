@@ -1,0 +1,65 @@
+"""mut.py [prefix ...]: literal mutants for the 2026-11-17 town leftovers. Exact replace, the text must occur exactly once,
+BUILD_ERROR kept apart from SURVIVED, the file restored in a finally and its sha256 checked."""
+import subprocess, hashlib, os, sys
+R = 'C:/cw/town2/cartalith-native/crates/'
+U = R + 'cartalith-urban/src/'; C = R + 'cartalith-civ/src/'
+URB = ['cargo', 'test', '-p', 'cartalith-urban', '--lib', '--', 'landing_tests', 'wallhug::tests']
+CIV = ['cargo', 'test', '-p', 'cartalith-civ', '--lib', '--', 'a_stretch_verdict', 'a_stretched_layout_that_fails', 'a_river_town_stretches_only']
+NL = '\r\n'
+M = [
+ ('L1 lane min distance ignored', U+'village.rs', 'if !(d - half > LANDING_LANE_MIN_M) {', 'if false {', URB),
+ ('L2 lane clearance 2 -> 3', U+'village.rs', 'pub const LANDING_LANE_CLEAR_M: f64 = 2.0;', 'pub const LANDING_LANE_CLEAR_M: f64 = 3.0;', URB),
+ ('L3 lane dry test ignores open water', U+'village.rs', '        !site.is_water(p) && site.river_dist(p) >= half + 1.0', '        site.river_dist(p) >= half + 1.0', URB),
+ ('L4 lane laid market-first', U+'village.rs', 'g.add_street(end.x, end.y, m.x, m.y, "street", LANDING_LANE_W, 0, LANDING_LANE_PROV) {', 'g.add_street(m.x, m.y, end.x, end.y, "street", LANDING_LANE_W, 0, LANDING_LANE_PROV) {', URB),
+ ('L4b no relabel of a street the lane runs along', U+'village.rs', '        if e.cls == "street" || e.cls == "lane" {', '        if false {', URB),
+ ('L4c a primary relabelled too', U+'village.rs', '        if e.cls == "street" || e.cls == "lane" {', '        if true {', URB),
+ ('L5 no landing tofts', U+'village.rs', 'pub const LANDING_TOFTS: usize = 2;', 'pub const LANDING_TOFTS: usize = 0;', URB),
+ ('L6 harbour street not a landing', U+'village.rs', 'e.prov == LANDING_LANE_PROV || e.prov == crate::generate::HARBOUR_STREET_PROV', 'e.prov == LANDING_LANE_PROV', URB),
+ ('L7 landing tofts farthest from water first', U+'village.rs', 'landing.sort_by(|x, y| x.1.total_cmp(&y.1));', 'landing.sort_by(|x, y| y.1.total_cmp(&x.1));', URB),
+ ('L8 housed village returns early despite a landing', U+'village.rs', 'if have >= need && !has_landing {', 'if have >= need {', URB),
+ ('L9 generate lays no lane', U+'generate.rs', '        crate::village::landing_lane(&site, &mut g, anchors.market);' + NL, '', URB),
+ ('L10 lane gate ignores the pin', U+'generate.rs', '    if street_village' + NL + '        && pin.is_some()' + NL, '    if street_village' + NL, URB),
+ ('G1 gates not kept on the moved ring', U+'wallhug.rs', '        gt.pt = nearest_on_ring(gt.pt, &r);', '', URB),
+ ('G2 a bastioned ring snapped', U+'wallhug.rs', '    if wall_state.style == "bastioned" {' + NL + '        return false;' + NL + '    }' + NL + '    let Some(r) = wall_state.ring', '    let Some(r) = wall_state.ring', URB),
+ ('G3 generate does not snap', U+'generate.rs', '        crate::wallhug::snap_wall_to_shore(&mut wall_state, &site);', '', URB),
+ ('S1 shore inset 0.5 -> 1.0', U+'wallhug.rs', 'pub const SHORE_INSET_M: f64 = 0.5;', 'pub const SHORE_INSET_M: f64 = 1.0;', URB),
+ ('S2 shore reach 45 -> 70', U+'wallhug.rs', 'pub const SHORE_MAX_M: f64 = 45.0;', 'pub const SHORE_MAX_M: f64 = 70.0;', URB),
+ ('S3 a dry ring is returned', U+'wallhug.rs', '    if !moved {' + NL + '        return None;' + NL + '    }', '', URB),
+ ('S4 no tidy pass', U+'wallhug.rs', 'if !own(v) && dist_pt_seg(v, a, b) <= SHORE_TIDY_M && dry_chord(a, b) {', 'if false {', URB),
+ ('S5 tidy may drop the ring\'s own vertices', U+'wallhug.rs', 'if !own(v) && dist_pt_seg(v, a, b) <= SHORE_TIDY_M', 'if dist_pt_seg(v, a, b) <= SHORE_TIDY_M', URB),
+ ('S6 no final chord test', U+'wallhug.rs', 'if (0..r.len()).any(|k| !dry_chord(r[k], r[(k + 1) % r.len()])) || ring_self_crosses(&r) {', 'if ring_self_crosses(&r) {', URB),
+ ('S7 one pass only', U+'wallhug.rs', 'const SHORE_PASSES: usize = 12;', 'const SHORE_PASSES: usize = 1;', URB),
+ ('S8 the step does not halve', U+'wallhug.rs', '        step = (step / 2.0).max(SHORE_FINE_M);' + NL, '', URB),
+ ('S9 the tidy chord need not be dry', U+'wallhug.rs', 'dist_pt_seg(v, a, b) <= SHORE_TIDY_M && dry_chord(a, b) {', 'dist_pt_seg(v, a, b) <= SHORE_TIDY_M {', URB),
+ ('S10 no corner detour', U+'wallhug.rs', '            r.insert(k + 1, via);', '            let _ = via;', URB),
+ ('C1 key omits the plain context', C+'urban_adapter.rs', 'format!("{}|{:?}|{}|{:?}", ctx.seed, layout_opts(ctx, rules), plain.seed, layout_opts(plain, rules))', 'format!("{}|{:?}", ctx.seed, layout_opts(ctx, rules))', CIV),
+ ('C2 key omits the seed', C+'urban_adapter.rs', 'format!("{}|{:?}|{}|{:?}", ctx.seed, layout_opts(ctx, rules), plain.seed, layout_opts(plain, rules))', 'format!("{:?}|{}|{:?}", layout_opts(ctx, rules), plain.seed, layout_opts(plain, rules))', CIV),
+ ('C3 plain replay lays the stretch', C+'urban_adapter.rs', '        StretchChoice::Plain => layout_from_town(plain, generate(plain.seed, &layout_opts(plain, rules))),', '        StretchChoice::Plain => layout_from_town(ctx, generate(ctx.seed, &layout_opts(ctx, rules))),', CIV),
+ ('C4 full verdict reported as plain', C+'urban_adapter.rs', '    if stretch_holds(&m, None) {' + NL + '        return Some((layout_from_town(ctx, t), Some(StretchChoice::Full)));', '    if stretch_holds(&m, None) {' + NL + '        return Some((layout_from_town(ctx, t), Some(StretchChoice::Plain)));', CIV),
+ ('C5 milder replay without its plan', C+'urban_adapter.rs', '        StretchChoice::Milder(p) => layout_from_town(ctx, generate(ctx.seed, &GenOpts { river_stretch: Some(p), ..layout_opts(ctx, rules) })),', '        StretchChoice::Milder(_) => layout_from_town(ctx, generate(ctx.seed, &layout_opts(ctx, rules))),', CIV),
+ ('C6 stretch gate ignores the population', C+'urban_adapter.rs', 'o.river_stretch.is_some() && o.riverbank && pop >= cartalith_urban::stretch::STRETCH_MIN_POP && reach', 'o.river_stretch.is_some() && o.riverbank && reach', CIV),
+]
+only = sys.argv[1:]
+env = dict(os.environ, CARGO_TARGET_DIR='C:/cw/town2_target')
+for name, f, old, new, cmd in M:
+    if only and not any(name.startswith(o) for o in only):
+        continue
+    src = open(f, 'rb').read()
+    h = hashlib.sha256(src).hexdigest()
+    s = src.decode('utf-8')
+    assert s.count(old) == 1, (name, s.count(old))
+    try:
+        open(f, 'wb').write(s.replace(old, new).encode('utf-8'))
+        p = subprocess.run(cmd, cwd='C:/cw/town2/cartalith-native', env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        out = p.stdout + p.stderr
+        if 'error[' in out or 'could not compile' in out:
+            v = 'BUILD_ERROR'
+        elif p.returncode != 0:
+            v = 'KILLED'
+        else:
+            v = 'SURVIVED'
+        fails = [l for l in out.splitlines() if l.startswith('test ') and l.endswith('FAILED')]
+        print(f"{v:11s} {name}  {'; '.join(x.split()[1] for x in fails)[:200]}", flush=True)
+    finally:
+        open(f, 'wb').write(src)
+        assert hashlib.sha256(open(f, 'rb').read()).hexdigest() == h

@@ -243,3 +243,122 @@ fn the_map_pin_survives_both_moves() {
     assert!(t.anchors.market.y > 1000.0, "premise: the market crossed to the road's bank, at {:?}", t.anchors.market);
     assert_eq!(t.pin, Vec2::new(850.0, 625.0), "the pin is the box centre");
 }
+
+/// Protects `landing_lane` (2026-11-17, literals on the fixture's straight
+/// river along y = 726, half-width 12): a market 32 m from the channel's edge
+/// (y = 682) gets a `LANDING_LANE_W` street ending `LANDING_LANE_CLEAR_M`
+/// short of the edge (y = 712), laid from the bank up (its first node at the
+/// water, which `plat_tofts` cuts frontages from) under `LANDING_LANE_PROV`;
+/// a market 10 m from the edge gets none (`LANDING_LANE_MIN_M`, 10.8), one
+/// 11 m off gets one; a market on the south bank's lane stays south of the
+/// river; a lane whose line crosses open water is not laid.
+#[test]
+fn a_landing_lane_runs_from_the_bank_up_to_the_market() {
+    let site = bank_site(RIVER_Y);
+    let mut g = Graph::new();
+    let end = landing_lane(&site, &mut g, Vec2::new(850.0, 682.0)).expect("32 m from the edge: a lane");
+    assert!((end.x - 850.0).abs() < 1e-9 && (end.y - 712.0).abs() < 1e-9, "the lane's water end {end:?}");
+    let e = g.edges.iter().find(|e| e.alive).expect("an edge");
+    assert_eq!((e.cls, e.w, e.prov.as_str()), ("street", 4.0, LANDING_LANE_PROV));
+    assert!((g.nodes[e.a].pt().y - 712.0).abs() < 1e-9, "its first node is the water end");
+    let mut over = Graph::new();
+    over.add_street(850.0, 712.0, 850.0, 682.0, "street", 4.0, 0, "the road's own street");
+    over.add_street(860.0, 712.0, 860.0, 600.0, "primary", 6.0, 0, "the host's road");
+    landing_lane(&site, &mut over, Vec2::new(850.0, 682.0)).expect("a lane over a street");
+    assert!(over.edges.iter().any(|e| e.alive && e.cls == "street" && e.prov == LANDING_LANE_PROV), "the street it runs along is the landing");
+    let mut road = Graph::new();
+    road.add_street(850.0, 712.0, 850.0, 682.0, "primary", 6.0, 0, "the host's road");
+    landing_lane(&site, &mut road, Vec2::new(850.0, 682.0)).expect("a lane over a road");
+    assert!(road.edges.iter().all(|e| e.prov != LANDING_LANE_PROV), "a primary keeps its own provenance");
+    assert!(landing_lane(&site, &mut Graph::new(), Vec2::new(850.0, 704.0)).is_none(), "10 m from the edge: no lane");
+    assert!(landing_lane(&site, &mut Graph::new(), Vec2::new(850.0, 703.0)).is_some(), "11 m from the edge: a lane");
+    let south = landing_lane(&site, &mut Graph::new(), Vec2::new(850.0, 790.0)).expect("the south bank");
+    assert!((south.y - 740.0).abs() < 1e-9, "the south lane stays south, {south:?}");
+    let wet = {
+        let mut w = water(RIVER_Y);
+        w.river_path = crate::riverbank::fine_river_path(w.river_path.as_deref().unwrap(), 1700.0, 1250.0);
+        let (i, j) = ((850.0 / CELL) as usize, (695.0 / CELL) as usize);
+        w.open_water.as_mut().unwrap()[j * MW + i] = 1;
+        let mut s = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+        assert!(s.use_riverbank(), "premise: the riverbank geometry");
+        s
+    };
+    assert!(wet.is_water(Vec2::new(850.0, 695.0)), "premise: an open-water cell on the lane's line");
+    assert!(landing_lane(&wet, &mut Graph::new(), Vec2::new(850.0, 682.0)).is_none(), "a lane across open water is not laid");
+}
+
+/// Protects the landing's tofts in `plat_tofts` (2026-11-17): on a landing
+/// lane, up to `LANDING_TOFTS` (2) tofts go first, nearest the water, even
+/// in a village its block lots already house (one dry lot for a target of
+/// 5 people), and a house there stands within two street widths (10.8 m) of
+/// the bank; the same street under any other provenance plats nothing in
+/// that village, as before.
+#[test]
+fn the_landing_gets_its_houses_even_in_a_housed_village() {
+    let site = bank_site(RIVER_Y);
+    let lot = Parcel {
+        id: "p0".into(),
+        block: "b0".into(),
+        frontage: 10.0,
+        depth: 20.0,
+        area: 200.0,
+        poly: vec![Vec2::new(100.0, 100.0), Vec2::new(110.0, 100.0), Vec2::new(110.0, 120.0), Vec2::new(100.0, 120.0)],
+        age: 8.0,
+        edge_cls: "street",
+        tone: 0.5,
+        wall_backing: WallBacking::No,
+        courtyard_ring: false,
+        gate_quality: None,
+    };
+    let mut g = Graph::new();
+    landing_lane(&site, &mut g, Vec2::new(850.0, 682.0)).expect("a lane");
+    let t = plat_tofts(1, &g, &site, &[], std::slice::from_ref(&lot), Vec2::new(850.0, 682.0), 200.0, 5.0, 8, false);
+    assert!(!t.is_empty() && t.len() <= LANDING_TOFTS, "{} landing tofts", t.len());
+    let edge_gap = |p: &Parcel| p.poly.iter().map(|v| (RIVER_Y - RW / 2.0 - v.y).max(0.0)).fold(f64::INFINITY, f64::min);
+    assert!(t.iter().any(|p| edge_gap(p) <= 10.8), "a landing toft within two street widths of the bank: {:?}", t.iter().map(edge_gap).collect::<Vec<_>>());
+    let mut plain = Graph::new();
+    plain.add_street(850.0, 712.0, 850.0, 682.0, "street", 4.0, 0, "test street");
+    assert!(plat_tofts(1, &plain, &site, &[], std::slice::from_ref(&lot), Vec2::new(850.0, 682.0), 200.0, 5.0, 8, false).is_empty(), "no landing: a housed village plats nothing");
+
+    let mut harbour = Graph::new();
+    harbour.add_street(850.0, 712.0, 850.0, 682.0, "street", 4.0, 0, crate::generate::HARBOUR_STREET_PROV);
+    assert!(!plat_tofts(1, &harbour, &site, &[], std::slice::from_ref(&lot), Vec2::new(850.0, 682.0), 200.0, 5.0, 8, false).is_empty(), "Ruling FK's harbour street is a landing too");
+}
+
+/// Protects the `generate` path of the landing lane (rides
+/// `urban_street_village`): a street village at a river's head (the river
+/// line ends 100 m west of the box centre, `there_is_no_other_bank_beyond_the_river_end`'s
+/// cut at x = 750) is laid out with a house within two street widths
+/// (10.8 m) of the river.
+#[test]
+fn a_village_at_a_river_head_has_a_house_at_the_water() {
+    let mut w = water(RIVER_Y);
+    w.river_path = Some((0..=7).map(|k| Vec2::new(k as f64 * 100.0 + 50.0, RIVER_Y)).collect());
+    let opts = GenOpts { site: Some("river".into()), pop: Some(400.0), water: Some(w), riverbank: true, street_village: true, walls: Some(false), ..GenOpts::default() };
+    let t = generate(5, &opts);
+    let line = |p: Vec2| crate::geom::dist_pt_seg(p, Vec2::new(50.0, RIVER_Y), Vec2::new(750.0, RIVER_Y)) - RW / 2.0;
+    let gap = t.buildings.iter().flat_map(|b| b.poly.iter()).map(|v| line(*v).max(0.0)).fold(f64::INFINITY, f64::min);
+    assert!(gap <= 10.8, "the nearest house {gap:.1} m from the water");
+}
+
+/// Protects the `generate` path of [`landing_lane`] (rides
+/// `urban_street_village`, 2026-11-17): a street village whose box centre
+/// stands 101 m north of its river and whose only road runs north from the
+/// map pin is laid out with its market at the landing and a lane down to the
+/// water, a house within two street widths (10.8 m) of the bank; a village
+/// whose box centre already stands 25 m from the edge keeps its market
+/// (no landing move, `Town::pin` the market) and gets no lane.
+#[test]
+fn a_village_whose_road_leaves_its_landing_gets_a_lane_to_the_water() {
+    let road = vec![vec![Vec2::new(0.0, 0.0), Vec2::new(0.0, -600.0)]];
+    let opts = |y: f64| GenOpts { site: Some("river".into()), pop: Some(400.0), water: Some(water(y)), riverbank: true, street_village: true, walls: Some(false), primary_paths: road.clone(), ..GenOpts::default() };
+    let lanes = |t: &crate::generate::Town| t.graph.edges.iter().filter(|e| e.prov == LANDING_LANE_PROV).count();
+    let t = generate(5, &opts(RIVER_Y));
+    let gap = t.buildings.iter().flat_map(|b| b.poly.iter()).map(|v| ((v.y - RIVER_Y).abs() - RW / 2.0).max(0.0)).fold(f64::INFINITY, f64::min);
+    assert!(lanes(&t) >= 1, "a landing lane");
+    assert!(gap <= 10.8, "the nearest house {gap:.1} m from the water");
+    // The edge 25 m south of the box centre (625 + 25 + 12 = 662).
+    let near = generate(5, &opts(662.0));
+    assert_eq!(near.pin, near.anchors.market, "premise: the market is not moved");
+    assert_eq!(lanes(&near), 0, "no lane for a market the landing did not move");
+}

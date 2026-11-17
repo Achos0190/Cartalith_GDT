@@ -2523,12 +2523,24 @@ pub fn um_place_context_with(
 /// runs [`um_place_context_with`]'s own gate and plan, so the answer is
 /// that function's, never a second copy of its rules.
 pub fn um_layout_box(w: &UrbanWorld, s: &NamedSettlement, o: &PlaceOverrides) -> (f64, f64) {
-    let pop = js_min(20000.0, js_max(400.0, js_max(20.0, s.pop as f64)));
-    let reach = cartalith_urban::generate::town_reach_m(pop);
-    if o.river_stretch.is_none() || !o.riverbank || pop < cartalith_urban::stretch::STRETCH_MIN_POP || !(reach > cartalith_urban::stretch::STRETCH_ACROSS_M) {
+    if !um_stretch_gate(s, o) {
         return (SITE_WM, SITE_HM);
     }
     um_place_context_with(w, s, &[], o).site_box.unwrap_or((SITE_WM, SITE_HM))
+}
+
+/// Whether settlement `s` under the overrides `o` can be stretched at all
+/// (Ruling FN), read without any water: the switch on
+/// (`o.river_stretch`), `urban_riverbank` on, a population of
+/// `cartalith_urban::stretch::STRETCH_MIN_POP` and up and a reach over
+/// `STRETCH_ACROSS_M`, the two refusals `plan_river_stretch` makes first.
+/// `false` means the town is laid out in the reference's box; `true` only
+/// that its context must be built to know. Split out of [`um_layout_box`]
+/// (2026-11-17) so the app's box call skips every other town cheaply.
+pub fn um_stretch_gate(s: &NamedSettlement, o: &PlaceOverrides) -> bool {
+    let pop = js_min(20000.0, js_max(400.0, js_max(20.0, s.pop as f64)));
+    let reach = cartalith_urban::generate::town_reach_m(pop);
+    o.river_stretch.is_some() && o.riverbank && pop >= cartalith_urban::stretch::STRETCH_MIN_POP && reach > cartalith_urban::stretch::STRETCH_ACROSS_M
 }
 
 /// The site kinds a Ruling FN stretch reaches: a river through the town box
@@ -2881,13 +2893,36 @@ pub struct UrbanLayout {
 /// once, as before. Must never return a stretched layout that fails both
 /// tests.
 pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayout> {
+    run_layout_choosing(ctx, rules).map(|(l, _)| l)
+}
+
+/// **Not the reference** (2026-11-17, the planned-versus-drawn box row of
+/// `OUTSTANDING_WORK.md`): which of [`run_layout`]'s layouts a stretched
+/// town's context kept. `Full` is the stretch as planned, `Milder` the
+/// retried plan (`StretchPlan::milder`, carried so a replay needs no first
+/// layout to derive it), `Plain` the town in the reference's box from
+/// `UrbanContext::plain`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StretchChoice {
+    Full,
+    Milder(cartalith_urban::stretch::StretchPlan),
+    Plain,
+}
+
+/// [`run_layout`], also answering which layout a stretched context kept
+/// (`None` for a context that is not stretched, which is laid out once).
+/// The verdict is what [`run_layout_as`] replays with one `generate()`
+/// call, so a host can cache it by [`stretch_choice_key`] instead of
+/// laying a town out up to three times per question. Same layouts, in the
+/// same order, as `run_layout` has laid out since Ruling FQ.
+pub fn run_layout_choosing(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<(UrbanLayout, Option<StretchChoice>)> {
     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
         return None;
     }
     let opts = layout_opts(ctx, rules);
     let t = generate(ctx.seed, &opts);
     let (Some(plan), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
-        return Some(layout_from_town(ctx, t));
+        return Some((layout_from_town(ctx, t), None));
     };
     // Ruling FQ (owner, 2026-11-16): a stretched town is kept only where its
     // layout holds the ruling's bars (`cartalith_urban::stretch::stretch_holds`):
@@ -2899,31 +2934,80 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
     use cartalith_urban::stretch::{StretchMeasures, stretch_holds};
     let m = StretchMeasures::of(&t);
     if stretch_holds(&m, None) {
-        return Some(layout_from_town(ctx, t));
+        return Some((layout_from_town(ctx, t), Some(StretchChoice::Full)));
     }
     // The milder try, in the same box (it fits inside the full stretch's).
     let mild = plan.milder(t.max_rf).map(|p| {
         let tm = generate(ctx.seed, &GenOpts { river_stretch: Some(p), ..opts.clone() });
         let mm = StretchMeasures::of(&tm);
-        (tm, mm)
+        (p, tm, mm)
     });
-    if let Some((tm, mm)) = mild {
+    if let Some((p, tm, mm)) = mild {
         if stretch_holds(&mm, None) {
-            return Some(layout_from_town(ctx, tm));
+            return Some((layout_from_town(ctx, tm), Some(StretchChoice::Milder(p))));
         }
         let tp = generate(plain.seed, &layout_opts(plain, rules));
         let pm = StretchMeasures::of(&tp);
         return Some(if stretch_holds(&m, Some(&pm)) {
-            layout_from_town(ctx, t)
+            (layout_from_town(ctx, t), Some(StretchChoice::Full))
         } else if stretch_holds(&mm, Some(&pm)) {
-            layout_from_town(ctx, tm)
+            (layout_from_town(ctx, tm), Some(StretchChoice::Milder(p)))
         } else {
-            layout_from_town(plain, tp)
+            (layout_from_town(plain, tp), Some(StretchChoice::Plain))
         });
     }
     let tp = generate(plain.seed, &layout_opts(plain, rules));
     let pm = StretchMeasures::of(&tp);
-    Some(if stretch_holds(&m, Some(&pm)) { layout_from_town(ctx, t) } else { layout_from_town(plain, tp) })
+    Some(if stretch_holds(&m, Some(&pm)) {
+        (layout_from_town(ctx, t), Some(StretchChoice::Full))
+    } else {
+        (layout_from_town(plain, tp), Some(StretchChoice::Plain))
+    })
+}
+
+/// Replays a verdict of [`run_layout_choosing`] for the same `ctx` and
+/// `rules`: the one layout it kept, with one `generate()` call. A context
+/// that is not stretched (`choice` then means nothing) is laid out as
+/// [`run_layout`] lays it out. **Must only** be given a choice made for this
+/// exact context and rules (a host keys it by [`stretch_choice_key`]);
+/// handed another town's verdict it lays out that verdict's box, not the
+/// bars' answer for this one.
+pub fn run_layout_as(ctx: &UrbanContext, rules: Option<&Rules>, choice: StretchChoice) -> Option<UrbanLayout> {
+    if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
+        return None;
+    }
+    let (Some(_), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
+        return run_layout(ctx, rules);
+    };
+    Some(match choice {
+        StretchChoice::Full => layout_from_town(ctx, generate(ctx.seed, &layout_opts(ctx, rules))),
+        StretchChoice::Milder(p) => layout_from_town(ctx, generate(ctx.seed, &GenOpts { river_stretch: Some(p), ..layout_opts(ctx, rules) })),
+        StretchChoice::Plain => layout_from_town(plain, generate(plain.seed, &layout_opts(plain, rules))),
+    })
+}
+
+/// A content key for [`run_layout_choosing`]'s verdict on `ctx` under
+/// `rules`, or `None` for a context that is not stretched (it has no
+/// verdict). It hashes the `Debug` text of everything `generate()` is
+/// handed on each of the verdict's paths: the stretched context's seed and
+/// `GenOpts`, and its `plain` context's seed and `GenOpts` (the milder plan
+/// is derived from the first). So any input that can change the verdict
+/// (the world's rasters in the water and terrain contexts, the roads, the
+/// place editor's fields, the rules, every `urban_*` switch) changes the key,
+/// without a list of them to keep in step (`MISTAKES.md`: a cache key is
+/// derived from the definition). `Debug` prints an `f64` in its shortest
+/// round-trip form, so two keys agree only for the same values. A 64-bit
+/// hash: a collision is possible in principle and would replay another
+/// town's box; at a few dozen stretched towns a world it is not a practical
+/// risk.
+pub fn stretch_choice_key(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let (Some(_), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
+        return None;
+    };
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{}|{:?}|{}|{:?}", ctx.seed, layout_opts(ctx, rules), plain.seed, layout_opts(plain, rules)).hash(&mut h);
+    Some(h.finish())
 }
 
 /// [`run_layout`]'s `GenOpts` for `ctx`: every field `_umModelFor` hands

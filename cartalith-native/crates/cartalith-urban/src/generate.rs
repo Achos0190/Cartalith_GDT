@@ -188,7 +188,9 @@ pub struct GenOpts {
     /// takes `buildPrimariesFromPaths` instead of `buildPrimaries`.
     pub primary_paths: Vec<Vec<Vec2>>,
     /// **Not the reference** -- Ruling EW item 1 (owner, 2026-11-13): the town wall
-    /// hugs the built-up area ([`crate::wallhug`]). `false` is the reference's
+    /// hugs the built-up area ([`crate::wallhug`]); since 2026-11-17 its
+    /// stretches over open water are set on the shore
+    /// ([`crate::wallhug::snap_wall_to_shore`]). `false` is the reference's
     /// growth-reserve circuit, byte for byte, so every JS-captured golden and
     /// every other `GenOpts` literal is unmoved by control flow.
     pub wall_hug: bool,
@@ -208,8 +210,10 @@ pub struct GenOpts {
     /// also goes down to its river ([`crate::village::landing_market`]) or
     /// across it to the bank its roads are on
     /// ([`crate::village::road_bank_market`]), and a road along the bank is
-    /// lined on its river side too (`crate::village::plat_tofts`).
-    /// `false` is the reference, byte for byte, so every JS-captured golden and
+    /// lined on its river side too (`crate::village::plat_tofts`); since
+    /// 2026-11-17 a market so moved gets a lane down to the water
+    /// ([`crate::village::landing_lane`]) whose tofts, and a harbour street's,
+    /// are platted first. `false` is the reference, byte for byte, so every JS-captured golden and
     /// every other `GenOpts` literal is unmoved by control flow.
     pub street_village: bool,
     /// **Not the reference** -- `TOWN_GENERATOR_JUDGEMENT.md` change 6
@@ -1107,6 +1111,23 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         None
     };
 
+    // **Not the reference** (rides `urban_street_village`,
+    // `crate::village::landing_lane`, 2026-11-17): a street village whose
+    // market the landing or its roads' bank moved (`pin` set, not by the
+    // harbour front) gets a lane from the market down to its river, so
+    // its tofts reach the water. Nothing for a town, a harbour front or
+    // a market already within two street widths of the bank. Laid after the
+    // growth and the last street pass, so the village's street budget and
+    // every draw of `grow` stay as they were, and before the faces become
+    // blocks, so the blocks and tofts see it.
+    if street_village
+        && pin.is_some()
+        && front_water.is_none()
+        && site.riverbank()
+        && (site.kind == "river" || site.kind == "riverthrough")
+    {
+        crate::village::landing_lane(&site, &mut g, anchors.market);
+    }
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
     // **Not the reference** (Ruling FE item 2, `crate::village::plat_tofts`): a
@@ -1132,6 +1153,11 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             wet_moat: profile.planning == "radial" && profile.waterway,
         };
         hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks, plaza.as_ref().filter(|p| p.kind == crate::plaza::PlazaKind::Market).map(|p| p.poly.as_slice())));
+        // **Not the reference** (2026-11-17, Ruling FK's left item (iii);
+        // rides `urban_wall_hug`, `crate::wallhug::shore_snap`): the stretches
+        // of the fitted wall that stand over open water are set on the shore.
+        // Not a bastioned trace (its ring is the gorge, not the drawn wall).
+        crate::wallhug::snap_wall_to_shore(&mut wall_state, &site);
     }
     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
     // backing onto the wall from inside, and a faubourg against it outside.

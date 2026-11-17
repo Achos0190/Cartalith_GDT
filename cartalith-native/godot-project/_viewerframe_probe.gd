@@ -9,7 +9,7 @@ extends Node
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
 ## `site_kind` is `river` or `riverthrough`. Run under `APPDATA=<empty dir>`. With `--shots` it is windowed (no
 ## `--headless`) and saves the viewer canvas of each id to `<dir>/viewer_<seed>_<id>.png`.
-## `--dump <dir> --ids -1` dumps every town of 1 500 and up (Ruling FS). `--dump <dir>` (with `--ids`) also writes each id's layout as `<dir>/<seed>_<gw>_<id>.json` for the both-banks
+## `--dump <dir> --ids -1` dumps every town of 1 500 and up (Ruling FS); `--ids -2` every settlement (2026-11-17). `--dump <dir>` (with `--ids`) also writes each id's layout as `<dir>/<seed>_<gw>_<id>.json` for the both-banks
 ## evidence's `plot.py` (2026-11-15): the app's own layout, since the census's CPU world is not the shell's.
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
@@ -295,6 +295,11 @@ func _ready() -> void:
 		for k in places.size():
 			if int(places[k].get("population", 0)) >= 1500:
 				print("  TOWN #%d at (%d,%d) pop %d" % [k, places[k]["x"], places[k]["y"], places[k]["population"]])
+		## `--ids -2` (2026-11-17, the town leftovers): every settlement, villages too, to find the towns a change moved.
+		if ids == [-2]:
+			ids.clear()
+			for k in places.size():
+				ids.append(k)
 		## `--ids -1` (Ruling FS, 2026-11-17): every town of 1 500 and up, for the stretch class audit.
 		if ids == [-1]:
 			ids.clear()

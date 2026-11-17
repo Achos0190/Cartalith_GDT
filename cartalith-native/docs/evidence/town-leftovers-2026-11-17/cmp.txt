@@ -1,0 +1,46 @@
+== 384
+  towns housed p10 (both_banks)                          89 ->             89
+  towns under 80 %                                        2 ->              2
+  villages under 80 %                                    49 ->             49
+  wall/hull p90                                        1.11 ->           1.11
+  wall/hull max                                        1.14 ->           1.14
+  squares outside the wall                                5 ->              5
+  unbuilt patch over 1 ha                                 1 ->              1
+  unbuilt patch over 0.5 ha                               1 ->              1
+  riverside within 2 widths, >=1500 %                   4.1 ->            4.1
+  river-kind every house > 2 widths                       1 ->              1
+  stretched / refused                        17 (Ruling FQ: refused and laid out in the reference box 8 -> 17 (Ruling FQ: refused and laid out in the reference box 8
+  green within 60 m                              629 of 662 ->     629 of 662
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                3 ->              0
+  harbours over 23 m                                1 of 10 ->        1 of 10
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           3 ->              3
+  housing audit under 80 % (riverbank on)               141 ->            141
+  town_housing_audit: all seeds at 384, civ.river_front true, urban_riverbank off: 699 towns, buildings 176923, in water 1; housed % of pop_target n 699 min 0 p10 52 median 100 p90 100 max 779; under 80 %: 141; river-kind 
+                      -> all seeds at 384, civ.river_front true, urban_riverbank off: 699 towns, buildings 177022, in water 1; housed % of pop_target n 699 min 0 p10 52 median 100 p90 100 max 779; under 80 %: 141; river-kind 
+  town_housing_audit: all seeds at 384, civ.river_front true, urban_riverbank on: 699 towns, buildings 201606, in water 0; housed % of pop_target n 699 min 0 p10 83 median 100 p90 100 max 163; under 80 %: 51; river-kind n 
+                      -> all seeds at 384, civ.river_front true, urban_riverbank on: 699 towns, buildings 201584, in water 0; housed % of pop_target n 699 min 0 p10 83 median 100 p90 100 max 163; under 80 %: 51; river-kind n 
+== 2048
+  towns housed p10 (both_banks)                          85 ->             85
+  towns under 80 %                                        3 ->              3
+  villages under 80 %                                    20 ->             21
+  wall/hull p90                                        1.09 ->           1.09
+  wall/hull max                                        1.21 ->           1.21
+  squares outside the wall                                2 ->              2
+  unbuilt patch over 1 ha                                 0 ->              0
+  unbuilt patch over 0.5 ha                               0 ->              0
+  riverside within 2 widths, >=1500 %                   3.7 ->            3.7
+  river-kind every house > 2 widths                      23 ->             10
+  stretched / refused                        18 (Ruling FQ: refused and laid out in the reference box 6 -> 18 (Ruling FQ: refused and laid out in the reference box 6
+  green within 60 m                              676 of 684 ->     676 of 684
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                1 ->              0
+  harbours over 23 m                                 1 of 9 ->         1 of 9
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           2 ->              2
+  housing audit under 80 % (riverbank on)               112 ->            112
+  town_housing_audit: all seeds at 2048, civ.river_front true, urban_riverbank off: 720 towns, buildings 171102, in water 13; housed % of pop_target n 720 min 0 p10 64 median 100 p90 100 max 226; under 80 %: 112; river-kin
+                      -> all seeds at 2048, civ.river_front true, urban_riverbank off: 720 towns, buildings 171037, in water 13; housed % of pop_target n 720 min 0 p10 64 median 100 p90 100 max 226; under 80 %: 112; river-kin
+  town_housing_audit: all seeds at 2048, civ.river_front true, urban_riverbank on: 720 towns, buildings 194959, in water 0; housed % of pop_target n 720 min 9 p10 90 median 100 p90 100 max 166; under 80 %: 23; river-kind n
+                      -> all seeds at 2048, civ.river_front true, urban_riverbank on: 720 towns, buildings 194754, in water 0; housed % of pop_target n 720 min 9 p10 91 median 100 p90 100 max 166; under 80 %: 24; river-kind n

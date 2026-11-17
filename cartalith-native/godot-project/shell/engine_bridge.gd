@@ -1693,8 +1693,11 @@ func rivers_in_map() -> bool:
 ## Empty against a binary built before this landed, the same `has_method` guard
 ## `lod_level_for_zoom()` above uses for its own milestone.
 ## Ruling FQ (owner, 2026-11-16): `WorldGen.urban_layout_boxes` -- settlement `tid` -> `Vector2(width, height)` metres
-## of each stretched river town's planned layout box (absent = the reference's box). `{}` while `generating` (the worker
-## holds `WorldGen`) or from an older DLL without the call.
+## of the box each stretched river town is laid out in (absent = the reference's box; since 2026-11-17 the box drawn,
+## not the planned one, for every town already laid out; a town not laid out yet answers its planned box, an upper
+## bound). It never lays a town out (20-40 ms at 384 x 288); `urban_layouts` keeps each town's stretch verdict, so a
+## refresh after the map has drawn a town reports its drawn box. `{}` while `generating` (the worker holds `WorldGen`)
+## or from an older DLL without the call.
 func urban_layout_boxes() -> Dictionary:
 	if generating or not _has("urban_layout_boxes"):
 		return {}

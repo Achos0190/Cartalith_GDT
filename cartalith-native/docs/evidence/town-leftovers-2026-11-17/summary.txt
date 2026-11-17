@@ -1,0 +1,97 @@
+Town leftovers, second pass (2026-11-17). Before = origin/main 990cf7fd (its release census binary and debug/release DLLs
+built from a detached worktree); after = this commit. Census: cartalith-godot town_river_census (both_banks_audit,
+town_housing_audit, riverbank_gap_audit, harbour_front_audit, stretch_water_audit), seeds 483920, 912345, 246371,
+800 km, villages on, release test binary, one thread per audit (audit.sh.txt), at 384 x 288 and 2048 x 1311.
+The before/ outputs were checked byte-identical (timing lines aside) to river-stretch-2026-11-16/fs/census and
+fq/after before any change. Full outputs: before/ and after/; cmp.txt is cmp.py.txt's table of the bars.
+
+What changed (no new switch; no JS golden reads either switch; fh_r2_baseline and g1_baseline: 11 of 11 ignored tests
+pass on the final binary, baselines.txt):
+ 1. urban_street_village: village::landing_lane, a 4 m street from a street village's market (moved by the landing or
+    its roads' bank) down to 2 m short of its channel, only beyond 10.8 m; a street or lane it runs along takes its
+    provenance (a primary keeps its own). plat_tofts plats up to LANDING_TOFTS (2) tofts on a landing lane or Ruling
+    FK's harbour street first, nearest the water, even in a village its block lots already house.
+ 2. urban_wall_hug: wallhug::snap_wall_to_shore / shore_snap, the fitted wall's stretches over an open-water cell set
+    on the shore (each wet 4 m sample to the nearest dry cell, 0.5 m inside it, at most 45 m; halving passes to
+    0.125 m; a corner detour where two dry cells touch only at a wet corner; a dry-chord tidy pass; dry vertices
+    never move; gates kept on the ring; a bastioned trace or a ring it cannot dry is left as it was).
+ 3. No generation output: urban_layout_boxes reports the box a laid-out town is drawn in (urban_adapter::
+    run_layout_choosing / run_layout_as / stretch_choice_key; WorldGen.stretch_choices), a town not laid out yet
+    answering its planned box.
+
+Bars, before -> after (cmp.txt):          384 x 288          2048 x 1311
+ towns housed p10                         89 -> 89           85 -> 85        must hold: held
+ towns under 80 %                         2 -> 2             3 -> 3          held
+ wall / hull p90                          1.11 -> 1.11       1.09 -> 1.09    held (max 1.14 / 1.21 unchanged)
+ squares outside the wall                 5 -> 5             2 -> 2          held
+ unbuilt patch over 1 ha (over 0.5 ha)    1 -> 1 (1 -> 1)    0 -> 0 (0 -> 0) held
+ buildings in water                       0 -> 0             0 -> 0          held
+ riverside share, towns >= 1 500          4.1 -> 4.1 %       3.7 -> 3.7 %    held (floor)
+ river villages, every house > 2 widths   1 -> 1             23 -> 10        item 1
+ wall rings with a sample in open water   3 -> 0             1 -> 0          item 2, met
+ harbours over 23 m                       1 of 10            1 of 9          unchanged (item 3 reasons)
+ river-mouth rivers short of the water    1                  1               unchanged (item 3 reasons)
+ villages under 80 %                      49 -> 49           20 -> 21        WORSE at 2048 (246371 #202)
+ stretched / refused                      17 / 8             18 / 6          unchanged
+ greens within 60 m                       629 of 662         676 of 684      unchanged
+
+Item 1, the 23 at 2048 (before/after plans plans/fixed_* and plans/remaining_*; an.py.txt reads each):
+ fixed (13): 246371 #100 #145 #168 #173 #213, 483920 #105 #160 #179 #180 #188 #212, 912345 #7 #162: market 32 m
+   from the channel with the road leaving inland, many at the head of the map's river; now a house 2-7 m off.
+ left (10, a reason each): a road on the bank with the houses on its land side (Ruling EZ item 1's "a street in
+   between the river and house"; the 7 m primary and its verge put the first house 11-16 m off): 246371 #140,
+   483920 #115 #150 #194, 912345 #81 #104 and the two towns 483920 #36 (2 075) and 912345 #34 (2 917); a green
+   holding the landing: 912345 #239 (12.2 m); boxed in: 483920 #192 (the lane is laid between the bank road and the
+   village's triangle block, no room for a 6 m plot; houses 41 m). 384: 483920 #146 (road on the bank, housed 49.5 %
+   before and after; plans/remaining_483920_384_146.png).
+
+Item 2, the four rings (plans/walls_before_4rings.png, hfplot.py.txt: magenta = wall samples in open water):
+ 483920 #1 (384) 99 m of wall in the water, 13 m deep; 912345 #22 (384) 363 m, 19 m; 246371 #7 (384) 8 m; 246371 #0
+ (2048) 464 m, 12 m. All are harbour towns built within 1-2 m of their water whose wall stood its clearance
+ outside the houses, over the sea. After: 0 rings. Wall / hull of the four: 1.140 -> 1.144, 1.005 -> 1.042,
+ 1.070 -> 1.071, 1.016 -> 1.021. Without the corner detour 246371 #0 keeps its wet ring (v6 run: 1 ring at 2048).
+ The census's unbuilt-patch line comes from both_banks_audit, which lays towns out without urban_harbour_front,
+ so it does not see these four as the app lays them out; app world 246371 #6 (plans/wall_246371_6_app_world.png)
+ shows the wall on the shore with no open band behind it.
+
+Item 3 (diagnostic runs with temporary prints, removed before the commit):
+ FK (i) 483920 #5 at 384 reads 83 m on origin/main (the row's 191 m is stale). Its harbour-front tries: market at the
+   water with the river carried on houses 166 of 400, the river carried alone 400; the keep is 342, so the second is
+   kept and the market stays 60 m from its pin; the houses line the road west (plans/item3_384_5_144.png, left).
+   483920 #10 at 2048 (73 m): the map's river runs between the city and the sea, 20-90 m from the shore
+   (plans/item3_2048_10_101.png, left). 154:136 (app world 483920 #32): now at the river mouth on the shore, its
+   harbour-front layout housing 364 of 400 over the 360 keep (plans/app_483920_32_154_136.png); its north road is not
+   drawn inside the box any more (the map draws the road).
+ FK (ii) 912345 #144 at 384: the carried river houses 73 (market at the water) and 52 (river alone) of 400 against a
+   360 keep, so the traced river stays, 179 m short. 912345 #101 at 2048: river_to_sea returns by rule, the nearest
+   open water is a lake 287 m off, nearer than the sea (436 m), and a river feeding a lake is never carried on.
+ FK (iii) closed (item 2).
+ FK (iv) the port lost to civ.port_reach at 2048 is 912345 #0 at (251, 1151), a 20 000 town
+   (port_reach_off/on_912345_2048.txt).
+ FK (v) and FI (v): the town layer's look in map_overlay.gd (the GDScript lane's file): not touched.
+ FI (iii): a civ.map_crossings change that would move the FH-R2 / G1 baselines: not made, still open.
+
+Item 4 (probe/, _stretchbox_probe.gd, headless, alone, scratch APPDATA):
+ A first version judged every planned-stretched town inside urban_layout_boxes: release DLL, 384 x 288, cold call
+ 13.25-13.28 s (483920), 7.48-7.53 s (912345), 4.89-4.91 s (246371), 3 runs each, 4.63 s at 2048 (483920), on the
+ main thread at every world apply and urban_* write (probe/judge_all_release/). Changed to read only (probe/final_release/): cold and warm 20.1-39.2 ms at 384 (medians 36.4 / 31.6 / 20.2 ms by
+ seed), 23.3-26.1 ms at 2048; a town not laid out yet answers its planned box until urban_layouts judges it.
+ origin/main's box call: 13.7-23.5 ms; urban_layouts of its 8 planned towns (483920, 384) 19.2 s.
+ B1-B3 pass on the final DLL; on origin/main's B1 fails (483920 #4 #11 #15 #23, 912345 #0 #2).
+
+Frames (frames/pair_viewer_<seed>_<id>.png, before | after, the City Viewer's opening frame of the app's own world at
+384 x 288, _viewerframe_probe.gd windowed under the window lock, shots.sh.txt; before = origin/main's debug DLL,
+after = this tree's): all 23 app-world settlements whose layout changed (app_world_changed.txt, dumps.sh.txt with
+--ids -2), each looked at. 246371 #6 (city): the wall that stood out over the sea beside the river mouth now runs on
+the shore (the town re-rolls inside, -3.5 % housed). 483920 #32 (154:136): from inland across its river to the river
+mouth on the shore, houses lining the bank road to the sea. 912345 #188: a street village along its road instead of
+a crowd along the river, more houses (105 -> 161 buildings). 246371 #25 and #109: roadless hamlets that were already
+broken (104 and 10 of 400) and stay so. The rest: the same village with a few houses moved toward the landing.
+None reads as silly. The data was checked beside each frame (dumps/, pop, buildings, ring, the bank gap).
+
+Mutants: mutants.txt (mut.py.txt; Python, exact replace, restored in a finally, sha256 checked).
+Worse, and why: villages under 80 % at 2048 20 -> 21 (246371 #202, 91 -> 74 %: its riverbank second pass fits the
+village again after the lane and drops a back lane, plans/worse_246371_2048_202.png); 246371 #0 at 2048 housed
+31.3 -> 28.9 % (the snapped ring re-rolls its wall lots across the town; already a stranded city); app world (384,
+app_world_changed.txt) 246371 #6 19 245 -> 18 564 (-3.5 %, the same re-roll), 483920 #32 400 -> 364 (moved to the
+shore), 246371 #25 104 -> 62 (a roadless hamlet at a river bend, already broken), 483920 #185 317 -> 307.

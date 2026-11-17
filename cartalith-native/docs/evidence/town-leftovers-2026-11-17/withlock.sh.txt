@@ -1,0 +1,8 @@
+#!/bin/bash
+# withlock.sh <cmd...>: waits for C:/cw/.win_lock, runs, removes the lock ONLY if this run created it.
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 10; done
+echo "town2 agent (town leftovers 2026-11-17 frames), started $(date)" > C:/cw/.win_lock/owner.txt
+"$@"
+rc=$?
+grep -q "town2 agent" C:/cw/.win_lock/owner.txt 2>/dev/null && rm -rf C:/cw/.win_lock
+exit $rc

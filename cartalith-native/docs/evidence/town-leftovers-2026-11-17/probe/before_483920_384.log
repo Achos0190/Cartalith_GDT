@@ -1,0 +1,46 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+Cartalith shell build 140e492c30a3
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)
+   GDScript backtrace (most recent call first):
+       [0] _build_preview (res://shell/new_world_dialog.gd:1232)
+       [1] _build (res://shell/new_world_dialog.gd:732)
+       [2] setup (res://shell/new_world_dialog.gd:618)
+       [3] _make_window (res://shell/app.gd:2597)
+       [4] _ready (res://shell/app.gd:2004)
+       [5] _ready (res://_stretchbox_probe.gd:76)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17f5619cfa0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17f5619cfa0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x17f5619cfa0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  first call after the shell's own: 25.4 ms; cold (new keys after a switch): 24.6 ms; back to the first keys: 24.6 ms
+seed 483920 384x288: 233 settlements, 8 reported stretched; urban_layout_boxes cold 24.6 ms, warm 24.5 (24.5..24.7) ms (n=5)
+  urban_layouts of the 8 reported-stretched towns after the box call: 19907.5 ms
+  mismatches: ["#4 box (2506,2506) laid (1700,1250)", "#11 box (2506,2506) laid (1700,1250)", "#15 box (2460,1260) laid (1700,1250)", "#23 box (2069,2069) laid (1700,1250)"]
+  FAIL  B1 every reported box is the laid-out box (233 towns)
+  PASS  B2 premise: walls set to none on #0
+  after walls none: []
+  PASS  B2 the box follows a walls edit (#0)
+  PASS  B2 premise: rules preset set on #0
+  after the rules preset: []
+  PASS  B2 the box follows a rules edit (#0)
+  PASS  B3 premise: urban_wall_hug set false
+  urban_wall_hug false: ["#4 box (2506,2506) laid (1700,1250)", "#23 box (2069,2069) laid (1700,1250)"]
+  FAIL  B3 every reported box is the laid-out box with urban_wall_hug false
+  PASS  B3 premise: urban_wall_hug set true
+  urban_wall_hug true: ["#4 box (2506,2506) laid (1700,1250)", "#11 box (2506,2506) laid (1700,1250)", "#15 box (2460,1260) laid (1700,1250)", "#23 box (2069,2069) laid (1700,1250)"]
+  FAIL  B3 every reported box is the laid-out box with urban_wall_hug true
+RESULT: FAIL (9 checks, 3 failed)
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

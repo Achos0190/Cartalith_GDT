@@ -11,7 +11,8 @@ extends Node
 ## 1 700 x 1 250 m), and places a
 ## point of interest on its river side half way between the reference's 0.85 km reach and its own half box.
 ## Bars (each printed `PASS`/`FAIL`):
-##   S1  the town's planned box (`urban_layout_boxes`) is its laid-out box, and over the reference's
+##   S1  the town's reported box (`urban_layout_boxes`, the box it is drawn in since 2026-11-17) is its laid-out box,
+##       and over the reference's
 ##   S2  the POI stands farther than 0.85 km from the town (the old rule would not claim it) and the overlay claims it
 ##       (`_town_pin_membership`): hidden one zoom step below the town layer, drawn at the zoom where the layer appears
 ##   S3  culling: with the town's centre panned off the left edge by more than 0.85 km but less than its own half box, the
@@ -98,12 +99,12 @@ func _ready() -> void:
 	## Off in the app's defaults pending the owner (Ruling FQ); turned on here, read live by every layout.
 	_ok(bridge.param_set("urban_river_stretch", true), "urban_river_stretch set on")
 	## A live switch drops no cached town by itself (true of every `urban_*` switch); the shell's own path for "every cached
-	## town is stale" is `forget_all_urban_layouts`, which also re-reads the planned boxes (`refresh_urban_boxes`).
+	## town is stale" is `forget_all_urban_layouts`, which also re-reads the boxes (`refresh_urban_boxes`).
 	app.viewport.forget_all_urban_layouts()
 	var places: Array = bridge.settlements()
 	var boxes: Dictionary = bridge.urban_layout_boxes()
-	print("planned stretched boxes: %d of %d settlements" % [boxes.size(), places.size()])
-	## The town: `--id`, else the first planned-stretched town whose layout is laid out stretched.
+	print("reported stretched boxes: %d of %d settlements" % [boxes.size(), places.size()])
+	## The town: `--id`, else the first reported-stretched town whose layout is laid out stretched.
 	var id := -1
 	var lay: Dictionary = {}
 	for k in places.size():
@@ -134,10 +135,10 @@ func _ready() -> void:
 		return
 	var s: Dictionary = places[id]
 	var box = boxes.get(int(s["tid"]))
-	print("town #%d %s pop %d at (%d,%d): planned box %s, laid out %.0f x %.0f m, pin %s" % [id, s["name"], s["population"],
+	print("town #%d %s pop %d at (%d,%d): reported box %s, laid out %.0f x %.0f m, pin %s" % [id, s["name"], s["population"],
 		s["x"], s["y"], box, float(lay["wm"]), float(lay["hm"]), lay["pin"]])
 	_ok(box is Vector2 and is_equal_approx((box as Vector2).x, float(lay["wm"])) and is_equal_approx((box as Vector2).y, float(lay["hm"])),
-		"S1 the planned box is the laid-out box")
+		"S1 the reported box is the laid-out box")
 	var half_m: float = maxf(float(lay["wm"]), float(lay["hm"])) * 0.5
 	_ok(half_m > 900.0, "S1 the town's half box (%.0f m) is past the reference's 850 m" % half_m)
 

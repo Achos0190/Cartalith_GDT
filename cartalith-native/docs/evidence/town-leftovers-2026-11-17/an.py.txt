@@ -1,0 +1,30 @@
+"""an.py <json...>: per village, bank distances of market, nearest house, nearest street, river end vs market."""
+import json, sys, math
+def sd(p,a,b):
+    ax,ay=a;bx,by=b;px,py=p;dx,dy=bx-ax,by-ay;l=dx*dx+dy*dy
+    t=0 if l==0 else max(0,min(1,((px-ax)*dx+(py-ay)*dy)/l))
+    return math.hypot(px-ax-t*dx,py-ay-t*dy),t
+def ld(p,r):
+    best=(1e9,0,0)
+    for k in range(len(r)-1):
+        d,t=sd(p,r[k],r[k+1])
+        if d<best[0]: best=(d,k,t)
+    return best
+for f in sys.argv[1:]:
+    d=json.load(open(f)); r=d['river']; hw=d['river_w']/2
+    if len(r)<2: print(f,'no river'); continue
+    bank=lambda p: ld(p,r)[0]-hw
+    m=d['market']
+    md,mk,mt=ld(m,r)
+    atend = (mk==0 and mt==0) or (mk==len(r)-2 and mt==1)
+    ends=[r[0],r[-1]]; inbox=[0<=e[0]<=d['wm'] and 0<=e[1]<=d['hm'] for e in ends]
+    nh=min(bank(v) for b in d['buildings'] for v in b)
+    # nearest edge by class
+    ed={}
+    for e in d['edges']:
+        c=e[0]; a=(e[2],e[3]); b=(e[4],e[5])
+        for t in [i/10 for i in range(11)]:
+            q=(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t)
+            v=bank(q)-e[1]/2
+            if c not in ed or v<ed[c][0]: ed[c]=(v,e[1])
+    print(f.split('/')[-1], f"mkt bank {md-hw:.0f} at_river_end {atend} ends_in_box {inbox} near_house {nh:.1f} edges", {k:(round(v[0],1),v[1]) for k,v in ed.items()}, f"pop {d['pop']:.0f}")

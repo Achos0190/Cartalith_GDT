@@ -52,6 +52,15 @@
 //! the caller keep the answer. GDScript already knows when a world changes
 //! (`generation_finished`/`world_loaded`), which is the only invalidation
 //! signal a cache here would have had.
+//!
+//! **One cache since 2026-11-17, of verdicts, not layouts:** a stretched river
+//! town (Ruling FN) is laid out up to three times to know which layout holds
+//! Ruling FQ's bars. `WorldGen`'s `stretch_choices` keeps each such town's
+//! verdict under a hash of everything `generate()` is handed
+//! (`urban_adapter::stretch_choice_key`), so a changed world, place edit,
+//! rule or switch is a new key and never reads a stale verdict: the town's
+//! next layout costs one `generate()`, and `urban_layout_boxes` reports the
+//! box it is drawn in. No layout is kept.
 
 use godot::prelude::*;
 
@@ -616,6 +625,194 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     d
 }
 
+/// Bound on [`WorldGen`]'s `stretch_choices` entries: the cache is cleared
+/// when it would grow past this. **A labelled judgement**: about a hundred
+/// times the stretched towns of one world (17 and 18 on the census at 384
+/// and 2 048, `STATUS.md` "River towns stretched along their river"), so a
+/// long session of edits and regenerations never holds more than a few
+/// hundred kilobytes of verdicts, and no world ever refills it twice.
+pub(crate) const STRETCH_CHOICE_CAP: usize = 4096;
+
+impl WorldGen {
+    /// `currentResourcePotentials()`, for the one override that needs a
+    /// raster, or `None` when `wants` is false (no mining town asked: the
+    /// rasters are a whole-grid build). Split out of [`Self::urban_layouts`]
+    /// (2026-11-17) so [`Self::urban_layout_boxes`] hands the layout the same
+    /// ore bearing the drawn town gets.
+    fn ore_potentials(&self, ws: &cartalith_engine::WorldState, civ: &crate::CivData, wants: bool) -> Option<ResourcePotentials> {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        wants.then(|| {
+            let biome = cartalith_civ::build_biome_raster(
+                &civ.water_bodies,
+                &ws.temperature,
+                &ws.rainfall,
+            );
+            let lithology = cartalith_civ::build_lithology(
+                &ws.field,
+                &ws.age_field,
+                &ws.volcanic_field,
+                &ws.crust_field,
+                &ws.resistance_field,
+                &ws.rainfall,
+                self.sea_level,
+            );
+            // `scarcity=true, scarcity_legacy=false` -- the production
+            // defaults `currentResourcePotentials()` runs with, copied from
+            // `civ_military_bridge.rs`'s own call rather than chosen here.
+            cartalith_civ::build_resource_potentials(
+                &lithology,
+                Some(&ws.boundary_type),
+                Some(&ws.shear_field),
+                Some(&ws.flow_discharge),
+                Some(&biome),
+                &ws.field,
+                &ws.rainfall,
+                &ws.age_field,
+                gw,
+                gh,
+                self.sea_level,
+                Some(&ws.volcanic_field),
+                true,
+                false,
+            )
+        })
+    }
+
+    /// The [`urban_adapter::PlaceOverrides`] settlement `s` is laid out with
+    /// in the app: its place-editor row `e`, the ruling faction's faith and
+    /// every live `urban_*` switch. One builder for [`Self::urban_layouts`]
+    /// and [`Self::urban_layout_boxes`] (2026-11-17), so the box reported is
+    /// judged on the very context the town is drawn from (until then the box
+    /// call built a thinner one: no ways, faith, walls or wall hug).
+    ///
+    /// The place editor's own five fields, on their way into the
+    /// layout for the first time -- the same `place_extras` read
+    /// `settlement_diagnostics` below and `civ_military_bridge.rs`'s
+    /// `defences()` already do, handed to the entry point that takes
+    /// them. Every field is `None`/`false` until a player sets one,
+    /// which is `PlaceOverrides::default()` and therefore the same
+    /// layout `settlement_layout()` produced before this call site
+    /// changed.
+    fn place_overrides<'a>(
+        &self,
+        civ: &crate::CivData,
+        s: &cartalith_civ::NamedSettlement,
+        e: &'a crate::civ_roster_bridge::PlaceExtras,
+        resources: Option<&'a ResourcePotentials>,
+        stretch_others: &'a [(f64, f64, f64)],
+    ) -> urban_adapter::PlaceOverrides<'a> {
+        urban_adapter::PlaceOverrides {
+            specialisation: if e.specialisation.is_empty() {
+                None
+            } else {
+                Some(e.specialisation.as_str())
+            },
+            fortified_trait: e.traits.iter().any(|t| t == "fortified"),
+            walls_override: e.walls,
+            age_override: e.age.map(f64::from),
+            resources,
+            // Ruling J's town plan -- `None` for an unedited settlement,
+            // which is the exact call this site made before.
+            culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
+            variant: (e.variant != 0).then_some(e.variant),
+            // FH-R2 S3a, switched on 2026-10-25 (Ruling CY item 1, once
+            // places of worship were drawn: `"worship_sites"` above): the
+            // ruling faction's religion picks the rite through
+            // `religion_profile::religion_rite`. `None` -- an unaffiliated
+            // or Unclaimed town, or a religion whose form is S4's -- is the
+            // culture profile's default rite, the call this site made
+            // before, so those towns are byte-identical by control flow.
+            // Measured: site count, centres, yards and parcels unchanged;
+            // every moved house sits under a site (`fh_r2_m3_rite_only`).
+            faith: civ.town_faith(s),
+            // Ruling EW item 1: the wall hugs the built-up area. Read from the
+            // live parameters, so it is the switch the app and a save carry.
+            wall_hug: self.params.urban_wall_hug,
+            // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
+            // its bank. Read from the live parameters, like the wall hug.
+            riverbank: self.params.urban_riverbank,
+            // Ruling FE item 2: villages line their roads. Read live, like
+            // the two above.
+            street_village: self.params.urban_street_village,
+            // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
+            // the town. Read live, like the three above.
+            market_scale: self.params.urban_market_scale,
+            // Ruling FK item 1: a harbour town lays out to its water. Read
+            // live, like the four above.
+            harbour_front: self.params.urban_harbour_front,
+            // Ruling FN: river towns stretch along their river, short of
+            // the other settlements. Read live, like the five above.
+            river_stretch: self.params.urban_river_stretch.then_some(stretch_others),
+        }
+    }
+
+    /// Settlement `e`'s rule set: empty follows the world's active rules,
+    /// "default" pins `DEFAULT_RULES` (the `None` case), anything else a
+    /// named preset. `set_town_plan` refused unknown ids on the way in.
+    fn own_rules(&self, e: &crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules> {
+        match e.rules_preset.as_str() {
+            "" => self.urban_rules,
+            "default" => None,
+            id => urban_adapter::rules_preset(id),
+        }
+    }
+
+    /// `urban_adapter::run_layout` through the `stretch_choices` cache
+    /// (2026-11-17): a stretched town whose verdict is cached is laid out
+    /// once (`run_layout_as`), one not yet judged is judged and its verdict
+    /// kept (`run_layout_choosing`), and every other town is laid out as
+    /// before. Same layout as `run_layout` for every context: the verdict is
+    /// a pure function of what the key hashes.
+    pub(crate) fn stretch_layout(&self, ctx: &urban_adapter::UrbanContext, rules: Option<&urban_adapter::Rules>) -> Option<UrbanLayout> {
+        let Some(key) = urban_adapter::stretch_choice_key(ctx, rules) else {
+            return urban_adapter::run_layout(ctx, rules);
+        };
+        let hit = self.stretch_choices.borrow().get(&key).copied();
+        if let Some(c) = hit {
+            return urban_adapter::run_layout_as(ctx, rules, c);
+        }
+        let (l, c) = urban_adapter::run_layout_choosing(ctx, rules)?;
+        if let Some(c) = c {
+            self.remember_stretch_choice(key, c);
+        }
+        Some(l)
+    }
+
+    /// Stores a verdict, clearing the cache first when it is full
+    /// ([`STRETCH_CHOICE_CAP`]).
+    fn remember_stretch_choice(&self, key: u64, c: urban_adapter::StretchChoice) {
+        let mut m = self.stretch_choices.borrow_mut();
+        if m.len() >= STRETCH_CHOICE_CAP {
+            m.clear();
+        }
+        m.insert(key, c);
+    }
+
+    /// The box, `(width, height)` metres, the town of stretched context `ctx`
+    /// is drawn in: the stretched box (`ctx.site_box`) when the cached verdict
+    /// keeps the full or the milder stretch (both are laid out in it), the
+    /// reference's when it keeps the plain layout. **A town not judged yet
+    /// answers its planned box** (`ctx.site_box`, an upper bound on the drawn
+    /// town), and is never laid out here: judging every planned town on the
+    /// first call measured 4.9 to 13.3 s at 384 x 288 on the main thread
+    /// (`docs/evidence/town-leftovers-2026-11-17/probe/`), and the map asks
+    /// on every world apply and `urban_*` write. A town's own
+    /// [`Self::urban_layouts`] judges it and keeps the verdict, so the next
+    /// call reports its drawn box. A context with no verdict (not stretched)
+    /// answers the reference's box.
+    fn drawn_box(&self, ctx: &urban_adapter::UrbanContext, rules: Option<&urban_adapter::Rules>) -> (f64, f64) {
+        let reference = (urban_adapter::SITE_WM, urban_adapter::SITE_HM);
+        let Some(key) = urban_adapter::stretch_choice_key(ctx, rules) else {
+            return reference;
+        };
+        let planned = ctx.site_box.unwrap_or(reference);
+        match self.stretch_choices.borrow().get(&key) {
+            Some(urban_adapter::StretchChoice::Plain) => reference,
+            Some(_) | None => planned,
+        }
+    }
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// Generates the town layout for each named settlement index, by running
@@ -727,41 +924,7 @@ impl WorldGen {
                 .and_then(|idx| civ.settlements.get(idx))
                 .is_some_and(|s| civ.place_extras.get(s.tid).specialisation == "mining")
         });
-        let resources = wants_ore.then(|| {
-            let biome = cartalith_civ::build_biome_raster(
-                &civ.water_bodies,
-                &ws.temperature,
-                &ws.rainfall,
-            );
-            let lithology = cartalith_civ::build_lithology(
-                &ws.field,
-                &ws.age_field,
-                &ws.volcanic_field,
-                &ws.crust_field,
-                &ws.resistance_field,
-                &ws.rainfall,
-                self.sea_level,
-            );
-            // `scarcity=true, scarcity_legacy=false` -- the production
-            // defaults `currentResourcePotentials()` runs with, copied from
-            // `civ_military_bridge.rs`'s own call rather than chosen here.
-            cartalith_civ::build_resource_potentials(
-                &lithology,
-                Some(&ws.boundary_type),
-                Some(&ws.shear_field),
-                Some(&ws.flow_discharge),
-                Some(&biome),
-                &ws.field,
-                &ws.rainfall,
-                &ws.age_field,
-                gw,
-                gh,
-                self.sea_level,
-                Some(&ws.volcanic_field),
-                true,
-                false,
-            )
-        });
+        let resources = self.ore_potentials(ws, civ, wants_ore);
 
         let mut out = out;
         // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
@@ -771,69 +934,9 @@ impl WorldGen {
         for i in indices.as_slice() {
             let Ok(idx) = usize::try_from(*i) else { continue };
             let Some(s) = civ.settlements.get(idx) else { continue };
-            // The place editor's own five fields, on their way into the
-            // layout for the first time -- the same `place_extras` read
-            // `settlement_diagnostics` below and `civ_military_bridge.rs`'s
-            // `defences()` already do, handed to the entry point that takes
-            // them. Every field is `None`/`false` until a player sets one,
-            // which is `PlaceOverrides::default()` and therefore the same
-            // layout `settlement_layout()` produced before this call site
-            // changed.
             let e = civ.place_extras.get(s.tid);
-            let o = urban_adapter::PlaceOverrides {
-                specialisation: if e.specialisation.is_empty() {
-                    None
-                } else {
-                    Some(e.specialisation.as_str())
-                },
-                fortified_trait: e.traits.iter().any(|t| t == "fortified"),
-                walls_override: e.walls,
-                age_override: e.age.map(f64::from),
-                resources: resources.as_ref(),
-                // Ruling J's town plan -- `None` for an unedited settlement,
-                // which is the exact call this site made before.
-                culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
-                variant: (e.variant != 0).then_some(e.variant),
-                // FH-R2 S3a, switched on 2026-10-25 (Ruling CY item 1, once
-                // places of worship were drawn: `"worship_sites"` above): the
-                // ruling faction's religion picks the rite through
-                // `religion_profile::religion_rite`. `None` -- an unaffiliated
-                // or Unclaimed town, or a religion whose form is S4's -- is the
-                // culture profile's default rite, the call this site made
-                // before, so those towns are byte-identical by control flow.
-                // Measured: site count, centres, yards and parcels unchanged;
-                // every moved house sits under a site (`fh_r2_m3_rite_only`).
-                faith: civ.town_faith(s),
-                // Ruling EW item 1: the wall hugs the built-up area. Read from the
-                // live parameters, so it is the switch the app and a save carry.
-                wall_hug: self.params.urban_wall_hug,
-                // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
-                // its bank. Read from the live parameters, like the wall hug.
-                riverbank: self.params.urban_riverbank,
-                // Ruling FE item 2: villages line their roads. Read live, like
-                // the two above.
-                street_village: self.params.urban_street_village,
-                // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
-                // the town. Read live, like the three above.
-                market_scale: self.params.urban_market_scale,
-                // Ruling FK item 1: a harbour town lays out to its water. Read
-                // live, like the four above.
-                harbour_front: self.params.urban_harbour_front,
-                // Ruling FN: river towns stretch along their river, short of
-                // the other settlements. Read live, like the five above.
-                river_stretch: self.params.urban_river_stretch.then_some(stretch_others.as_slice()),
-            };
-            // Per-settlement rule set: empty follows the world's active rules,
-            // "default" pins `DEFAULT_RULES` (the `None` case), anything else a
-            // named preset. `set_town_plan` refused unknown ids on the way in.
-            let own_rules = match e.rules_preset.as_str() {
-                "" => self.urban_rules,
-                "default" => None,
-                id => urban_adapter::rules_preset(id),
-            };
-            if let Some(layout) =
-                urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o, own_rules.as_ref())
-            {
+            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &stretch_others);
+            if let Some(layout) = self.stretch_layout(&urban_adapter::um_place_context_with(&world, s, &civ.ways, &o), self.own_rules(&e).as_ref()) {
                 out.push(&layout_dict(idx as i64, &layout));
             }
         }
@@ -850,13 +953,20 @@ impl WorldGen {
     /// with the switch off answers `{}`. Keyed by `tid`, not roster index, so a
     /// filtered roster (CIVIL's *Exist only*) still finds its towns.
     ///
-    /// It is the planned box (`urban_adapter::um_layout_box`): a town whose
-    /// stretched layout the adapter refuses is laid out in the reference's box,
-    /// so this is an upper bound on what is drawn, and a fetched layout's own
-    /// `wm`/`hm` is exact. Reads the same overrides [`Self::urban_layouts`]
-    /// hands the stretch (the variant's seed, `urban_riverbank`,
-    /// `urban_harbour_front`, `urban_river_stretch` and every settlement's
-    /// position), and nothing a stretch does not read.
+    /// **The box the town is drawn in** (2026-11-17, the planned-versus-drawn
+    /// box row of `OUTSTANDING_WORK.md`; until then the planned box,
+    /// `urban_adapter::um_layout_box`, which claimed the stretched box for a
+    /// town the adapter refused, `stretch::stretch_holds`, and laid out at
+    /// 1 700 x 1 250 m), for every town already laid out: a town the plan
+    /// stretches is looked up on the context [`Self::urban_layouts`] draws it
+    /// from ([`Self::place_overrides`], the world's ways and its own rules) in
+    /// the verdicts `urban_layouts` kept (`stretch_choices`, by content key),
+    /// and a town not laid out yet answers its planned box, an upper bound
+    /// ([`Self::drawn_box`]: judging it here would lay it out up to three
+    /// times on the main thread). So the answer is exact once the town has
+    /// been drawn, and the call never lays a town out (20 to 40 ms at
+    /// 384 x 288, measured). A town the plan does not stretch costs no
+    /// context (`urban_adapter::um_stretch_gate`).
     ///
     /// Empty before the first `generate()`, on a world without its substrate,
     /// or with `urban_river_stretch` off.
@@ -888,16 +998,23 @@ impl WorldGen {
         };
         let others: Vec<(f64, f64, f64)> =
             civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
-        for s in &civ.settlements {
+        // The towns the plan may stretch: the adapter's own cheap gate on the
+        // overrides, before any context is built.
+        let candidates: Vec<&cartalith_civ::NamedSettlement> = civ
+            .settlements
+            .iter()
+            .filter(|s| {
+                let e = civ.place_extras.get(s.tid);
+                urban_adapter::um_stretch_gate(s, &self.place_overrides(civ, s, &e, None, &others))
+            })
+            .collect();
+        let wants_ore = candidates.iter().any(|s| civ.place_extras.get(s.tid).specialisation == "mining");
+        let resources = self.ore_potentials(ws, civ, wants_ore);
+        for s in candidates {
             let e = civ.place_extras.get(s.tid);
-            let o = urban_adapter::PlaceOverrides {
-                variant: (e.variant != 0).then_some(e.variant),
-                riverbank: self.params.urban_riverbank,
-                harbour_front: self.params.urban_harbour_front,
-                river_stretch: Some(others.as_slice()),
-                ..Default::default()
-            };
-            let (bw, bh) = urban_adapter::um_layout_box(&world, s, &o);
+            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &others);
+            let ctx = urban_adapter::um_place_context_with(&world, s, &civ.ways, &o);
+            let (bw, bh) = self.drawn_box(&ctx, self.own_rules(&e).as_ref());
             if (bw - urban_adapter::SITE_WM).abs() > 0.5 || (bh - urban_adapter::SITE_HM).abs() > 0.5 {
                 out.set(s.tid as i64, Vector2::new(bw as f32, bh as f32));
             }
@@ -1300,7 +1417,9 @@ impl crate::CivData {
     /// unaffiliated faction, a faction the roster has no row for, and a
     /// religion with no building form of its own in today's urban crate. Read
     /// fresh on every `urban_layouts` call (this module keeps no layout cache,
-    /// its header says why); whether a shell surface re-asks after a religion
+    /// its header says why; its one cache, the stretched towns' verdicts, is
+    /// keyed by content that includes the faith, `WorldGen::stretch_layout`);
+    /// whether a shell surface re-asks after a religion
     /// edit is that surface's own refresh rule.
     ///
     /// Called by `urban_layouts` for every town since 2026-10-25 (Ruling CY

@@ -1,0 +1,26 @@
+"""dplot.py <json> <png> <label> [cx cy half]: an app-world dump (viewer probe --dump) with its open-water runs; optional crop."""
+import json, sys
+from PIL import Image, ImageDraw
+d = json.load(open(sys.argv[1]))
+S = 0.6
+W, H = int(d['wm'] * S), int(d['hm'] * S)
+im = Image.new("RGB", (W, H), (226, 222, 205)); dr = ImageDraw.Draw(im)
+P = lambda p: (p[0] * S, p[1] * S)
+for r in d.get('water_runs', []):
+    dr.rectangle([r[0]*S, r[1]*S, r[2]*S, r[3]*S], fill=(150, 180, 215))
+if len(d['water_poly']) >= 3: dr.polygon([P(p) for p in d['water_poly']], fill=(120, 160, 210))
+if len(d['river']) >= 2: dr.line([P(p) for p in d['river']], fill=(60, 100, 190), width=max(1, int(d['river_w'] * S)))
+col = {"primary": (200, 120, 40), "street": (110, 110, 110), "lane": (170, 170, 170), "quay": (20, 20, 120), "ringroad": (90, 90, 90)}
+for e in d['edges']: dr.line([P(e[2:4]), P(e[4:6])], fill=col.get(e[0], (0, 0, 0)), width=max(1, int(e[1] * S)))
+for b in d['buildings']:
+    if len(b) >= 3: dr.polygon([P(p) for p in b], fill=(140, 70, 50))
+if len(d['plaza']) >= 3: dr.polygon([P(p) for p in d['plaza']], outline=(0, 140, 0), width=2)
+if len(d['ring']) >= 3: dr.line([P(p) for p in d['ring'] + d['ring'][:1]], fill=(200, 0, 0), width=2)
+x, y = P(d['market']); dr.ellipse([x-5, y-5, x+5, y+5], outline=(220, 0, 0), width=2)
+if len(sys.argv) > 6:
+    cx, cy, h = (float(v) for v in sys.argv[4:7])
+    im = im.crop((int((cx-h)*S), int((cy-h)*S), int((cx+h)*S), int((cy+h)*S))).resize((600, 600))
+    dr = ImageDraw.Draw(im)
+dr.rectangle([0, 0, im.size[0], 13], fill=(0, 0, 0))
+dr.text((3, 1), f"{sys.argv[3]}  pop {d['pop']:.0f}/{d['target']:.0f}", fill=(255, 255, 255))
+im.save(sys.argv[2])

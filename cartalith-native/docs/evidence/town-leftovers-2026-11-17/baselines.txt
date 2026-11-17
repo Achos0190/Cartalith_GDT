@@ -1,0 +1,16 @@
+
+running 11 tests
+test fh_r2_baseline::fh_r2_m2_belief_cost ... ok
+test fh_r2_baseline::fh_r2_m2_coexistence_bars ... ok
+test fh_r2_baseline::fh_r2_m1_moves_zero_bytes_against_m0 ... ok
+test fh_r2_baseline::fh_r2_m5_custom_axes ... ok
+test fh_r2_baseline::fh_r2_m6_policy_bars ... ok
+test fh_r2_baseline::fh_r2_m3_rite_only ... ok
+test fh_r2_baseline::fh_r2_urban_breakdown ... ok
+test g1_baseline::g1_0_baseline_columns ... ok
+test g1_baseline::ea0_ecological_ordering_diagnostic ... ok
+test g1_baseline::g1_comparison_report ... ok
+test g1_baseline::g1_forced_forms_are_ordered_and_near_their_anchor ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 1415 filtered out; finished in 71.93s
+

@@ -970,6 +970,215 @@ fn first_crossing(ring: &[Vec2]) -> Option<(usize, usize, Vec2)> {
     None
 }
 
+/// The step, metres, [`shore_snap`] samples a ring at: the census's own wall
+/// sample (`town_river_census::harbour_front_audit`, every 4 m), so a ring
+/// this leaves dry reads dry there too.
+pub const SHORE_STEP_M: f64 = 4.0;
+
+/// How far inside the dry cell, metres, [`shore_snap`] sets a point it takes
+/// off the water. **A labelled judgement**: half a metre, a wall's face on
+/// the shoreline (the drawn wall's own width then stands over the water's
+/// edge, as a sea wall does) and clear of the cell edge's rounding.
+pub const SHORE_INSET_M: f64 = 0.5;
+
+/// The farthest, metres, [`shore_snap`] moves a point to dry ground. **A
+/// labelled judgement**: about two of the 22 m water cells the host supplies
+/// (`cartalith_civ`'s water context); a ring further out than that is a wall
+/// across a bay, not a wall grazing the shore, and is left as it is.
+pub const SHORE_MAX_M: f64 = 45.0;
+
+/// The most times [`shore_snap`] re-samples its own result, the step halving
+/// each time down to [`SHORE_FINE_M`] (4, 2, 1 ... 0.125 m, then 0.125 m
+/// again): a chord between two snapped points can still clip the corner of a
+/// wet cell on a staircased shore, and each pass snaps what is left, nearer
+/// the corner. It stops at the first pass that finds nothing wet.
+const SHORE_PASSES: usize = 12;
+
+/// The finest step, metres, [`shore_snap`] samples at, and the step its
+/// final dryness test reads every chord at: a quarter of
+/// [`SHORE_INSET_M`], so the corner a chord between two inset points clips
+/// (a triangle half a metre a side) is sampled at least once.
+const SHORE_FINE_M: f64 = 0.125;
+
+/// The most, metres, [`shore_snap`]'s tidy pass lets a dropped vertex stand
+/// off the chord that replaces it. **A labelled judgement**: about a wall's
+/// own width, so the snapped run loses the 22 m staircase's zigzag (each
+/// sample snapped to whichever cell face is nearest) without moving the wall
+/// visibly; a chord is kept only where it stays dry.
+pub const SHORE_TIDY_M: f64 = 3.0;
+
+/// **Not the reference** (2026-11-17, Ruling FK's left item (iii), the wall
+/// rings over open water; rides `urban_wall_hug`): `ring` with every stretch
+/// that stands in an open-water cell of the site's water context
+/// (`WaterCtx::open_water`, the sea and lakes the City Viewer draws) moved
+/// onto the shore: each sample, every [`SHORE_STEP_M`] along the ring, that
+/// lies in a wet cell goes to the nearest point of the nearest dry cell,
+/// [`SHORE_INSET_M`] inside it. The ring's own vertices are kept where they
+/// are dry, so a stretch on land is unchanged.
+///
+/// **Why.** The fitted wall stands its clearance outside the built mass, and
+/// a harbour town builds to within a metre or two of its water, so where the
+/// mass meets the sea the wall's clearance lies over the water (census
+/// 2026-11-17, `docs/evidence/town-leftovers-2026-11-17/`: four rings, 8 to
+/// 464 m of wall in the water, up to about 19 m deep). The circuit builder
+/// (`fortify::build_wall_from_mass`) clips a hull to the land only on a
+/// coast site; on a river site its land test is the river's bank, so a
+/// river-mouth town's sea side was never clipped. The earlier attempt (a pull
+/// of whole vertices inland, `0e4af349`) moved no ring out of the water and
+/// walled an empty field; this moves only the wet samples, by at most
+/// [`SHORE_MAX_M`].
+///
+/// Returns `None` (keep `ring`) when the site has no open-water raster, no
+/// sample is wet, a wet sample has no dry cell within [`SHORE_MAX_M`], the
+/// result still has a chord in the water at [`SHORE_FINE_M`] after
+/// [`SHORE_PASSES`] and the corner detour, or it would cross itself. **Must never** move a dry
+/// vertex, move a point farther than [`SHORE_MAX_M`], or return a ring with
+/// a chord in open water or one that crosses itself.
+pub fn shore_snap(ring: &[Vec2], site: &Site) -> Option<Vec<Vec2>> {
+    let w = site.water_ctx()?;
+    let open = w.open_water.as_deref().filter(|o| o.len() == w.mw * w.mh)?;
+    let c = w.cell_m;
+    if ring.len() < 3 || !(c > 0.0) {
+        return None;
+    }
+    let wet = |p: Vec2| {
+        let (i, j) = ((p.x / c).floor(), (p.y / c).floor());
+        i >= 0.0 && j >= 0.0 && (i as usize) < w.mw && (j as usize) < w.mh && open[j as usize * w.mw + i as usize] == 1
+    };
+    let reach = (SHORE_MAX_M / c).ceil() as i64 + 1;
+    let to_dry = |p: Vec2| -> Option<Vec2> {
+        let (ci, cj) = ((p.x / c).floor() as i64, (p.y / c).floor() as i64);
+        let mut best: Option<(f64, Vec2)> = None;
+        for j in (cj - reach).max(0)..=(cj + reach).min(w.mh as i64 - 1) {
+            for i in (ci - reach).max(0)..=(ci + reach).min(w.mw as i64 - 1) {
+                if open[j as usize * w.mw + i as usize] == 1 {
+                    continue;
+                }
+                let (x0, y0) = (i as f64 * c, j as f64 * c);
+                let q = Vec2::new(p.x.clamp(x0 + SHORE_INSET_M, x0 + c - SHORE_INSET_M), p.y.clamp(y0 + SHORE_INSET_M, y0 + c - SHORE_INSET_M));
+                let d = q.dist(p);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, q));
+                }
+            }
+        }
+        best.filter(|&(d, _)| d <= SHORE_MAX_M).map(|(_, q)| q)
+    };
+    let mut r = ring.to_vec();
+    let mut moved = false;
+    let mut step = SHORE_STEP_M;
+    // A chord that stays dry at [`SHORE_FINE_M`], for the tidy pass and the
+    // final test.
+    let dry_chord = |a: Vec2, b: Vec2| {
+        let n = (a.dist(b) / SHORE_FINE_M).ceil().max(1.0) as usize;
+        (0..=n).all(|t| !wet(a.lerp(b, t as f64 / n as f64)))
+    };
+    for _ in 0..SHORE_PASSES {
+        let mut out: Vec<Vec2> = Vec::with_capacity(r.len());
+        let mut any = false;
+        for k in 0..r.len() {
+            let (a, b) = (r[k], r[(k + 1) % r.len()]);
+            out.push(if wet(a) {
+                any = true;
+                to_dry(a)?
+            } else {
+                a
+            });
+            let n = (a.dist(b) / step).ceil().max(1.0) as usize;
+            for t in 1..n {
+                let p = a.lerp(b, t as f64 / n as f64);
+                if wet(p) {
+                    any = true;
+                    out.push(to_dry(p)?);
+                }
+            }
+        }
+        if !any {
+            break;
+        }
+        moved = true;
+        // Consecutive duplicates (two samples snapped to one corner) dropped.
+        out.dedup_by(|x, y| x.dist(*y) < 1e-6);
+        r = out;
+        step = (step / 2.0).max(SHORE_FINE_M);
+    }
+    if !moved {
+        return None;
+    }
+    // A chord the passes left clipping a wet cell's corner (two snapped
+    // points in dry cells that touch only at that corner, so no point between
+    // them is dry and the passes cannot converge; 246371 #0 at 2 048 x 1311,
+    // 2026-11-17) is replaced by the L through one of its two axis corners,
+    // whichever keeps both legs dry; with neither, the ring is kept as it was.
+    let mut k = 0;
+    while k < r.len() {
+        let (a, b) = (r[k], r[(k + 1) % r.len()]);
+        if !dry_chord(a, b) {
+            let via = [Vec2::new(a.x, b.y), Vec2::new(b.x, a.y)].into_iter().find(|&q| dry_chord(a, q) && dry_chord(q, b))?;
+            r.insert(k + 1, via);
+        }
+        k += 1;
+    }
+    // The tidy pass: a vertex this function added (never one of `ring`'s own)
+    // goes when the chord past it stays dry and it stands within
+    // [`SHORE_TIDY_M`] of that chord.
+    let own = |p: Vec2| ring.iter().any(|q| q.dist(p) < 1e-9);
+    let mut k = 0;
+    while k < r.len() && r.len() > 3 {
+        let (a, v, b) = (r[(k + r.len() - 1) % r.len()], r[k], r[(k + 1) % r.len()]);
+        if !own(v) && dist_pt_seg(v, a, b) <= SHORE_TIDY_M && dry_chord(a, b) {
+            r.remove(k);
+        } else {
+            k += 1;
+        }
+    }
+    if (0..r.len()).any(|k| !dry_chord(r[k], r[(k + 1) % r.len()])) || ring_self_crosses(&r) {
+        return None;
+    }
+    Some(r)
+}
+
+/// [`shore_snap`] applied to a built wall (2026-11-17, Ruling FK's left
+/// item (iii); `generate` calls it after [`hug_wall`], so it rides
+/// `urban_wall_hug`): the ring set on the shore, and every gate kept on the
+/// moved ring (a gate on a stretch that moved goes to the nearest point of
+/// the new ring; one already on it stays). Nothing for a bastioned trace (its
+/// ring is the gorge through the bastion throats, not the drawn wall), a wall
+/// with no ring, or a ring [`shore_snap`] leaves as it is. Returns whether it
+/// moved the ring.
+pub fn snap_wall_to_shore(wall_state: &mut WallState, site: &Site) -> bool {
+    if wall_state.style == "bastioned" {
+        return false;
+    }
+    let Some(r) = wall_state.ring.as_deref().and_then(|r| shore_snap(r, site)) else {
+        return false;
+    };
+    for gt in wall_state.gates.iter_mut() {
+        gt.pt = nearest_on_ring(gt.pt, &r);
+    }
+    wall_state.ring = Some(r);
+    true
+}
+
+/// The point of the closed loop `ring` nearest `p` (`p` itself when it lies
+/// on the ring). For [`shore_snap`]'s caller, which keeps the wall's gates on
+/// the moved ring. `p` for a ring of fewer than two points.
+pub fn nearest_on_ring(p: Vec2, ring: &[Vec2]) -> Vec2 {
+    let mut best: Option<(f64, Vec2)> = None;
+    for k in 0..ring.len() {
+        let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+        let ab = b - a;
+        let l2 = ab.dot(ab);
+        let t = if l2 > 0.0 { ((p - a).dot(ab) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        let q = a + ab * t;
+        let d = q.dist(p);
+        if best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, q));
+        }
+    }
+    if ring.len() < 2 { p } else { best.map_or(p, |(_, q)| q) }
+}
+
 /// Whether the closed loop `ring` crosses itself ([`first_crossing`]).
 pub fn ring_self_crosses(ring: &[Vec2]) -> bool {
     first_crossing(ring).is_some()

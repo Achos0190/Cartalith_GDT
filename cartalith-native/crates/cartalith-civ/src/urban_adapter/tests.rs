@@ -2665,3 +2665,49 @@ fn a_stretched_layout_that_fails_the_bars_is_laid_out_in_the_reference_box() {
     assert_eq!((l.buildings.len(), l.pop), (plain.buildings.len(), plain.pop), "the switch-off town");
     assert!(plain.pop >= 0.9 * plain.pop_target, "premise: the plain town houses its target");
 }
+
+/// 2026-11-17, the planned-versus-drawn box row: `run_layout_choosing`
+/// reports which layout a stretched context kept, `run_layout_as` replays it
+/// with one `generate()` to the same town, and `stretch_choice_key` is a
+/// content key: equal for the same context, different when an input the
+/// verdict reads changes, absent for a context with no verdict. Protects the
+/// app's box cache (`cartalith_godot::urban_bridge`), which reports the box
+/// from the cached verdict and lays the town out from it.
+#[test]
+fn a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 20_000);
+    let alone = [(20.0, 20.0, 20_000.0)];
+    let on = PlaceOverrides { riverbank: true, river_stretch: Some(&alone), ..Default::default() };
+    let fresh = || um_place_context_with(&w, &s, &[], &on);
+    let ctx = fresh();
+    let off = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, ..Default::default() });
+    let same = |a: &UrbanLayout, b: &UrbanLayout| (a.wm, a.hm, a.buildings.len(), a.pop) == (b.wm, b.hm, b.buildings.len(), b.pop);
+    // The plan as made: a verdict, replayed to the town `run_layout` lays out.
+    let (l, c) = run_layout_choosing(&ctx, None).expect("a layout");
+    let c = c.expect("a stretched context has a verdict");
+    assert!(same(&l, &run_layout(&ctx, None).unwrap()), "choosing lays out what run_layout does");
+    assert!(same(&l, &run_layout_as(&ctx, None, c).unwrap()), "the replay is the same town");
+    // A plan the bars refuse: the verdict is the reference's box.
+    let mut bad = fresh();
+    bad.river_stretch = Some(cartalith_urban::stretch::StretchPlan { ahead_m: 100.0, behind_m: 100.0, across_m: 100.0 });
+    let (lb, cb) = run_layout_choosing(&bad, None).expect("a layout");
+    assert_eq!(cb, Some(StretchChoice::Plain));
+    assert_eq!((lb.wm, lb.hm), (SITE_WM, SITE_HM));
+    assert!(same(&lb, &run_layout_as(&bad, None, StretchChoice::Plain).unwrap()), "the plain replay is the same town");
+    // The key: by content.
+    assert_eq!(run_layout_choosing(&off, None).unwrap().1, None, "no verdict unstretched");
+    assert_eq!(stretch_choice_key(&off, None), None);
+    let k = stretch_choice_key(&ctx, None).expect("a key");
+    assert_eq!(stretch_choice_key(&fresh(), None), Some(k), "the same context, the same key");
+    assert_ne!(stretch_choice_key(&bad, None), Some(k), "another plan, another key");
+    let mut seeded = fresh();
+    seeded.seed = seeded.seed.wrapping_add(1);
+    assert_ne!(stretch_choice_key(&seeded, None), Some(k), "another seed, another key");
+    let mut walled = fresh();
+    walled.plain.as_mut().unwrap().walls = !walled.plain.as_ref().unwrap().walls;
+    assert_ne!(stretch_choice_key(&walled, None), Some(k), "the plain context is in the key too");
+}

@@ -703,3 +703,137 @@ fn random_outlines_pulled_taut_stay_simple_and_enclosing() {
         }
     }
 }
+
+/// A coast site on a 22 m raster whose rows from `sea_row` down are open
+/// water (`WaterCtx::open_water`), for [`shore_snap`]'s tests.
+fn sea_site(sea_row: usize) -> crate::site::Site {
+    let (mw, mh, c) = (77usize, 57usize, 22.0);
+    let mut open = vec![0u8; mw * mh];
+    for j in sea_row..mh {
+        for i in 0..mw {
+            open[j * mw + i] = 1;
+        }
+    }
+    let w = crate::site::WaterCtx { mask: open.clone(), dt: vec![0.0; mw * mh], mw, mh, cell_m: c, open_water: Some(open), ..Default::default() };
+    crate::site::build_site(7, 1700.0, 1250.0, "coast", crate::site::SiteOpts { water: Some(w), ..Default::default() })
+}
+
+/// Protects [`shore_snap`] (2026-11-17, Ruling FK's left item (iii);
+/// literals on a sea whose shore is the line y = 660, row 30 of 22 m cells):
+/// a square ring whose south side stands 15 m out in the sea (y = 675) comes
+/// back to the shore, every vertex within `SHORE_INSET_M` (0.5 m) of y = 660
+/// on the dry side, and no sample of the result, every 0.5 m, is in an
+/// open-water cell; its three dry sides and their vertices are unchanged. A
+/// ring that never reaches the water, or one whose wet side lies 60 m out
+/// (past `SHORE_MAX_M`, 45 m), is left as it is (`None`).
+#[test]
+fn a_wall_over_the_sea_is_set_on_the_shore_and_only_there() {
+    let site = sea_site(30);
+    // (700, 657) is dry (row 29) and stands 2.5 m off the shore chord the
+    // snapped side takes: the ring's own vertex, which the tidy pass keeps.
+    let ring = vec![Vec2::new(500.0, 400.0), Vec2::new(900.0, 400.0), Vec2::new(900.0, 675.0), Vec2::new(700.0, 657.0), Vec2::new(500.0, 675.0)];
+    let r = shore_snap(&ring, &site).expect("a wet side: snapped");
+    assert!(r.contains(&Vec2::new(700.0, 657.0)), "the ring's own dry vertex stays, near the chord or not");
+    let wet = |p: Vec2| p.y >= 660.0;
+    for k in 0..r.len() {
+        let (a, b) = (r[k], r[(k + 1) % r.len()]);
+        for t in 0..=((a.dist(b) / 0.5).ceil() as usize) {
+            let p = a.lerp(b, t as f64 * 0.5 / a.dist(b).max(1e-9));
+            assert!(!wet(p) || a.dist(b) < 1e-9, "a sample in the sea at {p:?}");
+        }
+    }
+    assert!(r.contains(&Vec2::new(500.0, 400.0)) && r.contains(&Vec2::new(900.0, 400.0)), "the dry vertices stay");
+    assert!(r.iter().filter(|p| p.y > 400.0 + 1e-9 && **p != Vec2::new(700.0, 657.0)).all(|p| p.y >= 659.5 - 1e-9 && p.y < 660.0 || (p.x - 500.0).abs() < 1e-9 || (p.x - 900.0).abs() < 1e-9), "every moved point on the shore");
+    assert!(r.iter().any(|p| (p.y - 659.5).abs() < 1e-9), "the south side stands at the shore, inset 0.5 m");
+    assert!(r.len() <= 9, "the tidy pass leaves a straight shore run a few vertices, not one every sample: {}", r.len());
+    let dry = vec![Vec2::new(500.0, 400.0), Vec2::new(900.0, 400.0), Vec2::new(900.0, 600.0), Vec2::new(500.0, 600.0)];
+    assert!(shore_snap(&dry, &site).is_none(), "a dry ring is kept");
+    let deep = vec![Vec2::new(500.0, 400.0), Vec2::new(900.0, 400.0), Vec2::new(900.0, 720.0), Vec2::new(500.0, 720.0)];
+    assert!(shore_snap(&deep, &site).is_none(), "60 m out: kept, not dragged");
+}
+
+/// Protects [`nearest_on_ring`] (literals): a point off a square ring goes
+/// to the nearest point of its nearest side, a point on the ring stays.
+#[test]
+fn a_gate_goes_to_the_nearest_point_of_its_wall() {
+    let ring = vec![Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0, 100.0), Vec2::new(0.0, 100.0)];
+    assert_eq!(nearest_on_ring(Vec2::new(50.0, 112.0), &ring), Vec2::new(50.0, 100.0));
+    assert_eq!(nearest_on_ring(Vec2::new(103.0, 40.0), &ring), Vec2::new(100.0, 40.0));
+    assert_eq!(nearest_on_ring(Vec2::new(30.0, 0.0), &ring), Vec2::new(30.0, 0.0));
+}
+
+/// A coast site whose open water is the cells with `i + j >= k` (a diagonal
+/// shore, staircased on the 22 m raster).
+fn stair_site(k: usize) -> crate::site::Site {
+    let (mw, mh, c) = (77usize, 57usize, 22.0);
+    let mut open = vec![0u8; mw * mh];
+    for j in 0..mh {
+        for i in 0..mw {
+            open[j * mw + i] = u8::from(i + j >= k);
+        }
+    }
+    let w = crate::site::WaterCtx { mask: open.clone(), dt: vec![0.0; mw * mh], mw, mh, cell_m: c, open_water: Some(open), ..Default::default() };
+    crate::site::build_site(7, 1700.0, 1250.0, "coast", crate::site::SiteOpts { water: Some(w), ..Default::default() })
+}
+
+/// Protects [`shore_snap`]'s passes on a staircased shore (the 22 m raster's
+/// diagonal, `i + j >= 70`), where a chord between two snapped points clips
+/// the corners of wet cells: the result has no sample, every eighth of a
+/// metre, in an open-water cell (one pass, or passes at a fixed 4 m step,
+/// leave clipped corners), and the tidy pass leaves it at most 60 vertices,
+/// not one per sample. Literals measured on this fixture, 2026-11-17.
+#[test]
+fn a_wall_on_a_staircased_shore_is_dry_and_tidy() {
+    let site = stair_site(70);
+    let wet = |p: Vec2| {
+        let (i, j) = ((p.x / 22.0).floor(), (p.y / 22.0).floor());
+        i >= 0.0 && j >= 0.0 && i < 77.0 && j < 57.0 && i + j >= 70.0
+    };
+    let ring = vec![Vec2::new(400.0, 300.0), Vec2::new(950.0, 300.0), Vec2::new(950.0, 560.0), Vec2::new(900.0, 700.0), Vec2::new(700.0, 760.0), Vec2::new(400.0, 760.0)];
+    assert!(wet(ring[3]) && !wet(ring[2]) && !wet(ring[4]), "premise: one vertex over the water, its neighbours dry");
+    let r = shore_snap(&ring, &site).expect("snapped");
+    for k in 0..r.len() {
+        let (a, b) = (r[k], r[(k + 1) % r.len()]);
+        let n = (a.dist(b) / 0.125).ceil().max(1.0) as usize;
+        assert!((0..=n).all(|t| !wet(a.lerp(b, t as f64 / n as f64))), "a sample in the water on {a:?}-{b:?}");
+    }
+    assert!(r.len() <= 60, "{} vertices", r.len());
+}
+
+/// Protects [`snap_wall_to_shore`] (literals): the ring goes to the shore,
+/// a gate on the moved side goes onto the new ring and a gate on a dry side
+/// stays where it was; a bastioned trace is left alone.
+#[test]
+fn the_gates_stay_on_a_wall_set_on_the_shore() {
+    let site = sea_site(30);
+    let gate = |x: f64, y: f64| crate::growth::Gate { pt: Vec2::new(x, y), water: false, prov: String::new() };
+    let mut ws = WallState { ring: Some(vec![Vec2::new(500.0, 400.0), Vec2::new(900.0, 400.0), Vec2::new(900.0, 675.0), Vec2::new(500.0, 675.0)]), gates: vec![gate(700.0, 675.0), gate(700.0, 400.0)], style: "curtain".into(), ..Default::default() };
+    assert!(snap_wall_to_shore(&mut ws, &site), "moved");
+    assert_eq!(ws.gates[0].pt, Vec2::new(700.0, 659.5), "the shore gate goes onto the new ring");
+    assert_eq!(ws.gates[1].pt, Vec2::new(700.0, 400.0), "the land gate stays");
+    let mut fort = WallState { ring: Some(vec![Vec2::new(500.0, 400.0), Vec2::new(900.0, 400.0), Vec2::new(900.0, 675.0), Vec2::new(500.0, 675.0)]), style: "bastioned".into(), ..Default::default() };
+    assert!(!snap_wall_to_shore(&mut fort, &site), "a bastioned trace is left alone");
+}
+
+/// Protects [`shore_snap`]'s corner detour (2026-11-17, literals on the
+/// `i + j >= 70` staircase): the ring's own chord from (836.5, 703.5) to
+/// (835.5, 704.5) joins two dry cells that touch only at the corner
+/// (836, 704) of a wet one, so no point between them is dry; the result
+/// goes round by an axis corner and no chord, every eighth of a metre, is in
+/// the water.
+#[test]
+fn a_chord_through_a_wet_corner_goes_round_it() {
+    let site = stair_site(70);
+    let wet = |p: Vec2| {
+        let (i, j) = ((p.x / 22.0).floor(), (p.y / 22.0).floor());
+        i >= 0.0 && j >= 0.0 && i < 77.0 && j < 57.0 && i + j >= 70.0
+    };
+    let ring = vec![Vec2::new(700.0, 600.0), Vec2::new(900.0, 700.0), Vec2::new(836.5, 703.5), Vec2::new(835.5, 704.5), Vec2::new(700.0, 720.0), Vec2::new(600.0, 650.0)];
+    assert!(wet(Vec2::new(836.0, 704.0)) && !wet(ring[2]) && !wet(ring[3]), "premise: a corner-only join");
+    let r = shore_snap(&ring, &site).expect("snapped");
+    for k in 0..r.len() {
+        let (a, b) = (r[k], r[(k + 1) % r.len()]);
+        let n = (a.dist(b) / 0.125).ceil().max(1.0) as usize;
+        assert!((0..=n).all(|t| !wet(a.lerp(b, t as f64 / n as f64))), "a sample in the water on {a:?}-{b:?}");
+    }
+}

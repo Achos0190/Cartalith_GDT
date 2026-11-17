@@ -1,0 +1,8 @@
+#!/bin/bash
+# far.sh <exe> <outdir>: the 2048 river villages with no house within two street widths (before list) laid out and plotted.
+E=$1; O=$2; mkdir -p $O
+cd C:/cw/town2/cartalith-native/crates/cartalith-godot
+run(){ env TOWN_RIVER_GW=2048 TOWN_RIVER_GH=1311 TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_SEEDS=$1 TOWN_RIVER_ONLY=$2 TOWN_RIVER_PLOT=$O $E both_banks_audit --ignored --nocapture --test-threads 1 > $O/log_$1.txt 2>&1; }
+run 483920 36,105,115,150,160,179,180,188,192,194,212 & run 912345 7,34,81,104,162,239 & run 246371 100,140,145,168,173,213 & wait
+cd C:/cw/town2_scratch/plots
+for f in $O/*.json; do b=$(basename $f); python ../py/an.py b2048/$b | grep -o "near_house [0-9.]*\|pop [0-9]*" | tr '\n' ' '; echo -n " -> "; python ../py/an.py $f | grep -o "near_house [0-9.]*\|pop [0-9]*" | tr '\n' ' '; echo $b; done

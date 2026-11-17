@@ -135,15 +135,27 @@ pub fn plat_tofts(
     let buildable = |p: &Parcel| p.frontage >= 3.2 && p.depth >= TOFT_MIN_DEPTH_M && !(terrain_aware && lot_suitability(site, p) < TERRAIN_BUILD_MIN);
     let have = parcels.iter().filter(|p| buildable(p)).count();
     let need = (pop_target / HOUSEHOLD).ceil() as usize;
-    if have >= need {
+    // The landing's streets (2026-11-17): a [`landing_lane`] down to the
+    // river and Ruling FK's harbour street down to the sea
+    // (`generate::harbour_street`). Up to [`LANDING_TOFTS`] tofts on them go
+    // first, nearest the water, even in a village its block lots already
+    // house, so a village housed away from its water still has its houses at
+    // the landing; then, while the village is short, every road's tofts
+    // nearest the market, as before. A village with no landing street is
+    // platted exactly as before (the same draws, the same order).
+    let is_landing = |e: &crate::graph::Edge| e.prov == LANDING_LANE_PROV || e.prov == crate::generate::HARBOUR_STREET_PROV;
+    let has_landing = g.edges.iter().any(|e| e.alive && is_landing(e));
+    if have >= need && !has_landing {
         return Vec::new();
     }
     let greens: Vec<&[Vec2]> = blocks.iter().filter(|b| b.plaza).map(|b| b.face_poly.as_slice()).collect();
     let reach = TOFT_REACH_RF * max_rf;
     let mut r = stream(seed, "village/toft");
-    // Every candidate: its distance to the market, the quad (front edge
-    // first, `poly[0]`-`poly[1]` on the street), and the street's class.
-    let mut cands: Vec<(f64, Vec<Vec2>, &'static str)> = Vec::new();
+    // Every candidate: its distance to the market, its distance to the water
+    // (`Site::river_dist`), the quad (front edge first, `poly[0]`-`poly[1]`
+    // on the street), the street's class, and whether that street is a
+    // landing's.
+    let mut cands: Vec<(f64, f64, Vec<Vec2>, &'static str, bool)> = Vec::new();
     // The riverside edges count as frontage only on a riverbank site
     // (`TOWN_GENERATOR_JUDGEMENT.md` change 5, Ruling EZ item 1): there the
     // embankment's quay and bank stretches are the village's waterfront, and a
@@ -189,23 +201,20 @@ pub fn plat_tofts(
                 // Laid out as `wallside`'s lots are: the frontage `poly[0]`-
                 // `poly[1]` on the street, the back `poly[3]`-`poly[2]`.
                 let quad = vec![f0, f1, f1 + nn * depth, f0 + nn * depth];
-                let d = poly_centroid(&quad).dist(market);
+                let c = poly_centroid(&quad);
+                let d = c.dist(market);
                 if d <= reach {
-                    cands.push((d, quad, e.cls));
+                    cands.push((d, site.river_dist(c), quad, e.cls, is_landing(e)));
                 }
             }
         }
     }
-    cands.sort_by(|x, y| x.0.total_cmp(&y.0));
     let mut taken: Vec<(Vec<Vec2>, [f64; 4])> = parcels.iter().map(|p| (p.poly.clone(), bbox(&p.poly))).collect();
     let mut out: Vec<Parcel> = Vec::new();
     let mut tone = stream(seed, "village/tone");
-    for (_, quad, cls) in cands {
-        if have + out.len() >= need {
-            break;
-        }
-        if !accepts(g, site, &greens, &taken, &quad) {
-            continue;
+    let mut take = |quad: &[Vec2], cls: &'static str, out: &mut Vec<Parcel>, taken: &mut Vec<(Vec<Vec2>, [f64; 4])>| -> bool {
+        if !accepts(g, site, &greens, taken, quad) {
+            return false;
         }
         let k = out.len();
         let p = Parcel {
@@ -213,8 +222,8 @@ pub fn plat_tofts(
             block: format!("toft{k}"),
             frontage: quad[0].dist(quad[1]),
             depth: (quad[0].dist(quad[3]) + quad[1].dist(quad[2])) / 2.0,
-            area: poly_area(&quad).abs(),
-            poly: quad,
+            area: poly_area(quad).abs(),
+            poly: quad.to_vec(),
             age: epochs as f64,
             edge_cls: cls,
             tone: tone.u(),
@@ -223,10 +232,29 @@ pub fn plat_tofts(
             gate_quality: None,
         };
         if !buildable(&p) {
-            continue;
+            return false;
         }
         taken.push((p.poly.clone(), bbox(&p.poly)));
         out.push(p);
+        true
+    };
+    // The landing's tofts, nearest the water first (stable: equal distances
+    // keep the candidates' order).
+    let mut landing: Vec<&(f64, f64, Vec<Vec2>, &'static str, bool)> = cands.iter().filter(|c| c.4).collect();
+    landing.sort_by(|x, y| x.1.total_cmp(&y.1));
+    for c in landing {
+        if out.len() >= LANDING_TOFTS {
+            break;
+        }
+        take(&c.2, c.3, &mut out, &mut taken);
+    }
+    // Then every road's, nearest the market, while the village is short.
+    cands.sort_by(|x, y| x.0.total_cmp(&y.0));
+    for c in &cands {
+        if have + out.len() >= need {
+            break;
+        }
+        take(&c.2, c.3, &mut out, &mut taken);
     }
     out
 }
@@ -284,6 +312,103 @@ pub fn landing_market(site: &Site, m: Vec2) -> Option<Vec2> {
         return None;
     }
     Some(q + (m - q).norm() * stand)
+}
+
+/// How far short of the channel's edge, metres, [`landing_lane`] stops. **A
+/// labelled judgement**: [`TOFT_BANK_CLEAR_M`] and a metre more, so the lane
+/// ends on the bank (a landing) and clears `blocks::lot_is_wet`'s own margin
+/// (half the river's width plus a metre) by a metre.
+pub const LANDING_LANE_CLEAR_M: f64 = 2.0;
+
+/// The least distance, metres, from the market to the channel's edge for
+/// which [`landing_lane`] lays a lane: two of the census's street widths
+/// (`town_river_census::BANK_STREET_W`, 5.4 m, the widest street `grow`
+/// lays), the reach within which a house round the market already counts as
+/// on the water. **A labelled judgement** tied to that measure.
+pub const LANDING_LANE_MIN_M: f64 = 10.8;
+
+/// The landing lane's width, metres: `generate::HARBOUR_STREET_W` (4 m), the
+/// reference harbour's lesser streets, the same form for a river landing.
+pub const LANDING_LANE_W: f64 = 4.0;
+
+/// How many tofts [`plat_tofts`] lines a [`landing_lane`] with in a village
+/// its block lots already house. **A labelled judgement**: one plot each side
+/// of the lane, the houses at the landing; more would over-house the village
+/// for the sake of the measure.
+pub const LANDING_TOFTS: usize = 2;
+
+/// Provenance of [`landing_lane`]'s street.
+pub const LANDING_LANE_PROV: &str = "Landing lane: from the village green down to its river's bank, so the village's houses reach the water (not the reference; 2026-11-17, the river villages with no house near their bank).";
+
+/// **Not the reference** (`TOWN_GENERATOR_JUDGEMENT.md` change 5's *"no
+/// river town with every house over two widths away"*, for street villages;
+/// rides `urban_street_village`): a lane from a street village's market `m`
+/// straight down to its river, so [`plat_tofts`] lines it with houses to the
+/// water. Returns the lane's water end, or `None`.
+///
+/// **Why.** [`landing_market`] stands the market [`LANDING_M`] (32 m) from
+/// the channel's edge, and the host's roads then leave it inland: on the
+/// census at 2 048 x 1311 (2026-11-17, `docs/evidence/town-leftovers-2026-11-17/`)
+/// 13 of the 23 river villages with every house over two street widths from
+/// the bank had their market at that 32 m and no street nearer the water than
+/// the road's own end at 28 m; most stand where the map's river begins or
+/// ends in the box, so their roads run away from it.
+///
+/// **What.** From `m` toward the nearest point of the river's centreline
+/// (`site.river`), a [`LANDING_LANE_W`] street ending
+/// [`LANDING_LANE_CLEAR_M`] short of the channel's edge, laid only when the
+/// market stands more than [`LANDING_LANE_MIN_M`] from that edge and every
+/// one of eleven samples of the line is dry (`Site::is_water`) and clear of
+/// the channel (half its width plus a metre). Draws nothing. **Must never**
+/// lay a street into the water or across the river (it runs toward the
+/// nearest centreline point, so it stays on `m`'s bank), nor run for a town
+/// (`generate_pass` calls it only for a street village).
+pub fn landing_lane(site: &Site, g: &mut Graph, m: Vec2) -> Option<Vec2> {
+    if site.river.len() < 2 {
+        return None;
+    }
+    let mut best: Option<(f64, Vec2)> = None;
+    for w in site.river.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let ab = b - a;
+        let l2 = ab.dot(ab);
+        let t = if l2 > 0.0 { ((m - a).dot(ab) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        let q = a + ab * t;
+        let d = q.dist(m);
+        if best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, q));
+        }
+    }
+    let (d, q) = best?;
+    let half = site.river_w / 2.0;
+    if !(d - half > LANDING_LANE_MIN_M) {
+        return None;
+    }
+    let end = q + (m - q).norm() * (half + LANDING_LANE_CLEAR_M);
+    let dry = (0..=10).all(|i| {
+        let p = m.lerp(end, i as f64 / 10.0);
+        !site.is_water(p) && site.river_dist(p) >= half + 1.0
+    });
+    if !dry {
+        return None;
+    }
+    // Laid from the water up (its first node at the bank), so [`plat_tofts`],
+    // which cuts a street into frontages from its first node, starts the
+    // lane's first plot at the water rather than leaving a short remnant there.
+    // Where the lane runs along a street already there (`Graph::add_street`
+    // hands back the existing edge between two nodes it would join), that
+    // street is the landing: a street or lane piece of it takes the lane's
+    // provenance, so [`plat_tofts`] finds it (seed 246371 #100 and #173 and
+    // 912345 #162 at 2 048, 2026-11-17: the lane was laid over the street
+    // the village's road left to the river's head, and the landing had no
+    // edge of its own). A primary (the host's road) keeps its own.
+    for id in g.add_street(end.x, end.y, m.x, m.y, "street", LANDING_LANE_W, 0, LANDING_LANE_PROV) {
+        let e = &mut g.edges[id];
+        if e.cls == "street" || e.cls == "lane" {
+            e.prov = LANDING_LANE_PROV.to_string();
+        }
+    }
+    Some(end)
 }
 
 /// How far from the market point the host's roads are weighed by

@@ -3703,7 +3703,8 @@ func forget_all_urban_layouts() -> void:
 	refresh_urban_boxes()
 	overlay.queue_redraw()
 
-## Ruling FQ (owner, 2026-11-16): hands the overlay each stretched river town's planned layout box
+## Ruling FQ (owner, 2026-11-16): hands the overlay each stretched river town's layout box (the box it is drawn in
+## since 2026-11-17)
 ## (`EngineBridge.urban_layout_boxes`), so its town layer claims pins and culls by each town's own extent, not the
 ## reference's 1.7 km box (`map_overlay.gd`, `_town_half_km`). Called wherever the roster or the layouts are dropped.
 func refresh_urban_boxes() -> void:

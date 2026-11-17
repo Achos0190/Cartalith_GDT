@@ -1,0 +1,42 @@
+KILLED      L1 lane min distance ignored  village::landing_tests::a_landing_lane_runs_from_the_bank_up_to_the_market
+KILLED      L2 lane clearance 2 -> 3  village::landing_tests::a_landing_lane_runs_from_the_bank_up_to_the_market
+SURVIVED    L3 lane dry test ignores open water  
+KILLED      L4 lane laid market-first  village::landing_tests::a_landing_lane_runs_from_the_bank_up_to_the_market
+KILLED      L4b no relabel of a street the lane runs along  village::landing_tests::a_landing_lane_runs_from_the_bank_up_to_the_market
+KILLED      L4c a primary relabelled too  village::landing_tests::a_landing_lane_runs_from_the_bank_up_to_the_market
+KILLED      L5 no landing tofts  village::landing_tests::the_landing_gets_its_houses_even_in_a_housed_village
+KILLED      L6 harbour street not a landing  village::landing_tests::the_landing_gets_its_houses_even_in_a_housed_village
+KILLED      L7 landing tofts farthest from water first  village::landing_tests::the_landing_gets_its_houses_even_in_a_housed_village
+KILLED      L8 housed village returns early despite a landing  village::landing_tests::the_landing_gets_its_houses_even_in_a_housed_village
+KILLED      L9 generate lays no lane  village::landing_tests::a_village_whose_road_leaves_its_landing_gets_a_lane_to_the_water
+KILLED      L10 lane gate ignores the pin  village::landing_tests::a_village_whose_road_leaves_its_landing_gets_a_lane_to_the_water
+KILLED      G1 gates not kept on the moved ring  wallhug::tests::the_gates_stay_on_a_wall_set_on_the_shore
+KILLED      G2 a bastioned ring snapped  wallhug::tests::the_gates_stay_on_a_wall_set_on_the_shore
+SURVIVED    G3 generate does not snap  
+KILLED      S1 shore inset 0.5 -> 1.0  wallhug::tests::a_wall_over_the_sea_is_set_on_the_shore_and_only_there; wallhug::tests::the_gates_stay_on_a_wall_set_on_the_shore
+KILLED      S2 shore reach 45 -> 70  wallhug::tests::a_wall_over_the_sea_is_set_on_the_shore_and_only_there
+KILLED      S3 a dry ring is returned  wallhug::tests::a_wall_over_the_sea_is_set_on_the_shore_and_only_there
+KILLED      S4 no tidy pass  wallhug::tests::a_wall_over_the_sea_is_set_on_the_shore_and_only_there; wallhug::tests::a_wall_on_a_staircased_shore_is_dry_and_tidy
+KILLED      S5 tidy may drop the ring's own vertices  wallhug::tests::a_wall_over_the_sea_is_set_on_the_shore_and_only_there
+SURVIVED    S6 no final chord test  
+KILLED      S7 one pass only  wallhug::tests::a_wall_on_a_staircased_shore_is_dry_and_tidy
+KILLED      S8 the step does not halve  wallhug::tests::a_wall_on_a_staircased_shore_is_dry_and_tidy
+KILLED      S9 the tidy chord need not be dry  wallhug::tests::a_wall_on_a_staircased_shore_is_dry_and_tidy
+KILLED      C1 key omits the plain context  urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+KILLED      C2 key omits the seed  urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+KILLED      C3 plain replay lays the stretch  urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+SURVIVED    C4 full verdict reported as plain  
+KILLED      C5 milder replay without its plan  urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+SURVIVED    C6 stretch gate ignores the population  
+SURVIVED    S10 no corner detour  (run separately with S6 after the detour was added: both SURVIVED on the unit fixtures)
+
+31 mutants, 25 killed by unit tests. Survivors, with the reason:
+ L3  the lane's is_water test: equivalent on every site landing_lane runs on (a riverbank site, whose river_dist
+     already reads open water as half the river's width beyond it, so the river_dist test refuses the same points).
+ G3  generate not calling snap_wall_to_shore: no unit fixture lays out a walled harbour town on real water; the
+     census is the gate (rings in open water 3 / 1 with the call off, origin/main's numbers; 0 / 0 with it).
+ S6  the final chord test, and S10 the corner detour: the unit fixtures converge in the passes. The census reaches
+     the detour: without it (the v6 binary) 246371 #0 at 2048 keeps its wet ring (1 ring); with it 0.
+ C4  the full verdict reported as plain: the adapter fixture's town is not kept at its full stretch, so no fixture
+     reaches that return; the probe's B1 does (every reported box equals its laid-out box on three app worlds).
+ C6  the stretch gate without its population test: speed only (river_stretch_plan refuses the same towns).

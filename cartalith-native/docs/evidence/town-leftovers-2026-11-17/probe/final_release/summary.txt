@@ -1,0 +1,20 @@
+483920 384x288 r1:   first call after the shell's own: 39.2 ms; cold (new keys after a switch): 36.6 ms; back to the first keys: 36.7 ms | warm 36.4 (36.3..37.6) |   urban_layouts of the 8 reported-stretched towns after the box call: 19211.0 ms | RESULT: PASS (9 checks, 0 failed)
+912345 384x288 r1:   first call after the shell's own: 32.4 ms; cold (new keys after a switch): 31.9 ms; back to the first keys: 32.1 ms | warm 31.7 (31.5..35.4) |   urban_layouts of the 8 reported-stretched towns after the box call: 11453.1 ms | RESULT: PASS (9 checks, 0 failed)
+246371 384x288 r1:   first call after the shell's own: 21.3 ms; cold (new keys after a switch): 20.8 ms; back to the first keys: 20.2 ms | warm 20.1 (20.1..20.2) |   urban_layouts of the 5 reported-stretched towns after the box call: 3654.9 ms | RESULT: PASS (9 checks, 0 failed)
+483920 384x288 r2:   first call after the shell's own: 37.1 ms; cold (new keys after a switch): 36.5 ms; back to the first keys: 36.6 ms | warm 36.3 (36.3..36.5) |   urban_layouts of the 8 reported-stretched towns after the box call: 19193.5 ms | RESULT: PASS (9 checks, 0 failed)
+912345 384x288 r2:   first call after the shell's own: 32.6 ms; cold (new keys after a switch): 31.8 ms; back to the first keys: 32.4 ms | warm 31.6 (31.5..32.3) |   urban_layouts of the 8 reported-stretched towns after the box call: 11457.8 ms | RESULT: PASS (9 checks, 0 failed)
+246371 384x288 r2:   first call after the shell's own: 22.3 ms; cold (new keys after a switch): 21.0 ms; back to the first keys: 20.3 ms | warm 20.2 (20.1..20.4) |   urban_layouts of the 5 reported-stretched towns after the box call: 3639.9 ms | RESULT: PASS (9 checks, 0 failed)
+483920 384x288 r3:   first call after the shell's own: 39.0 ms; cold (new keys after a switch): 36.5 ms; back to the first keys: 36.4 ms | warm 36.4 (36.3..36.7) |   urban_layouts of the 8 reported-stretched towns after the box call: 19219.2 ms | RESULT: PASS (9 checks, 0 failed)
+912345 384x288 r3:   first call after the shell's own: 32.5 ms; cold (new keys after a switch): 31.6 ms; back to the first keys: 32.0 ms | warm 31.6 (31.6..31.6) |   urban_layouts of the 8 reported-stretched towns after the box call: 11447.0 ms | RESULT: PASS (9 checks, 0 failed)
+246371 384x288 r3:   first call after the shell's own: 21.6 ms; cold (new keys after a switch): 21.0 ms; back to the first keys: 20.7 ms | warm 20.2 (20.1..20.5) |   urban_layouts of the 5 reported-stretched towns after the box call: 3666.3 ms | RESULT: PASS (9 checks, 0 failed)
+483920 2048x1311 r1:   first call after the shell's own: 24.2 ms; cold (new keys after a switch): 23.3 ms; back to the first keys: 23.4 ms | warm 23.9 (23.3..26.1) |   urban_layouts of the 4 reported-stretched towns after the box call: 5717.3 ms | RESULT: PASS (9 checks, 0 failed)
+  before the towns are laid out, planned box not the drawn one: []
+  mismatches: []
+  before the towns are laid out, planned box not the drawn one: ["#12 box (2000,2451) laid (1700,1250)"]
+  mismatches: []
+  before the towns are laid out, planned box not the drawn one: ["#4 box (2506,2506) laid (1700,1250)", "#11 box (2506,2506) laid (1700,1250)", "#15 box (2460,1260) laid (1700,1250)", "#23 box (2069,2069) laid (1700,1250)"]
+  mismatches: []
+  before the towns are laid out, planned box not the drawn one: ["#0 box (2460,1260) laid (1700,1250)", "#2 box (2460,1260) laid (1700,1250)"]
+  mismatches: []
+
+[exited with code 0]

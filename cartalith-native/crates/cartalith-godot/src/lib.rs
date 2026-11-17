@@ -7783,6 +7783,22 @@ struct WorldGen {
     /// this batch named per-faction scope as a real architectural fork for
     /// the owner to rule on separately, once this ships and is judged.
     urban_rules: Option<cartalith_civ::urban_adapter::Rules>,
+    /// **The stretched river towns' verdicts** (2026-11-17, the planned-
+    /// versus-drawn box row of `OUTSTANDING_WORK.md`): for each stretched
+    /// town context laid out so far, which layout
+    /// `urban_adapter::run_layout_choosing` kept (the full stretch, the
+    /// milder one, or the reference's box), keyed by
+    /// `urban_adapter::stretch_choice_key`, a hash of everything `generate()`
+    /// is handed on the verdict's paths. `urban_layouts` keeps each verdict it
+    /// makes and replays a kept one with one `generate()` instead of up to
+    /// three; `urban_layout_boxes` reads them to report the box a laid-out
+    /// town is drawn in (it never lays a town out itself). A content
+    /// key, never an epoch: a new world, a sculpt, a place edit, a rules or
+    /// switch change gives a new key, so a stale entry is never read
+    /// (`urban_bridge::WorldGen::stretch_layout`). Bounded by
+    /// `urban_bridge::STRETCH_CHOICE_CAP`; in-memory only, never saved. A
+    /// `RefCell` because both `#[func]`s take `&self`.
+    stretch_choices: std::cell::RefCell<std::collections::HashMap<u64, cartalith_civ::urban_adapter::StretchChoice>>,
     /// The E4 export overlay session (`EXPORT_SCOPE.md` §7), driven by the
     /// four `export_session_*` `#[func]`s in `export_raster.rs`. It renders
     /// from its own `ExportSnapshot`, so editing the world while it is open
@@ -7967,6 +7983,7 @@ impl IRefCounted for WorldGen {
             world_name: None,
             loaded_legacy_zip: false,
             urban_rules: None,
+            stretch_choices: std::cell::RefCell::new(std::collections::HashMap::new()),
             export_session: export_session::ExportSessionCore::default(),
         }
     }
@@ -26894,7 +26911,8 @@ impl WorldGen {
     ///
     /// **Does not set `civ_dirty`.** Unlike `civ_edit_settlement`, nothing
     /// here moves territory, roads or trade: these fields are read by
-    /// `urban_layouts` alone, and it keeps no cache, so the caller's next
+    /// `urban_layouts` alone, and it keeps no layout cache (its stretched-town
+    /// verdicts are keyed by content, so an edit is a new key), so the caller's next
     /// `urban_layouts([index])` IS the regenerate.
     #[func]
     fn civ_set_town_plan(&mut self, index: i64, fields: VarDictionary) -> bool {

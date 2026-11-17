@@ -1,0 +1,25 @@
+"""rowdiff.py <before> <after> <gw>: both_banks_audit rows that moved (housed, wall/hull, unbuilt patch, nearest), per seed block."""
+import re, sys
+def rows(path):
+    out = {}; seed = 0; last = -1
+    for l in open(path, encoding='utf-8', errors='replace'):
+        m = re.match(r'\s+#\s*(\d+)\s', l)
+        if not m: continue
+        i = int(m.group(1))
+        if i <= last: seed += 1
+        last = i
+        f = {}
+        for k, p in [('housed', r'housed\s+([\d.]+) %'), ('bld', r'bld\s+(\d+)'), ('wh', r'wall/hull ([\d.]+)'), ('patch', r'unbuilt patch ([\d.]+) ha'), ('near', r'nearest ([\d.inf]+) m'), ('sq', r'square (OUTSIDE|in) unbuilt')]:
+            mm = re.search(p, l); f[k] = mm.group(1) if mm else None
+        out[(seed, i)] = f
+    return out
+B = rows(f"{sys.argv[1]}/both_banks_audit_{sys.argv[3]}.txt"); A = rows(f"{sys.argv[2]}/both_banks_audit_{sys.argv[3]}.txt")
+seeds = ['483920', '912345', '246371']
+n = 0
+for k in sorted(B):
+    b, a = B[k], A.get(k, {})
+    if b != a:
+        n += 1
+        ch = {x: (b.get(x), a.get(x)) for x in b if b.get(x) != a.get(x)}
+        print(seeds[k[0]], f"#{k[1]}", ch)
+print("rows changed", n, "of", len(B))

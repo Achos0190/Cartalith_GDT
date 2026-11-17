@@ -1,0 +1,11 @@
+#!/bin/bash
+# dumps.sh <tag> [grid]: every settlement's app layout for the three seeds (headless, scratch APPDATA), into dumps/<tag>/.
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+T=$1; G=${2:-384x288}; O=C:/cw/town2_scratch/dumps/$T; mkdir -p $O
+cd C:/cw/town2/cartalith-native/godot-project
+for s in 483920 912345 246371; do
+  mkdir -p C:/cw/town2_scratch/appdata_$s
+  APPDATA=C:/cw/town2_scratch/appdata_$s timeout 3000 "$GODOT" --headless --path . _viewerframe_probe.tscn -- --seed $s --grid $G --quick 1 --dump $O --ids -2 > $O/log_$s.txt 2>&1 &
+done
+wait
+echo DONE

@@ -1,0 +1,38 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+Cartalith shell build fb189353ad5c
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)
+   GDScript backtrace (most recent call first):
+       [0] _build_preview (res://shell/new_world_dialog.gd:1232)
+       [1] _build (res://shell/new_world_dialog.gd:732)
+       [2] setup (res://shell/new_world_dialog.gd:618)
+       [3] _make_window (res://shell/app.gd:2597)
+       [4] _ready (res://shell/app.gd:2004)
+       [5] _ready (res://_stretchbox_probe.gd:82)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  first call after the shell's own: 38.0 ms; cold (new keys after a switch): 13249.2 ms; back to the first keys: 37.1 ms
+seed 483920 384x288: 233 settlements, 4 reported stretched; urban_layout_boxes cold 13249.2 ms, warm 36.4 (36.4..36.5) ms (n=5)
+  urban_layouts of the 4 reported-stretched towns after the box call: 5468.1 ms
+  before the towns are laid out, planned box not the drawn one: []
+  mismatches: []
+  PASS  B1 once laid out, every reported box is the laid-out box (233 towns)
+  PASS  B2 premise: walls set to none on #0
+  after walls none: []
+  PASS  B2 the box follows a walls edit (#0)
+  PASS  B2 premise: rules preset set on #0
+  after the rules preset: []
+  PASS  B2 the box follows a rules edit (#0)
+  PASS  B3 premise: urban_wall_hug set false
+  urban_wall_hug false: []
+  PASS  B3 every reported box is the laid-out box with urban_wall_hug false
+  PASS  B3 premise: urban_wall_hug set true
+  urban_wall_hug true: []
+  PASS  B3 every reported box is the laid-out box with urban_wall_hug true
+RESULT: PASS (9 checks, 0 failed)
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

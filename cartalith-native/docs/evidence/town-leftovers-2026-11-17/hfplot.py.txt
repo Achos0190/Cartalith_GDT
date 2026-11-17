@@ -1,0 +1,40 @@
+"""hfplot.py <json> <png>: harbour_front_audit town plan with the open-water raster; prints the ring's wet length and depth."""
+import json, sys, math
+from PIL import Image, ImageDraw
+d = json.load(open(sys.argv[1]))
+mw, mh, c = d['mw'], d['mh'], d['cell']
+op = d['open']
+S = 0.6
+W, H = int(mw * c * S), int(mh * c * S)
+im = Image.new("RGB", (max(W,10), max(H,10)), (226, 222, 205)); dr = ImageDraw.Draw(im)
+for j in range(mh):
+    for i in range(mw):
+        if op and op[j*mw+i]:
+            dr.rectangle([i*c*S, j*c*S, (i+1)*c*S, (j+1)*c*S], fill=(150, 180, 215))
+P = lambda p: (p[0]*S, p[1]*S)
+if len(d['river']) >= 2: dr.line([P(p) for p in d['river']], fill=(60,100,190), width=max(1,int(d['river_w']*S)))
+for e in d['edges']: dr.line([P(e[2:4]), P(e[4:6])], fill=(150,150,150), width=max(1,int(e[1]*S)))
+for b in d['buildings']:
+    if len(b) >= 3: dr.polygon([P(p) for p in b], fill=(140,70,50))
+ring = d['ring']
+wet = 0.0; tot = 0.0; depth = 0.0
+def cell(p):
+    i, j = int(p[0]//c), int(p[1]//c)
+    return op[j*mw+i] if 0 <= i < mw and 0 <= j < mh else 0
+dry = [(i,j) for j in range(mh) for i in range(mw) if not op[j*mw+i]] if op else []
+def deep(p):
+    # distance to the nearest dry cell centre (coarse)
+    return min(math.hypot((i+.5)*c-p[0], (j+.5)*c-p[1]) for i,j in dry) - c/2
+if len(ring) >= 3:
+    dr.line([P(p) for p in ring + ring[:1]], fill=(200,0,0), width=3)
+    for k in range(len(ring)):
+        a, b = ring[k], ring[(k+1) % len(ring)]
+        L = math.hypot(b[0]-a[0], b[1]-a[1]); n = max(1, math.ceil(L/4))
+        for t in range(n):
+            p = (a[0]+(b[0]-a[0])*(t+.5)/n, a[1]+(b[1]-a[1])*(t+.5)/n)
+            tot += L/n
+            if cell(p):
+                wet += L/n; depth = max(depth, deep(p))
+                dr.ellipse([p[0]*S-3, p[1]*S-3, p[0]*S+3, p[1]*S+3], outline=(255,0,255))
+im.save(sys.argv[2])
+print(sys.argv[1].split('/')[-1], f"cell {c:.1f} m ring {tot:.0f} m wet {wet:.0f} m max depth {depth:.1f} m", d['row'][:200])
