@@ -305,6 +305,8 @@ func _ready() -> void:
 		var a := args[i]
 		if a == "--force-touch":
 			pass
+		elif a == "--density" and i + 1 < args.size():
+			i += 1   ## read by `dcc_shell.gd::_user_arg_value`, not by this probe (the 6T's 1.094 dp scale)
 		elif a == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]

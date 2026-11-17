@@ -83,8 +83,9 @@ pub const LICENCE_MAX_BYTES: u64 = 64 * 1024;
 
 /// The custom set a ground image goes to when no ground slot carries its
 /// name. The proposal (§3) calls these "candidates for ground slots, picked
-/// by the user"; the library has no move-to-slot verb, so a candidate whose
-/// name is a slot id goes straight to that slot and the rest wait here.
+/// by the user"; a candidate whose name is a slot id goes straight to that slot and
+/// the rest wait here until the inspector's `Move to…` verb
+/// (`AssetLibrarySession::move_item`, 2026-11-17) moves them to the slot they were meant for.
 pub const GROUND_CANDIDATES_SET: &str = "Ground candidates";
 
 /// The set name for images directly in the chosen folder when the folder's

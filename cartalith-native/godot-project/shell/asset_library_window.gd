@@ -949,6 +949,12 @@ var _insp_reset_btn: Button
 var _insp_syncing := false   ## true while _refresh_inspector writes the controls above
 ## Inspector `Replace…` chip; disabled when the slot has no item to replace.
 var _insp_replace_btn: Button
+## Inspector `Move to…` chip and its menu (2026-11-17): moves the previewed variant into another slot of its kind
+## (`as_move_item`). The only way to give a `Ground candidates` tile the ground slot it was meant for.
+var _insp_move_btn: Button
+var _insp_move_menu: PopupMenu
+## The `[{uid, label}]` rows the open menu was built from (`as_move_targets`), index-parallel to its items.
+var _move_targets: Array = []
 ## Inspector `Variant` chip: import another image into the slot (AS-14).
 var _insp_variant_btn: Button
 var _insp_swatches: Array = []        ## SlotCell, parallel to PREVIEW_SWATCHES
@@ -2000,7 +2006,8 @@ func _collection_row(parent: Control, coll_name: String, count: int) -> void:
 ## AS-12's pinned "Unassigned imports" row -- same three-column grammar as
 ## `_collection_row`, minus the drag-drop target: there is no engine primitive
 ## to *move* an item from a real slot into this bucket (only into/out of a
-## collection, `as_batch_collect`), so this row is browse-only, matching the
+## collection, `as_batch_collect`; `as_move_item` of 2026-11-17 moves between slots of one kind but is not offered
+## into this bucket), so this row is browse-only, matching the
 ## register's own honest scope ("a holding area", not a reassignment tool).
 func _build_unassigned_row(parent: Control) -> void:
 	var btn := Button.new()
@@ -3550,6 +3557,11 @@ func _build_inspector() -> Control:
 	_insp_reset_btn.tooltip_text = "Reset scale to 1.00x and pan to (0, 0)."
 	_insp_replace_btn = _chip(btn_row, "Replace…", func(): _on_import_image(true))
 	_insp_replace_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_move_btn = _chip(btn_row, "Move to…", _on_move_to_pressed)
+	_insp_move_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_move_menu = PopupMenu.new()
+	_insp_move_menu.id_pressed.connect(_on_move_target_picked)
+	add_child(_insp_move_menu)
 	_insp_variant_btn = _chip(btn_row, "%s Variant" % DccIcons.SYMBOLS["add"],
 		func(): _on_import_image(false), true)
 	_insp_variant_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
@@ -3844,6 +3856,11 @@ func _refresh_inspector() -> void:
 	_insp_fit_btn.disabled = item_count == 0
 	_insp_reset_btn.disabled = item_count == 0
 
+	## Move to…: enabled only when the engine names at least one slot the previewed variant may go to, with
+	## the reason in the tooltip otherwise (nothing to move, or a pin, which is edited in its own section).
+	var move_n: int = (_bridge.as_move_targets(_focused_uid, _preview_index) as Array).size() if item_count > 0 else 0
+	_insp_move_btn.disabled = move_n == 0
+	_insp_move_btn.tooltip_text = "Move this variant into another slot of its kind (%d to choose from). A ground candidate moves into a ground slot." % move_n 		if move_n > 0 else ("Nothing to move yet." if item_count == 0 else "No other slot takes this variant (a pin's picture is changed in the Pin section).")
 	_insp_replace_btn.disabled = item_count == 0
 	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use + Variant to add the first image." \
 		if item_count == 0 else "Import a PNG and drop the slot's current first variant."
@@ -4035,6 +4052,43 @@ func _on_make_seamless() -> void:
 	_refine_say("seamless variant %d added — wrap %.1f → %.1f levels; the original is unchanged" % [
 		int(r["index"]) + 1, float(r["before_edge"]), float(r["after_edge"])], "accent")
 	_refine_added(int(r["index"]), "seamless")
+
+
+## The `Move to…` chip: lists the slots the previewed variant may move into and pops the menu under the chip.
+func _on_move_to_pressed() -> void:
+	if _focused_uid == "":
+		return
+	_move_targets = _bridge.as_move_targets(_focused_uid, _preview_index)
+	_insp_move_menu.clear()
+	for i in _move_targets.size():
+		_insp_move_menu.add_item(String((_move_targets[i] as Dictionary).get("label", "")), i)
+	if _move_targets.is_empty():
+		return
+	var r := _insp_move_btn.get_global_rect()
+	_insp_move_menu.popup(Rect2i(Vector2i(r.position + Vector2(0, r.size.y)), Vector2i(maxi(int(r.size.x), 200), 0)))
+
+
+## A target chosen from the `Move to…` menu: `as_move_item`, then the view follows. A refusal says why in the status
+## line and changes nothing. When the move emptied a `Ground candidates` placeholder the slot is gone, so focus is dropped.
+func _on_move_target_picked(id: int) -> void:
+	if id < 0 or id >= _move_targets.size() or _focused_uid == "":
+		return
+	var row: Dictionary = _move_targets[id]
+	var r: Dictionary = _bridge.as_move_item(_focused_uid, _preview_index, String(row.get("uid", "")))
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "move failed — %s" % String(r.get("error", "unknown error")), "warn")
+		return
+	_dirty = true
+	_host.set_status("hint", "moved to %s" % String(row.get("label", "")), "accent")
+	_selected.clear()
+	_preview_index = 0
+	if bool(r.get("source_removed", false)):
+		_focused_uid = ""
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_rail_counts()
+	_refresh_collections_rail()
+	_refresh_status_line()
 
 
 ## AP-7: one REFINE verb on the previewed variant (`as_refine`), or Fit all

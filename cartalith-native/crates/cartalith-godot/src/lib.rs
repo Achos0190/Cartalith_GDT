@@ -25910,6 +25910,35 @@ impl WorldGen {
         index >= 0 && self.asset_library.remove_item(&uid.to_string(), index as usize)
     }
 
+    /// The slots item `index` of `uid` may be moved into (`AssetLibrarySession::move_targets`): `[{uid, label}]` in
+    /// registry order, empty for an unknown item. A ground candidate (a `Ground candidates` slot's tile) is offered
+    /// the frozen ground slots only; a sprite is offered sprite slots only.
+    #[func]
+    fn as_move_targets(&self, uid: GString, index: i32) -> Array<VarDictionary> {
+        if index < 0 {
+            return Array::new();
+        }
+        self.asset_library
+            .move_targets(&uid.to_string(), index as usize)
+            .into_iter()
+            .map(|(u, label)| vdict! { "uid" => u.as_str(), "label" => label.as_str() })
+            .collect()
+    }
+
+    /// Moves item `index` of `uid` into slot `to` (`AssetLibrarySession::move_item`): `{ok: true, uid: to, index,
+    /// source_removed}` or `{ok: false, error}` in words with nothing changed. `source_removed` is true when the move
+    /// emptied (and so removed) a `Ground candidates` placeholder slot, so the caller must stop pointing at `uid`.
+    #[func]
+    fn as_move_item(&mut self, uid: GString, index: i32, to: GString) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false, "error" => "no such variant" };
+        }
+        match self.asset_library.move_item(&uid.to_string(), index as usize, &to.to_string()) {
+            Ok((i, removed)) => vdict! { "ok" => true, "uid" => to.to_string().as_str(), "index" => i as i64, "source_removed" => removed },
+            Err(e) => vdict! { "ok" => false, "error" => e.as_str() },
+        }
+    }
+
     /// Reset the whole session to a fresh, empty library (AS-03).
     #[func]
     fn as_clear_library(&mut self) -> bool {

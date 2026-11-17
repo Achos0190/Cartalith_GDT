@@ -534,6 +534,24 @@ func click_at(pos: Vector2) -> Callable:
 	return release()
 
 
+## Whether a pointer at `pos` (viewport pixels, the ring's own space) is on a part of the open, sticky ring:
+## the compass disc (centre button included), the sub-ring's disc when one is open, or a dock chip.
+## Why it exists: the ring is a top-level control that draws over the dock panels, but `mouse_filter` stays
+## `IGNORE`, so a real left press on a part that hangs over a dock panel reaches the PANEL (found by CQ-4,
+## `CUSTOM_QUICK_BAR_SCOPE.md` s.14, left open until 2026-11-17). `app.gd::_input` asks this before the GUI
+## routes the press and, on a hit, gives it to the ring. It must never say yes for a closed or not-yet-sticky
+## ring (an RMB-held gesture owns its own release), and never for the empty space around the ring, so a tap
+## outside still falls to the control under it.
+func hits_part(pos: Vector2) -> bool:
+	if not _active or not _sticky or not _visible:
+		return false
+	if not _sub.is_empty():
+		return pos.distance_to(_sub["centre"] as Vector2) <= _sub_disc_radius()
+	if pos.distance_to(_centre) <= _disc_radius():
+		return true
+	return _dock_index_at(pos) >= 0
+
+
 ## Ends the gesture from any state: resets every flag, drops the sub-ring, hides
 ## the node and releases the world-pause via [`_set_active`]. Idempotent; the
 ## one exit every cancel and every completed pick goes through.

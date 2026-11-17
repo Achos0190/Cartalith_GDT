@@ -853,6 +853,16 @@ func set_tool_options(build: Callable) -> void:
 	## on-map layer in step with whatever the bar now offers.
 	paint_original.sync()
 
+## A left press on a part of the open sticky cartwheel that overhangs a dock panel. The ring draws on top of
+## the panels but ignores the mouse, so without this the panel under it took the press (CQ-4's "found, not
+## fixed", `CUSTOM_QUICK_BAR_SCOPE.md` s.14). `_input` runs before the GUI routes the event; only a press the
+## ring says is on one of its parts is taken, so a tap beside the ring still reaches what is under it.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if context_broker != null and context_broker.ring_click_over_part(event.position):
+			get_viewport().set_input_as_handled()
+
+
 ## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise
 ## disarms back to Inspect." A key, not a mouse button, so it belongs on
 ## `_unhandled_key_input` regardless of which control has focus.

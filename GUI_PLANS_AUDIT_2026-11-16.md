@@ -152,10 +152,8 @@ beyond CQ-4's tab remain unbuilt and unscheduled** (M).
 | AP-9 Diff, merge, favourites, recent | DONE | `diff_pack`, `merge_pack`; favourites in `asset_library_window.gd`/`dcc_settings.gd` | `2abc824d` 2026-10-19 | no |
 | AP-10 Line-art conversion | DONE, one recorded 0.001 IoU miss | `cartalith-assets/src/lineart.rs` | `e62ce7ec` 2026-10-19 (approved `66afcd65`) | no; owner scans untested |
 
-Leftovers carried from `OUTSTANDING_WORK.md` (not re-opened here beyond the symbols above): ground candidates matching
-no slot wait in a custom set with no move-to-slot verb (S); `.wonderdraft_symbols` unparsed, format unverified (S);
-`pack_report` / `near_dupes` / `lineart::working_image` bake straight (S); `tests/pack_compositing.rs`'s "forces `shrub`"
-claim is false (S); Android folder import on glass (S, device).
+Leftovers carried from `OUTSTANDING_WORK.md` (re-opened and four of five closed 2026-11-17, `STATUS.md` "GUI small
+leftovers"): `.wonderdraft_symbols` unparsed, format unverified (S, needs a real file); Android folder import on glass (S, device).
 
 ---
 
@@ -166,10 +164,10 @@ claim is false (S); Android folder import on glass (S, device).
 | PC shell | 11 / 0 / 0 / 0 (2026-11-16) | none open. *(Refreshed by the coordinator 2026-11-17: the world-file slot's registration `01ad6669` and the founding year `3b4ddcd5` are built.)* |
 | Mobile shell | 9 / 1 / 0 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run). *(Refreshed 2026-11-17: MS-3 built as a tool palette only by Ruling FL, `f7f99c94`.)* |
 | Vault editor | 9 / 1 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF), VE-8 and VE-7's Android picture read (**S**, owner-run); drawn chronos track (**M**, no specification). *(Refreshed 2026-11-17: the 17-function probes were already built, `1fe113e9`; GIFs `43c10a5c`.)* |
-| Custom quick bar | 9 / 0 / 0 / 0 | CQ-5 Pad pass and CQ-6 6T bars (**S**, owner-run); **ring parts overhanging a dock panel not clickable; phone tool cell 3.5-5 px high (S, open)**. *(Refreshed 2026-11-17: CQ-6 reorder `3f7ea940`, CQ-8's three extras `f7f99c94`.)* |
+| Custom quick bar | 9 / 0 / 0 / 0 | CQ-5 Pad pass and CQ-6 6T bars (**S**, owner-run); ~~ring parts overhanging a dock panel not clickable~~ (fixed 2026-11-17: `app.gd::_input` gives a press on a sticky ring's part to the ring; `_ringoverhang_probe`); ~~phone tool cell 3.5-5 px high~~ (stale: fixed 2026-10-26 by `_phone_fit_tool_button`; re-measured 2026-11-17, ink offsets 0.0-1.5 px). *(Refreshed 2026-11-17: CQ-6 reorder `3f7ea940`, CQ-8's three extras `f7f99c94`.)* |
 | Story menus | 7 / 0 / 0 / 0 | nothing scheduled; §8 later rows unscheduled by Ruling EA item 7 (each **M**, blocked on a ruling) |
 | Map context | 6 / 1 / 0 / 0 | CM-4 device check of the pen barrel button and haptics (**S**, owner-run); F5's tablet edge sliders and further ring customisation (**M**, unscheduled) |
-| Asset pack tools | 10 / 0 / 0 / 0 | **four small leftovers above, open (S each)**: ground candidates matching no slot wait in a custom set with no move-to-slot verb; `.wonderdraft_symbols` unparsed; `pack_report`/`near_dupes`/`lineart::working_image` bake straight; `tests/pack_compositing.rs`'s "forces `shrub`" claim false. Android folder import on glass (**S**, device) |
+| Asset pack tools | 10 / 0 / 0 / 0 | **one small leftover open (S)**: `.wonderdraft_symbols` unparsed, key names unverifiable from public sources. Closed 2026-11-17: the `Move to…` verb for ground candidates (`AssetLibrarySession::move_item`), `pack_report`/`near_dupes`/`lineart::working_image` now follow the session's `bake_filter` (it meant the straight-alpha filter, not ignored adjustments: the transform was always applied), and `tests/pack_compositing.rs`'s `shrub` claim was false (the corner places no feature) and is replaced by a test that pins the real glyph-fallback rule. Android folder import on glass (**S**, device) |
 
 **By size.** Genuinely unbuilt design work: about **3 M** items (VE-7's remaining edges,
 CQ-8 deferrals, F5 sliders) plus MS-3's S-M. **Device-bound work** (owner on the 6T or Pad, no code): MS-10, CQ-5, CM-4,

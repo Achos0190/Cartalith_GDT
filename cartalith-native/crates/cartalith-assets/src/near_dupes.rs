@@ -42,7 +42,7 @@
 //! already names those, and the pack report lists them once.
 
 use crate::library::AssetDB;
-use crate::raster::{DecodedImage, render_item};
+use crate::raster::{BakeFilter, DecodedImage, render_item_with};
 use crate::slicer::BLANK_ALPHA_THRESHOLD;
 
 /// The largest Hamming distance (of 64 bits) still called "the same
@@ -259,13 +259,23 @@ pub struct NearEntry {
 ///   only the colour gate would be deciding, and two swatches of similar
 ///   colour are not "the same drawing" (with it, the pack reports none).
 pub fn near_duplicate_groups<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a DecodedImage>) -> Vec<Vec<NearEntry>> {
+    near_duplicate_groups_with(db, pixels, BakeFilter::Straight)
+}
+
+/// [`near_duplicate_groups`] fingerprinting each bake made with `filter` (the session's
+/// `bake_filter`), so two items are compared on the pixels the export would ship.
+pub fn near_duplicate_groups_with<'a>(
+    db: &AssetDB,
+    pixels: impl Fn(&str, usize) -> Option<&'a DecodedImage>,
+    filter: BakeFilter,
+) -> Vec<Vec<NearEntry>> {
     // (entry, fingerprint, is a ground tile)
     let mut entries: Vec<(NearEntry, NearHash, bool)> = Vec::new();
     for uid in db.uids_in_order() {
         let Some(slot) = db.get(&uid) else { continue };
         for (idx, item) in db.items(&uid).iter().enumerate() {
             let Some(img) = pixels(&uid, idx) else { continue };
-            let baked = render_item(img, &item.transform, slot.family.size(), slot.family.opaque());
+            let baked = render_item_with(img, &item.transform, slot.family.size(), slot.family.opaque(), filter);
             if let Some(h) = near_hash(&baked).filter(|h| !h.is_flat()) {
                 entries.push((NearEntry { uid: uid.clone(), idx, item_hash: item.hash.clone() }, h, slot.family.is_texture()));
             }
@@ -613,5 +623,49 @@ mod tests {
         // ... and the grouping keeps neither.
         let groups = near_duplicate_groups(&db, |u, i| store.get(&(u.to_string(), i)));
         assert!(groups.is_empty(), "{groups:?}");
+    }
+
+    /// A 512 x 512 ring of one-pixel vertical stripes (opaque `(200, 60, 60)` on every second column
+    /// inside the band, transparent elsewhere), whose RGB under the transparent texels is `under`, a
+    /// fixture value. The two `under` colours give two drawings with identical visible pixels,
+    /// differing only in what a straight-alpha resample drags into the half-covered texels of the
+    /// 2x shrink to the 256 bake.
+    fn striped_ring(under: [u8; 3]) -> DecodedImage {
+        let n = 512u32;
+        let mut v = Vec::with_capacity((n * n * 4) as usize);
+        for y in 0..n {
+            for x in 0..n {
+                let r = (f64::from(x) + 0.5 - 256.0).hypot(f64::from(y) + 0.5 - 256.0);
+                if (150.0..190.0).contains(&r) && x % 2 == 0 {
+                    v.extend_from_slice(&[200, 60, 60, 255]);
+                } else {
+                    v.extend_from_slice(&[under[0], under[1], under[2], 0]);
+                }
+            }
+        }
+        DecodedImage::new(n, n, v).unwrap()
+    }
+
+    /// Protects: the filter reaches the fingerprint. Two striped-ring drawings with identical visible
+    /// pixels, one with black and one with green RGB under its transparent texels, are the same drawing
+    /// when baked premultiplied (an invisible texel contributes nothing) and must be grouped; baked
+    /// straight, the transparent RGB is dragged into the soft edge and this fixture's pair is
+    /// split (the positive control: the `Straight` call, and the old `near_duplicate_groups`, find no
+    /// group). A pack-report build that ignored `bake_filter` would stay on the second answer.
+    #[test]
+    fn the_bake_filter_decides_whether_a_soft_edged_pair_is_one_drawing() {
+        let mut db = AssetDB::new();
+        let mut store: std::collections::HashMap<(String, usize), DecodedImage> = Default::default();
+        for (n, under) in [[0u8, 0, 0], [0, 255, 0]].into_iter().enumerate() {
+            let img = striped_ring(under);
+            db.add_item("icons:hill", crate::LibraryItem::new(format!("ring{n}"), crate::item_hash(&img)));
+            store.insert(("icons:hill".to_string(), n), img);
+        }
+        let px = |u: &str, i: usize| store.get(&(u.to_string(), i));
+        let pre = near_duplicate_groups_with(&db, px, BakeFilter::Premultiplied);
+        assert_eq!(pre.len(), 1, "premultiplied: one near-duplicate group, got {pre:?}");
+        assert_eq!(pre[0].len(), 2);
+        assert!(near_duplicate_groups_with(&db, px, BakeFilter::Straight).is_empty(), "positive control: straight splits the pair");
+        assert!(near_duplicate_groups(&db, px).is_empty(), "the unsuffixed function is the straight bake");
     }
 }

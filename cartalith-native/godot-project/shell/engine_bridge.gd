@@ -8228,6 +8228,25 @@ func as_fit_all(uids: PackedStringArray) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## The slots item `index` of `uid` may be moved into: `[{uid, label}]` (`WorldGen::as_move_targets`). Empty while
+## generating, on an unknown item, or against a build without the call.
+func as_move_targets(uid: String, index: int) -> Array:
+	if generating or not _has("as_move_targets"):
+		return []
+	return world_gen.as_move_targets(uid, index)
+
+
+## Moves item `index` of `uid` into slot `to` (`WorldGen::as_move_item`): `{ok, uid, index, source_removed}` or
+## `{ok: false, error}`. Refused while `generating` (the worker holds `WorldGen`; see `settlements()`).
+func as_move_item(uid: String, index: int, to: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": "the world is generating; try again when it finishes"}
+	if not _has("as_move_item"):
+		return {"ok": false, "error": "this build cannot move items between slots"}
+	mark_world_dirty()
+	return world_gen.as_move_item(uid, index, to)
+
+
 ## Removes one item from a slot.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
 func as_remove_item(uid: String, index: int) -> bool:

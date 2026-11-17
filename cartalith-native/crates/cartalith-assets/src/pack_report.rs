@@ -23,8 +23,8 @@
 //! a number. A finding's `text` states what was measured and what follows.
 
 use crate::library::{AssetDB, duplicate_groups, run};
-use crate::near_dupes::near_duplicate_groups;
-use crate::raster::{DecodedImage, render_item};
+use crate::near_dupes::near_duplicate_groups_with;
+use crate::raster::{BakeFilter, DecodedImage, render_item_with};
 use crate::slicer::is_blank;
 use crate::slots::Family;
 
@@ -194,7 +194,7 @@ fn not_drawn_reason(family: Family, slot_id: &str) -> Option<&'static str> {
 }
 
 /// The user-facing name of a family, for an empty-family row.
-fn family_title(family: Family) -> &'static str {
+pub fn family_title(family: Family) -> &'static str {
     match family {
         Family::Textures => "Splat channels",
         Family::Biomes => "Biome textures",
@@ -211,7 +211,18 @@ fn family_title(family: Family) -> &'static str {
 /// Build the report. `pixels(uid, index)` returns an item's decoded source
 /// image (the session's parallel store); an item whose pixels it cannot
 /// return is skipped for the pixel checks rather than guessed at.
+///
+/// Bakes with [`BakeFilter::Straight`], the arithmetic this report always used; a session that bakes
+/// premultiplied (`AssetLibrarySession::bake_filter`) calls [`pack_report_with`] so the seam score and the
+/// near-duplicate groups are measured on the pixels it exports.
 pub fn pack_report<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a DecodedImage>) -> Vec<Finding> {
+    pack_report_with(db, pixels, BakeFilter::Straight)
+}
+
+/// [`pack_report`] with an explicit [`BakeFilter`] for every bake it measures (the ground tiles' seam score
+/// and the near-duplicate fingerprints). Must bake as the exporter does, or the report describes pixels
+/// the pack does not ship; a fully opaque source is identical under either filter by control flow.
+pub fn pack_report_with<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a DecodedImage>, filter: BakeFilter) -> Vec<Finding> {
     let mut out: Vec<Finding> = run(db)
         .into_iter()
         .map(|text| Finding {
@@ -277,7 +288,7 @@ pub fn pack_report<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a 
                 push(FindingKind::NonSquare, severity, text);
             }
             if family.is_texture() {
-                let baked = render_item(img, &items[i].transform, size, true);
+                let baked = render_item_with(img, &items[i].transform, size, true, filter);
                 let s = seam_score(&baked);
                 if s.is_seam() {
                     push(
@@ -324,7 +335,7 @@ pub fn pack_report<'a>(db: &AssetDB, pixels: impl Fn(&str, usize) -> Option<&'a 
     // An Info, not a Warn: a mirrored or recoloured copy is often a variant on
     // purpose (AS-14 weights variants at render time), so the row says what
     // was measured and leaves the judgement to the user.
-    for group in near_duplicate_groups(db, &pixels) {
+    for group in near_duplicate_groups_with(db, &pixels, filter) {
         let names: Vec<String> = group
             .iter()
             .map(|e| format!("{} #{}", db.get(&e.uid).map(|s| s.name.as_str()).unwrap_or(e.uid.as_str()), e.idx + 1))
@@ -561,5 +572,28 @@ mod tests {
         let dup_at = r.iter().position(|f| f.kind == FindingKind::Duplicate).unwrap();
         let near_at = r.iter().position(|f| f.kind == FindingKind::NearDuplicate).unwrap();
         assert!(dup_at < near_at, "exact duplicates come first");
+    }
+
+    /// Protects: `pack_report_with` hands its filter to the near-duplicate bake. Two drawings of
+    /// one-pixel stripes with identical visible pixels and different RGB under the transparent texels
+    /// are one near-duplicate group when baked premultiplied (the report a premultiplying session
+    /// shows) and none when baked straight (positive control, and what `pack_report` still does).
+    #[test]
+    fn the_report_follows_the_bake_filter_for_near_duplicates() {
+        let stripes = |under: [u8; 3]| {
+            img(512, 512, |x, y| {
+                let r = (f64::from(x) + 0.5 - 256.0).hypot(f64::from(y) + 0.5 - 256.0);
+                if (150.0..190.0).contains(&r) && x % 2 == 0 { [200, 60, 60, 255] } else { [under[0], under[1], under[2], 0] }
+            })
+        };
+        let mut l = Lib::new();
+        l.add("icons:hill", stripes([0, 0, 0]));
+        l.add("icons:hill", stripes([0, 255, 0]));
+        let near = |f: BakeFilter| {
+            pack_report_with(&l.db, |u, i| l.px.get(u).and_then(|v| v.get(i)), f).into_iter().filter(|f| f.kind == FindingKind::NearDuplicate).count()
+        };
+        assert_eq!(near(BakeFilter::Premultiplied), 1);
+        assert_eq!(near(BakeFilter::Straight), 0, "positive control");
+        assert_eq!(l.report().iter().filter(|f| f.kind == FindingKind::NearDuplicate).count(), 0, "pack_report is the straight bake");
     }
 }

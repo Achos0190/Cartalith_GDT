@@ -39,11 +39,11 @@ use cartalith_assets::{
     SeamlessOutcome, Severity, diff_libraries, list_folder, make_seamless, plan_folder_import, plan_merge, refine,
     seam_score, PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, SlotTarget, archive,
     check_png_header, compute_cells, count_cells, encode_png, fit_to_bottom, item_hash, library, plan_pack_import,
-    read_pack_entries_limited, BakeFilter, render_item_with, sheet_base_name, slice_sheet, RawPin,
+    read_pack_entries_limited, BakeFilter, render_item_with, sheet_base_name, slice_sheet, RawPin, GROUND_CANDIDATES_SET,
 };
 use cartalith_assets::pins::{PINS_SET, PIN_DEFAULT_COLOUR, clean_pin_name, is_pin_colour};
 
-use cartalith_assets::lineart::{LineArtOptions, LineArtResult, convert_line_art, working_image};
+use cartalith_assets::lineart::{LineArtOptions, LineArtResult, convert_line_art, working_image_with};
 
 use crate::pack::colour_import::{ColourReport, decode_png_managed};
 /// The plain (unmanaged) decode is used only by this file's tests since
@@ -485,9 +485,10 @@ pub struct AssetLibrarySession {
     /// export -> open -> export round trip byte-stable for soft-edged sprites
     /// (`the_premultiplied_bake_round_trips_soft_edges_byte_for_byte`).
     /// Not saved: a presentation switch, set by the app on every session.
-    /// The pack report and near-duplicate finder (`cartalith-assets`) still
-    /// bake straight; on fully opaque art the two filters are identical by
-    /// control flow, so they can disagree only on soft-alpha pixels.
+    /// The pack report, the near-duplicate finder and the line-art working
+    /// image read this too (`pack_report_with`, `working_image_with`;
+    /// 2026-11-17, they baked straight until then), so each measures the
+    /// pixels the export ships.
     pub bake_filter: BakeFilter,
 }
 
@@ -1254,6 +1255,98 @@ impl AssetLibrarySession {
         ok
     }
 
+    // -- Move to slot (AP-8 leftover, 2026-11-17) --------------------------------
+
+    /// Whether a slot holds ground tiles (an opaque, tiling image): a frozen texture, biome or terrain slot,
+    /// or a custom slot of the [`GROUND_CANDIDATES_SET`] a folder import parks unmatched `textures/` PNGs in.
+    fn holds_ground(slot: &library::LibrarySlot) -> bool {
+        slot.family.is_texture() || (slot.family == Family::Custom && slot.set.as_deref() == Some(GROUND_CANDIDATES_SET))
+    }
+
+    /// Why item `index` of `from` may not move into `to`, in words; `None` when it may. A move never crosses
+    /// between ground tiles and sprites (a tile is opaque, 512 square and repeats; a sprite is a transparent
+    /// 256 square placed once), is never a no-op onto the same slot, and never touches a pin (a pin's picture
+    /// and name are edited in the Pin section, because a pin's id is derived from them).
+    fn move_refusal(&self, from: &str, index: usize, to: &str) -> Option<String> {
+        let Some(src) = self.db.get(from) else { return Some(format!("no such slot: {from}")) };
+        let Some(dst) = self.db.get(to) else { return Some(format!("no such slot: {to}")) };
+        if self.db.items(from).get(index).is_none() || self.image(from, index).is_none() {
+            return Some(format!("{from} has no variant {}", index + 1));
+        }
+        if from == to {
+            return Some("it is already in that slot".to_string());
+        }
+        if src.set.as_deref() == Some(PINS_SET) || dst.set.as_deref() == Some(PINS_SET) {
+            return Some("a pin's picture is changed in the Pin section, not moved between slots".to_string());
+        }
+        match (Self::holds_ground(src), Self::holds_ground(dst)) {
+            (true, false) => Some(format!("{} holds sprites; a ground tile is opaque and repeats across the map", dst.name)),
+            (false, true) => Some(format!("{} holds ground tiles; a sprite is transparent and drawn once", dst.name)),
+            _ => None,
+        }
+    }
+
+    /// The slots item `index` of `from` may move into, as `(uid, "<Family> · <slot name>")` in registry order
+    /// (frozen families first, then custom slots in add order); empty for an unknown item. Read-only.
+    pub fn move_targets(&self, from: &str, index: usize) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for uid in self.db.uids_in_order() {
+            if self.move_refusal(from, index, &uid).is_some() {
+                continue;
+            }
+            let Some(slot) = self.db.get(&uid) else { continue };
+            let label = match (&slot.set, slot.family) {
+                (Some(set), Family::Custom) => format!("{set} · {}", slot.name),
+                _ => format!("{} · {}", cartalith_assets::family_title(slot.family), slot.name),
+            };
+            out.push((uid, label));
+        }
+        out
+    }
+
+    /// Move item `index` of `from` into slot `to`, keeping both stores in lockstep: the library record (name,
+    /// content hash) and the decoded pixels go together, appended to `to` as its newest variant. This is the
+    /// move-to-slot verb `folder_import::GROUND_CANDIDATES_SET`'s doc said the library lacked: a candidate that
+    /// matched no ground slot's name waits in that set until it is moved to the slot it was meant for.
+    ///
+    /// The transform is kept when both slots are the same family; otherwise it is the destination's intake
+    /// default (identity, plus `fit_to_bottom` on a bottom-anchored family) exactly as `insert_decoded` gives
+    /// a new image, since a pan or scale authored against one bake size means nothing at another. The colour
+    /// note travels by the unchanged content hash. When the move empties a custom slot of the
+    /// [`GROUND_CANDIDATES_SET`], that now-empty placeholder is removed (the candidate was its only reason to
+    /// exist); any other emptied slot stays. Returns `(index in `to`, whether the source slot was removed)`.
+    /// `Err` in words, nothing changed, for anything [`Self::move_refusal`] names.
+    pub fn move_item(&mut self, from: &str, index: usize, to: &str) -> Result<(usize, bool), String> {
+        if let Some(why) = self.move_refusal(from, index, to) {
+            return Err(why);
+        }
+        let (same_family, anchor_family) = {
+            let (a, b) = (self.db.get(from).unwrap(), self.db.get(to).unwrap());
+            (a.family == b.family, b.family)
+        };
+        let (Some(mut item), true) = (self.db.remove_item(from, index), self.images.get(from).is_some_and(|v| index < v.len())) else {
+            return Err(format!("{from} has no variant {}", index + 1));
+        };
+        let decoded = self.images.get_mut(from).expect("checked above").remove(index);
+        if !same_family {
+            item.transform = ItemTransform::default();
+            if anchor_family.anchor() == Anchor::Bottom {
+                fit_to_bottom(&mut item.transform, decoded.w, decoded.h, anchor_family.size());
+            }
+        }
+        let added = self.db.add_item(to, item);
+        debug_assert!(added, "the destination was checked to exist");
+        let list = self.images.entry(to.to_string()).or_default();
+        list.push(decoded);
+        let new_index = list.len() - 1;
+        let drop_source = self.db.items(from).is_empty()
+            && self.db.get(from).is_some_and(|s| s.family == Family::Custom && s.set.as_deref() == Some(GROUND_CANDIDATES_SET));
+        if drop_source {
+            self.remove_custom_slot(from);
+        }
+        Ok((new_index, drop_source))
+    }
+
     /// Reset to a freshly bootstrapped, empty library — `AssetDB::clear`
     /// plus dropping every decoded pixel.
     pub fn clear(&mut self) {
@@ -1279,7 +1372,7 @@ impl AssetLibrarySession {
     /// with its one existing formatter (`colour_note_for`). Read-only.
     pub fn pack_report(&self) -> Vec<(Finding, Option<ColourReport>)> {
         let mut out: Vec<(Finding, Option<ColourReport>)> =
-            cartalith_assets::pack_report(&self.db, |u, i| self.image(u, i)).into_iter().map(|f| (f, None)).collect();
+            cartalith_assets::pack_report_with(&self.db, |u, i| self.image(u, i), self.bake_filter).into_iter().map(|f| (f, None)).collect();
         for uid in self.db.uids_in_order() {
             let name = self.db.get(&uid).map(|s| s.name.clone()).unwrap_or_default();
             for (i, item) in self.db.items(&uid).iter().enumerate() {
@@ -1390,7 +1483,7 @@ impl AssetLibrarySession {
         let name = format!("{} · line art", item.name);
         let transform = item.transform.clone();
         let Some(img) = self.image(uid, index) else { return Err(format!("{uid} variant {} has no pixels", index + 1)) };
-        let work = working_image(img, &transform, family.size());
+        let work = working_image_with(img, &transform, family.size(), self.bake_filter);
         let mut result = convert_line_art(&work, opts, family.size()).map_err(|e| e.to_string())?;
         let made = std::mem::replace(&mut result.image, DecodedImage { w: 0, h: 0, rgba: Vec::new() });
         self.insert_decoded(uid, name, made)?;
@@ -3158,6 +3251,11 @@ mod tests {
 #[cfg(test)]
 #[path = "asset_bridge_ap89_tests.rs"]
 mod ap89_tests;
+
+/// Move-to-slot session tests (2026-11-17), kept in their own file.
+#[cfg(test)]
+#[path = "asset_bridge_move_tests.rs"]
+mod move_tests;
 
 /// Ruling FP (custom pins) session tests, kept in their own file.
 #[cfg(test)]

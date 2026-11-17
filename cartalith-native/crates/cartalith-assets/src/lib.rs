@@ -171,7 +171,7 @@ pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,
     Structures, RawPin, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
-pub use near_dupes::{MAX_HAMMING, MAX_MEAN_DELTA, NearEntry, NearHash, near_duplicate_groups, near_hash};
+pub use near_dupes::{MAX_HAMMING, MAX_MEAN_DELTA, NearEntry, NearHash, near_duplicate_groups, near_duplicate_groups_with, near_hash};
 pub use ordered_map::OrderedMap;
 pub use pack_diff::{
     FieldDiff, MergeAction, MergePlan, MergePolicy, MergeStep, PackDiff, SlotChange, SlotDiff, diff_libraries,
@@ -188,7 +188,7 @@ pub use pack_import::{
     check_png_header, plan_pack_import, read_pack_entries_limited, unsafe_path_reason,
 };
 pub use pack_report::{
-    Finding, FindingKind, SEAM_FLOOR, SEAM_RATIO, SeamScore, Severity, pack_report, seam_score,
+    Finding, FindingKind, SEAM_FLOOR, SEAM_RATIO, SeamScore, Severity, family_title, pack_report, pack_report_with, seam_score,
 };
 pub use placement::{
     IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, TRAIT_BADGES_SHOWN_MAX,

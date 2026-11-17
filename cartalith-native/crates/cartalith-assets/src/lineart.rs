@@ -56,7 +56,7 @@
 //! compare them line by line.
 
 use crate::library::ItemTransform;
-use crate::raster::{DecodedImage, render_item};
+use crate::raster::{BakeFilter, DecodedImage, render_item_with};
 
 // ---------------------------------------------------------------------------
 // Constants (each names its source)
@@ -367,7 +367,7 @@ impl std::fmt::Display for LineArtError {
 // ---------------------------------------------------------------------------
 
 /// The square, transform-applied image the pipeline cleans: the item drawn by
-/// [`render_item`] (its zoom, pan and fit, so the result lines up with what
+/// [`render_item_with`] (its zoom, pan and fit, so the result lines up with what
 /// the user framed and what the family bake shows) at the source's own longer
 /// side clamped to [`WORK_MIN`]..=[`WORK_MAX`].
 ///
@@ -379,10 +379,17 @@ impl std::fmt::Display for LineArtError {
 /// a non-square source is padded with transparency, which [`clean_ink`]
 /// reads as paper.
 pub fn working_image(img: &DecodedImage, transform: &ItemTransform, family_size: u32) -> DecodedImage {
+    working_image_with(img, transform, family_size, BakeFilter::Straight)
+}
+
+/// [`working_image`] drawn with an explicit [`BakeFilter`]: a session that bakes premultiplied hands its own
+/// filter so soft-edged art is not given a dark fringe by the straight-alpha resample before the
+/// converter reads it. A fully opaque or untouched-footprint source is identical under either filter.
+pub fn working_image_with(img: &DecodedImage, transform: &ItemTransform, family_size: u32, filter: BakeFilter) -> DecodedImage {
     let side = img.w.max(img.h).clamp(WORK_MIN, WORK_MAX);
     let k = f64::from(side) / f64::from(family_size.max(1));
     let t = ItemTransform { scale: transform.scale, pan_x: transform.pan_x * k, pan_y: transform.pan_y * k };
-    render_item(img, &t, side, false)
+    render_item_with(img, &t, side, false, filter)
 }
 
 /// Run the whole of Ruling CR's pipeline on `work` (normally
@@ -1397,6 +1404,29 @@ mod tests {
         let dark = |x: u32, y: u32| w.rgba[((y * 1024 + x) * 4) as usize + 3] > 0 && w.rgba[((y * 1024 + x) * 4) as usize] < 128;
         assert!(dark(512 + 256, 512), "the block did not move by 256 px");
         assert!(!dark(512 + 64, 512), "the pan was applied unscaled");
+    }
+
+    /// Protects: `working_image_with` passes its filter on. A white sprite whose RGB under alpha 0 is
+    /// black, shrunk 4x by a 1024 source, keeps every visible pixel white when drawn premultiplied
+    /// and is darkened at the soft edge when drawn straight (positive control); `working_image` is the
+    /// straight draw exactly.
+    #[test]
+    fn working_image_with_follows_the_bake_filter() {
+        let n = 1024u32;
+        let mut v = Vec::new();
+        for y in 0..n {
+            for x in 0..n {
+                let r = (f64::from(x) + 0.5 - 512.0).hypot(f64::from(y) + 0.5 - 512.0);
+                let a = ((1.0 - r / 400.0) * 40.0 * 255.0).clamp(0.0, 255.0) as u8;
+                v.extend_from_slice(&if a > 0 { [255, 255, 255, a] } else { [0, 0, 0, 0] });
+            }
+        }
+        let src = DecodedImage::new(n, n, v).unwrap();
+        let t = ItemTransform { scale: 0.25, pan_x: 0.0, pan_y: 0.0 };
+        let darkest = |o: &DecodedImage| o.rgba.chunks_exact(4).filter(|p| p[3] >= 1).map(|p| p[0].min(p[1]).min(p[2])).min().unwrap();
+        assert_eq!(darkest(&working_image_with(&src, &t, 256, BakeFilter::Premultiplied)), 255);
+        assert!(darkest(&working_image_with(&src, &t, 256, BakeFilter::Straight)) < 200, "positive control");
+        assert_eq!(working_image(&src, &t, 256), working_image_with(&src, &t, 256, BakeFilter::Straight));
     }
 
     /// A 512² page of even light with deterministic paper grain (±`amp`

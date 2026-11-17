@@ -1117,8 +1117,9 @@ rediscover it. Status is in `cartalith-native/docs/STATUS.md`, not here.
   sprite bakes). The app turns both on (`viewport_host.gd`
   `PACK_SPRITE_AREA_BLIT`, `PACK_PREMULTIPLIED_BAKE`, applied by
   `engine_bridge.gd::_apply_sprite_filters`). No Rust pin moved.
-  `pack_report`, `near_dupes` and `lineart::working_image` still bake
-  straight; on opaque art the two are identical.
+  `pack_report`, `near_dupes` and `lineart::working_image` baked straight
+  until 2026-11-17; they now take the session's `bake_filter`
+  (`pack_report_with`, `working_image_with`); on opaque art the two are identical.
 - **Measured** (`cartalith-godot/tests/sprite_filter.rs`, a 1024² source
   through the 256² bake into a 40.96 px box, three synthetic samples, view
   ×1/×4/×16/×64 by nearest magnification as `viewport_host.gd` draws the

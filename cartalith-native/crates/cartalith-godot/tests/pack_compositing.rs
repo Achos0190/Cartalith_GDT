@@ -141,11 +141,42 @@ fn composites_real_sprites_and_falls_back_to_glyphs_on_a_real_test_pack() {
     // real sprite art should have been blitted there.
     assert!(region_changed(&bytes, world.gw, 6, 19, 6, 14), "expected the real mountain sprite to paint pixels near the peak");
 
-    // The dry-grass corner has real `tree_conifer`-style land elsewhere on
-    // the map (proving real sprites composite in general, checked above);
-    // this corner specifically forces `shrub`, which the fixture has no art
-    // for -- proving the procedural glyph fallback fired instead of nothing.
-    assert!(region_changed(&bytes, world.gw, world.gw - 5, world.gw, 0, world.gh), "expected the procedural glyph fallback to paint the shrub-only corner");
+    // The dry-grass corner is painted, but NOT by the glyph fallback: the fixture's manifest has no rule for
+    // `shrub`, so the corner places no feature at all (pinned by the next test) and these pixels are the
+    // neighbouring sprites' footprints. 2026-11-17: this comment used to claim the corner "forces `shrub`",
+    // which was false (`STATUS.md` had recorded it as found, not fixed).
+    assert!(region_changed(&bytes, world.gw, world.gw - 5, world.gw, 0, world.gh), "expected the shrub-only corner to be painted by its neighbours");
+}
+
+/// Protects: the two claims the test above used to make by comment only. (1) A slot with no rule in the pack's
+/// manifest (`shrub` here) places nothing: the dry-grass corner has no placed feature. (2) The glyph fallback
+/// is for a slot that HAS a rule but no decoded art: with the conifer's decoded variants dropped and its
+/// manifest rule kept, every placed conifer is `FeatureArt::Glyph` (positive control: with the art present
+/// every one is a `Sprite`), and painting them changes pixels. A build that dropped the fallback, or drew a
+/// sprite where none decoded, fails here.
+#[test]
+fn a_ruled_slot_without_decoded_art_is_placed_as_a_glyph_and_an_unruled_slot_places_nothing() {
+    let mut loaded = pack::load_pack_from_bytes(fixture_bytes()).expect("real reference-exported pack must load");
+    let w = build_world();
+    let feats = pack::place_feature_icons(&w.field, &w.temperature, &w.rainfall, w.gw, w.gh, w.sea_level, 7, &loaded);
+    let corner = feats.iter().filter(|f| f.item.x as usize >= w.gw - 5).count();
+    assert_eq!(corner, 0, "the fixture has no rule for shrub, so the dry-grass corner places no feature");
+    let conifers: Vec<_> = feats.iter().filter(|f| f.slot == "tree_conifer").collect();
+    assert!(!conifers.is_empty(), "the boreal land places conifers");
+    assert!(conifers.iter().all(|f| matches!(f.art, pack::FeatureArt::Sprite { .. })), "positive control: with the art decoded they are sprites");
+
+    // Drop the decoded variants only; the manifest rule stays, so the slot is still placed.
+    loaded.icons.remove("tree_conifer");
+    let feats = pack::place_feature_icons(&w.field, &w.temperature, &w.rainfall, w.gw, w.gh, w.sea_level, 7, &loaded);
+    let conifers: Vec<_> = feats.iter().filter(|f| f.slot == "tree_conifer").collect();
+    assert!(!conifers.is_empty(), "the rule alone still places the slot");
+    assert!(conifers.iter().all(|f| f.art == pack::FeatureArt::Glyph), "no decoded art: every conifer is a glyph");
+    // Painted: a world that is conifer land only (no peak, no dry corner) draws only glyph pixels.
+    let n = w.gw * w.gh;
+    let (field, temp, rain) = (vec![0.5f32; n], vec![8.0f32; n], vec![0.4f32; n]);
+    let mut bytes = vec![255u8; n * 3];
+    pack::composite_map_icons(&mut bytes, &field, &temp, &rain, w.gw, w.gh, w.sea_level, 7, &loaded);
+    assert!(bytes.iter().any(|&b| b != 255), "the glyph fallback paints");
 }
 
 /// Protects: a pack whose icon slots are all removed places nothing (the buffer stays all white), the pack-less no-op that keeps a render without art bit-identical.

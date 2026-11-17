@@ -789,6 +789,18 @@ func ring_click(local_pos: Vector2) -> bool:
 		cb.call()
 	return true
 
+## A left press at viewport position `at` that lands on a part of the sticky ring which hangs over a control
+## other than the map overlay (a dock panel): `app.gd::_input` calls this before the GUI routes the press, so
+## the ring, which is drawn on top, also receives the click. Returns true when it consumed the press.
+func ring_click_over_part(at: Vector2) -> bool:
+	if ring == null or not ring.hits_part(at):
+		return false
+	var cb: Callable = ring.click_at(at)
+	_sync_card_ring_clear()
+	if cb.is_valid():
+		cb.call()
+	return true
+
 ## Whether a ring is currently showing; `map_overlay.gd` asks this before
 ## deciding whether a click belongs to the ring or the armed tool.
 func ring_is_open() -> bool:
