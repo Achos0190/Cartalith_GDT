@@ -1,0 +1,1 @@
+blocks 32 tri 0 quad 22 aspect med 2.7 rect med 0.96 depth med 16.6 phi 0.908 lots 352

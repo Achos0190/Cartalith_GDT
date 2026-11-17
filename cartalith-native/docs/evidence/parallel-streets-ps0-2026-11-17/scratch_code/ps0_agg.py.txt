@@ -1,0 +1,90 @@
+"""PS-0 scratch: aggregate ps0_audit's CSVs (towns, blocks, lots, buildings) per variant.
+usage: ps0_agg.py <run dir> <gw>   -> prints the PS-0 tables for: all towns 1 500+, and the 8 largest per seed."""
+import csv, sys, math, collections
+
+D, GW = sys.argv[1], sys.argv[2]
+W_FLOOR, R95, R99 = 4.15, 3.5, 6.0   # Monpazier plots: width p5, ratio p95, ratio p99 (PS-0 item 4)
+
+
+def rd(n):
+    return list(csv.DictReader(open(f'{D}/{n}_{GW}.csv')))
+
+
+towns, blocks, lots, bld = rd('towns'), rd('blocks'), rd('lots'), rd('bldg')
+q = lambda v, f: (sorted(v)[min(len(v)-1, int(round((len(v)-1)*f)))] if v else float('nan'))
+off = {(t['seed'], t['town']): t for t in towns if t['variant'] == 'off'}
+by_seed = collections.defaultdict(list)
+for k, t in off.items():
+    by_seed[k[0]].append(t)
+sel = set()
+for s, ts in by_seed.items():
+    ts.sort(key=lambda t: (-float(t['pop_target']), int(t['town'])))
+    sel |= {(s, t['town']) for t in ts[:8]}
+
+
+def report(keys, label):
+    print(f'== {label}: {len(keys)} towns ==')
+    for v in ('off', 'burgage', 'proto'):
+        T = [t for t in towns if t['variant'] == v and (t['seed'], t['town']) in keys]
+        B = [b for b in blocks if b['variant'] == v and (b['seed'], b['town']) in keys]
+        L = [l for l in lots if l['variant'] == v and (l['seed'], l['town']) in keys]
+        G = [g for g in bld if g['variant'] == v and (g['seed'], g['town']) in keys]
+        out = []
+        for name, BB in (('all', B), ('outside core', [b for b in B if b['outside'] == '1'])):
+            n = len(BB) or 1
+            c = lambda k: 100*sum(1 for b in BB if int(b['corners']) == k)/n
+            out.append(f"  blocks {name}: n {len(BB)} quads {c(4):.1f} tri {c(3):.1f} compact tri {100*sum(1 for b in BB if b['corners']=='3' and float(b['aspect'])<2)/n:.1f} "
+                       f"pent+ {100-c(3)-c(4):.1f} aspect {q([float(b['aspect']) for b in BB],.5):.2f} rect {q([float(b['rect']) for b in BB],.5):.2f} "
+                       f"depth {q([float(b['depth']) for b in BB],.5):.1f} m, >=83 m {100*sum(1 for b in BB if float(b['depth'])>=83)/n:.1f} %")
+        phi = [float(t['phi']) for t in T]; h = [float(t['h']) for t in T]
+        dphi = [float(t['phi'])-float(off[(t['seed'], t['town'])]['phi']) for t in T]
+        housed = [100*float(t['pop'])/float(t['pop_target']) for t in T]
+        dsum = [sum(int(t[f'd{k}']) for k in range(1, 6)) for t in T]
+        d4 = 100*sum(int(t['d4']) for t in T)/max(1, sum(dsum)); d1 = 100*sum(int(t['d1']) for t in T)/max(1, sum(dsum))
+        ratio = [float(t['settled_m2'])/float(off[(t['seed'], t['town'])]['settled_m2']) for t in T]
+        keep = [float(t['keep_off']) for t in T]
+        seg = [float(t['seg_med']) for t in T]
+        print(f" [{v}] towns {len(T)}  housed p10 {q(housed,.1):.0f} median {q(housed,.5):.0f}, under 80 %: {sum(1 for x in housed if x<80)}")
+        for o in out:
+            print(o)
+        print(f"  per town phi median {q(phi,.5):.3f} p90 {q(phi,.9):.3f}; entropy/max median {q(h,.5):.3f}; phi on-off max {max(dphi) if dphi else 0:.3f}; "
+              f"degree 4 {d4:.1f} %, dead ends {d1:.1f} %, segment median (town medians) {q(seg,.5):.1f} m")
+        print(f"  FS-1 settled area / off: min {min(ratio):.2f} median {q(ratio,.5):.2f} max {max(ratio):.2f}; in 0.9-1.4: {sum(1 for r in ratio if 0.9<=r<=1.4)}/{len(ratio)}; "
+              f"off cells kept >= 85 %: {sum(1 for k in keep if k>=0.85)}/{len(keep)} (median {q(keep,.5):.2f})")
+        # lots and needles
+        L4 = [l for l in L if l['npts'] == '4' and float(l['front']) > 0]
+        nq = len(L)
+        tri = sum(1 for l in L if l['npts'] != '4')
+        def needle(l, R):
+            # PS-0 needle: thin AND long (narrow end under the real width floor and depth / mean width over the real
+            # p95), or past the real p99 ratio, or a sliver (an end under 1 m)
+            f, b, d = float(l['front']), float(l['back']), float(l['depth'])
+            wmin = min(f, b); r = d/max((f+b)/2, 1e-6)
+            return (wmin < W_FLOOR and r > R95) or r > R or wmin < 1.0
+        n_w = sum(1 for l in L4 if min(float(l['front']), float(l['back'])) < W_FLOOR)
+        n_t = sum(1 for l in L4 if min(float(l['front']), float(l['back'])) < 0.5*max(float(l['front']), float(l['back'])))
+        n_r95 = sum(1 for l in L4 if float(l['depth'])/max((float(l['front'])+float(l['back']))/2, 1e-6) > R95)
+        n_r99 = sum(1 for l in L4 if float(l['depth'])/max((float(l['front'])+float(l['back']))/2, 1e-6) > R99)
+        n_need = sum(1 for l in L4 if needle(l, R99)) + tri
+        ratio_l = [float(l['depth'])/float(l['front']) for l in L4]
+        deep = 100*sum(1 for l in L4 if float(l['depth']) > 40)/max(1, len(L4))
+        print(f"  lots {nq} (non-quads {tri}): depth/frontage median {q(ratio_l,.5):.2f}; over 40 m deep {deep:.1f} %; "
+              f"width < {W_FLOOR} m {100*n_w/max(1,nq):.1f} %; taper (narrow end < half the wide) {100*n_t/max(1,nq):.1f} %; "
+              f"depth/width > {R95} {100*n_r95/max(1,nq):.1f} %, > {R99} {100*n_r99/max(1,nq):.1f} %; NEEDLES (narrow end < {W_FLOOR} m and ratio > {R95}, or ratio > {R99}, or an end < 1 m, or non-quad) {100*n_need/max(1,nq):.1f} % ({n_need})")
+        gn = sum(1 for g in G if float(g['short']) < 3.0 and float(g['long'])/max(float(g['short']), 1e-6) > R99)
+        print(f"  buildings {len(G)}: needle buildings (short side < 3 m and long/short > {R99}) {100*gn/max(1,len(G)):.2f} % ({gn})")
+    # feasibility (towns 5 000+, from the off layout)
+    F = [t for k, t in off.items() if k in keys and float(t['pop_target']) >= 5000 and t['feas_bank']]
+    for k_ in (1.2, 1.4):
+        fit_b = sum(1 for t in F if float(t['feas_bank']) >= k_*float(t['settled_m2']))
+        fit_a = sum(1 for t in F if float(t['feas_all']) >= k_*float(t['settled_m2']))
+        print(f" feasibility x{k_}: market bank fits {fit_b}/{len(F)} ({100*fit_b/max(1,len(F)):.0f} %), all banks {fit_a}/{len(F)}")
+    fr = [float(t['feas_bank'])/float(t['settled_m2']) for t in F]
+    print(f"  buildable (market bank) / settled today: min {min(fr) if fr else 0:.2f} p10 {q(fr,.1):.2f} median {q(fr,.5):.2f}")
+    worst = sorted(F, key=lambda t: float(t['feas_bank'])/float(t['settled_m2']))[:5]
+    print('  tightest:', '; '.join(f"{t['seed']} #{t['town']} pop {t['pop_target']} ratio {float(t['feas_bank'])/float(t['settled_m2']):.2f}" for t in worst))
+
+
+report(set(off), f'all towns 1500+ at {GW}')
+report(sel, f'8 largest towns per seed at {GW}')
+print('selection:', sorted(sel, key=lambda k: (k[0], int(k[1]))))

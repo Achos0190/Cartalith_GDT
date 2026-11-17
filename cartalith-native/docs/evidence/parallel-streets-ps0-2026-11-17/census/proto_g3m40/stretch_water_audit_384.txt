@@ -1,0 +1,35 @@
+
+running 1 test
+test town_river_census::stretch_water_audit ...   #  0 (   1,  60) town    river STRETCHED box 2243x2243: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 98 -> -0 m FLAGGED (quay)
+  #  2 (  22, 113) town    river STRETCHED box 2397x2397: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 168 -> 604 m
+  #  3 (   1, 115) town    river STRETCHED box 2055x2055: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 211 -> 755 m
+  #  4 ( 100,  70) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 616 -> 642 m
+  #  8 ( 267,  71) town    river STRETCHED box 2460x1260: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 184 -> 1218 m
+  # 10 ( 187, 155) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1001 -> 1148 m
+  # 12 ( 183, 106) town    riverthrough STRETCHED box 2190x2190: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 44 -> 918 m
+  # 13 (   4, 240) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 805 -> 805 m
+  # 18 ( 246, 237) town    river refused   box 2139x2139: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 64 -> 64 m
+seed 483920 at 384x288: planned stretched 9, laid out stretched 7, flagged 1
+  #  0 (  13, 106) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 877 -> 1327 m
+  #  1 ( 363, 239) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 935 -> 1202 m
+  #  3 (  55,  83) town    river STRETCHED box 1700x1900: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 352 -> 666 m
+  #  5 ( 363, 218) town    river STRETCHED box 1700x2460: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 623 -> 1499 m
+  #  6 (   2,  14) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 734 -> 892 m
+  #  7 ( 312, 235) town    river STRETCHED box 2460x1260: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 615 -> 1328 m
+  #  9 ( 134, 240) town    river refused   box 2460x1260: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 820 -> 820 m
+  # 14 ( 375, 180) town    river STRETCHED box 2214x2214: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 141 -> 518 m
+seed 912345 at 384x288: planned stretched 8, laid out stretched 7, flagged 0
+  #  0 ( 381, 231) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 679 -> 853 m
+  #  2 ( 265, 282) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1018 -> 1166 m
+  #  3 ( 349, 168) town    river STRETCHED box 2077x2077: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 544 -> 512 m
+  #  5 ( 240, 205) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 526 -> 636 m
+  #  6 (   1, 224) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 194 -> 194 m
+  # 11 ( 167, 109) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 866 -> 783 m
+  # 13 ( 313, 151) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 878 -> 878 m
+  # 15 (  12,  29) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 685 -> 952 m
+seed 246371 at 384x288: planned stretched 8, laid out stretched 6, flagged 0
+all seeds at 384: planned stretched 25, laid out stretched 20, flagged 1
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1434 filtered out; finished in 93.55s
+

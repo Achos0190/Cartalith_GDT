@@ -1,0 +1,36 @@
+"""PS-0 scratch: per seed, a contact sheet (rows = the 8 most populous towns of the shell's world; columns = City Viewer
+opening frame, x4, x16 and the map's town layer, each off then on) and per town a pair image (off | on) per view."""
+import glob, re, sys
+from PIL import Image, ImageDraw
+S = 'C:/cw/ps0_scratch/shots'; O = 'C:/cw/ps0_scratch/ev/frames'
+TW = 300
+for seed in ('483920', '912345', '246371'):
+    log = open(f'{S}/{seed}_off.log', encoding='utf-8', errors='replace').read()
+    tops = re.findall(r'TOP #(\d+) (\S+) pop (\d+)', log)
+    views = [('z1', 'cv_%s_%s_%s_z1.png'), ('z4', 'cv_%s_%s_%s_z4.png'), ('z16', 'cv_%s_%s_%s_z16.png'), ('map', 'map_%s_%s_%s.png')]
+    th = int(TW*960/1560); mh = int(TW*1000/1600)
+    rowh = max(th, mh)+4
+    sheet = Image.new('RGB', (110+TW*8+8*4, 30+rowh*len(tops)), (255, 255, 255))
+    d = ImageDraw.Draw(sheet)
+    d.text((4, 4), f'seed {seed}, 384 x 288, shell world: 8 most populous towns. Columns: opening frame OFF/ON, x4 OFF/ON, x16 OFF/ON (centred on the market), map town layer OFF/ON. ON = PS-0 heading prototype (PS0_GAIN 3, PS0_MODULE 40 m), scratch', fill=(0, 0, 0))
+    for r, (tid, name, pop) in enumerate(tops):
+        y = 30+r*rowh
+        d.text((4, y+4), f'#{tid}\n{name[:14]}\npop {pop}', fill=(0, 0, 0))
+        x = 110
+        for vn, pat in views:
+            pair = []
+            for tag in ('off', 'on'):
+                im = Image.open(f'{S}/' + pat % (seed, tid, tag)).convert('RGB')
+                pair.append(im)
+                t = im.copy(); t.thumbnail((TW, rowh-4))
+                sheet.paste(t, (x, y)); d.text((x+3, y+3), f'{vn} {tag.upper()}', fill=(255, 0, 0))
+                x += TW+4
+            # full-size pair
+            a, b = pair
+            h = max(a.size[1], b.size[1])
+            P = Image.new('RGB', (a.size[0]+b.size[0]+10, h+24), (255, 255, 255))
+            P.paste(a, (0, 24)); P.paste(b, (a.size[0]+10, 24))
+            ImageDraw.Draw(P).text((4, 4), f'seed {seed} #{tid} {name} pop {pop}: {vn}  OFF (left) | ON, heading prototype gain 3, module 40 m (right); scratch, ships nothing', fill=(0, 0, 0))
+            P.save(f'{O}/pair_{seed}_{tid}_{vn}.png')
+    sheet.save(f'C:/cw/ps0_scratch/ev/contact_{seed}.png')
+    print(seed, sheet.size)

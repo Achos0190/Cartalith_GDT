@@ -185,10 +185,12 @@ Six plans, all with a clear licence, are in the evidence folders:
 
 The licences were read from each file's Wikimedia Commons page through the Commons API (`SOURCES.txt` in each
 folder). The block counts below are **by eye**, one reader, +/- 2 blocks a class
-(`parallel-streets-2026-11-17/real_plans/block_counts_by_eye.txt` has the method and the crops); they are
-provisional targets, and PS-0 replaces them with traced ones. Metre figures from the scans assume about 0.47 m a
-pixel (town sheets at 1:2 500, field sheets of 800 Ruten = 2 334.87 m at 1:5 000 [source: de.wikipedia
-"Bayerische Uraufnahme"]; the scan's margins make every metre figure **[inference, +/- 15 %]**).
+(`parallel-streets-2026-11-17/real_plans/block_counts_by_eye.txt` has the method and the crops). **PS-0 traced four
+of these plans and measured them with the census's own measures; the traced figures are section 8.1 and replace the
+by-eye shares as targets.** Metre figures here assumed about 0.47 m a pixel; **PS-0 calibrated the Noerdlingen sheet at
+0.573 m a pixel** on its wall walk (2.6 km [source: de.wikipedia "Stadtmauer Noerdlingen", read 2026-11-17]) and
+applies it to the other Bavarian sheets as an **[inference, +/- 15 %]**, so the metre figures in this section read
+about 20 % low.
 
 ### 2.1 Planted grid (bastide, Gruendungsstadt)
 
@@ -466,7 +468,7 @@ audit, but the "villages and radial" row is a design requirement, not a figure.
   **56 m** (`burgage::UNBUILT_REACH_M`, Q8 of the judgement row, kept);
 - settled area / 0.12 N^0.714, towns 5 000+, median: 0.65-1.0 (today 0.64 / 0.65).
 
-### 5.3 Close scrutiny: block shape (targets from the real plans, provisional until PS-0 traces them)
+### 5.3 Close scrutiny: block shape (the targets below are the scope's first ones; PS-0's traced replacements are section 8.1)
 
 **Measured on which blocks:** the blocks outside the organic core (more than `0.38 * max_rf` from the market) of towns
 of 1 500 and up whose type gives them a grain (river-front or market-street, section 4). The organic core is held to
@@ -565,3 +567,206 @@ Each milestone states its bars; every one runs the census at 384 and 2 048 and c
 9. **A spindle market street** on a market-street town's spine (judgement change 6 allowed one)? [yes, sized by
    `urban_market_scale`'s rule]
 10. **Must-hold bars strict** (no rise in wall / hull, no fall in riverside or housed p10)? [yes, strict]
+
+---
+
+## 8. PS-0 result (2026-11-17, Ruling GA: every default)
+
+**Verdict for PS-1: adjust.** The heading rule turns the streets (aligned street length outside the core 40 % to
+67 %) but not the blocks: quads stay at 44-54 % against the 65 % go bar at every one of six settings. On the
+market's bank the ground for a 1.4x deep-plot footprint is there for only a quarter of the towns of 5 000+. And the
+deep-plot prototype's "needles" are measured: 2.5 times the shipped town's share, 8 times the real plan's. PS-1
+(the field and the type rule, no growth change) is still needed by any variant. It should start only after the owner
+answers Q5 and Q6 (the ground no-go) and Q11 (below). PS-2's design must change as section 8.6 says. Nothing ships:
+no product behaviour changed, and the scratch code is kept only as `.txt`.
+
+Evidence: `cartalith-native/docs/evidence/parallel-streets-ps0-2026-11-17/` (its `summary.txt` lists every file).
+"Measured" below means those runs. Census world: seeds 483920, 912345 and 246371, 800 km, villages on, the app's
+`params::defaults`, 384 x 288 and 2 048 x 1 311. Release test binary from `origin/main` `cd23c83a` plus the scratch
+code (`scratch_code/prototype_and_audit.diff.txt`).
+
+### 8.0 The baseline, re-run (item 5)
+
+The five audits (`both_banks`, `town_housing`, `riverbank_gap`, `harbour_front`, `stretch_water`) at both sizes, from
+`cd23c83a`, are byte-identical to `burgage-backlanes-2026-11-17/census_off/` apart from their timing lines (`diff`
+empty, ten files; `census/base/`). The off path of the scratch build is therefore the shipped path. Section 5.1's
+"today" column stands as written. `ps0_audit`'s off columns reproduce section 1.2's block figures exactly: quads
+50.3 %, triangles 10.7 %, aspect 1.57, rectangularity 0.70, depth 28.6 m, 3.6 % of blocks 83 m or more across.
+
+### 8.1 Traced real plans (item 1)
+
+**Method.** Each street centreline was read off the scan at 1-2x, using a 50 px grid, as a polyline with a width. The
+traces are kept as `traced/trace_*.txt`. A Python port of the census's measures then planarises the centrelines,
+extracts the faces and insets each face by half its streets' widths, which gives the block as built, like
+`build_blocks`. It keeps blocks of 200 m2 and up, and measures them with `ps_corners` (6 m merge, 20-degree turn),
+`ps_mabr` and the 36-bin bearing phi. Monpazier is extracted automatically from Schaefer's figure-ground instead: a
+1 px closing removes the plot lines, then the black components are traced and Douglas-Peucker simplified at 1.5 m.
+The port agrees with the Rust audit on one dumped town (483920 #0): the corner-count histogram matches block for
+block except one 5-cornered block, and the aspect and rectangularity medians agree within 0.5 %. Every trace is
+drawn over its scan in `traced/*_trace.jpg`; I looked at each overlay and corrected Dinkelsbuehl's south-west
+boundary, which first ran through built ground.
+
+| plan | blocks | quads | triangles (compact) | pentagon+ | aspect median | rectangularity median | depth across median | 83 m+ | phi (whole trace) |
+|---|---|---|---|---|---|---|---|---|---|
+| Neumarkt 1830, market street | 20 | 55 % | 0 (0) % | 45 % | 1.92 | 0.74 | 79 m * | 35 % * | 0.32 |
+| Straubing 1827, Neustadt | 20 | 95 % | 0 (0) % | 5 % | 1.97 | 0.88 | 64 m * | 40 % * | 0.80 |
+| Dinkelsbuehl 1825 | 22 | 59 % | 14 (0) % | 27 % | 3.03 | 0.63 | 57 m * | 32 % * | 0.29 |
+| Monpazier, planted grid | 32 | 69 % ** | 0 (0) % | 31 % ** | 2.70 | 0.96 | 17 m *** | - | 0.91 |
+| shipped town, today (384, towns 1 500+) | 5 648 | 50 % | 11 (7) % | 39 % | 1.57 | 0.70 | 29 m | 3.6 % | 0.08 per town |
+
+`*` These are upper bounds. The traces keep streets and named lanes and omit private passages, so the true blocks
+are smaller. Section 5.3's depth targets are not reset from them. Metres are at 0.573 m a pixel, calibrated on the
+Noerdlingen sheet; applying that figure to the other three sheets is an inference, +/- 15 %. `**` Monpazier is a grid
+and its "pentagons" are pixel noise on the outline after closing, so its real quad share is higher. `***` These are
+half-blocks: the drawing's eaves gaps (andrones) split each block lengthwise. Monpazier's metres use the weakly
+sourced 400 m long side (about 0.83 m a pixel).
+
+**Noerdlingen is excluded.** Its trace is schematic: radial and sector streets were placed from the overview, and at
+the centre-crop zoom several of them do not lie on a real street. Its figures (21 blocks, quads 57 %, phi 0.11) are
+kept in `traced/` for the record, but they set no target. The organic core keeps 5.3's "no worse than today" rule.
+**Lots were not traced on the Bavarian sheets**: the plot lines could not be read reliably at the scans' resolution.
+The lot thresholds come from Monpazier's 301 plots (automatic, 30 m2 and up): depth / width median 1.70, p95 3.5,
+p99 6.0; width p5 4.15 m (5 px at a weak scale). By eye, Dinkelsbuehl's Schmiedgasse strips run about 5.7 m by 24 m
+(ratio about 4.2).
+
+**Replacement targets for 5.3** (for the blocks outside the core of grain-type towns):
+
+- quads 60 % or more (traced market-street towns 55-59 %, the planted Neustadt 95 %; the 65 % PS-0 bar stays as
+  PS-0's);
+- triangles 15 % or less, compact triangles 5 % or less (traced 0-14 % and 0 %);
+- aspect median 2.0 or more (traced 1.9-3.0; the scope's 2.5 was above two of three traces);
+- rectangularity median 0.75 or more (traced 0.63-0.88; the scope's 0.85 was above every traced market-street town);
+- depth across 83 m or more: 15 % or more, unchanged (the traces' 32-40 % are upper bounds).
+
+**FS-2, and new owner question Q11.** The traced plans' phi is above FS-2's caps: 0.29-0.32 for the market-street
+towns, 0.80 for Straubing's Neustadt, 0.91 for Monpazier. Each trace is a partial town with lanes omitted, so these
+overstate a whole town's order. As section 5.4 requires, the caps are **not** loosened. **Q11: is a per-town phi
+median near 0.3, which is Neumarkt's and Dinkelsbuehl's, acceptable for a market-street town?** [default: no; keep
+0.25 / 0.45 and the 0.20 per-town delta]
+
+### 8.2 Ground feasibility (item 2): no-go on the market's bank
+
+**Method.** Per town of 5 000+, I counted the dry buildable ground inside the growth front on 10 m cells, at the
+layout's own site (scratch code in `generate_pass`, before `grow`). A cell counts if it lies inside the 40 m box
+margin, `!site.is_water`, `site.slope <= 0.34`, and `site.market_dist <= max_rf`, which uses the stretch frame where
+the town is stretched. I counted it twice: on the market's bank only, and on all banks. Against it, today's settled
+footprint (the census's 20 m cells within one cell of a building) is counted **inside the same region**, from the
+layout dumps. A town fits if the buildable ground is 1.4x (and 1.2x) that settled area or more.
+
+| 384, towns 5 000+ (28) | fits at x1.2 | fits at x1.4 | buildable / settled in region: min, p10, median |
+|---|---|---|---|
+| market's bank | 23 (82 %) | **7 (25 %)** | 0.97, 1.16, 1.36 |
+| all banks | 28 (100 %) | 27 (96 %) | 1.37, 1.67, 2.11 |
+
+The market's bank decides. "All banks" is an upper bound, because a town grows on its far bank only in the bridge
+strip (`grow_far_bank`). Of the 8 unstretched towns, 3 fit at x1.4 on the market's bank. **No-go by the scope's own
+rule** (90 %), so Q5 (backland households) and Q6 (a larger footprint) go to the owner before PS-2. The like-with-like
+count was made at 384 only. At 2 048 only the first, unequal comparison was run (settled over the whole town), and it
+agrees in direction: market's bank 1 of 22 at x1.4, all banks 21 of 22.
+
+### 8.3 Heading prototype (item 3)
+
+**What.** This is scratch code in `growth::grow` and `legalize_street`, read from environment variables at call
+time, with off the shipped path by control flow (8.0). A field gives each point an axis and a strength. The axis is a
+doubled-angle blend of the approach roads (`1 / (1 + (d / 80 m)^2)`), the river (x1.5) and the primary through the
+market (x0.7, out to about 250 m). The strength is the blend's coherence times its total weight, times a ramp from 0
+at `0.38 max_rf` (the organic core is kept) to 1 at `0.50 max_rf`, times `PS0_GAIN`. Branch headings bend to the
+nearest of the four axes by that strength, and exploration bends by 0.7 times it. Where the strength is over 0.5,
+oblique candidates (more than 0.35 rad off an axis) are refused, and near-parallel streets keep `PS0_MODULE` apart.
+Villages and street villages are untouched: the rows under 1 500 in `both_banks_audit` are identical at both sizes.
+
+**The 8 towns a seed** are the 8 most populous of 1 500 and up in the census world. Census and shell worlds differ, so
+the frames (8.5) show the shell's own 8 most populous towns. Blocks are counted outside the core, as 5.3 defines.
+
+| setting (8 largest towns a seed) | housed p10 | quads | triangles | phi median / p90 |
+|---|---|---|---|---|
+| off, 384 | 95 | 49.6 % | 11.1 % | 0.07 / 0.10 |
+| gain 1, module 60 m | 86 | 51.4 % | 12.6 % | 0.10 / 0.19 |
+| gain 1, module 90 m | 78 | 51.0 % | 11.6 % | 0.07 / 0.15 |
+| gain 0.6, module 60 m | 91 | 54.1 % | 10.8 % | 0.11 / 0.20 |
+| gain 3, module 60 m | 72 | 44.6 % | 19.0 % | 0.13 / 0.22 |
+| **gain 3, module 40 m (the framed setting)** | 91 | 52.9 % | 10.2 % | 0.17 / 0.36 |
+| gain 3, module 40 m, 2 048 (off: 62, 50.7 %) | 87 | 48.8 % | 10.8 % | 0.15 / 0.29 |
+| **go bars** | **90+** | **65 %+** | | **0.25 or less (median)** |
+
+**Positive control.** On the framed setting's 24 towns, the share of street length outside the core lying within 15
+degrees of the nearest primary's bearing or its perpendicular rises from **39.8 % to 67.2 %** (median; p10 31 to 47,
+p90 46 to 84). The rule turns the streets; the blocks still do not close as quads. I have not isolated why. Possible
+causes are the first-hit T-snap, which lands a street on whatever lies across its path, `lane_pass` cuts, and seams
+between two grains.
+
+**Scope 1.3 item 2's test** (no field; any street alongside within 60 m refused, whatever its angle): triangles
+20.7 %, against 23.2 % for a 60 m spacing alone. Housing collapses (p10 39). The test is not isolated, because it
+also widens the spacing query (`edges_within`). It supports the oblique-selection hypothesis only weakly.
+
+**The other bars, framed setting, all towns 1 500+, 384 / 2 048 (today in brackets):**
+
+- **FS-1 fails.** Area ratio 0.9-1.4 holds in 28 of 35 / 30 of 36 towns. 85 % or more of the off footprint is kept
+  in only 17 of 35 / 20 of 36 towns (median 0.85). The bar has no measured null. `urban_burgage`'s second prototype
+  keeps 85 % in 25 of 35.
+- **FS-2 passes at 384 and fails at 2 048.** Phi median 0.18 / 0.18 (cap 0.25). Phi p90 0.40 / **0.57** (cap 0.45).
+  Per-town phi on minus off reaches **0.47 / 0.45** (cap 0.20). Bearing entropy median 0.94 / 0.95 (floor 0.90).
+- **FS-3 passes.** Degree-4 nodes 8.5 / 8.4 %; dead ends 11.8 / 12.7 %; segment median 24 m.
+- **Must-hold (5.1).** Housed p10 93 / 90 (94 / 85); towns under 80 % 2 / 3 (1 / 3); villages under 80 % 49 / 21
+  (49 / 21); market squares outside the wall 5 / 0 (5 / 1); unbuilt patches over 1 ha 1 / 0 (1 / 0); riverside 4.3 /
+  3.8 % (4.3 / 3.7); buildings in water 0 / 0; village greens 629 of 662 / 676 of 684 (the same); stretched towns
+  refused 5 / 4 (5 / 6). **Wall / hull p90 1.12 / 1.13, max 1.26 / 1.19 (1.11 / 1.09, max 1.14 / 1.21) breaks the
+  strict bar**, and `stretch_water_audit` flags 1 town at 384 (0). The five audits' summaries have no row for wall
+  rings in open water, so that bar is not reported. Files: `census/proto_g3m40/`.
+
+### 8.4 Needle lots (item 4)
+
+**Definition.** A four-cornered lot `[p0, p1, q1, q0]` is a needle if any of these holds: its narrow end is under
+4.15 m **and** its depth over mean width is over 3.5 (thin and long; the real p5 width and p95 ratio); its depth over
+mean width is over 6.0 (the real p99); or either end is under 1 m (a sliver). A lot that is not four-cornered counts
+too; none occurs. Building needles: short side under 3 m and long over short over 6.0. The definition flags what the
+owner saw. In the close-up crops (`needles/`), the red lots are the fans that radiate from an irregular block's
+interior to a point, and the slivers at block corners.
+
+| lots of towns 1 500+, 384 / 2 048 | needle lots | at a 3.3 / 5.0 m floor (384) | taper leg only (narrow end under half the wide one, ratio over 3.5) | needle buildings |
+|---|---|---|---|---|
+| real (Monpazier, 301 plots) | 3.3 % | | | |
+| shipped | 11.1 / 11.4 % | 9.3 / 12.2 % | 5.6 % | 0.56 % |
+| `urban_burgage` on | **27.5 / 27.9 %** | 23.2 / 31.3 % | 14.9 % | **3.39 %** |
+| heading prototype (framed setting) | 16.5 / 16.6 % | 13.5 / 18.6 % | 8.4 % | 1.05 % |
+
+**Proposed PS bar:**
+
+- needle lots **5 % or less** of the lots of towns 1 500+ at PS-5, and **never above today's 11 %** at any milestone;
+- the scale-free taper leg no worse than today's 5.6 %;
+- needle buildings no worse than today's 0.6 %.
+
+The width floor depends on a weak scale, so the bar is also reported at 3.3 m and 5.0 m. The bar belongs to platting
+(PS-5): deep lots cut toward the centre of an irregular block fan by construction.
+
+### 8.5 Frames (Ruling GA)
+
+City Viewer frames, at 384 x 288 and windowed, for the shell's 8 most populous towns a seed. Views: the opening frame,
+x4 and x16 centred on the layout's market (`_zoom` set directly, since the viewer's own cap is 12), and the map's town
+layer two zoom steps past the zoom where the layer first draws the town. Each view is shown off and on.
+
+- `contact_<seed>.jpg`: one grid per seed.
+- `frames/`: full-size pairs for one town a seed.
+- `real_vs_generated/`: each plan beside a comparable generated town, off and on.
+- `needles/`: crops of off, burgage and prototype in the same 260 m window.
+
+The building counts printed per layout differ between off and on for every town, so the prototype reached the shell.
+The map frames of towns inside the plate's frame margin show no town layer: the town layer never draws there, which is
+the frame clip, not the prototype. "Invalid polygon data, triangulation failed" errors appear in equal numbers in the
+off and on runs.
+
+**What the frames show.** At first sight the silhouettes hold, but several river towns lose part of a bank, which is
+FS-1's failure. At x4, long streets run square to the approach roads in places, with blocks still irregular between
+them. At x16 the prototype's lots are not visibly better. In the needle crops, the burgage fans are the dominant
+defect.
+
+### 8.6 What PS-1 and PS-2 should change (the "adjust")
+
+1. **Keep PS-1** (the field and the type rule; no growth change). The field turned the streets as designed (8.3).
+2. **Re-scope PS-2 before building it.** Headings alone do not make quads. The next spike should add D item 4 (the
+   back-street candidate) and a rule that closes a block at right angles at **both** ends: a cross lane between two
+   parallels, not a first-hit stub. It should measure the quads and the FS-1 kept share against the same 24 towns.
+3. **Hold FS-1 and FS-2's delta in the next spike**, not only at PS-7. The framed setting broke both. A weaker gain
+   (0.6) keeps housing at 91 and phi near today's, with quads at 54 %.
+4. **Platting owns the needle bar (8.4).** It must cut deep lots only where the block is near-rectangular (PS-5).
+5. **Owner questions before PS-2:** Q5 and Q6 (the ground no-go, 8.2) and Q11 (8.1).

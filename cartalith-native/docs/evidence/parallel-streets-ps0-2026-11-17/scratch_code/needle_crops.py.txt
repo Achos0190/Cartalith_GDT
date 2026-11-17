@@ -1,0 +1,81 @@
+"""PS-0 scratch: close-up crops of needle lots (the PS-0 definition) in the off, burgage and proto layouts of a town, from
+ps0_audit's layout dumps (box metres). One window per town, chosen where the burgage layout has most needle lots, the
+same window for all three variants. Needle lots red, other lots tan, buildings dark, streets grey.
+usage: needle_crops.py <dump dir> <out dir> seed_town [seed_town ...]"""
+import json, sys, math
+from PIL import Image, ImageDraw, ImageFont
+
+W_FLOOR, R95, R99 = 4.15, 3.5, 6.0
+WIN = 260.0   # metres shown
+PX = 3.0      # pixels per metre
+
+
+def needle(q):
+    if len(q) != 4:
+        return True
+    d = lambda a, b: math.hypot(a[0]-b[0], a[1]-b[1])
+    f, b = d(q[0], q[1]), d(q[3], q[2])
+    dep = (d(q[0], q[3])+d(q[1], q[2]))/2
+    wmin = min(f, b); r = dep/max((f+b)/2, 1e-6)
+    return (wmin < W_FLOOR and r > R95) or r > R99 or wmin < 1.0
+
+
+def cen(p):
+    return (sum(x for x, _ in p)/len(p), sum(y for _, y in p)/len(p))
+
+
+def render(lay, cx, cy, title):
+    S = int(WIN*PX)
+    im = Image.new('RGB', (S, S+22), (236, 230, 214))
+    d = ImageDraw.Draw(im)
+    tr = lambda p: ((p[0]-cx+WIN/2)*PX, (p[1]-cy+WIN/2)*PX+22)
+    if lay.get('river') and len(lay['river']) > 1:
+        d.line([tr(p) for p in lay['river']], fill=(90, 140, 200), width=max(1, int(lay.get('river_w', 20)*PX)))
+    n = 0
+    for q in lay['parcels']:
+        if len(q) < 3:
+            continue
+        nd = needle(q)
+        n += nd
+        d.polygon([tr(p) for p in q], fill=(220, 60, 50) if nd else (214, 196, 160), outline=(150, 130, 100))
+    for b in lay['buildings']:
+        if len(b) >= 3:
+            d.polygon([tr(p) for p in b], fill=(70, 50, 40))
+    for e in lay['edges']:
+        cls, w, ax, ay, bx, by = e
+        d.line([tr((ax, ay)), tr((bx, by))], fill=(160, 160, 160) if cls != 'primary' else (120, 120, 120), width=max(1, int(w*PX*0.5)))
+    d.rectangle([0, 0, S, 21], fill=(255, 255, 255))
+    d.text((4, 4), title, fill=(0, 0, 0))
+    # scale bar 50 m
+    d.line([(10, S+12), (10+50*PX, S+12)], fill=(0, 0, 0), width=3)
+    d.text((14, S-2), '50 m', fill=(0, 0, 0))
+    return im
+
+
+def main():
+    dd, out = sys.argv[1], sys.argv[2]
+    for st in sys.argv[3:]:
+        seed, town = st.split('_')
+        lays = {v: json.load(open(f'{dd}/lay_{seed}_384_{town}_{v}.json')) for v in ('off', 'burgage', 'proto')}
+        # window: the burgage needles' densest WIN square (grid search on needle centroids)
+        cs = [cen(q) for q in lays['burgage']['parcels'] if len(q) >= 3 and needle(q)]
+        best, bc = -1, (lays['burgage']['market'])
+        for c in cs[::3]:
+            k = sum(1 for o in cs if abs(o[0]-c[0]) < WIN/2 and abs(o[1]-c[1]) < WIN/2)
+            if k > best:
+                best, bc = k, c
+        tiles = []
+        for v in ('off', 'burgage', 'proto'):
+            lay = lays[v]
+            nn = sum(1 for q in lay['parcels'] if len(q) >= 3 and needle(q))
+            tiles.append(render(lay, bc[0], bc[1], f'{seed} #{town} {v}: needle lots {nn} of {len(lay["parcels"])} in town; window {WIN:.0f} m at ({bc[0]:.0f},{bc[1]:.0f})'))
+        W = sum(t.size[0] for t in tiles)+20
+        im = Image.new('RGB', (W, tiles[0].size[1]), (255, 255, 255))
+        x = 0
+        for t in tiles:
+            im.paste(t, (x, 0)); x += t.size[0]+10
+        im.save(f'{out}/needles_{seed}_{town}.png')
+        print(st, 'window', [round(v) for v in bc], 'burgage needles in window', best)
+
+
+main()

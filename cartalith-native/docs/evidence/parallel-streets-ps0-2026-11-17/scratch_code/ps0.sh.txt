@@ -1,0 +1,15 @@
+#!/bin/bash
+# ps0.sh: ps0_audit (scratch #[ignore] test) per prototype setting; seeds 483920 912345 246371, 800 km, villages on.
+EXE=C:/cw/ps0_scratch/runs/census_b.exe; R=C:/cw/ps0_scratch/runs
+cd C:/cw/ps0/cartalith-native/crates/cartalith-godot
+run() { # name gw gh on-vars [dump]
+  env TOWN_RIVER_GW=$2 TOWN_RIVER_GH=$3 TOWN_RIVER_VILLAGES=1 PS0_OUT=$R/ps0_$1 PS0_ON="$4" PS0_DUMP=${5:-} \
+    $EXE ps0_audit --ignored --nocapture --test-threads 1 > $R/ps0_$1.log 2>&1
+}
+run g1m60_384 384 288 "PS0_HEADING=1;PS0_GAIN=1;PS0_MODULE=60" all &
+run g1m90_384 384 288 "PS0_HEADING=1;PS0_GAIN=1;PS0_MODULE=90" &
+run g06m60_384 384 288 "PS0_HEADING=1;PS0_GAIN=0.6;PS0_MODULE=60" &
+run obl60_384 384 288 "PS0_OBLIQUE_ALL=1;PS0_MODULE=60" &
+run g1m60_2048 2048 1311 "PS0_HEADING=1;PS0_GAIN=1;PS0_MODULE=60" &
+wait
+echo ALLDONE

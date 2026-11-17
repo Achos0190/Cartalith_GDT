@@ -1,0 +1,18 @@
+#!/bin/bash
+# shots.sh: PS-0 frames, 3 seeds x (off, on = PS0_HEADING=1 PS0_GAIN=3 PS0_MODULE=40), windowed, scratch APPDATA,
+# under the shared window lock (released only by the run that made it, by its own owner string).
+G="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+O=C:/cw/ps0_scratch/shots; mkdir -p $O
+ME="ps0 agent (PS-0 frames, 2026-11-17) pid $$"
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 15; done
+echo "$ME started $(date)" > C:/cw/.win_lock/owner.txt
+cd C:/cw/ps0/cartalith-native/godot-project
+declare -A CELLS=( [483920]="337,234;100,70;187,155;4,240;267,71;22,113;1,60;183,106" [912345]="13,106;363,239;363,218;2,14;312,235;134,240;375,180;228,124" [246371]="381,231;265,282;240,205;1,224;88,99;12,29;313,151;167,109" )
+for seed in 483920 912345 246371; do
+  APPDATA=C:/cw/ps0_scratch/appdata timeout 2400 "$G" --path . --resolution 1600x1000 _ps0_frames_probe.tscn -- --seed $seed --grid 384x288 --top 8 --tag off --out $O > $O/${seed}_off.log 2>&1
+  echo "$seed off rc $?"
+  PS0_HEADING=1 PS0_GAIN=3 PS0_MODULE=40 APPDATA=C:/cw/ps0_scratch/appdata timeout 2400 "$G" --path . --resolution 1600x1000 _ps0_frames_probe.tscn -- --seed $seed --grid 384x288 --top 8 --tag on --out $O > $O/${seed}_on.log 2>&1
+  echo "$seed on rc $?"
+done
+grep -q "ps0 agent (PS-0 frames, 2026-11-17) pid $$" C:/cw/.win_lock/owner.txt 2>/dev/null && rm -rf C:/cw/.win_lock
+echo SHOTSDONE

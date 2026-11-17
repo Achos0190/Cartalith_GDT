@@ -1,0 +1,151 @@
+extends Node
+## PS-0 scratch (PARALLEL_STREETS_SCOPE.md PS-0, 2026-11-17; committed only as a .txt in the evidence folder): frames of
+## chosen towns for the heading prototype, which is read from the environment (`PS0_HEADING`, `PS0_GAIN`, `PS0_MODULE`,
+## set before Godot starts), so a run is one variant. Windowed only (frame_post_draw never fires headless).
+##   Godot --path . _ps0_frames_probe.tscn -- --seed N --grid WxH --cells "x,y;x,y" --tag off|on --out <dir>
+## For each town (found by its grid cell, the census's `@(x,y)`): the City Viewer's opening frame (zoom 1), x4 and x16
+## centred on the layout's market (`_zoom` set directly: the viewer's own cap is 12), and the world map zoomed until its
+## town layer draws the town. Prints each layout's building and edge counts, so an off and an on run can be told apart
+## by data, not only by pixels.
+
+func _frames(n: int) -> void:
+	for _f in n:
+		await get_tree().process_frame
+
+func _global_of(overlay: Control, cell: Vector2) -> Vector2:
+	var rect: Rect2 = overlay._displayed_rect()
+	return overlay.get_global_transform() * overlay._point_to_screen(cell, rect)
+
+func _ready() -> void:
+	get_tree().create_timer(2400.0).timeout.connect(func() -> void:
+		print("RESULT: FAIL (timeout)")
+		get_tree().quit(1))
+	var seed_n := 483920
+	var gw := 384
+	var gh := 288
+	var cells: Array = []
+	var tag := "off"
+	## `--top N`: the N most populous settlements of the shell's world (ties by index); the shell's world is not the
+	## census's CPU world, so the census's cells do not match it.
+	var top := 0
+	var maponly := false
+	var out := ""
+	var args := OS.get_cmdline_user_args()
+	var i := 0
+	while i < args.size():
+		match args[i]:
+			"--seed": seed_n = int(args[i + 1])
+			"--grid":
+				var wh := String(args[i + 1]).split("x")
+				gw = int(wh[0])
+				gh = int(wh[1])
+			"--cells":
+				for c in String(args[i + 1]).split(";", false):
+					var xy := c.split(",")
+					cells.append(Vector2i(int(xy[0]), int(xy[1])))
+			"--tag": tag = args[i + 1]
+			"--top": top = int(args[i + 1])
+			"--maponly": maponly = int(args[i + 1]) != 0
+			"--out": out = args[i + 1]
+		i += 2
+	print("PS0 env PS0_HEADING=%s PS0_GAIN=%s PS0_MODULE=%s" % [OS.get_environment("PS0_HEADING"), OS.get_environment("PS0_GAIN"), OS.get_environment("PS0_MODULE")])
+	DirAccess.make_dir_recursive_absolute(out)
+	var vp := SubViewport.new()
+	vp.size = Vector2i(1600, 1000)
+	vp.gui_embed_subwindows = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	var app: Node = load("res://shell/app.tscn").instantiate()
+	vp.add_child(app)
+	await get_tree().create_timer(1.0).timeout
+	var bridge = app.bridge
+	bridge.generate({"seed": seed_n, "width_km": 800.0, "grid_w": gw, "grid_h": gh, "archetype": "", "villages": true})
+	while bridge.generating:
+		await get_tree().create_timer(0.25).timeout
+	await get_tree().create_timer(1.0).timeout
+	if app.open_project_dialog:
+		app.open_project_dialog.hide()
+	var places: Array = bridge.settlements()
+	var ids: Array = []
+	for c in cells:
+		var found := -1
+		for k in places.size():
+			if int(places[k]["x"]) == c.x and int(places[k]["y"]) == c.y:
+				found = k
+				break
+		print("CELL %s -> id %d" % [c, found])
+		ids.append(found)
+	if top > 0:
+		var order: Array = range(places.size())
+		order.sort_custom(func(a, b): return int(places[a]["population"]) > int(places[b]["population"]) or (int(places[a]["population"]) == int(places[b]["population"]) and a < b))
+		ids = order.slice(0, top)
+		for k in ids:
+			print("TOP #%d %s pop %d at (%d,%d)" % [k, places[k]["name"], places[k]["population"], places[k]["x"], places[k]["y"]])
+	app.open_city_viewer(0)
+	await _frames(10)
+	var cv = app.city_viewer_window
+	for id in ids:
+		if id < 0 or maponly:
+			continue
+		var lay: Dictionary = bridge.urban_layouts(PackedInt32Array([id]))[0]
+		print("LAYOUT #%d %s buildings %d keys %s" % [id, tag, Array(lay.get("buildings", [])).size(), str(lay.keys().slice(0, 12))])
+		app.open_city_viewer(id)
+		await _frames(12)
+		cv.size = Vector2i(1560, 960)
+		cv.position = Vector2i(20, 20)
+		await _frames(8)
+		cv._reset_view()
+		await _frames(6)
+		var market: Vector2 = cv._layout.get("market", Vector2.ZERO)
+		for z in [1.0, 4.0, 16.0]:
+			cv._zoom = z
+			if z > 1.0:
+				var vt: Dictionary = cv._view_transform()
+				var box: Rect2 = cv._fit_box()
+				cv._pan = Vector2.ZERO
+				var sc: float = cv._view_transform()["scale"]
+				cv._pan = sc * (box.get_center() - market)
+				cv._view_canvas = cv._canvas.size
+			cv._canvas.queue_redraw()
+			await _frames(6)
+			await RenderingServer.frame_post_draw
+			var img: Image = vp.get_texture().get_image()
+			var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
+			img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(out.path_join("cv_%d_%d_%s_z%d.png" % [seed_n, id, tag, int(z)]))
+		cv.hide()
+		await _frames(4)
+	## The map's town layer, as the stretch-map probe reaches it: centre the town, zoom until the layer draws it.
+	cv.hide()
+	await _frames(4)
+	var vh = app.viewport
+	var overlay: Control = vh.overlay
+	for id in ids:
+		if id < 0:
+			continue
+		var s: Dictionary = places[id]
+		var centre_g: Vector2 = (vh as Control).get_global_rect().get_center()
+		var zooms := 0
+		while zooms < 80:
+			vh._camera.position += centre_g - _global_of(overlay, Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5))
+			overlay.queue_redraw()
+			await _frames(3)
+			if (overlay._urban_draw_list as PackedInt32Array).has(id) or vh.zoom() >= vh._zoom_max:
+				break
+			vh._zoom_at(vh.size * 0.5, 1.15)
+			zooms += 1
+		## Two zoom steps past the zoom where the layer first draws the town (the stretch-map probe's `closer`): at
+		## the first zoom a town is a few dozen pixels. Then wait in real time for the overlay's own layout build.
+		vh._zoom_at(vh.size * 0.5, 4.0)
+		vh._camera.position += centre_g - _global_of(overlay, Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5))
+		overlay.queue_redraw()
+		await get_tree().create_timer(6.0).timeout
+		overlay.queue_redraw()
+		await _frames(30)
+		await RenderingServer.frame_post_draw
+		vp.get_texture().get_image().save_png(out.path_join("map_%d_%d_%s.png" % [seed_n, id, tag]))
+		print("MAP #%d drawn %s zoom %.2f" % [id, (overlay._urban_draw_list as PackedInt32Array).has(id), vh.zoom()])
+		## back out for the next town
+		vh._zoom_at(vh.size * 0.5, 1.0 / (4.0 * pow(1.15, zooms)))
+		await _frames(10)
+	print("RESULT: PASS")
+	get_tree().quit(0)

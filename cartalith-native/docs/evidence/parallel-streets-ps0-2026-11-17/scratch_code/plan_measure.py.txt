@@ -1,0 +1,289 @@
+"""PS-0 scratch (PARALLEL_STREETS_SCOPE.md PS-0 item 1): block shapes of a traced real plan.
+
+Input: a trace file (Python literal dict) with `streets`: [{w: width_px, pts: [(x, y), ...]}], scan pixels.
+Method: every street centreline is planarised (split where two cross, endpoints within SNAP px of a street
+snapped onto it), the planar faces are extracted (half-edge walk), the outer face and faces outside the
+`ring` street are dropped, and each face is inset by half of each bounding street's width (miter offset),
+which gives the block as built, like the generator's `build_blocks` (faces inset by half street widths).
+Each block is then measured with ports of the census's `ps_corners` (6 m merge, 20 degree turn), `ps_mabr`
+(minimum-area rectangle over edge directions) and the area floor (200 m2); the network with the census's
+36-bin bearing histogram (Boeing 2019 phi), node degree and segment length. Metres = px * m_per_px.
+"""
+import math, ast, sys, json
+
+SNAP = 10.0
+
+
+def seg_int(p, q, r, s):
+    d = (q[0]-p[0])*(s[1]-r[1]) - (q[1]-p[1])*(s[0]-r[0])
+    if abs(d) < 1e-12:
+        return None
+    t = ((r[0]-p[0])*(s[1]-r[1]) - (r[1]-p[1])*(s[0]-r[0])) / d
+    u = ((r[0]-p[0])*(q[1]-p[1]) - (r[1]-p[1])*(q[0]-p[0])) / d
+    if -1e-4 <= t <= 1+1e-4 and -1e-4 <= u <= 1+1e-4:
+        return t, u
+    return None
+
+
+def proj(p, a, b):
+    dx, dy = b[0]-a[0], b[1]-a[1]
+    l2 = dx*dx+dy*dy
+    t = 0 if l2 == 0 else max(0, min(1, ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2))
+    q = (a[0]+t*dx, a[1]+t*dy)
+    return q, math.hypot(p[0]-q[0], p[1]-q[1])
+
+
+def build_graph(streets):
+    # snap endpoints onto other streets (extend through a little so the crossing is found)
+    st = [dict(w=s['w'], pts=[tuple(map(float, p)) for p in s['pts']]) for s in streets]
+    for i, s in enumerate(st):
+        for end in (0, -1):
+            p = s['pts'][end]
+            best = None
+            for j, o in enumerate(st):
+                if j == i:
+                    continue
+                for k in range(len(o['pts'])-1):
+                    q, d = proj(p, o['pts'][k], o['pts'][k+1])
+                    if d < SNAP and (best is None or d < best[1]):
+                        best = (q, d, j, k)
+            if best:
+                q, _, j, k = best
+                s['pts'][end] = q
+                o = st[j]['pts']
+                if min(math.hypot(q[0]-v[0], q[1]-v[1]) for v in o) > 1.0:
+                    o.insert(k+1, q)
+    segs = []  # (a, b, w)
+    for s in st:
+        for k in range(len(s['pts'])-1):
+            segs.append((s['pts'][k], s['pts'][k+1], s['w']))
+    # split at intersections
+    cuts = [[0.0, 1.0] for _ in segs]
+    for i in range(len(segs)):
+        for j in range(i+1, len(segs)):
+            h = seg_int(segs[i][0], segs[i][1], segs[j][0], segs[j][1])
+            if h:
+                cuts[i].append(h[0]); cuts[j].append(h[1])
+    nodes, key = [], {}
+
+    def nid(p):
+        for k, q in enumerate(nodes):
+            if math.hypot(p[0]-q[0], p[1]-q[1]) < 2.0:
+                return k
+        nodes.append(p)
+        return len(nodes)-1
+    edges = {}
+    for (a, b, w), c in zip(segs, cuts):
+        c = sorted(set(min(1.0, max(0.0, round(x, 9))) for x in c))
+        pts = [(a[0]+t*(b[0]-a[0]), a[1]+t*(b[1]-a[1])) for t in c]
+        for p, q in zip(pts, pts[1:]):
+            u, v = nid(p), nid(q)
+            if u != v:
+                edges[(min(u, v), max(u, v))] = w
+    return nodes, edges
+
+
+def faces(nodes, edges):
+    adj = {}
+    for (u, v) in edges:
+        adj.setdefault(u, []).append(v)
+        adj.setdefault(v, []).append(u)
+    for u in adj:
+        adj[u].sort(key=lambda v: math.atan2(nodes[v][1]-nodes[u][1], nodes[v][0]-nodes[u][0]))
+    used, out = set(), []
+    for (u, v) in list(edges):
+        for he in ((u, v), (v, u)):
+            if he in used:
+                continue
+            f = []
+            a, b = he
+            while (a, b) not in used:
+                used.add((a, b)); f.append(a)
+                lst = adj[b]
+                i = lst.index(a)
+                c = lst[(i-1) % len(lst)]  # next edge clockwise from the reverse => faces to one side
+                a, b = b, c
+            out.append(f)
+    return out
+
+
+def area(p):
+    return sum(p[i][0]*p[(i+1) % len(p)][1]-p[(i+1) % len(p)][0]*p[i][1] for i in range(len(p)))/2
+
+
+def inset(poly, ws):
+    """Offset each edge inward by ws[i]/2 and intersect neighbours (poly CCW in y-down? sign handled)."""
+    n = len(poly)
+    sgn = 1 if area(poly) > 0 else -1
+    lines = []
+    for i in range(n):
+        a, b = poly[i], poly[(i+1) % n]
+        dx, dy = b[0]-a[0], b[1]-a[1]
+        L = math.hypot(dx, dy) or 1
+        nx, ny = -dy/L*sgn, dx/L*sgn  # inward normal for positive area
+        o = ws[i]/2
+        lines.append(((a[0]+nx*o, a[1]+ny*o), (b[0]+nx*o, b[1]+ny*o)))
+    out = []
+    for i in range(n):
+        (p1, p2), (p3, p4) = lines[i-1], lines[i]
+        d = (p2[0]-p1[0])*(p4[1]-p3[1])-(p2[1]-p1[1])*(p4[0]-p3[0])
+        if abs(d) < 1e-9:
+            out.append(p3)
+            continue
+        t = ((p3[0]-p1[0])*(p4[1]-p3[1])-(p3[1]-p1[1])*(p4[0]-p3[0]))/d
+        q = (p1[0]+t*(p2[0]-p1[0]), p1[1]+t*(p2[1]-p1[1]))
+        # clamp extreme miters at sharp corners
+        if math.hypot(q[0]-p3[0], q[1]-p3[1]) > 4*max(ws[i], ws[i-1], 1):
+            q = p3
+        out.append(q)
+    return out
+
+
+def ps_corners(poly, turn_deg=20.0, merge=6.0):
+    p = []
+    for v in poly:
+        if not p or math.hypot(p[-1][0]-v[0], p[-1][1]-v[1]) >= merge:
+            p.append(v)
+    while len(p) > 2 and math.hypot(p[0][0]-p[-1][0], p[0][1]-p[-1][1]) < merge:
+        p.pop()
+    while True:
+        n = len(p)
+        if n <= 3:
+            return p
+        least, drop = float('inf'), None
+        for i in range(n):
+            a, b, c = p[i-1], p[i], p[(i+1) % n]
+            t1 = math.atan2(b[1]-a[1], b[0]-a[0]); t2 = math.atan2(c[1]-b[1], c[0]-b[0])
+            d = abs(t2-t1) % (2*math.pi)
+            if d > math.pi:
+                d = 2*math.pi-d
+            if d < least:
+                least, drop = d, i
+        if math.degrees(least) < turn_deg:
+            p.pop(drop)
+        else:
+            return p
+
+
+def mabr(poly):
+    best = (float('inf'), 0, 0)
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i+1) % n]
+        th = math.atan2(b[1]-a[1], b[0]-a[0]); c, s = math.cos(th), math.sin(th)
+        xs = [v[0]*c+v[1]*s for v in poly]; ys = [-v[0]*s+v[1]*c for v in poly]
+        w, h = max(xs)-min(xs), max(ys)-min(ys)
+        if w*h < best[0]:
+            best = (w*h, max(w, h), min(w, h))
+    return best[1], best[2]
+
+
+def pip(pt, poly):
+    x, y = pt; c = False
+    for i in range(len(poly)):
+        a, b = poly[i], poly[i-1]
+        if (a[1] > y) != (b[1] > y) and x < (b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]:
+            c = not c
+    return c
+
+
+def phi_of(segs):
+    tb = [0.0]*36
+    for a, b in segs:
+        th = math.degrees(math.atan2(b[1]-a[1], b[0]-a[0])) % 360
+        L = math.hypot(b[0]-a[0], b[1]-a[1])
+        tb[int(th/10) % 36] += L; tb[int((th+180)/10) % 36] += L
+    T = sum(tb)
+    h = -sum(w/T*math.log(w/T) for w in tb if w > 0)
+    hmax = math.log(36)
+    return 1-((h-1.386)/(hmax-1.386))**2, h/hmax
+
+
+def apply_xform(trace):
+    # 'xform': (ox, oy, s): coordinates were read on a crop of origin (ox, oy) shown at scale s
+    if 'xform' in trace and not trace.get('_done'):
+        ox, oy, sc = trace['xform']
+        f = lambda p: (ox+p[0]/sc, oy+p[1]/sc)
+        for st in trace['streets']:
+            st['pts'] = [f(p) for p in st['pts']]
+        if trace.get('ring_poly'):
+            trace['ring_poly'] = [f(p) for p in trace['ring_poly']]
+        trace['_done'] = True
+    return trace
+
+
+def measure(trace, mpp):
+    apply_xform(trace)
+    nodes, edges = build_graph(trace['streets'])
+    ring = trace.get('ring_poly')
+    blocks = []
+    for f in faces(nodes, edges):
+        poly = [nodes[i] for i in f]
+        if len(poly) < 3:
+            continue
+        a = area(poly)
+        ws = [edges.get((min(f[i], f[(i+1) % len(f)]), max(f[i], f[(i+1) % len(f)])), 0) for i in range(len(f))]
+        # drop dangles: consecutive repeated nodes produce zero-area spikes; keep simple faces only
+        if len(set(f)) != len(f):
+            # a face with a dangling spur: remove the spur by collapsing back-and-forth
+            g = []
+            for i in f:
+                if len(g) >= 2 and g[-2] == i:
+                    g.pop()
+                else:
+                    g.append(i)
+            while len(g) > 2 and g[0] == g[-2]:
+                g = g[1:-1]
+            f = g
+            poly = [nodes[i] for i in f]
+            ws = [edges.get((min(f[i], f[(i+1) % len(f)]), max(f[i], f[(i+1) % len(f)])), 0) for i in range(len(f))]
+            if len(poly) < 3 or len(set(f)) != len(f):
+                continue
+            a = area(poly)
+        blocks.append((f, poly, ws, a))
+    # the outer face has the largest |area| and the opposite orientation; drop it, keep one orientation
+    if not blocks:
+        return None
+    sign = -1 if sum(1 for b in blocks if b[3] < 0) > sum(1 for b in blocks if b[3] > 0) else 1
+    inner = [b for b in blocks if b[3]*sign > 0]
+    out = []
+    for f, poly, ws, a in inner:
+        cx = sum(p[0] for p in poly)/len(poly); cy = sum(p[1] for p in poly)/len(poly)
+        if ring and not pip((cx, cy), ring):
+            continue
+        ins = inset(poly, ws)
+        ar = abs(area(ins))*mpp*mpp
+        if ar < 200 or area(ins)*area(poly) <= 0:
+            continue
+        insm = [(x*mpp, y*mpp) for x, y in ins]
+        c = ps_corners(insm)
+        if len(c) < 3:
+            continue
+        lg, sh = mabr(insm)
+        out.append(dict(corners=len(c), aspect=lg/max(sh, 1e-6), rect=ar/max(lg*sh, 1e-6), depth=sh, area=ar, poly=ins))
+    segs = [(nodes[u], nodes[v]) for (u, v) in edges]
+    phi, hr = phi_of(segs)
+    deg = {}
+    for (u, v) in edges:
+        deg[u] = deg.get(u, 0)+1; deg[v] = deg.get(v, 0)+1
+    return dict(blocks=out, phi=phi, h=hr, deg=deg, segs=segs, nodes=nodes, edges=edges)
+
+
+def summary(name, m, ring_in=None):
+    b = m['blocks']; n = len(b)
+    q = lambda v, f: sorted(v)[min(len(v)-1, int(round((len(v)-1)*f)))]
+    c3 = sum(1 for x in b if x['corners'] == 3); c4 = sum(1 for x in b if x['corners'] == 4)
+    comp = sum(1 for x in b if x['corners'] == 3 and x['aspect'] < 2)
+    asp = [x['aspect'] for x in b]; rect = [x['rect'] for x in b]; dep = [x['depth'] for x in b]
+    deg = list(m['deg'].values())
+    d = [sum(1 for k in deg if min(k, 5) == j)/len(deg)*100 for j in range(1, 6)]
+    return dict(plan=name, blocks=n, tri=100*c3/n, quad=100*c4/n, pent=100*(n-c3-c4)/n, compact_tri=100*comp/n,
+                aspect_med=q(asp, .5), aspect_p90=q(asp, .9), rect_med=q(rect, .5), depth_med=q(dep, .5),
+                depth_p90=q(dep, .9), deep83=100*sum(1 for x in dep if x >= 83)/n, phi=m['phi'], h=m['h'],
+                deg=d)
+
+
+if __name__ == '__main__':
+    t = ast.literal_eval(open(sys.argv[1]).read())
+    m = measure(t, t['m_per_px'])
+    print(json.dumps(summary(sys.argv[1], m), indent=1))

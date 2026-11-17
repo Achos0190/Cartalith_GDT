@@ -1,0 +1,34 @@
+"""PS-0 scratch: each traced real plan (scan crop, and the trace overlay) beside a comparable generated town's City Viewer
+opening frame, off and with the heading prototype on. Scales differ: each panel says its own."""
+import ast
+from PIL import Image, ImageDraw
+T = 'C:/cw/ps0_scratch/trace/plans'; S = 'C:/cw/ps0_scratch/shots'; O = 'C:/cw/ps0_scratch/ev/real_vs_generated'
+pairs = [('neumarkt', '483920', '4', 'market-street town, oval wall'), ('straubing', '912345', '4', 'river-front spine'),
+         ('dinkelsbuehl', '483920', '2', 'walled market town'), ('noerdlingen', '246371', '6', 'organic core, round wall'),
+         (None, '246371', '4', 'planted grid (Monpazier)')]
+H = 700
+for plan, seed, tid, kind in pairs:
+    panels = []
+    if plan:
+        t = ast.literal_eval(open(f'{T}/{plan}.txt').read())
+        x0, y0, x1, y1 = t['crop']
+        scan = Image.open(t['image']).convert('RGB').crop((x0, y0, x1, y1))
+        label = f"{t['name']} (scan, {t['m_per_px']} m/px, {(x1-x0)*t['m_per_px']:.0f} m wide)"
+        ov = Image.open(f'C:/cw/ps0_scratch/ev/traced/{plan}_trace.png').convert('RGB')
+        panels += [(scan, label), (ov, 'the trace: green quads, red triangles, blue 5+ corners (inset blocks)')]
+    else:
+        scan = Image.open('C:/cw/ps0/cartalith-native/docs/evidence/parallel-streets-2026-11-17/real_plans/monpazier_plan_schaefer.jpg').convert('RGB').crop((775, 520, 1090, 995))
+        panels += [(scan, 'Monpazier (Schaefer, CC BY-SA 2.0 de; about 0.83 m/px, weak)')]
+    for tag in ('off', 'on'):
+        panels.append((Image.open(f'{S}/cv_{seed}_{tid}_{tag}_z1.png').convert('RGB'), f'generated {seed} #{tid} {tag.upper()} (City Viewer opening frame)'))
+    ims = []
+    for im, lab in panels:
+        im = im.copy(); im.thumbnail((int(H*1.7), H))
+        c = Image.new('RGB', (im.size[0], H+22), (255, 255, 255)); c.paste(im, (0, 22)); ImageDraw.Draw(c).text((3, 4), lab, fill=(0, 0, 0)); ims.append(c)
+    W = sum(i.size[0] for i in ims)+10*len(ims)
+    out = Image.new('RGB', (W, H+44), (255, 255, 255))
+    ImageDraw.Draw(out).text((3, 4), f'real plan beside a comparable generated town: {kind}', fill=(0, 0, 0))
+    x = 0
+    for i in ims:
+        out.paste(i, (x, 22)); x += i.size[0]+10
+    out.save(f'{O}/real_{plan or "monpazier"}_vs_{seed}_{tid}.png'); print(plan, out.size)

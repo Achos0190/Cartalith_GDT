@@ -197,9 +197,11 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
-### Parallel streets: scoped, not built (2026-11-17, owner Ruling FY)
+### Parallel streets: scoped, PS-0 measured, not built (2026-11-17, owner Rulings FY and GA)
 
 `PARALLEL_STREETS_SCOPE.md` (root); evidence `cartalith-native/docs/evidence/parallel-streets-2026-11-17/`. Nothing in the engine changed; `urban_burgage` stays in and off. Measured with a scratch `#[ignore]` test (kept as `block_shape_audit.rs.txt`, not committed as code) on the census world, towns of 1 500 and up: app at 384, triangles 10.7 %, quads 50.3 %, pentagon+ 39.1 % (64 % of block area), aspect median 1.57, rectangularity 0.70, depth across median 28.6 m, 3.6 % of blocks 83 m or more across, per-town orientation order 0.08 (2 048 within a point); no jitter, quads 71 % but orientation order 0.60 (every town one grid); `urban_burgage` on, triangles 24.1 %, depth 83 m+ 14.6 %. `both_banks_audit` at 384 reproduced byte-identical to the deep-plot census's off run. Recommendation: field-guided parallel growth inside `grow` behind `urban_parallel_streets` (off at both boundaries until the owner rules at PS-7), milestones PS-0 to PS-7, owner questions Q1-Q10 open.
+
+**PS-0 (2026-11-17, Ruling GA, every default): verdict adjust; nothing built.** `PARALLEL_STREETS_SCOPE.md` section 8; evidence `cartalith-native/docs/evidence/parallel-streets-ps0-2026-11-17/`. Baseline re-run from `cd23c83a`: the five audits at both sizes byte-identical to the deep-plot census's off run. Traced plans (blocks inset as built, the census's own measures; Noerdlingen excluded as schematic): Neumarkt quads 55 %, Straubing 95 %, Dinkelsbuehl 59 %, Monpazier 69 %; aspect 1.9-3.0; rectangularity 0.63-0.96; phi 0.29-0.91 (above FS-2's caps, kept; owner Q11). Ground at 384, towns 5 000+: a 1.4x footprint fits on the market's bank in 7 of 28 (no-go by the scope's 90 % rule; Q5, Q6). Heading prototype (scratch, reverted): aligned street length outside the core 40 to 67 %, quads outside the core 44-54 % against the 65 % bar, housed p10 72-91; FS-1 (kept footprint) and FS-2's per-town delta fail, wall / hull p90 1.12 / 1.13 against 1.11 / 1.09. Needle lots (section 8.4 definition): real 3.3 %, shipped 11.1 %, `urban_burgage` on 27.5 %, prototype 16.5 %; proposed bar 5 % or less. Open: owner Q5, Q6, Q11, then PS-1.
 
 ---
 

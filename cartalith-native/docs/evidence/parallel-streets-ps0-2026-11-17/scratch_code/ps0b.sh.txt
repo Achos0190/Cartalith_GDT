@@ -1,0 +1,7 @@
+#!/bin/bash
+EXE=C:/cw/ps0_scratch/runs/census_b.exe; R=C:/cw/ps0_scratch/runs
+cd C:/cw/ps0/cartalith-native/crates/cartalith-godot
+run() { env TOWN_RIVER_GW=$2 TOWN_RIVER_GH=$3 TOWN_RIVER_VILLAGES=1 PS0_OUT=$R/ps0_$1 PS0_ON="$4" PS0_DUMP=${5:-} $EXE ps0_audit --ignored --nocapture --test-threads 1 > $R/ps0_$1.log 2>&1; }
+run g3m60_384 384 288 "PS0_HEADING=1;PS0_GAIN=3;PS0_MODULE=60" &
+run g3m40_384 384 288 "PS0_HEADING=1;PS0_GAIN=3;PS0_MODULE=40" &
+wait; echo ALLDONE

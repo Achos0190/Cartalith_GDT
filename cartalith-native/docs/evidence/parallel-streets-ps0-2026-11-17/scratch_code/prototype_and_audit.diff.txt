@@ -1,0 +1,513 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index 240d261d..2ab3a929 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -208,6 +208,7 @@ pub use cartalith_urban::wallhug::HugOutcome;
+ /// polygon centroid, spelled here for the same census's size classes and
+ /// bank sides (2026-11-15, Ruling FB's both-banks audit).
+ pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
++pub use cartalith_urban::growth::ps0 as ps0_scratch; // PS-0 scratch, never committed
+ /// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
+ /// re-exported so the census counts harbours against the line the layout itself uses.
+ pub use cartalith_urban::generate::HARBOUR_REACH_M;
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+index 406f2bcb..60161f3e 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+@@ -2857,3 +2857,246 @@ fn stretch_water_audit() {
+     }
+     println!("all seeds at {gw}: planned stretched {planned}, laid out stretched {laid}, flagged {flagged}");
+ }
++
++// ------------------------------------------------------------------------
++// PARALLEL_STREETS_SCOPE.md PS-pre: block shapes (scratch measurement, 2026-11-17).
++// Pins nothing; `#[ignore]`d. Ruling BK: each helper says what it measures.
++// ------------------------------------------------------------------------
++
++/// A block outline with its near-duplicate vertices (closer than 6 m) merged and its
++/// near-straight vertices (turn under 20 degrees) dropped: the corners a reader of
++/// the plan would count. A labelled judgement on both thresholds; 6 m is under the
++/// narrowest street, 20 degrees under the branch jitter's two sigma (2 x 15).
++fn ps_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
++    let mut p: Vec<(f64, f64)> = Vec::new();
++    for v in poly {
++        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
++            p.push((v.x, v.y));
++        }
++    }
++    while p.len() > 2 && { let (a, b) = (p[0], p[p.len() - 1]); (a.0 - b.0).hypot(a.1 - b.1) < 6.0 } {
++        p.pop();
++    }
++    loop {
++        let n = p.len();
++        if n <= 3 {
++            return p;
++        }
++        let mut drop = None;
++        let mut least = f64::INFINITY;
++        for i in 0..n {
++            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
++            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
++            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
++            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
++            if d > std::f64::consts::PI {
++                d = 2.0 * std::f64::consts::PI - d;
++            }
++            if d < least {
++                least = d;
++                drop = Some(i);
++            }
++        }
++        if least.to_degrees() < turn_deg {
++            p.remove(drop.unwrap());
++        } else {
++            return p;
++        }
++    }
++}
++
++/// Interior angles (degrees, 0..180) at each corner of a simplified outline.
++fn ps_interior(p: &[(f64, f64)]) -> Vec<f64> {
++    let n = p.len();
++    (0..n)
++        .map(|i| {
++            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
++            let (u, v) = ((a.0 - b.0, a.1 - b.1), (c.0 - b.0, c.1 - b.1));
++            let cos = (u.0 * v.0 + u.1 * v.1) / (u.0.hypot(u.1) * v.0.hypot(v.1)).max(1e-9);
++            cos.clamp(-1.0, 1.0).acos().to_degrees()
++        })
++        .collect()
++}
++
++/// Minimum-area bounding rectangle over the outline's edge directions: (long side, short side).
++/// The short side is the block's depth across: a lot of depth d needs a block about 2 d / 0.96
++/// across with lots from both long sides (`build_parcels_with`'s WAIST 0.48).
++fn ps_mabr(poly: &[Vec2]) -> (f64, f64) {
++    let mut best = (f64::INFINITY, 0.0, 0.0);
++    let n = poly.len();
++    for i in 0..n {
++        let (a, b) = (poly[i], poly[(i + 1) % n]);
++        let th = (b.y - a.y).atan2(b.x - a.x);
++        let (c, s) = (th.cos(), th.sin());
++        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
++        for v in poly {
++            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
++            x0 = x0.min(x);
++            x1 = x1.max(x);
++            y0 = y0.min(y);
++            y1 = y1.max(y);
++        }
++        let (w, h) = (x1 - x0, y1 - y0);
++        if w * h < best.0 {
++            best = (w * h, w.max(h), w.min(h));
++        }
++    }
++    (best.1, best.2)
++}
++
++
++/// PS-0 scratch (PARALLEL_STREETS_SCOPE.md PS-0, 2026-11-17): per town of 1 500 and up, three
++/// layouts in one process -- `off` (the app's), `burgage` (`urban_burgage` on) and `proto` (the
++/// environment of `PS0_ON`, e.g. `PS0_HEADING=1;PS0_MODULE=60`, set around that layout only) --
++/// written as CSV rows to `PS0_OUT` (towns, blocks, lots, buildings) for `ps0_agg.py`. Pins nothing.
++#[test]
++#[ignore = "measurement; PARALLEL_STREETS_SCOPE.md PS-0"]
++fn ps0_audit() {
++    use std::io::Write;
++    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
++    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_else(|| SEEDS.to_vec());
++    let out = std::env::var("PS0_OUT").expect("PS0_OUT");
++    std::fs::create_dir_all(&out).unwrap();
++    let on_vars: Vec<(String, String)> = std::env::var("PS0_ON").unwrap_or_else(|_| "PS0_HEADING=1".into()).split(';').filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect();
++    let dump_ids: Vec<String> = std::env::var("PS0_DUMP").map(|v| v.split(',').map(|s| s.to_string()).collect()).unwrap_or_default();
++    let mut ft = std::fs::File::create(format!("{out}/towns_{gw}.csv")).unwrap();
++    let mut fb = std::fs::File::create(format!("{out}/blocks_{gw}.csv")).unwrap();
++    let mut fl = std::fs::File::create(format!("{out}/lots_{gw}.csv")).unwrap();
++    let mut fbd = std::fs::File::create(format!("{out}/bldg_{gw}.csv")).unwrap();
++    writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,feas_bank,feas_all,walled,radial_same,edges").unwrap();
++    writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
++    writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside").unwrap();
++    writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
++    for seed in &seeds {
++        let (ws, civ, gh, p) = generate_world(*seed, gw, true);
++        let bank = p.urban_riverbank;
++        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
++            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
++            _ => Vec::new(),
++        };
++        let uw = UrbanWorld { field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(), river_polys: &river_polys, gw, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km, flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km), world_seed: *seed, river_kind_from_map: river_kind_map(&p) };
++        let others = stretch_others(&civ);
++        for (i, s) in civ.settlements.iter().enumerate() {
++            let mk = |burg: bool| PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burg, market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
++            let o_off = mk(false);
++            let ctx = um_place_context_with(&uw, s, &civ.ways, &o_off);
++            *cartalith_civ::urban_adapter::ps0_scratch::LAST_FEAS.lock().unwrap() = None;
++            unsafe { std::env::set_var("PS0_FEAS", "1") };
++            let off = run_layout(&ctx, None);
++            unsafe { std::env::remove_var("PS0_FEAS") };
++            let feas = *cartalith_civ::urban_adapter::ps0_scratch::LAST_FEAS.lock().unwrap();
++            let Some(off) = off else { continue };
++            if off.pop_target < cartalith_civ::urban_adapter::PLAZA_MARKET_POP || off.buildings.is_empty() {
++                continue;
++            }
++            let o_b = mk(true);
++            let ctx_b = um_place_context_with(&uw, s, &civ.ways, &o_b);
++            let burg = run_layout(&ctx_b, None);
++            for (k, v) in &on_vars {
++                unsafe { std::env::set_var(k, v) };
++            }
++            let proto = run_layout(&ctx, None);
++            for (k, _) in &on_vars {
++                unsafe { std::env::remove_var(k) };
++            }
++            let cells = |l: &cartalith_civ::urban_adapter::UrbanLayout| {
++                let mut c = std::collections::HashSet::new();
++                for b in l.buildings.iter().filter(|b| !b.poly.is_empty()) {
++                    let n = b.poly.len() as f64;
++                    let (cx, cy) = (b.poly.iter().map(|p| p.x).sum::<f64>() / n, b.poly.iter().map(|p| p.y).sum::<f64>() / n);
++                    let (ci, cj) = ((cx / SETTLED_CELL_M).floor() as i64, (cy / SETTLED_CELL_M).floor() as i64);
++                    for di in -1..=1 {
++                        for dj in -1..=1 {
++                            c.insert((ci + di, cj + dj));
++                        }
++                    }
++                }
++                c
++            };
++            let c_off = cells(&off);
++            for (vn, lay) in [("off", Some(&off)), ("burgage", burg.as_ref()), ("proto", proto.as_ref())] {
++                let Some(l) = lay else { continue };
++                let core = 0.38 * l.max_rf;
++                // blocks
++                for (bi, b) in l.blocks.iter().enumerate() {
++                    if l.block_plaza.get(bi).copied().unwrap_or(false) {
++                        continue;
++                    }
++                    let area = poly_area_xy(&b.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>()).abs();
++                    if area < 200.0 {
++                        continue;
++                    }
++                    let c = ps_corners(b, 20.0);
++                    if c.len() < 3 {
++                        continue;
++                    }
++                    let (lg, sh) = ps_mabr(b);
++                    let cen = cartalith_civ::urban_adapter::poly_centroid(b);
++                    writeln!(fb, "{seed},{i},{vn},{},{:.3},{:.3},{:.1},{:.0},{}", c.len(), lg / sh.max(1e-6), area / (lg * sh).max(1e-6), sh, area, u8::from(cen.dist(l.market) > core)).unwrap();
++                }
++                for q in &l.parcels {
++                    let d = |a: Vec2, b: Vec2| (a.x - b.x).hypot(a.y - b.y);
++                    let n = q.poly.len();
++                    let cen = cartalith_civ::urban_adapter::poly_centroid(&q.poly);
++                    if n == 4 {
++                        writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
++                    } else {
++                        writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{}", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
++                    }
++                }
++                for b in &l.buildings {
++                    if b.poly.len() < 3 {
++                        continue;
++                    }
++                    let (lg, sh) = ps_mabr(&b.poly);
++                    let cen = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
++                    let ar = poly_area_xy(&b.poly.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>()).abs();
++                    writeln!(fbd, "{seed},{i},{vn},{lg:.2},{sh:.2},{ar:.1},{:.1},{:.1}", cen.x, cen.y).unwrap();
++                }
++                // network
++                let key = |v: Vec2| ((v.x * 2.0).round() as i64, (v.y * 2.0).round() as i64);
++                let mut adj: std::collections::HashMap<(i64, i64), usize> = std::collections::HashMap::new();
++                let mut tb = [0.0f64; 36];
++                let mut segs: Vec<f64> = Vec::new();
++                for e in l.edges.iter().filter(|e| matches!(e.cls, "street" | "lane" | "primary" | "ringroad")) {
++                    let th = (e.b.y - e.a.y).atan2(e.b.x - e.a.x);
++                    *adj.entry(key(e.a)).or_default() += 1;
++                    *adj.entry(key(e.b)).or_default() += 1;
++                    let len = e.a.dist(e.b);
++                    segs.push(len);
++                    let bd = th.to_degrees().rem_euclid(360.0);
++                    tb[(bd / 10.0) as usize % 36] += len;
++                    tb[((bd + 180.0) / 10.0) as usize % 36] += len;
++                }
++                let bt: f64 = tb.iter().sum();
++                let h: f64 = tb.iter().filter(|&&w| w > 0.0).map(|&w| { let q = w / bt; -q * q.ln() }).sum();
++                let hmax = 36f64.ln();
++                let phi = 1.0 - ((h - 1.386) / (hmax - 1.386)).powi(2);
++                let mut deg = [0usize; 5];
++                for &v in adj.values() {
++                    deg[(v.max(1) - 1).min(4)] += 1;
++                }
++                segs.sort_by(|a, b| a.total_cmp(b));
++                let segm = segs.get(segs.len() / 2).copied().unwrap_or(f64::NAN);
++                let c_l = cells(l);
++                let keep = c_off.iter().filter(|c| c_l.contains(c)).count() as f64 / c_off.len().max(1) as f64;
++                let same = l.edges.len() == off.edges.len() && (l.street_len - off.street_len).abs() < 1e-6;
++                writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{},{},{}",
++                    s.placement.x, s.placement.y, l.pop_target, l.pop, l.max_rf, h / hmax, deg[0], deg[1], deg[2], deg[3], deg[4], c_l.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M,
++                    feas.map_or("".into(), |f| format!("{:.0}", f.0)), feas.map_or("".into(), |f| format!("{:.0}", f.1)), u8::from(l.wall.ring.is_some()), u8::from(same), l.edges.len()).unwrap();
++                if dump_ids.iter().any(|d| d == "all" || *d == format!("{seed}_{i}")) {
++                    let pts = |v: &[Vec2]| v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",");
++                    let json = format!(
++                        "{{\"wm\":{:.1},\"hm\":{:.1},\"market\":[{:.1},{:.1}],\"max_rf\":{:.1},\"river_w\":{:.1},\"river\":[{}],\"water_poly\":[{}],\"ring\":[{}],\"buildings\":[{}],\"edges\":[{}],\"parcels\":[{}],\"blocks\":[{}]}}",
++                        l.wm, l.hm, l.market.x, l.market.y, l.max_rf, l.river_w, pts(&l.river), pts(&l.water_poly), l.wall.ring.as_deref().map_or(String::new(), pts),
++                        l.buildings.iter().map(|b| format!("[{}]", pts(&b.poly))).collect::<Vec<_>>().join(","),
++                        l.edges.iter().map(|e| format!("[\"{}\",{:.1},{:.1},{:.1},{:.1},{:.1}]", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y)).collect::<Vec<_>>().join(","),
++                        l.parcels.iter().map(|q| format!("[{}]", pts(&q.poly))).collect::<Vec<_>>().join(","),
++                        l.blocks.iter().map(|b| format!("[{}]", pts(b))).collect::<Vec<_>>().join(","));
++                    let _ = std::fs::write(format!("{out}/lay_{seed}_{gw}_{i}_{vn}.json"), json);
++                }
++            }
++            println!("ps0 {seed} #{i} pop {:.0} done", off.pop_target);
++        }
++    }
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 79e8466b..113d4f63 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -1151,6 +1151,30 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+             wide_spacing: burgage,
+             whole_budget: burgage,
+         };
++        // PS-0 scratch (PARALLEL_STREETS_SCOPE.md PS-0 item 2): the dry buildable ground inside the
++        // growth front, on 10 m cells: inside the 40 m box margin, not water, slope <= 0.34 (grow's
++        // own street tests), market distance (the stretch frame's where stretched) <= max_rf. The
++        // market's bank only, and all banks. `PS0_FEAS=1`; nothing else reads it.
++        if std::env::var("PS0_FEAS").is_ok_and(|v| v == "1") && !street_village {
++            let mkt_side = if site.river_like() && site.river.len() >= 2 { Some(site.bank_side(anchors.market)) } else { None };
++            let (mut a_bank, mut a_all) = (0.0f64, 0.0f64);
++            let mut y = 45.0;
++            while y < site.hm - 40.0 {
++                let mut x = 45.0;
++                while x < site.wm - 40.0 {
++                    let p = Vec2::new(x, y);
++                    if site.market_dist(p, anchors.market) <= max_rf && !site.is_water(p) && site.slope(p) <= 0.34 {
++                        a_all += 100.0;
++                        if mkt_side.is_none_or(|m| site.bank_side(p) == m) {
++                            a_bank += 100.0;
++                        }
++                    }
++                    x += 10.0;
++                }
++                y += 10.0;
++            }
++            *crate::growth::ps0::LAST_FEAS.lock().unwrap() = Some((a_bank, a_all));
++        }
+         let mut builder = FortificationBuilder;
+         grow(
+             seed,
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index 5f3166dc..ea495ad0 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -591,6 +591,16 @@ pub fn grow(
+         0.0
+     };
+     let mut placed_len = 0.0f64;
++    // PS-0 scratch: the field, set for this call only (see `ps0`).
++    if ps0::on() && opts.road_reach.is_none() {
++        let prims: Vec<(Vec2, Vec2)> = g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| (g.nodes[e.a].pt(), g.nodes[e.b].pt())).collect();
++        let spine = prims.iter().copied().map(|(a, b)| (dist_pt_seg(anchors.market, a, b), (a, b))).filter(|x| x.0 < 60.0).min_by(|x, y| x.0.total_cmp(&y.0)).map(|x| x.1);
++        let river = if site.river_like() && site.river.len() >= 2 { site.river.clone() } else { Vec::new() };
++        ps0::FIELD.with(|f| *f.borrow_mut() = Some(ps0::Field { prims, river, spine, market: anchors.market, core: 0.38 * opts.max_rf, ramp: 0.12 * opts.max_rf, gain: ps0::env_f("PS0_GAIN", 1.0), module: ps0::env_f("PS0_MODULE", 60.0) }));
++    }
++    if std::env::var("PS0_OBLIQUE_ALL").is_ok_and(|v| v == "1") && opts.road_reach.is_none() {
++        ps0::OBLIQUE_ALL.with(|f| *f.borrow_mut() = Some(ps0::env_f("PS0_MODULE", s.parallel_street_spacing)));
++    }
+ 
+     for ep in 1..=epochs {
+         let mut r = stream(seed, &format!("grow/e{ep}"));
+@@ -662,6 +672,20 @@ pub fn grow(
+                 // sigma ~15deg, M-NET-3
+                 ang = edge_ang + side * (PI / 2.0) + r.norm() * s.branch_angle_jitter;
+             }
++            // PS-0 scratch: bend the heading to the field's nearest axis by its strength.
++            let ang = ps0::FIELD.with(|f| match f.borrow().as_ref() {
++                Some(fl) => {
++                    let (th, st) = fl.at(o, site.market_dist(o, anchors.market));
++                    if st > 0.0 {
++                        let ax = ps0::nearest_axis(th, ang);
++                        let k = if explore { 0.7 } else { 1.0 };
++                        ax + (1.0 - st * k) * ps0::wrap(ang - ax)
++                    } else {
++                        ang
++                    }
++                }
++                None => ang,
++            });
+             // Demand decays from the market — and from the quay in port towns,
+             // which are densest at the waterfront (harbour-city family).
+             // **Not the reference** (Ruling FN, `Site::market_dist`): a
+@@ -772,6 +796,8 @@ pub fn grow(
+         }
+         walls.epoch_end(ep, g, placed_len, wall_state);
+     }
++    ps0::FIELD.with(|f| *f.borrow_mut() = None);
++    ps0::OBLIQUE_ALL.with(|f| *f.borrow_mut() = None);
+     placed_len
+ }
+ 
+@@ -899,6 +925,54 @@ fn legalize_street(
+     // (M-BLK-4).
+     let midp = o.lerp(b, 0.5);
+     let mut too_close = false;
++    // PS-0 scratch: where the field is strong, refuse an oblique candidate and space
++    // near-parallel streets one module apart; `PS0_OBLIQUE_ALL` refuses any street alongside.
++    let ps0_strong = ps0::FIELD.with(|f| {
++        f.borrow().as_ref().and_then(|fl| {
++            let (th, st) = fl.at(midp, site.market_dist(midp, fl.market));
++            (st > 0.5).then_some((th, fl.module))
++        })
++    });
++    if let Some((th, _)) = ps0_strong
++        && ps0::wrap(ang - ps0::nearest_axis(th, ang)).abs() > 0.35
++    {
++        return None;
++    }
++    if let Some(sp) = ps0::OBLIQUE_ALL.with(|f| *f.borrow()) {
++        for eid2 in g.edges_within(midp, sp) {
++            let Some(e2) = g.edges.get(eid2) else { continue };
++            if !e2.alive {
++                continue;
++            }
++            let (a2, b2) = (g.nodes[e2.a].pt(), g.nodes[e2.b].pt());
++            if dist_pt_seg(o, a2, b2) < 1.5 || dist_pt_seg(b, a2, b2) < 1.5 {
++                continue; // the frontage being tapped, or the street hit
++            }
++            if dist_pt_seg(midp, a2, b2) < sp {
++                return None;
++            }
++        }
++    }
++    if let Some((_, module)) = ps0_strong {
++        for eid2 in g.edges_within(midp, module) {
++            let Some(e2) = g.edges.get(eid2) else { continue };
++            if !e2.alive {
++                continue;
++            }
++            let (a2, b2) = (g.nodes[e2.a].pt(), g.nodes[e2.b].pt());
++            if dist_pt_seg(o, a2, b2) < 1.5 {
++                continue;
++            }
++            if dist_pt_seg(midp, a2, b2) < module {
++                let ang2 = js_atan2(b2.y - a2.y, b2.x - a2.x);
++                let mut dd = (((ang - ang2) % PI + PI) % PI).abs();
++                dd = js_min(dd, PI - dd);
++                if dd < 0.5 {
++                    return None;
++                }
++            }
++        }
++    }
+     // `GrowOpts::wide_spacing` (the deep-plot prototype): every street within
+     // the spacing, not only the index cells next to the midpoint. The test
+     // below is an `any`, so the candidates' order cannot change its answer.
+@@ -1168,3 +1242,108 @@ fn fmt_js_int(n: f64) -> String {
+         format!("{n}")
+     }
+ }
++
++/// **PS-0 scratch (PARALLEL_STREETS_SCOPE.md PS-0 item 3, 2026-11-17). Never committed as code.**
++/// A throwaway field-guided heading rule for `grow`, read from environment variables at call
++/// time so one binary measures every setting: `PS0_HEADING=1` turns it on; `PS0_GAIN` (default 1)
++/// scales the field's strength; `PS0_MODULE` (default 60 m) is the near-parallel spacing where the
++/// field is strong; `PS0_OBLIQUE_ALL=1` (scope 1.3 item 2's test, without the field) makes the
++/// spacing rule refuse a street alongside at ANY angle, not only within 0.5 rad. Off (unset), every
++/// path is the shipped one by control flow.
++pub mod ps0 {
++    use super::*;
++    use std::cell::RefCell;
++    /// The field's inputs for one `grow` call.
++    pub struct Field {
++        pub prims: Vec<(Vec2, Vec2)>,
++        pub river: Vec<Vec2>,
++        pub spine: Option<(Vec2, Vec2)>,
++        pub market: Vec2,
++        pub core: f64,
++        pub ramp: f64,
++        pub gain: f64,
++        pub module: f64,
++    }
++    thread_local! {
++        pub static FIELD: RefCell<Option<Field>> = const { RefCell::new(None) };
++        pub static OBLIQUE_ALL: RefCell<Option<f64>> = const { RefCell::new(None) };
++    }
++    /// The last feasibility sample (`generate_pass`): (market-bank buildable m2, all buildable m2).
++    pub static LAST_FEAS: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
++    pub fn env_f(k: &str, d: f64) -> f64 {
++        std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
++    }
++    pub fn on() -> bool {
++        std::env::var("PS0_HEADING").is_ok_and(|v| v == "1")
++    }
++    fn acc(sum: &mut (f64, f64, f64), a: Vec2, b: Vec2, w: f64) {
++        let th = js_atan2(b.y - a.y, b.x - a.x);
++        sum.0 += w * (2.0 * th).cos();
++        sum.1 += w * (2.0 * th).sin();
++        sum.2 += w;
++    }
++    impl Field {
++        /// (axis bearing, strength 0..1) at `p`, `d_m` its market distance. A doubled-angle
++        /// (orientation tensor) blend: approach roads within ~80 m, the river within ~80 m (x1.5),
++        /// the market spine (the primary through the market) out to ~250 m; strength is the blend's
++        /// coherence times its total weight (capped at 1), times a ramp from 0 inside the organic
++        /// core (`core` = 0.38 max_rf) to 1 at `core + ramp`, times `gain`.
++        pub fn at(&self, p: Vec2, d_m: f64) -> (f64, f64) {
++            let mut s = (0.0, 0.0, 0.0);
++            for &(a, b) in &self.prims {
++                let d = dist_pt_seg(p, a, b);
++                acc(&mut s, a, b, 1.0 / (1.0 + (d / 80.0).powi(2)));
++            }
++            if self.river.len() >= 2 {
++                let (mut bd, mut bi) = (f64::INFINITY, 0);
++                for i in 0..self.river.len() - 1 {
++                    let d = dist_pt_seg(p, self.river[i], self.river[i + 1]);
++                    if d < bd {
++                        bd = d;
++                        bi = i;
++                    }
++                }
++                acc(&mut s, self.river[bi], self.river[bi + 1], 1.5 / (1.0 + (bd / 80.0).powi(2)));
++            }
++            if let Some((a, b)) = self.spine {
++                let (dx, dy) = (b.x - a.x, b.y - a.y);
++                let ll = (dx * dx + dy * dy).sqrt().max(1e-9);
++                let d = ((p.x - a.x) * dy - (p.y - a.y) * dx).abs() / ll;
++                acc(&mut s, a, b, 0.7 / (1.0 + (d / 250.0).powi(2)));
++            }
++            if s.2 <= 0.0 {
++                return (0.0, 0.0);
++            }
++            let mag = (s.0 * s.0 + s.1 * s.1).sqrt();
++            let coh = mag / s.2;
++            let th = 0.5 * s.1.atan2(s.0);
++            let ramp = ((d_m - self.core) / self.ramp).clamp(0.0, 1.0);
++            (th, (coh * s.2.min(1.0) * ramp * self.gain).clamp(0.0, 1.0))
++        }
++    }
++    /// Signed difference a - b wrapped to (-pi, pi].
++    pub fn wrap(d: f64) -> f64 {
++        let mut x = d % (2.0 * PI);
++        if x > PI {
++            x -= 2.0 * PI;
++        }
++        if x <= -PI {
++            x += 2.0 * PI;
++        }
++        x
++    }
++    /// The field axis (one of four) nearest heading `ang`.
++    pub fn nearest_axis(th: f64, ang: f64) -> f64 {
++        let mut best = th;
++        let mut bd = f64::INFINITY;
++        for k in 0..4 {
++            let c = th + k as f64 * PI / 2.0;
++            let d = wrap(ang - c).abs();
++            if d < bd {
++                bd = d;
++                best = c;
++            }
++        }
++        best
++    }
++}

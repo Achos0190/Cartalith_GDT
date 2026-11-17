@@ -1,0 +1,28 @@
+PARALLEL_STREETS_SCOPE.md PS-0 (Ruling FY, Ruling GA: every default), 2026-11-17. Nothing built; no product behaviour
+changed. The scope's section 8 has the results; this file lists the evidence.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, app params::defaults, 384x288 and 2048x1311. Release test
+binary from origin/main cd23c83a plus the scratch code (scratch_code/prototype_and_audit.diff.txt: the ps0 module in
+growth.rs, the feasibility sample in generate.rs, a re-export in urban_adapter.rs, and the #[ignore] ps0_audit in
+town_river_census.rs; all reverted, never committed as code).
+
+census/base/            the five audits at both sizes from cd23c83a: byte-identical to
+                        ../burgage-backlanes-2026-11-17/census_off/ but for timing (the baseline, item 5).
+census/proto_g3m40/     the same five audits with the heading prototype on (PS0_HEADING=1 PS0_GAIN=3 PS0_MODULE=40).
+census/ps0_audit/       agg_<setting>.txt (ps0_agg.py over ps0_audit's CSVs: blocks, network, FS-1/2/3, lots, needles,
+                        feasibility; all towns 1500+ and the 8 largest per seed) and towns_<setting>.csv per setting:
+                        g1m60, g1m90, g06m60, g3m60, g3m40(d) at 384; g1m60, g3m40 at 2048; obl60 = scope 1.3 item 2's
+                        test (no field, any street alongside within 60 m refused). The per-lot, per-block and
+                        per-building CSVs (about 30 MB a run) are not kept; ps0.sh.txt remakes them.
+traced/                 the five plans: trace_*.txt (centrelines in scan pixels, widths, the calibrated m/px), the
+                        overlays *_trace.jpg (green quads, red triangles, blue 5+ corners, the inset blocks),
+                        *_summary.txt, Monpazier's closed figure-ground. Noerdlingen's trace is schematic and excluded.
+needles/                needles_<seed>_<town>.png: off | urban_burgage | prototype, the same 260 m window, needle lots
+                        (the section 8.4 definition) red.
+contact_<seed>.jpg      per seed: the shell's 8 most populous towns x (opening frame, x4, x16, map town layer) x
+                        (off, on). Windowed, scratch APPDATA, under the shared window lock.
+frames/                 full-size off | on pairs, one town a seed, all four views.
+real_vs_generated/      each traced plan (scan, trace) beside a comparable generated town, off and on.
+scratch_code/           every script and the probe, as .txt (plan_measure, monpazier_extract, overlay, crop, ps0_agg,
+                        needle_crops, audit.sh, ps0.sh, ps0b.sh, shots.sh, shots_map.sh, contact, realpair,
+                        _ps0_frames_probe.gd).
