@@ -537,6 +537,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_town_bridge_search", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns search for a crossing", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_town_bridge_search), set_fn: |p, v| p.urban_town_bridge_search = v != 0.0 },
+    // PARALLEL_STREETS_SCOPE.md PS-1 (owner Rulings FY, GC, GF): the town-type rule, the direction
+    // field and the ground gate (`cartalith_urban::field`); at PS-1 it changes no layout. OFF at both
+    // boundaries until the owner rules at PS-7: `defaults()` above leaves `WorldParams::defaults`'
+    // `false`, the exception `urban_burgage` takes. No reference control. A save without the key loads
+    // OFF (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for, so it invalidates nothing
+    // and `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_parallel_streets", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Parallel streets (in progress)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_parallel_streets), set_fn: |p, v| p.urban_parallel_streets = v != 0.0 },
     // Ruling FZ item 5 (2026-11-17): names for rivers and the landmark kinds the engine did not name
     // (`cartalith_civ::name_style`). ON at the app boundary, OFF in `WorldParams::defaults`; no reference
     // control. A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read when the names are asked
@@ -1261,6 +1270,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (Ruling GB); the reference's growth radius and single bridge point.
     ("urban_growth_water_widen", ""),
     ("urban_town_bridge_search", ""),
+    // Port-only (PARALLEL_STREETS_SCOPE.md PS-1); the reference has no town types or field.
+    ("urban_parallel_streets", ""),
     // Port-only (Ruling FZ item 5); the reference names none of these kinds.
     ("name_unnamed_kinds", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
@@ -1628,6 +1639,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling GB (2026-11-17): every save without the keys drew the reference's radius and bridge point.
     ("urban_growth_water_widen", Value::Bool(false)),
     ("urban_town_bridge_search", Value::Bool(false)),
+    // Parallel streets, PS-1 (2026-11-18): every save without the key had no town types or field.
+    ("urban_parallel_streets", Value::Bool(false)),
     // Names for rivers and the other unnamed kinds (Ruling FZ, 2026-11-17): every save without the key
     // had none.
     ("name_unnamed_kinds", Value::Bool(false)),

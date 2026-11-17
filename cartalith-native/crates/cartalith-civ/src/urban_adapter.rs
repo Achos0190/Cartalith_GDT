@@ -211,6 +211,10 @@ pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
 /// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
 /// re-exported so the census counts harbours against the line the layout itself uses.
 pub use cartalith_urban::generate::HARBOUR_REACH_M;
+/// `PARALLEL_STREETS_SCOPE.md` PS-1's module (`cartalith_urban::field`), re-exported so
+/// the census reads section 9.3's two footprint requirements from the module that
+/// defines them rather than restating them.
+pub use cartalith_urban::field as parallel_field;
 /// The deep-plot prototype's unbuilt-ground reach (Ruling FW item 4), for the
 /// census's reaches of a town laid out with `GenOpts::burgage`.
 pub use cartalith_urban::burgage::UNBUILT_REACH_M as BURGAGE_UNBUILT_REACH_M;
@@ -2277,6 +2281,9 @@ pub struct UrbanContext {
     /// `GenOpts::town_bridge_search`: a both-banks town tries other crossings
     /// when the site's own bridge point fails. `false` is the reference.
     pub town_bridge_search: bool,
+    /// [`PlaceOverrides::parallel_streets`], carried to
+    /// `GenOpts::parallel_streets` (`PARALLEL_STREETS_SCOPE.md` PS-1).
+    pub parallel_streets: bool,
     /// [`PlaceOverrides::harbour_front`] where the town's box holds sea
     /// ([`UmWater::sea_frac`] above [`BOX_SEA_FRAC`], the harbour badge's own
     /// test, `um_box_has_sea`), carried to `GenOpts::harbour_front` (Ruling FK
@@ -2423,6 +2430,14 @@ pub struct PlaceOverrides<'a> {
     /// `GenOpts::town_bridge_search`: a both-banks town tries other crossings
     /// when the site's own bridge point fails. `false` is the reference.
     pub town_bridge_search: bool,
+    /// `PARALLEL_STREETS_SCOPE.md` PS-1 (owner Rulings FY, GC, GF): the
+    /// town-type rule, the direction field and the ground gate
+    /// (`cartalith_urban::field`), reported on [`UrbanLayout::parallel`].
+    /// **It changes no layout.** **Not a `_umPlaceContext` field** and not in
+    /// the reference, so `false` (the `Default`) is no plan. The app sets it
+    /// from `WorldParams::urban_parallel_streets`, off in the app until the
+    /// owner rules at PS-7 (`DECISIONS.md` section 7p).
+    pub parallel_streets: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2531,6 +2546,7 @@ pub fn um_place_context_with(
             market_road_bank: o.market_road_bank,
             water_widen: o.water_widen,
             town_bridge_search: o.town_bridge_search,
+            parallel_streets: o.parallel_streets,
             harbour_front,
             site_box,
             river_stretch,
@@ -2870,6 +2886,11 @@ pub struct UrbanLayout {
     pub pop: f64,
     pub target_len: f64,
     pub max_rf: f64,
+    /// `PARALLEL_STREETS_SCOPE.md` PS-1: the town's type, direction field and
+    /// ground (`cartalith_urban::Town::parallel`). `None` with
+    /// [`PlaceOverrides::parallel_streets`] off, under 1 500, or a street
+    /// village; never a default plan.
+    pub parallel: Option<cartalith_urban::field::ParallelPlan>,
     pub pop_target: f64,
     pub settlement_age: f64,
     pub uses_real_water: bool,
@@ -3123,6 +3144,7 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         market_road_bank: ctx.market_road_bank,
         water_widen: ctx.water_widen,
         town_bridge_search: ctx.town_bridge_search,
+        parallel_streets: ctx.parallel_streets,
         harbour_front: ctx.harbour_front,
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.
@@ -3226,6 +3248,8 @@ fn layout_from_town(ctx: &UrbanContext, t: cartalith_urban::generate::Town) -> U
         // so `Town` returns them instead.
         target_len: t.target_len,
         max_rf: t.max_rf,
+        // PS-1's plan, as `generate` reported it (`None` with the switch off).
+        parallel: t.parallel.clone(),
         pop_target: t.pop_target,
         settlement_age: t.settlement_age,
         uses_real_water: ctx.water.is_some(),

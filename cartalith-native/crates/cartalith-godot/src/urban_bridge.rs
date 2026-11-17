@@ -228,6 +228,32 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         d.set("plaza_center", pt(p.center));
     }
 
+    // `PARALLEL_STREETS_SCOPE.md` PS-1 (`urban_parallel_streets`): the town's
+    // type, its ground figure and its direction field. Absent, not defaulted,
+    // when the layout carries no plan (the switch off, a village): a missing
+    // `parallel_type` means "not typed", never "no grain". The field crosses
+    // as two parallel packed arrays, `parallel_field` (sample points) and
+    // `parallel_grain` (x = the axis in radians, y = the strength 0..1, per
+    // point), for the probe that draws it over the City Viewer
+    // (`_viewerframe_probe.gd --parallel 2`); the shell draws none of it.
+    if let Some(p) = &l.parallel {
+        d.set("parallel_type", p.town_type.key());
+        d.set("parallel_approaches", p.approaches.len() as i64);
+        d.set("parallel_ground_bank_m2", p.ground.bank_m2);
+        d.set("parallel_ground_far_m2", p.ground.far_m2);
+        d.set("parallel_settled_m2", p.settled_m2);
+        if let Some(g) = p.ground_ratio() {
+            d.set("parallel_ground_ratio", g);
+        }
+        if let Some(f) = &p.field {
+            d.set("parallel_core_m", f.core_m);
+        }
+        let pts: PackedVector2Array = p.samples.iter().map(|(q, _)| pt(*q)).collect();
+        let grain: PackedVector2Array = p.samples.iter().map(|(_, g)| Vector2::new(g.axis as f32, g.strength as f32)).collect();
+        d.set("parallel_field", &pts);
+        d.set("parallel_grain", &grain);
+    }
+
     // Parcels go across as parallel arrays rather than an array of
     // dictionaries: a town runs to a few thousand lots, and one `Dictionary`
     // per lot is a few thousand allocations per redraw for a renderer that
@@ -752,6 +778,9 @@ impl WorldGen {
             // Ruling GB (2026-11-17): the water-clipped front and the bridge search.
             water_widen: self.params.urban_growth_water_widen,
             town_bridge_search: self.params.urban_town_bridge_search,
+            // PARALLEL_STREETS_SCOPE.md PS-1: town types, field and ground,
+            // off in the app until the owner rules at PS-7. Read live.
+            parallel_streets: self.params.urban_parallel_streets,
         }
     }
 

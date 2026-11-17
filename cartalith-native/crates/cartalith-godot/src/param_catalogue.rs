@@ -138,6 +138,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("urban_market_road_bank", "On: a river town whose map point falls in the river puts its market on the bank its roads reach (current). Off: the first dry point found. Read when drawn."),
     ("urban_growth_water_widen", "On: a town whose ground is mostly water grows over a wider disc, up to 1.6 times (current). Off: the reference's radius. Read when drawn."),
     ("urban_town_bridge_search", "On: a big river town whose bridge point fails tries other crossings so its far bank grows (current). Off: that one point only. Read when drawn."),
+    ("urban_parallel_streets", "On: in progress; towns of 1 500+ get a type, a street grain and a ground figure; no street moves yet. Off: none (current). Read when drawn."),
     ("name_unnamed_kinds", "On: rivers get names and landmarks a style name, from the world's name style. Off: they stay unnamed. Read when asked."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
@@ -300,7 +301,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" || key == "urban_market_road_bank" || key == "urban_growth_water_widen" || key == "urban_town_bridge_search" || key == "name_unnamed_kinds" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" || key == "urban_market_road_bank" || key == "urban_growth_water_widen" || key == "urban_town_bridge_search" || key == "urban_parallel_streets" || key == "name_unnamed_kinds" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }

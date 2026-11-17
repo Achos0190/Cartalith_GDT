@@ -1,0 +1,25 @@
+"""PS-1: per seed a contact sheet (rows = the scope's towns; columns = the City Viewer opening frame with
+urban_parallel_streets OFF, then ON with the field drawn by _viewerframe_probe.gd --parallel 2), and a full-size pair per town."""
+import re
+from PIL import Image, ImageDraw
+S = 'C:/cw/ps1_scratch/shots'; O = 'C:/cw/ps1_scratch/ev'
+TW = 640
+for seed in ('483920', '912345', '246371'):
+    log = open(f'{S}/{seed}.log', encoding='utf-8', errors='replace').read()
+    rows = re.findall(r'PARALLEL1 #(\d+) buildings (\d+) edges (\d+) type (\S+) approaches (\S+) ratio (\S+) ticks (\d+)', log)
+    ims = []
+    for r in rows:
+        a = Image.open(f'{S}/viewer_{seed}_{r[0]}_parallel0.png').convert('RGB'); b = Image.open(f'{S}/viewer_{seed}_{r[0]}_parallel1.png').convert('RGB')
+        P = Image.new('RGB', (a.size[0] + b.size[0] + 10, max(a.size[1], b.size[1]) + 26), (255, 255, 255))
+        P.paste(a, (0, 26)); P.paste(b, (a.size[0] + 10, 26))
+        ImageDraw.Draw(P).text((4, 6), f'seed {seed} #{r[0]} (384 x 288): OFF (left) | ON (right), field drawn; type {r[3]}, ground ratio {float(r[5]):.2f}; buildings {r[1]}, edges {r[2]} both sides', fill=(0, 0, 0))
+        P.save(f'{O}/frames/pair_{seed}_{r[0]}.png'); ims.append((r, a, b))
+    th = int(TW * ims[0][1].size[1] / ims[0][1].size[0])
+    sheet = Image.new('RGB', (2 * TW + 30, 30 + len(ims) * (th + 24)), (255, 255, 255)); d = ImageDraw.Draw(sheet)
+    d.text((6, 8), f'seed {seed}, 384 x 288: PS-1, the scope\'s towns. Left OFF, right ON (urban_parallel_streets; magenta = the direction field, circle = organic core). Layout identical both sides.', fill=(0, 0, 0))
+    for k, (r, a, b) in enumerate(ims):
+        y = 30 + k * (th + 24)
+        d.text((6, y), f'#{r[0]} type {r[3]}, approaches {r[4]}, ground ratio {float(r[5]):.2f}, buildings {r[1]} / edges {r[2]} off and on', fill=(0, 0, 0))
+        for j, im in enumerate((a, b)):
+            t = im.copy(); t.thumbnail((TW, th)); sheet.paste(t, (6 + j * (TW + 14), y + 16))
+    sheet.save(f'{O}/contact_{seed}.png'); print(seed, sheet.size, len(ims))

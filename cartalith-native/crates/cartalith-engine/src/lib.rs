@@ -1384,6 +1384,20 @@ pub struct WorldParams {
     /// healthy towns. Same defaults and load rule as
     /// [`WorldParams::urban_growth_water_widen`].
     pub urban_town_bridge_search: bool,
+    /// **Parallel streets, PS-1: the town-type rule, the direction field and
+    /// the ground gate** (`PARALLEL_STREETS_SCOPE.md`; owner Rulings FY, GA,
+    /// GC and GF): every town of 1 500 and up is typed market-street,
+    /// river-front, organic-core or no grain, given the field later
+    /// milestones grow streets along, and measured for the ground a larger
+    /// footprint needs (`cartalith_urban::field`, reported on the layout).
+    /// **At PS-1 it changes no street, lot or building.**
+    ///
+    /// **`false` here AND in the shipped app** (`params::defaults`) until the
+    /// owner rules at PS-7, the exception `urban_burgage` takes (`DECISIONS.md`
+    /// §7p). Read fresh each time a layout is asked for (never stored), so it
+    /// moves no generated field and needs no regeneration. A save without the
+    /// key loads it off.
+    pub urban_parallel_streets: bool,
     /// **Names for the kinds the engine did not name** (Ruling FZ item 5, owner 2026-11-17): rivers get a
     /// proper name and every landmark of a kind that has a name-style section (mounts, cliffs, holy sites,
     /// waterfalls, passes ...) gets a `style_name`, drawn from the world's name style (the world default
@@ -1636,6 +1650,8 @@ impl WorldParams {
             // Ruling GB: the reference's radius and single bridge point.
             urban_growth_water_widen: false,
             urban_town_bridge_search: false,
+            // PS-1 of the parallel streets: no plan, as every golden had.
+            urban_parallel_streets: false,
             // Ruling FZ: no names for the unnamed kinds, as every golden and every old save had.
             name_unnamed_kinds: false,
             // Off: the reference's per-cell rain test. On at the app boundary

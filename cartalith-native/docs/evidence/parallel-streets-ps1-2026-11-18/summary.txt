@@ -1,0 +1,21 @@
+PARALLEL_STREETS_SCOPE.md PS-1 (owner Rulings FY, GA, GC, GF), 2026-11-18. The scope's section 10 has the results.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, app params::defaults, 384x288 and 2048x1311; release
+test binary of this tree (scratch_code/audit.sh.txt).
+
+census_off/, census_on/   the five town audits with TOWN_RIVER_PARALLEL=0 and =1. Off and on are byte-identical at both
+                          sizes (diff empty except "finished in" timing), and off is byte-identical to
+                          ../underbuilt-fix-2026-11-17/census_on/ (Ruling GB, the app defaults of the day).
+census_bars.txt           the must-hold bars off -> on (scratch_code/cmp5.py.txt, Ruling GB's cmp5.py).
+ps1/parallel_streets_audit_<gw>.txt  the committed #[ignore] audit: per town 1500+ the type, approaches, ground, settled
+                          area, g, and whether the on layout's geometry hash equals the off one; types per seed; the
+                          ground recount at F_req 1.10 / 1.12 / 1.20 with the market's-bank control.
+ps1/agg_<gw>.txt          PS-0's block-shape, needle, FS-1/2/3 measures (scratch_code/ps1_agg.py.txt, PS-0's ps0_agg.py
+                          with the burgage variant dropped and FS-2 by type added), off vs proto (= on).
+ps1/towns_<gw>.csv        the per-town rows behind them (blocks, lots and buildings CSVs not kept; audit.sh remakes them).
+contact_<seed>.png        the scope's 14 towns (burgage-backlanes-2026-11-17/frames, found by map cell), City Viewer
+                          opening frame off | on with the field drawn. Windowed, scratch APPDATA, window lock.
+frames/pair_<seed>_<id>.png  full-size off | on pairs; frames/<seed>.log the probe logs (RESULT: PASS);
+                          frames/246371_27_field_extent.log the extent check for the town that shows no ticks, and
+                          frames/246371_27_buildings.txt its buildings' distances from its market (headless dump).
+mutants.txt               34 mutants on field.rs (scratch_code/mut.py.txt), all killed after two tests were added.

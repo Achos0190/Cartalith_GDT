@@ -1,0 +1,14 @@
+#!/bin/bash
+# audit.sh <exe> <outdir> <size w:h> : PS-1 runs. The five town audits with urban_parallel_streets off (census_off/) and on
+# (census_on/), and parallel_streets_audit (with PS1_CSV), seeds 483920 912345 246371, 800 km, villages on, app defaults.
+EXE=$1; OUT=$2; sz=$3
+gw=${sz%%:*}; gh=${sz##*:}
+cd /c/cw/ps1/cartalith-native/crates/cartalith-godot
+mkdir -p $OUT/census_off $OUT/census_on $OUT/ps1
+for a in both_banks_audit town_housing_audit riverbank_gap_audit harbour_front_audit stretch_water_audit; do
+  env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_PARALLEL=0 $EXE $a --ignored --nocapture --test-threads 1 > $OUT/census_off/${a}_$gw.txt 2>&1 &
+  env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_PARALLEL=1 $EXE $a --ignored --nocapture --test-threads 1 > $OUT/census_on/${a}_$gw.txt 2>&1 &
+done
+env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 PS1_CSV=$OUT/ps1/csv $EXE parallel_streets_audit --ignored --nocapture --test-threads 1 > $OUT/ps1/parallel_streets_audit_$gw.txt 2>&1 &
+wait
+echo "$gw done $(date +%T)"

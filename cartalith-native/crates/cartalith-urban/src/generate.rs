@@ -293,6 +293,16 @@ pub struct GenOpts {
     /// grown. `false` is the reference's single point, by control flow. The
     /// host sets it from `WorldParams::urban_town_bridge_search`.
     pub town_bridge_search: bool,
+    /// **Not the reference** -- `PARALLEL_STREETS_SCOPE.md` PS-1 (owner
+    /// Rulings FY, GC and GF): the town-type rule, the local direction field
+    /// and the ground gate ([`crate::field`]), computed for an organic or
+    /// radial town of [`crate::field::MIN_POP`] and up and reported on
+    /// [`Town::parallel`]. **It changes no layout**: no street, lot or
+    /// building moves with it on (PS-1 is "no growth change"). `false` is no
+    /// plan, by control flow. The host sets it from
+    /// `WorldParams::urban_parallel_streets`, off at both boundaries until
+    /// the owner rules at PS-7 (`DECISIONS.md` section 7p).
+    pub parallel_streets: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -651,6 +661,11 @@ pub struct Town {
     /// that is not a street village). Read by `crate::stretch::StretchMeasures::of`
     /// for its unbuilt-ground reach. `false` with the switch off.
     pub burgage: bool,
+    /// **Not the reference** -- PS-1's plan for this town
+    /// ([`GenOpts::parallel_streets`], [`crate::field::ParallelPlan`]): its
+    /// type, field and ground. `None` with the switch off, for a town under
+    /// [`crate::field::MIN_POP`] and for a street village.
+    pub parallel: Option<crate::field::ParallelPlan>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -1127,6 +1142,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
 
     let plaza: Option<Plaza>;
     let harbour_outcome: HarbourOutcome;
+    // **Not the reference** (PS-1, `GenOpts::parallel_streets`,
+    // `crate::field`): the town's type, field and ground, read from the site
+    // and the graph as they stand before `grow` and changing neither. `None`
+    // with the switch off, so every other path is untouched by control flow.
+    let wants_parallel = opts.parallel_streets && pop_target >= crate::field::MIN_POP && !street_village;
+    let mut parallel: Option<crate::field::ParallelPlan> = None;
 
     if profile.planning == "radial" {
         // The Venus branch: concentric rings and spokes around a hub. Its
@@ -1160,6 +1181,11 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         // LAST on this branch, after the wall — not between the streets and the
         // growth, because there is no growth here.
         plaza = build_plaza(seed, &site, &anchors, &mut g, pop_target);
+        // PS-1: the radial plan never takes a grain (`organic` false); its
+        // ground is still measured, so every town of 1 500 and up has one.
+        if wants_parallel {
+            parallel = Some(crate::field::plan(&site, &g, anchors.market, plaza.as_ref().map(|z| z.poly.as_slice()), pop_target, false, max_rf, settlement_age, both_banks));
+        }
     } else {
         // v0.97: grow around the host's real roads when supplied, else
         // synthesise primaries from `routeEnds`. Both returns are discarded.
@@ -1197,6 +1223,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         crate::stretch::lay_river_spine(&site, &mut g, anchors.market);
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
+        }
+        // PS-1 (`crate::field::plan`): after the primaries, the square, the
+        // river spine and the river bridges, before the town grows, so the
+        // approach roads are the host's and nothing `grow` lays is read.
+        if wants_parallel {
+            parallel = Some(crate::field::plan(&site, &g, anchors.market, plaza.as_ref().map(|z| z.poly.as_slice()), pop_target, true, max_rf, settlement_age, both_banks));
         }
         // **Not the reference** (2026-11-15, the village cap,
         // `crate::riverbank::second_pass`): a riverbank village laid out
@@ -1713,6 +1745,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // `Town::pin`: the market, unless the harbour front or a street
     // village's landing or road-bank move (`crate::village`) moved it.
     let pin = pin.unwrap_or(anchors.market);
+    // PS-1: today's settled area in the ground gate's region, from this
+    // layout's final buildings (with the switch on the layout is the
+    // switch-off one, so these are today's).
+    if let Some(pl) = parallel.as_mut() {
+        let polys: Vec<&[Vec2]> = buildings.iter().map(|b| b.poly.as_slice()).collect();
+        crate::field::fill_settled(pl, &site, &polys);
+    }
 
     Town {
         seed,
@@ -1774,6 +1813,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         pin,
         road_bank_moved,
         burgage,
+        parallel,
         pop,
         metrics,
         through: site.through,

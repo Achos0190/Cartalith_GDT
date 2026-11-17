@@ -1,0 +1,40 @@
+KILLED       order: market-street before river-front
+KILLED       radial takes a grain
+KILLED       no road -> organic core
+KILLED       THROUGH 150 -> 110
+KILLED       MERGE 20 -> 2
+SURVIVED     wrap merge dropped
+KILLED       bank reach 2x5.4 -> 3x
+KILLED       bank gap ignores half width
+SURVIVED     stretched not river-front
+KILLED       plaza ignored
+KILLED       real river not required
+KILLED       core frac 0.38 -> 0.40
+KILLED       age slope
+KILLED       core min
+KILLED       ramp ignores core
+KILLED       coherence not normalised
+KILLED       weight cap dropped
+KILLED       falloff linear
+KILLED       axis not halved
+KILLED       multi-grain 5000 -> 7000
+KILLED       spine weight
+KILLED       road reach
+KILLED       cap market 0.35
+KILLED       delta market 0.30
+KILLED       p90 0.45
+KILLED       F_REQ median
+KILLED       F_REQ p90
+KILLED       far bank without both_banks
+KILLED       far cap dropped
+KILLED       settled ignores region
+KILLED       fits >=
+KILLED       ratio of zero settled
+KILLED       growable drops far
+KILLED       slope gate
+restored ce1f15497a59
+killed 32 of 34
+KILLED       wrap merge dropped
+KILLED       stretched not river-front
+restored ce1f15497a59
+killed 2 of 2

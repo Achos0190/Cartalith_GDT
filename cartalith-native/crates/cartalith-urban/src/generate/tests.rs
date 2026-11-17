@@ -305,6 +305,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         // Nor Ruling GB's two (the water-clipped front; the bridge search).
         water_widen: false,
         town_bridge_search: false,
+        // Nor PS-1's plan (`urban_parallel_streets`), which changes no layout.
+        parallel_streets: false,
     }
 }
 

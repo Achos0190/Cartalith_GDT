@@ -12,7 +12,7 @@ below is rated on both, and section 5 has a bar that fails a fix that looks good
 character.
 
 This document **defines** milestones and holds the design reasoning. It carries no status column: what is built is
-`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built.** The only code
+`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built when this scope was written** (PS-1 has been built since: section 10). The only code
 written is a scratch `#[ignore]` measurement (`block_shape_audit`), appended to `town_river_census.rs` in a worktree
 that was then removed; it is kept as `cartalith-native/docs/evidence/parallel-streets-2026-11-17/block_shape_audit.rs.txt`
 and pins nothing. `urban_burgage` stays in and off (Ruling FY; Q8's 56 m census reach kept).
@@ -944,3 +944,108 @@ test):
 The Option D recommendation, the switch's semantics and boundaries (section 4), the must-hold bars (5.1), FS-3,
 FS-4 and FS-5, and the rule that no bar is loosened without a ruling. The "planted grids stay out" decision is Q2's
 default, now restated by Ruling GC.
+
+---
+
+## 10. PS-1 result (2026-11-18, Ruling GF): built behind `urban_parallel_streets`, OFF at both boundaries; ground recount GO
+
+**What was built.** `cartalith_urban::field` (new), wired through `GenOpts::parallel_streets`, `PlaceOverrides` /
+`UrbanContext::parallel_streets`, `WorldParams::urban_parallel_streets` (registry row, `JS_PATHS`, `LOADS_WHEN_ABSENT`,
+assistant catalogue row, `Regen::Live`) and `urban_bridge`'s layout dictionary (`parallel_type`, `parallel_approaches`,
+`parallel_ground_*`, `parallel_core_m`, `parallel_field` / `parallel_grain`, absent with the switch off). With the switch
+on, `generate_pass` computes `field::plan` for every town of 1 500 and up that is not a street village, before `grow`,
+and fills its settled area from the finished layout; it reports it on `Town::parallel` and touches nothing else.
+
+- **Type rule** (`town_type`, section 4's order): radial plan, no grain; then **river-front** (a real river, `river` or
+  `riverthrough` site, and the town stretched or its market square's outline within 10.8 m, two street widths, of the
+  bank); then **market-street** (two approach roads, read where the primaries cross a 100 m circle round the market,
+  at least 150 degrees apart: a road through the market); then **organic-core** (any approach road); else no grain.
+  River-front is tested first, so a town that is both takes the stricter FS-2 cap, never the looser one. No planted
+  grid type exists (Q2). `TownType::fs2_caps` carries Ruling GC's split: market-street 0.35 per town and a delta of
+  0.30 (Q12 (a)); river-front and organic-core 0.25 / 0.45 / 0.20.
+- **Field** (`DirectionField::at`): PS-0's doubled-angle blend (roads 1 within about 80 m, river 1.5 within about 80 m,
+  spine 0.7 out to about 250 m), strength = coherence x total weight capped at 1 x a ramp from the core's edge over
+  0.12 `max_rf`. The core is 0.38 `max_rf` at 300 years, growing 0.12 per 700 years (0.50 at 1 000, floor 0.33): Q3's
+  "older town, larger core", a labelled judgement. Under 5 000 one grain (the river, the spine, or one road along the
+  town's mean road orientation); from 5 000 every approach-road edge besides.
+- **Ground gate** (`ground_gate`, section 9.3, a pure function over `Site`): PS-0 item 2's 10 m lattice (dry, slope
+  0.34 or less, inside the 40 m margin, within `max_rf` by `Site::market_dist`) on the market's bank, plus the far bank
+  only where `grow_far_bank` would act (a both-banks town, `far_bridge_end` buildable, each cell `far_bank_buildable`
+  and within `max_rf` of the bridge end or the stretch frame), the far area capped at `FAR_BANK_MAX_RATIO` (1.0) x the
+  market bank's (a labelled reading of the street-length cap as an area cap). The denominator is today's settled area
+  (the census's FS-1 cells) inside the same region. `F_REQ_MEDIAN` = 1.4 / 1.25 = 1.12 and `F_REQ_P90` = 1.68 / 1.40 =
+  1.2, from section 9.3's formula; the scope's "about 1.1" is the 1.12.
+
+**Measured** (evidence `cartalith-native/docs/evidence/parallel-streets-ps1-2026-11-18/`, `summary.txt` lists every
+file): census world, seeds 483920 912345 246371, 800 km, villages on, the app's `params::defaults`, 384 x 288 and
+2 048 x 1 311, release test binary of this tree.
+
+| ground recount, towns 5 000+ | 384 (28 towns) | 2 048 (26 towns) |
+|---|---|---|
+| fit at F_req 1.10 | 28 (100 %) | 26 (100 %) |
+| **fit at F_req 1.12 (section 9.3's median case)** | **28 (100 %)** | **25 (96 %)** |
+| fit at F_req 1.20 (p90 case) | 28 (100 %) | 24 (92 %) |
+| g min / p10 / median | 1.21 / 1.55 / 1.88 | 1.11 / 1.45 / 1.96 |
+| control: market's bank only, x1.2 / x1.4 (PS-0 item 2's test) | 16 / 5 of 28 | 12 / 5 of 26 |
+| control: market's bank only at 1.12 | 21 of 28 | 16 of 26 |
+
+**Go** (90 % or more at both sizes) at every one of the three requirements; the verdict does not flip between 1.10
+and 1.20. Under 1.20 at 2 048: 246371 #0 (g 1.11) and #2 (1.16), both 20 000. The go rests on the far bank's strip:
+on the market's bank alone it would be a no-go (16 / 12 at x1.2; 21 / 16 at 1.12), so two more misses at 2 048 would
+flip it if the far strip were lost. The numerator reproduces PS-0's buildable figure (`towns_g3m40d_384.csv`) to the
+tenth of a hectare for 23 of 28 towns at 384; the five that differ (483920 #12 and #13, 246371 #2, #7 and #11, one of
+them lower) are not isolated. The market's-bank control (16 / 5 of 28 at x1.2 / x1.4) sits between PS-0's two kept
+figures: `ps0_agg.py` over the whole town's settled area gives 6 / 2 of 28, and section 8.2's like-with-like 23 / 7 came
+from a region count that is not in PS-0's kept scripts; the difference is unexplained. Towns of 5 000+ at 2 048 are
+26, as in PS-0's own `towns_g3m40_2048.csv`; section 6's "22" is the count among the 8 largest towns a seed. The far
+bank counts ground `grow_far_bank` is allowed to grow, not ground today's towns use, and whether a bridge can be laid
+there was not cross-checked (the layout does not carry `Town::town_bridge`): several far-bank-dependent towns have no
+far-bank settlement today (912345 #6 at 384: settled 83.8 ha in the region, all of it on the market's bank).
+
+**Types** (towns 1 500+): 384: river-front 21, organic-core 10, market-street 4 (of 35); 2 048: river-front 20,
+organic-core 9, market-street 7 (of 36). Market-street does not dominate, so the through-road test is not too loose.
+
+**Every bar** (the five audits' text with the switch on is byte-identical to off, and off to Ruling GB's
+`underbuilt-fix-2026-11-17/census_on`, at both sizes; all 35 / 36 towns' full geometry hashes match off and on):
+
+- 5.1 at today's values, unchanged: housed p10 95 / 91; towns under 80 % 1 / 3; villages under 80 % 49 / 21; wall /
+  hull p90 1.11 / 1.09 (max 1.14 / 1.25); squares outside the wall 5 / 1; unbuilt over 1 ha 1 / 0; riverside 4.6 /
+  3.7 %; buildings in water 0; wall rings in open water 0; greens 629 of 662 / 676 of 684; stretched refused 4 / 4;
+  villages and radial towns: no plan (villages) or no grain (radial), layouts identical. **"Today" has moved since
+  section 5.1 was written** (Ruling GB: housed p10 94 to 95 and 85 to 91, wall / hull max at 2 048 1.21 to 1.25,
+  riverside 4.3 to 4.6 %, refused 5 / 6 to 4 / 4); PS-2 measures against these.
+- Block shape and needles (PS-0's instrument, off = on): quads 50.3 / 50.5 %, triangles 10.6 / 11.0 % (compact 6.8 /
+  7.1), aspect 1.57 / 1.57, rectangularity 0.70 / 0.69, 83 m+ across 3.7 / 3.7 %; needle lots 11.3 / 11.3 %, needle
+  buildings 0.57 / 0.55 %.
+- FS-1: area ratio 1.00 and 100 % kept in every town. FS-2: phi on minus off 0.000 in every town; by type (off = on),
+  384: market-street median 0.25, max 0.29; organic-core median 0.07, p90 0.34; river-front median 0.08, p90 0.12;
+  2 048: market-street median 0.21, max **0.42**; organic-core median 0.23, p90 0.39; river-front median 0.06, p90
+  0.10. **Two small market-street towns at 2 048 are already over 0.35 today** (483920 #38, 1 584, phi 0.42; 912345
+  #9, 2 003, 0.39): few streets, high order. PS-2 should judge them on the delta, and the owner may want to know. FS-3:
+  degree 4 10.1 / 10.3 %, dead ends 11.5 / 11.4 %, segment median 24.3 / 23.9 m.
+
+**Frames** (`contact_<seed>.png`, `frames/pair_<seed>_<id>.png`): the scope's 14 towns, found by map cell, City Viewer
+opening frame off, then on in the same session with the field drawn by `_viewerframe_probe.gd --parallel 2` (magenta
+ticks along the grain, the core's circle, the type and ratio). The probe checks the data, not only the pixels:
+building and edge counts identical off and on, no `parallel_type` off, a type on (`RESULT: PASS`, all three seeds).
+River-front grains follow their rivers (912345 #8, #15; 246371 #4, #13); market-street spines run along the through
+road. 13 of 14 "on" frames show the field. 246371 #27 (1 790) shows no ticks: measured on its dumped layout
+(`frames/246371_27_buildings.txt`), its buildings' centroids are a median 603 m from its market point and only 67 of
+336 lie within 350 m, while its field samples reach about 340 m (`frames/246371_27_field_extent.log`), and the opening
+frame shows the far part. Not investigated; it is under 5 000, outside the go bar.
+
+**Mutants:** 34 on `field.rs`, all killed (two survived the first pass, the bearing-wrap merge and the stretched
+river-front branch; a test was added for each and both were then killed). Tests: 18 in `field/tests.rs`.
+
+**River-front equals the stretched count here** (21 / 20 towns, and every stretched town is river-front by the
+rule), so with river-front tested first Ruling GC's 0.35 cap applies to only 4 / 7 towns. How many river-front towns
+also have a road through the market was not measured; that is the owner's to weigh (Q14 below).
+
+**PS-2 can start** (its step 0 first, section 6). The ground no-go of section 8.2 is answered by rear households and
+the far-bank strip. Towns short of ground keep today's layout (Q13 (b)): none at 384; at 2 048, 246371 #0 at F_req
+1.12, and #0 and #2 at 1.20.
+
+**New owner questions from PS-1.** **Q14.** River-front is tested before market-street, so a river town with a road
+through its market takes the 0.25 cap, not 0.35. Keep that order? [yes: the stricter cap; measure the overlap in PS-2
+step 0] **Q15.** Which requirement decides Q13 (b) for a town: section 9.3's median case 1.12 or the p90 case 1.20?
+[1.12, the median case; it keeps today's layout for 246371 #0 at 2 048 only]

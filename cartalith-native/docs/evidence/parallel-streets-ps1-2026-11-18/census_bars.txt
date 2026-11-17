@@ -1,0 +1,38 @@
+== 384
+  towns housed p10 (both_banks)                          95 ->             95
+  towns under 80 %                                        1 ->              1
+  villages under 80 %                                    49 ->             49
+  wall/hull p90                                        1.11 ->           1.11
+  wall/hull max                                        1.14 ->           1.14
+  squares outside the wall                                5 ->              5
+  unbuilt patch over 1 ha                                 1 ->              1
+  unbuilt patch over 0.5 ha                               2 ->              2
+  riverside within 2 widths, >=1500 %                   4.6 ->            4.6
+  river-kind every house > 2 widths                       1 ->              1
+  stretched / refused                        21 (Ruling FQ: refused and laid out in the reference box 4 -> 21 (Ruling FQ: refused and laid out in the reference box 4
+  green within 60 m                              629 of 662 ->     629 of 662
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                0 ->              0
+  harbours over 23 m                                2 of 10 ->        2 of 10
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           3 ->              3
+  housing audit under 80 % (riverbank on)               141 ->            141
+== 2048
+  towns housed p10 (both_banks)                          91 ->             91
+  towns under 80 %                                        3 ->              3
+  villages under 80 %                                    21 ->             21
+  wall/hull p90                                        1.09 ->           1.09
+  wall/hull max                                        1.25 ->           1.25
+  squares outside the wall                                1 ->              1
+  unbuilt patch over 1 ha                                 0 ->              0
+  unbuilt patch over 0.5 ha                               1 ->              1
+  riverside within 2 widths, >=1500 %                   3.7 ->            3.7
+  river-kind every house > 2 widths                      10 ->             10
+  stretched / refused                        20 (Ruling FQ: refused and laid out in the reference box 4 -> 20 (Ruling FQ: refused and laid out in the reference box 4
+  green within 60 m                              676 of 684 ->     676 of 684
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                0 ->              0
+  harbours over 23 m                                 0 of 9 ->         0 of 9
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           1 ->              1
+  housing audit under 80 % (riverbank on)               112 ->            112

@@ -1522,6 +1522,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // Protects Ruling FE item 3's prototype being OFF at BOTH boundaries until
     // the owner rules (not the usual on-in-the-app split).
     assert!(!app.urban_burgage && !parity.urban_burgage, "deep burgage plots are a prototype, off in the app too");
+    assert!(!app.urban_parallel_streets && !parity.urban_parallel_streets, "parallel streets (PS-1) are off at both boundaries until the owner rules at PS-7");
     assert!(app.urban_market_road_bank && !parity.urban_market_road_bank, "a river town's market on its roads' bank, the 483920 #4 row (2026-11-17)");
     assert!(
         app.urban_growth_water_widen && !parity.urban_growth_water_widen && app.urban_town_bridge_search && !parity.urban_town_bridge_search,

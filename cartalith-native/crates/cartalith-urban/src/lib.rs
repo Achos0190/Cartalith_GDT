@@ -74,6 +74,8 @@ pub mod citadel;
 pub mod cleanup;
 pub mod courtyard;
 pub mod districts;
+/// PS-1 of `PARALLEL_STREETS_SCOPE.md`: the town-type rule, the direction field and the ground gate (`urban_parallel_streets`).
+pub mod field;
 pub mod fortify;
 pub mod generate;
 pub mod geom;

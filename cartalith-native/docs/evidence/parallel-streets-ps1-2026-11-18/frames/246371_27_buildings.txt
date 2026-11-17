@@ -1,0 +1,6 @@
+246371 #27 at 384, the shell world, urban_parallel_streets on (_viewerframe_probe.gd --dump --ids 27, headless).
+market [880.0, 625.0]; buildings 336; centroid distance from the market: min 13 p10 184 median 603 p90 808 max 858 m
+within 200 m: 40
+within 300 m: 66
+within 350 m: 67
+within 400 m: 67

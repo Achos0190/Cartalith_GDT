@@ -3,7 +3,7 @@ extends Node
 ## settlement of one generated world, does the viewer's opening frame (`CityViewerWindow._fit_box()` letterboxed into
 ## the canvas, as `_view_transform()` does at zoom 1, pan 0) contain any of the layout's water?
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--burgage 0|1] [--quick 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
+##   Godot_v4.7.2-stable_win64_console.exe --headless --path . _viewerframe_probe.tscn -- [--seed N] [--grid WxH] [--shots <dir> --ids 70,36] [--riverbank 0|1] [--stretch 0|1] [--burgage 0|1] [--parallel 0|1|2] [--cells "x,y;x,y"] [--quick 0|1] [--villages 0|1] [--dump <dir> --ids 4,0]
 ##
 ## Water geometry counted, each separately: `water_poly` (a closed body), `river` (a centreline, `river_w` wide),
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
@@ -18,6 +18,15 @@ extends Node
 ## the frames are named `viewer_<seed>_<id>_burgage<0|1>.png`. `--burgage 2` shoots every id with the switch off, then
 ## turns it on in the same session and shoots them again, and checks that the layouts fetched after the live toggle
 ## differ from those before it for at least one id (the switch is read live, not from a stale cache).
+## `--parallel 0|1|2` (PARALLEL_STREETS_SCOPE.md PS-1, 2026-11-18) does the same for `urban_parallel_streets`; with
+## `--shots` the frames are named `viewer_<seed>_<id>_parallel<0|1>.png`. PS-1 changes no layout, so `--parallel 2` (off,
+## then on live in one session) inverts `--burgage 2`'s check: every id's building and edge counts must be the SAME before
+## and after the toggle, the `parallel_type` key absent off, and present on for at least one id (the switch is read live,
+## not served from a stale cache). With the switch on the frame also carries the town's direction field
+## (`parallel_field` / `parallel_grain`), drawn by this probe over the viewer's canvas: a tick per sample along the
+## grain's axis, its length and opacity by strength, the organic core's circle, and the type and ground ratio as text.
+## `--cells "x,y;x,y"` picks the ids by their map cells (the `TOWN #id at (x,y)` lines), so a world whose indices moved
+## shoots the same towns; the ids found are appended to `--ids`.
 ## `--gb 0|1` (Ruling GB, 2026-11-17) sets both `urban_growth_water_widen` and `urban_town_bridge_search` (the water-clipped
 ## growth disc and the bridge search) off or on after the world is made, for the under-built towns' before/after dumps and
 ## frames; with `--shots` the frames are named `viewer_<seed>_<id>_gb<0|1>.png`.
@@ -187,6 +196,8 @@ func _ready() -> void:
 	var stretch := -1
 	var burgage := -1
 	var gb := -1
+	var parallel := -1
+	var cells: Array[Vector2i] = []
 	## `--villages 0` makes the world without villages, as the FH-R2 harness
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
 	## as the shell's probes ask.
@@ -211,6 +222,11 @@ func _ready() -> void:
 			"--stretch": stretch = int(args[i + 1])
 			"--burgage": burgage = int(args[i + 1])
 			"--gb": gb = int(args[i + 1])
+			"--parallel": parallel = int(args[i + 1])
+			"--cells":
+				for c in String(args[i + 1]).split(";", false):
+					var xy := c.split(",")
+					cells.append(Vector2i(int(xy[0]), int(xy[1])))
 			"--villages": villages = int(args[i + 1]) != 0
 			"--quick": quick = int(args[i + 1]) != 0
 			"--ids":
@@ -244,8 +260,20 @@ func _ready() -> void:
 		_ok(bridge.param_set("urban_burgage", burgage == 1), "urban_burgage set to %d" % burgage)
 	if gb >= 0:
 		_ok(bridge.param_set("urban_growth_water_widen", gb == 1) and bridge.param_set("urban_town_bridge_search", gb == 1), "Ruling GB switches set to %d" % gb)
+	if parallel == 0 or parallel == 1:
+		_ok(bridge.param_set("urban_parallel_streets", parallel == 1), "urban_parallel_streets set to %d" % parallel)
 	var places: Array = bridge.settlements()
 	_ok(places.size() > 70 or gw != 384, "the world generated (%d settlements)" % places.size())
+	for c in cells:
+		var found := -1
+		for k in places.size():
+			if int(places[k]["x"]) == c.x and int(places[k]["y"]) == c.y:
+				found = k
+				break
+		print("  CELL %s -> #%d" % [c, found])
+		_ok(found >= 0, "a settlement at cell %s" % c)
+		if found >= 0:
+			ids.append(found)
 	app.open_city_viewer(0)
 	for _f in 10:
 		await get_tree().process_frame
@@ -326,14 +354,59 @@ func _ready() -> void:
 			_dump_layout(bridge.urban_layouts(PackedInt32Array([id]))[0], dump.path_join("%d_%d_%d.json" % [seed_n, gw, id]))
 	if shots != "":
 		DirAccess.make_dir_recursive_absolute(shots)
-		## One phase, or (`--burgage 2`) the switch off then on in this session.
+		## One phase, or (`--burgage 2` / `--parallel 2`) the switch off then on in this session.
 		var phases: Array[int] = []
-		if burgage == 2:
+		if burgage == 2 or parallel == 2:
 			phases.assign([0, 1])
 		else:
-			phases.append(burgage)
+			phases.append(burgage if burgage >= 0 else parallel)
 		var counts_before := {}
+		## The field overlay: drawn on the viewer's canvas after its own draw, only with `--parallel` on. A holder
+		## dictionary, because a GDScript lambda captures a local by value at creation: reassigning the local later
+		## would not reach it, mutating the holder does.
+		var holder := {"lay": {}}
+		var draw_field := func() -> void:
+			var field_lay: Dictionary = holder["lay"]
+			if field_lay.is_empty():
+				return
+			var c: Control = cv._canvas
+			c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			var vt: Dictionary = cv._view_transform()
+			var sc: float = vt["scale"]
+			var org: Vector2 = vt["origin"]
+			var pts: PackedVector2Array = field_lay.get("parallel_field", PackedVector2Array())
+			var gr: PackedVector2Array = field_lay.get("parallel_grain", PackedVector2Array())
+			for k in pts.size():
+				var at: Vector2 = org + pts[k] * sc
+				var half := 20.0 * sc * (0.35 + 0.65 * gr[k].y)
+				var d := Vector2(cos(gr[k].x), sin(gr[k].x)) * half
+				c.draw_line(at - d, at + d, Color(0.85, 0.05, 0.55, 0.35 + 0.6 * gr[k].y), 2.0)
+			if field_lay.has("parallel_core_m"):
+				c.draw_arc(org + Vector2(field_lay["market"]) * sc, float(field_lay["parallel_core_m"]) * sc, 0.0, TAU, 96, Color(0.85, 0.05, 0.55, 0.9), 2.0)
+			var label := "type %s, approaches %d, ground ratio %s, field ticks %d" % [field_lay.get("parallel_type", "-"), int(field_lay.get("parallel_approaches", 0)),
+				("%.2f" % float(field_lay["parallel_ground_ratio"])) if field_lay.has("parallel_ground_ratio") else "-", pts.size()]
+			c.draw_rect(Rect2(Vector2(8, 8), Vector2(560, 26)), Color(1, 1, 1, 0.85))
+			c.draw_string(ThemeDB.fallback_font, Vector2(14, 27), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.1, 0.0, 0.1))
 		for phase in phases:
+			if parallel == 2:
+				_ok(bridge.param_set("urban_parallel_streets", phase == 1), "urban_parallel_streets set live to %d" % phase)
+				var lays: Array = bridge.urban_layouts(PackedInt32Array(ids))
+				var typed := 0
+				for k in ids.size():
+					var lay: Dictionary = lays[k]
+					var nb: int = lay.get("buildings", []).size()
+					var ne: int = int(lay.get("edge_count", -1))
+					if phase == 0:
+						counts_before[ids[k]] = [nb, ne]
+						_ok(not lay.has("parallel_type"), "#%d has no plan with the switch off" % ids[k])
+					else:
+						_ok([nb, ne] == counts_before.get(ids[k], []), "#%d's layout is unchanged by the switch (buildings %d, edges %d)" % [ids[k], nb, ne])
+						if lay.has("parallel_type"):
+							typed += 1
+					print("  PARALLEL%d #%d buildings %d edges %d type %s approaches %s ratio %s ticks %d" % [phase, ids[k], nb, ne, lay.get("parallel_type", "-"),
+						lay.get("parallel_approaches", "-"), lay.get("parallel_ground_ratio", "-"), PackedVector2Array(lay.get("parallel_field", PackedVector2Array())).size()])
+				if phase == 1:
+					_ok(typed > 0, "the live toggle typed %d of %d towns" % [typed, ids.size()])
 			if burgage == 2:
 				_ok(bridge.param_set("urban_burgage", phase == 1), "urban_burgage set live to %d" % phase)
 				var lays: Array = bridge.urban_layouts(PackedInt32Array(ids))
@@ -351,6 +424,16 @@ func _ready() -> void:
 				app.open_city_viewer(id)
 				for _f in 12:
 					await get_tree().process_frame
+				holder["lay"] = {}
+				if parallel >= 0 and (phase == 1):
+					holder["lay"] = cv._layout
+					var fpts: PackedVector2Array = cv._layout.get("parallel_field", PackedVector2Array())
+					var fbox := Rect2()
+					for k in fpts.size():
+						fbox = Rect2(fpts[k], Vector2.ZERO) if k == 0 else fbox.expand(fpts[k])
+					print("  FIELD #%d market %s core_m %s fit_box %s field_box %s" % [id, cv._layout.get("market"), cv._layout.get("parallel_core_m", "-"), cv._fit_box(), fbox])
+					if not cv._canvas.draw.is_connected(draw_field):
+						cv._canvas.draw.connect(draw_field)
 				cv.size = Vector2i(1560, 960)
 				cv.position = Vector2i(20, 20)
 				for _f in 8:
@@ -362,7 +445,7 @@ func _ready() -> void:
 				var img: Image = vp.get_texture().get_image()
 				var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
 				var tag: int = phase if burgage == 2 else burgage
-				img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d_burgage%d.png" % [seed_n, id, tag]) if burgage >= 0 else ("viewer_%d_%d_gb%d.png" % [seed_n, id, gb]) if gb >= 0 else ("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
+				img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d_parallel%d.png" % [seed_n, id, phase]) if parallel >= 0 else ("viewer_%d_%d_burgage%d.png" % [seed_n, id, tag]) if burgage >= 0 else ("viewer_%d_%d_gb%d.png" % [seed_n, id, gb]) if gb >= 0 else ("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
 				cv.hide()
 	print("RESULT: %s (%d failed) checks=%d" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)

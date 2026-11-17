@@ -227,6 +227,16 @@ fn town_bridge_search(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_TBS").map_or(p.urban_town_bridge_search, |v| v != "0")
 }
 
+/// Whether the census lays towns out with PS-1's plan
+/// (`PARALLEL_STREETS_SCOPE.md`, `cartalith_urban::field`): the app's
+/// (`WorldParams::urban_parallel_streets` from `params::defaults`, off) unless
+/// `TOWN_RIVER_PARALLEL=1` asks for it (2026-11-18). At PS-1 the plan moves no
+/// street, lot or building, so every audit's text must be identical with it
+/// on (the milestone's "off byte-identical" bar, run both ways).
+fn parallel_streets(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_PARALLEL").map_or(p.urban_parallel_streets, |v| v == "1")
+}
+
 /// The river-town test the census lays towns out with: the app's
 /// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
 /// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
@@ -1662,7 +1672,7 @@ fn riverbank_gap_audit() {
         let mut seed_gap = Vec::new();
         let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1906,7 +1916,7 @@ fn town_housing_audit() {
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -2105,7 +2115,7 @@ fn both_banks_audit() {
             if only.as_ref().is_some_and(|o| !o.contains(&i)) {
                 continue;
             }
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
             // Ruling FN: a stretched town (its box larger than the reference's).
@@ -2617,7 +2627,7 @@ fn harbour_front_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p),
                 harbour_front: hf,
                 river_stretch: river_stretch(&p).then_some(others.as_slice()),
                 ..Default::default()
@@ -2832,7 +2842,7 @@ fn stretch_water_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p),
                 harbour_front: p.urban_harbour_front,
                 river_stretch: Some(others.as_slice()),
                 ..Default::default()
@@ -2870,4 +2880,327 @@ fn stretch_water_audit() {
         flagged += c[2];
     }
     println!("all seeds at {gw}: planned stretched {planned}, laid out stretched {laid}, flagged {flagged}");
+}
+
+// ------------------------------------------------------------------------
+// PARALLEL_STREETS_SCOPE.md PS-1 (owner Rulings FY, GA, GC, GF; 2026-11-18).
+// Pins nothing; `#[ignore]`d. Ruling BK: each helper says what it measures.
+// ------------------------------------------------------------------------
+
+/// A block outline with near-duplicate vertices (closer than 6 m) merged and
+/// near-straight vertices (turn under `turn_deg`) dropped: the corners a
+/// reader of the plan would count. PS-0's `ps_corners`
+/// (`parallel-streets-ps0-2026-11-17/scratch_code/prototype_and_audit.diff.txt`),
+/// kept verbatim so PS-1's block shapes are PS-0's instrument; the 6 m and
+/// 20-degree thresholds are PS-0's labelled judgements.
+fn ps_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
+    let mut p: Vec<(f64, f64)> = Vec::new();
+    for v in poly {
+        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
+            p.push((v.x, v.y));
+        }
+    }
+    while p.len() > 2 && {
+        let (a, b) = (p[0], p[p.len() - 1]);
+        (a.0 - b.0).hypot(a.1 - b.1) < 6.0
+    } {
+        p.pop();
+    }
+    loop {
+        let n = p.len();
+        if n <= 3 {
+            return p;
+        }
+        let mut drop = 0usize;
+        let mut least = f64::INFINITY;
+        for i in 0..n {
+            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
+            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
+            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
+            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
+            if d > std::f64::consts::PI {
+                d = 2.0 * std::f64::consts::PI - d;
+            }
+            if d < least {
+                least = d;
+                drop = i;
+            }
+        }
+        if least.to_degrees() < turn_deg {
+            p.remove(drop);
+        } else {
+            return p;
+        }
+    }
+}
+
+/// Minimum-area bounding rectangle over the outline's edge directions:
+/// `(long side, short side)`; the short side is a block's depth across.
+/// PS-0's `ps_mabr`, verbatim.
+fn ps_mabr(poly: &[Vec2]) -> (f64, f64) {
+    let mut best = (f64::INFINITY, 0.0, 0.0);
+    let n = poly.len();
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        let th = (b.y - a.y).atan2(b.x - a.x);
+        let (c, s) = (th.cos(), th.sin());
+        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for v in poly {
+            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
+            x0 = x0.min(x);
+            x1 = x1.max(x);
+            y0 = y0.min(y);
+            y1 = y1.max(y);
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        if w * h < best.0 {
+            best = (w * h, w.max(h), w.min(h));
+        }
+    }
+    (best.1, best.2)
+}
+
+/// Every geometric field of a layout that PS-1 must not move, folded to one
+/// FNV-1a hash over the f64 bits: edges (ends, class, width), blocks,
+/// parcels, buildings, the wall ring, the market and the head count. Two
+/// layouts with the same hash are the same streets, lots and houses.
+fn layout_geometry_hash(l: &cartalith_civ::urban_adapter::UrbanLayout) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |x: u64| {
+        for b in x.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    let mut pts = |eat: &mut dyn FnMut(u64), v: &[Vec2]| {
+        eat(v.len() as u64);
+        for p in v {
+            eat(p.x.to_bits());
+            eat(p.y.to_bits());
+        }
+    };
+    for e in &l.edges {
+        pts(&mut eat, &[e.a, e.b]);
+        eat(e.w.to_bits());
+        eat(e.cls.len() as u64);
+    }
+    for b in &l.blocks {
+        pts(&mut eat, b);
+    }
+    for q in &l.parcels {
+        pts(&mut eat, &q.poly);
+    }
+    for b in &l.buildings {
+        pts(&mut eat, &b.poly);
+    }
+    pts(&mut eat, l.wall.ring.as_deref().unwrap_or(&[]));
+    pts(&mut eat, &[l.market]);
+    eat(l.pop.to_bits());
+    h
+}
+
+/// PS-1's census (`PARALLEL_STREETS_SCOPE.md` section 6): every town of
+/// 1 500 and up in the census world laid out with `urban_parallel_streets`
+/// off and on. Prints, per town, its type, approach roads, core, ground
+/// (market's bank, far-bank strip before and after the cap), settled area in
+/// the region and on the market's bank, the ground ratio `g` and whether the
+/// on layout's geometry equals the off one's ([`layout_geometry_hash`]); then
+/// the type counts and section 9.3's ground recount over the towns of 5 000
+/// and up at `F_req` 1.10, 1.12 ([`cartalith_civ::urban_adapter::parallel_field::F_REQ_MEDIAN`])
+/// and 1.20 ([`cartalith_civ::urban_adapter::parallel_field::F_REQ_P90`]), with the market's-bank
+/// control at x1.2 and x1.4 (PS-0 item 2's like-with-like test). With
+/// `PS1_CSV=<dir>` it also writes PS-0's per-block, per-lot, per-building and
+/// per-town CSVs (variants `off` and `proto` = on) for `ps1_agg.py` in the
+/// evidence folder. Pins nothing.
+#[test]
+#[ignore = "measurement; PARALLEL_STREETS_SCOPE.md PS-1"]
+#[allow(clippy::too_many_lines)]
+fn parallel_streets_audit() {
+    use std::io::Write;
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_else(|| SEEDS.to_vec());
+    let csv = std::env::var("PS1_CSV").ok();
+    let mut files = csv.as_ref().map(|out| {
+        std::fs::create_dir_all(out).unwrap();
+        let f = |n: &str| std::fs::File::create(format!("{out}/{n}_{gw}.csv")).unwrap();
+        let (mut ft, mut fb, mut fl, mut fbd) = (f("towns"), f("blocks"), f("lots"), f("bldg"));
+        writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges").unwrap();
+        writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
+        writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside").unwrap();
+        writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
+        (ft, fb, fl, fbd)
+    });
+    // (seed, id, pop_target, type, g, g_bank, identical)
+    let mut rows: Vec<(i32, usize, f64, &'static str, Option<f64>, Option<f64>, bool)> = Vec::new();
+    for seed in &seeds {
+        let (ws, civ, gh, p) = generate_world(*seed, gw, true);
+        let bank = std::env::var("TOWN_RIVER_BANK").map_or(p.urban_riverbank, |v| v != "0");
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld { field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(), river_polys: &river_polys, gw, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km, flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km), world_seed: *seed, river_kind_from_map: river_kind_map(&p) };
+        let others = stretch_others(&civ);
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let mk = |on: bool| PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: on, river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let (o_off, o_on) = (mk(false), mk(true));
+            let ctx_off = um_place_context_with(&uw, s, &civ.ways, &o_off);
+            let Some(off) = run_layout(&ctx_off, None) else { continue };
+            if off.pop_target < cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
+                continue;
+            }
+            let ctx_on = um_place_context_with(&uw, s, &civ.ways, &o_on);
+            let Some(on) = run_layout(&ctx_on, None) else {
+                println!("  {seed} #{i}: the on layout failed where the off one did not");
+                rows.push((*seed, i, off.pop_target, "FAILED", None, None, false));
+                continue;
+            };
+            let same = layout_geometry_hash(&off) == layout_geometry_hash(&on);
+            assert!(off.parallel.is_none(), "{seed} #{i}: a plan with the switch off");
+            let Some(pl) = on.parallel.as_ref() else {
+                println!("  {seed} #{i} pop {:.0}: NO PLAN with the switch on", on.pop_target);
+                rows.push((*seed, i, on.pop_target, "NOPLAN", None, None, same));
+                continue;
+            };
+            let gb = (pl.settled_bank_m2 > 0.0).then(|| pl.ground.bank_m2 / pl.settled_bank_m2);
+            let stretched = on.wm > cartalith_civ::urban_adapter::SITE_WM + 1.0 || on.hm > cartalith_civ::urban_adapter::SITE_HM + 1.0;
+            println!(
+                "  {seed} #{i} @({},{}) pop {:.0} housed {:.0} % type {} approaches {} sources {} core {} m max_rf {:.0}{} | ground bank {:.1} ha, far {:.1} ha (raw {:.1}, end {}) | settled region {:.1} ha, bank {:.1} ha | g {} g_bank {} | layout {}",
+                s.placement.x, s.placement.y, on.pop_target, 100.0 * on.pop / on.pop_target.max(1.0), pl.town_type.key(), pl.approaches.len(),
+                pl.field.as_ref().map_or(0, |f| f.sources.len()), pl.field.as_ref().map_or("-".to_string(), |f| format!("{:.0}", f.core_m)), on.max_rf,
+                if stretched { " stretched" } else { "" },
+                pl.ground.bank_m2 / 1e4, pl.ground.far_m2 / 1e4, pl.ground.far_raw_m2 / 1e4, if pl.ground.far_end.is_some() { "yes" } else { "no" },
+                pl.settled_m2 / 1e4, pl.settled_bank_m2 / 1e4,
+                pl.ground_ratio().map_or("-".to_string(), |g| format!("{g:.3}")), gb.map_or("-".to_string(), |g| format!("{g:.3}")),
+                if same { "identical" } else { "MOVED" },
+            );
+            rows.push((*seed, i, on.pop_target, pl.town_type.key(), pl.ground_ratio(), gb, same));
+            if let Some((ft, fb, fl, fbd)) = files.as_mut() {
+                let cells = |l: &cartalith_civ::urban_adapter::UrbanLayout| {
+                    let mut c = std::collections::HashSet::new();
+                    for b in l.buildings.iter().filter(|b| !b.poly.is_empty()) {
+                        let n = b.poly.len() as f64;
+                        let (cx, cy) = (b.poly.iter().map(|p| p.x).sum::<f64>() / n, b.poly.iter().map(|p| p.y).sum::<f64>() / n);
+                        let (ci, cj) = ((cx / SETTLED_CELL_M).floor() as i64, (cy / SETTLED_CELL_M).floor() as i64);
+                        for di in -1..=1 {
+                            for dj in -1..=1 {
+                                c.insert((ci + di, cj + dj));
+                            }
+                        }
+                    }
+                    c
+                };
+                let c_off = cells(&off);
+                for (vn, l) in [("off", &off), ("proto", &on)] {
+                    let core = 0.38 * l.max_rf;
+                    for (bi, b) in l.blocks.iter().enumerate() {
+                        if l.block_plaza.get(bi).copied().unwrap_or(false) {
+                            continue;
+                        }
+                        let area = poly_area_xy(&b.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>()).abs();
+                        if area < 200.0 {
+                            continue;
+                        }
+                        let c = ps_corners(b, 20.0);
+                        if c.len() < 3 {
+                            continue;
+                        }
+                        let (lg, sh) = ps_mabr(b);
+                        let cen = cartalith_civ::urban_adapter::poly_centroid(b);
+                        writeln!(fb, "{seed},{i},{vn},{},{:.3},{:.3},{:.1},{:.0},{}", c.len(), lg / sh.max(1e-6), area / (lg * sh).max(1e-6), sh, area, u8::from(cen.dist(l.market) > core)).unwrap();
+                    }
+                    for q in &l.parcels {
+                        let d = |a: Vec2, b: Vec2| (a.x - b.x).hypot(a.y - b.y);
+                        let n = q.poly.len();
+                        let cen = cartalith_civ::urban_adapter::poly_centroid(&q.poly);
+                        if n == 4 {
+                            writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                        } else {
+                            writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{}", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                        }
+                    }
+                    for b in &l.buildings {
+                        if b.poly.len() < 3 {
+                            continue;
+                        }
+                        let (lg, sh) = ps_mabr(&b.poly);
+                        let cen = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+                        let ar = poly_area_xy(&b.poly.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>()).abs();
+                        writeln!(fbd, "{seed},{i},{vn},{lg:.2},{sh:.2},{ar:.1},{:.1},{:.1}", cen.x, cen.y).unwrap();
+                    }
+                    // The street network's order (phi over 36 bearing bins), node degrees and segment median.
+                    let key = |v: Vec2| ((v.x * 2.0).round() as i64, (v.y * 2.0).round() as i64);
+                    let mut adj: std::collections::HashMap<(i64, i64), usize> = std::collections::HashMap::new();
+                    let mut tb = [0.0f64; 36];
+                    let mut segs: Vec<f64> = Vec::new();
+                    for e in l.edges.iter().filter(|e| matches!(e.cls, "street" | "lane" | "primary" | "ringroad")) {
+                        let th = (e.b.y - e.a.y).atan2(e.b.x - e.a.x);
+                        *adj.entry(key(e.a)).or_default() += 1;
+                        *adj.entry(key(e.b)).or_default() += 1;
+                        let len = e.a.dist(e.b);
+                        segs.push(len);
+                        let bd = th.to_degrees().rem_euclid(360.0);
+                        tb[(bd / 10.0) as usize % 36] += len;
+                        tb[((bd + 180.0) / 10.0) as usize % 36] += len;
+                    }
+                    let bt: f64 = tb.iter().sum();
+                    let h: f64 = tb.iter().filter(|&&w| w > 0.0).map(|&w| {
+                        let q = w / bt;
+                        -q * q.ln()
+                    }).sum();
+                    let hmax = 36f64.ln();
+                    let phi = 1.0 - ((h - 1.386) / (hmax - 1.386)).powi(2);
+                    let mut deg = [0usize; 5];
+                    for &v in adj.values() {
+                        deg[(v.max(1) - 1).min(4)] += 1;
+                    }
+                    segs.sort_by(f64::total_cmp);
+                    let segm = segs.get(segs.len() / 2).copied().unwrap_or(f64::NAN);
+                    let c_l = cells(l);
+                    let keep = c_off.iter().filter(|c| c_l.contains(c)).count() as f64 / c_off.len().max(1) as f64;
+                    writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{}",
+                        s.placement.x, s.placement.y, l.pop_target, l.pop, l.max_rf, h / hmax, deg[0], deg[1], deg[2], deg[3], deg[4], c_l.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M,
+                        pl.town_type.key(), u8::from(l.wall.ring.is_some()), l.edges.len()).unwrap();
+                }
+            }
+        }
+    }
+    // Types, per seed, towns 1 500+.
+    let n = rows.len();
+    let moved = rows.iter().filter(|r| !r.6).count();
+    println!("PS1 {gw}: towns 1500+ {n}; layout identical with the switch on: {} of {n} (moved {moved})", n - moved);
+    for seed in &seeds {
+        let mut by: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        for r in rows.iter().filter(|r| r.0 == *seed) {
+            *by.entry(r.3).or_default() += 1;
+        }
+        println!("PS1 {gw} seed {seed} types: {by:?}");
+    }
+    let mut by: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for r in &rows {
+        *by.entry(r.3).or_default() += 1;
+    }
+    println!("PS1 {gw} all seeds types: {by:?}");
+    // Section 9.3's recount, towns 5 000+.
+    let big: Vec<_> = rows.iter().filter(|r| r.2 >= 5000.0).collect();
+    let nb = big.len();
+    for f in [1.10, cartalith_civ::urban_adapter::parallel_field::F_REQ_MEDIAN, cartalith_civ::urban_adapter::parallel_field::F_REQ_P90] {
+        let fit = big.iter().filter(|r| r.4.is_some_and(|g| g >= f)).count();
+        println!("PS1 {gw} ground recount (market's bank + bridge-strip far bank), towns 5000+: fit at F_req {f:.3}: {fit} of {nb} ({:.1} %) -> {}", 100.0 * fit as f64 / nb.max(1) as f64, if fit * 10 >= nb * 9 { "GO (90 % or more)" } else { "NO-GO" });
+    }
+    for f in [1.2, 1.4] {
+        let fit = big.iter().filter(|r| r.5.is_some_and(|g| g >= f)).count();
+        println!("PS1 {gw} control (market's bank only, PS-0 item 2's test), towns 5000+: fit at x{f}: {fit} of {nb}");
+    }
+    let mut gs: Vec<f64> = big.iter().filter_map(|r| r.4).collect();
+    gs.sort_by(f64::total_cmp);
+    if !gs.is_empty() {
+        let q = |f: f64| gs[((gs.len() - 1) as f64 * f).round() as usize];
+        println!("PS1 {gw} g over towns 5000+: min {:.3} p10 {:.3} median {:.3}", gs[0], q(0.1), q(0.5));
+    }
+    let mut worst: Vec<_> = big.iter().filter(|r| r.4.is_none_or(|g| g < cartalith_civ::urban_adapter::parallel_field::F_REQ_P90)).collect();
+    worst.sort_by(|a, b| a.4.unwrap_or(0.0).total_cmp(&b.4.unwrap_or(0.0)));
+    for r in worst {
+        println!("PS1 {gw} under 1.20: {} #{} pop {:.0} type {} g {}", r.0, r.1, r.2, r.3, r.4.map_or("-".to_string(), |g| format!("{g:.3}")));
+    }
 }
