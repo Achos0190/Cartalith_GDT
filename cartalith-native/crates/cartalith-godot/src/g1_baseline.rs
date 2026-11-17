@@ -854,7 +854,10 @@ fn ea0_ecological_ordering_diagnostic() {
     // [290, 288] after Ruling FI (2026-11-16; [290, 290] with `civ.port_shore` alone, [290, 289] with
     // `civ.map_crossings` alone): two industrial leaves just above their standing band (10.42 % of citizens, E 1.00
     // and 1.02), a republic (404/800/24 f21) and a city state (24601/800/24 f8).
-    assert_eq!(&sweep_ordered[4..], &[290, 288], "industrial sweep, ordered of 290 (reported)");
+    // [290, 290] after Ruling FU's C3 (2026-11-17): the industrial upkeep follows the fee on brackets 5 and 6, so
+    // the two leaves above are ordered, and the ordering now holds on all six rows.
+    assert_eq!(&sweep_ordered[4..], &[290, 290], "industrial sweep, ordered of 290 (Ruling FU: asserted)");
+    assert_eq!(sweep_ordered, vec![290; 6], "the ordering holds on all six ag-tech rows (Ruling FU)");
     // The positive control for Ruling DL's term: the four pre-industrial rows'
     // manpower hashes are the ones the tree before the term printed
     // (bit-identical by control flow), and the two industrial ones moved
@@ -885,6 +888,9 @@ fn ea0_ecological_ordering_diagnostic() {
     // RE-RECORDED 2026-11-16 (Ruling FI's `civ.port_shore` and `civ.map_crossings` moved the worlds; the model did
     // not; see `G1_0`'s note): the six before, in order: 0x2f1fbd33a767130e, 0x4f6bb9476bab86aa, 0x24c832e64c19ed32,
     // 0xc339f72c9a20102f, 0x1f0837dc434000a0, 0x7af6d06dc03d36d9. The four pre-industrial rows still read 290 ordered.
+    // RE-RECORDED 2026-11-17 under Ruling FU's C3 (the industrial upkeep follows the fee on brackets 5 and 6): ONLY the
+    // sixth hash (`industrial`) moved, 0xfd92dc8c3684a768 -> 0xb982324cf21769af; the five others are bit-identical
+    // (earlyIndustrial is bracket 4, so by control flow). That the five held is the positive control.
     // RE-RECORDED 2026-11-16 (Ruling FK's `civ.port_reach` moved two worlds; the model did not; with it forced off
     // every count and hash here held; see `G1_0`'s note): the six before, in order: 0xa0e2ad76e5968a5b,
     // 0x7f0bf827c95e4dd5, 0x966146d98cf089f6, 0x786092b2766d3ff5, 0xf709b7c481b8a116, 0xd2016974fae5327d. Every
@@ -898,7 +904,7 @@ fn ea0_ecological_ordering_diagnostic() {
             0x937338a15ca8d3e9,
             0x48e60129b69425e9,
             0xdb810a7aff1bfe26,
-            0xfd92dc8c3684a768,
+            0xb982324cf21769af,
         ],
         "ag-tech sweep manpower hashes"
     );
@@ -906,6 +912,14 @@ fn ea0_ecological_ordering_diagnostic() {
     // Before Ruling DL: (0, 0, 290) on both. `earlyIndustrial`'s band was not
     // restated (Q4 named the two unreachable cells); `industrial` reads its
     // restated 15-25 % band (Ruling DL Q4).
+    // The industrial row's standing verdicts (within, above, below) under Ruling FU's C3, the sweep column of
+    // `ECOLOGICAL_ARMY_TERM_SCOPE.md` section 10.9.3 (121 / 1 / 168; 98 / 28 / 164 before). The one "above" is the
+    // `Modern mechanized` reading, a band-edge discontinuity in `era_for` (Q15), not an ordering failure.
+    assert_eq!(
+        (sweep[5].within, sweep[5].above, sweep[5].below),
+        (121, 1, 168),
+        "industrial standing verdicts"
+    );
     let mob = |t: &Tally| (t.mob_within, t.mob_above, t.mob_below);
     // (26, 0, 264) and (290, 0, 0) before Ruling EV's basin routing (2026-11-13).
     // (25, 0, 265) and (289, 1, 0) before Ruling EX's river_front (2026-11-15).

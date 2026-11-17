@@ -218,6 +218,12 @@ pub const MILITARY_AGE_FRACTION: f64 = 0.25;
 /// Still flat in [`MilitaryDrivers::professionalization`], for the reason it
 /// always was: folding professionalization in moved the two worked examples
 /// in opposite directions.
+///
+/// **Brackets 5 and 6 are the table value at the reference fee only** (Ruling
+/// FU, 2026-11-17): [`soldier_upkeep`] scales them by
+/// `(fee / `[`INDUSTRIAL_UPKEEP_REFERENCE_FEE`]`)^`[`INDUSTRIAL_UPKEEP_FEE_EXPONENT`].
+/// The derivation above still holds, since the scaling preserves the
+/// derivation set's geometric mean.
 pub const SOLDIER_UPKEEP_BY_BRACKET: [f64; 7] =
     [1.1200, 0.7983, 1.8153, 2.2214, 1.7696, 1.0714, 1.0714];
 
@@ -235,9 +241,57 @@ pub fn alpha_bracket(alpha: f64) -> usize {
     ALPHA_BRACKETS.iter().position(|&t| alpha >= t).unwrap_or(ALPHA_BRACKETS.len())
 }
 
-/// [`SOLDIER_UPKEEP_BY_BRACKET`] for this agricultural labour ratio.
-pub fn soldier_upkeep(alpha: f64) -> f64 {
-    SOLDIER_UPKEEP_BY_BRACKET[alpha_bracket(alpha)]
+/// The first [`alpha_bracket`] index (`alpha < 0.25`) whose soldier is a
+/// conscript of an industrial state. Brackets 5 and 6 only: Ruling FU's C3
+/// term reads this gate, so every pre-industrial bracket (0..=4) and
+/// `earlyIndustrial` (bracket 4, `alpha` 0.25-0.45) is untouched by control
+/// flow, not by arithmetic.
+pub const INDUSTRIAL_UPKEEP_FIRST_BRACKET: usize = 5;
+
+/// The fiscal-extraction fee at which the industrial upkeep equals its table
+/// value: **0.09056**, the geometric mean of
+/// [`MilitaryDrivers::fiscal_extraction_efficiency`] over bracket 5's
+/// derivation set (the eight reference governments but `none` x capital reach
+/// 0, 0.1 ... 1.0, `ecological_factor` 1, the industrial roster row).
+/// `industrial_upkeep_reference_fee_is_the_derivation_sets_geometric_mean`
+/// recomputes it. Anchoring there is what keeps the bracket's derivation
+/// rule (a polity of the derivation set lands, on a geometric mean, at the
+/// centre of its band) true after the term.
+///
+/// **A fitted number, not a sourced one** (Ruling FU, Ruling BK): it is the
+/// measured geometric mean, no more. Its support is `ECOLOGICAL_ARMY_TERM_SCOPE.md`
+/// section 10.9, not a citation.
+pub const INDUSTRIAL_UPKEEP_REFERENCE_FEE: f64 = 0.09056;
+
+/// The exponent of the industrial upkeep's fee term: **0.5**, **fitted to the
+/// bar, not sourced** (Ruling FU, `ECOLOGICAL_ARMY_TERM_SCOPE.md` section
+/// 10.9). Measured on the 284 240-reading driver-space grid, 0.25 leaves 117
+/// readings with the standing army not below the field army, and 0.5, 0.75
+/// and 1.0 clear; 0.5 is the smallest round value that does. 1.0 would make
+/// the standing army a constant share of citizens, turning the band from a
+/// result into a definition. What has independent support is the shape (a
+/// state that collects more per head pays its conscript more), not the
+/// number. The model is port-only (no JS golden), so no `section 7p` switch.
+pub const INDUSTRIAL_UPKEEP_FEE_EXPONENT: f64 = 0.5;
+
+/// [`SOLDIER_UPKEEP_BY_BRACKET`] for this agricultural labour ratio, at the
+/// polity's fiscal-extraction `fee`.
+///
+/// Brackets 0..=4 are flat in `fee` (the table value). On brackets 5 and 6
+/// the value is **Ruling FU's C3**: `table * (fee / REFERENCE_FEE)^EXPONENT`,
+/// so a state that captures more per head also pays its conscript more and the
+/// standing army stops outrunning the field army at high state capacity (the
+/// ordering is then held on all six era rows). At `fee` equal to
+/// [`INDUSTRIAL_UPKEEP_REFERENCE_FEE`] the value is the table's, exactly.
+/// A non-finite or non-positive `fee` falls back to the table value.
+pub fn soldier_upkeep(alpha: f64, fee: f64) -> f64 {
+    let b = alpha_bracket(alpha);
+    let base = SOLDIER_UPKEEP_BY_BRACKET[b];
+    if b >= INDUSTRIAL_UPKEEP_FIRST_BRACKET && fee.is_finite() && fee > 0.0 {
+        base * (fee / INDUSTRIAL_UPKEEP_REFERENCE_FEE).powf(INDUSTRIAL_UPKEEP_FEE_EXPONENT)
+    } else {
+        base
+    }
 }
 
 /// The floor and ceiling of [`MilitaryDrivers::fiscal_extraction_efficiency`]
@@ -1352,11 +1406,12 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
     let professionalization =
         js_max(0.0, js_min(1.0, 0.15 + 0.55 * state_capacity + 0.30 * urban_norm));
 
+    let fee = EXTRACTION_FLOOR + (EXTRACTION_CEILING - EXTRACTION_FLOOR) * state_capacity;
+
     MilitaryDrivers {
         food_surplus_per_farmer: surplus_per_farmer,
         agricultural_labour_ratio: alpha,
-        fiscal_extraction_efficiency: EXTRACTION_FLOOR
-            + (EXTRACTION_CEILING - EXTRACTION_FLOOR) * state_capacity,
+        fiscal_extraction_efficiency: fee,
         professionalization,
         logistics_capacity: logistics,
         road_density: road,
@@ -1364,7 +1419,7 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
         sea_share: sea,
         state_capacity,
         ecological_factor: ecological,
-        soldier_upkeep: soldier_upkeep(alpha),
+        soldier_upkeep: soldier_upkeep(alpha, fee),
         // The era-band denominator, and nothing else. A government's floor,
         // widened by how far the society has left agriculture behind — see
         // CITIZEN_MODERNISATION for why those are the two terms.
@@ -2516,7 +2571,11 @@ mod tests {
             ("advancedAgrarian", 7_598.0),
             ("improvedAgrarian", 17_132.0),
             ("earlyIndustrial", 31_426.0),
-            ("industrial", 68_929.0),
+            // RE-PINNED 2026-11-17 under Ruling FU (C3): 68 929 -> 71 178. Same
+            // population and institutions; the only change is the bracket-5
+            // upkeep, now x (fee / 0.09056)^0.5 and a monarchy's fee is
+            // 0.0966, so x1.0326. The five other rows are untouched.
+            ("industrial", 71_178.0),
         ] {
             let m = at(key);
             assert!((m.total_population - 1_000_000.0).abs() < 1e-6, "{key}");
@@ -2539,7 +2598,9 @@ mod tests {
         // field about eight times the standing army once they no longer
         // farm by hand (11.09x before option (c)).
         let ratio = at("industrial").standing_army / at("traditionalAgrarian").standing_army;
-        assert!((ratio - 8.265).abs() < 0.001, "{ratio}");
+        // RE-PINNED 2026-11-17 under Ruling FU (C3): 8.265 -> 8.534 (industrial
+        // standing army x1.0326 against an unmoved traditional one).
+        assert!((ratio - 8.534).abs() < 0.001, "{ratio}");
         // The levy is demographic, and on the pre-industrial rows it does not
         // scale with the ag-tech row at all. On the industrial bracket
         // conscription now reaches most of the cohort (owner Ruling DL Q1,
@@ -2622,21 +2683,95 @@ mod tests {
 
     /// Protects: the values themselves, as literals -- the derivation test
     /// above checks the rule, this one says which numbers are live -- plus
-    /// the bracket-edge boundaries and the NaN fallback.
+    /// the bracket-edge boundaries and the NaN fallback. Evaluated at
+    /// [`INDUSTRIAL_UPKEEP_REFERENCE_FEE`] (the literal 0.09056), where the
+    /// industrial term is exactly 1 and the table's values are the answer.
+    /// Re-pinned for Ruling FU: the signature gained the fee; the values at the
+    /// reference fee are unmoved.
     #[test]
     fn soldier_upkeep_by_alpha_literals() {
-        assert_eq!(soldier_upkeep(0.95), 1.1200);
-        assert_eq!(soldier_upkeep(0.90), 0.7983);
-        assert_eq!(soldier_upkeep(0.80), 1.8153);
-        assert_eq!(soldier_upkeep(0.50), 2.2214);
-        assert_eq!(soldier_upkeep(0.31), 1.7696);
-        assert_eq!(soldier_upkeep(0.13), 1.0714);
-        assert_eq!(soldier_upkeep(0.05), 1.0714);
+        let f = 0.09056;
+        assert_eq!(soldier_upkeep(0.95, f), 1.1200);
+        assert_eq!(soldier_upkeep(0.90, f), 0.7983);
+        assert_eq!(soldier_upkeep(0.80, f), 1.8153);
+        assert_eq!(soldier_upkeep(0.50, f), 2.2214);
+        assert_eq!(soldier_upkeep(0.31, f), 1.7696);
+        assert_eq!(soldier_upkeep(0.13, f), 1.0714);
+        assert_eq!(soldier_upkeep(0.05, f), 1.0714);
         // Bracket edges are era_for's: 0.85 is the Iron Age bracket, a hair
         // under it is High medieval's.
-        assert_eq!(soldier_upkeep(0.85), 0.7983);
-        assert_eq!(soldier_upkeep(0.8499), 1.8153);
-        assert_eq!(soldier_upkeep(f64::NAN), 1.0714);
+        assert_eq!(soldier_upkeep(0.85, f), 0.7983);
+        assert_eq!(soldier_upkeep(0.8499, f), 1.8153);
+        assert_eq!(soldier_upkeep(f64::NAN, f), 1.0714);
+    }
+
+    /// Protects: Ruling FU's C3 -- brackets 5 and 6 (and only they) scale by
+    /// `(fee / 0.09056)^0.5`. The expected values are literals computed by
+    /// hand (1.0714 x sqrt(0.16/0.09056) and x sqrt(0.04/0.09056)), not from
+    /// the constants; brackets 0..=4 must not read the fee at all; a
+    /// non-finite or non-positive fee falls back to the table.
+    #[test]
+    fn industrial_upkeep_follows_the_fee_on_brackets_5_and_6_only() {
+        // Bracket 5 (alpha 0.13) and 6 (alpha 0.05), at the fee ceiling/floor.
+        for alpha in [0.13, 0.05] {
+            assert!((soldier_upkeep(alpha, 0.16) - 1.424_11).abs() < 2e-5);
+            assert!((soldier_upkeep(alpha, 0.04) - 0.712_05).abs() < 2e-5);
+        }
+        // Every pre-industrial bracket and earlyIndustrial (alpha 0.31) is flat.
+        for (alpha, v) in [(0.95, 1.1200), (0.90, 0.7983), (0.80, 1.8153), (0.50, 2.2214), (0.31, 1.7696)] {
+            assert_eq!(soldier_upkeep(alpha, 0.16), v);
+            assert_eq!(soldier_upkeep(alpha, 0.04), v);
+        }
+        for bad in [f64::NAN, 0.0, -0.1, f64::INFINITY] {
+            assert_eq!(soldier_upkeep(0.13, bad), 1.0714);
+        }
+    }
+
+    /// Protects: [`INDUSTRIAL_UPKEEP_REFERENCE_FEE`] is what it says -- the
+    /// geometric mean of the fee over bracket 5's derivation set (eight
+    /// reference governments but `none` x capital reach 0..1 by 0.1, E 1,
+    /// industrial roster row), recomputed here from `military_drivers`. And
+    /// the property that anchoring buys: the geometric mean of the model's own
+    /// standing share, with the C3 upkeep, is still the band centre. Mutate
+    /// the reference fee and both go red.
+    #[test]
+    fn industrial_upkeep_reference_fee_is_the_derivation_sets_geometric_mean() {
+        let row = crate::roster::AG_TECH_LEVELS
+            .iter()
+            .find(|r| alpha_bracket(r.farmers_per_urbanite / (1.0 + r.farmers_per_urbanite)) == 5)
+            .expect("one roster row is bracket 5");
+        let f = row.farmers_per_urbanite;
+        let (mut log_fee, mut log_share, mut n) = (0.0f64, 0.0f64, 0u32);
+        for &(gov, _) in &crate::roster::CIV_GOVERNMENTS[..crate::roster::CIV_GOVERNMENTS_REFERENCE_LEN] {
+            if gov == "none" {
+                continue;
+            }
+            for step in 0..=10 {
+                let d = military_drivers(&ManpowerInput {
+                    nucleated_pop: 1_000.0,
+                    farmers_per_urbanite: f,
+                    land_capacity: 1_000.0 * (1.0 + f),
+                    government: gov,
+                    capital_road_reach: f64::from(step) / 10.0,
+                    road_density: 0.0,
+                    navigable_share: 0.0,
+                    sea_share: 0.0,
+                });
+                let era = era_for(&MilitaryDrivers { logistics_capacity: 0.5, ..d });
+                let centre = (era.standing.0 + era.standing.1) / 2.0;
+                // The model's own share, at the upkeep it now uses.
+                let share = (1.0 - d.agricultural_labour_ratio) * d.fiscal_extraction_efficiency
+                    / d.soldier_upkeep
+                    / d.citizen_fraction;
+                log_fee += d.fiscal_extraction_efficiency.ln();
+                log_share += (share / centre).ln();
+                n += 1;
+            }
+        }
+        let geo_fee = (log_fee / f64::from(n)).exp();
+        assert!((geo_fee - 0.09056).abs() < 6e-6, "geometric-mean fee {geo_fee}");
+        let geo_share = (log_share / f64::from(n)).exp();
+        assert!((geo_share - 1.0).abs() < 1e-3, "share / band centre {geo_share}");
     }
 
     /// What option (c) was FOR: at each ag-tech row, a representative polity
@@ -2673,7 +2808,7 @@ mod tests {
             (4.0, "monarchy", "High medieval", 1.171),
             (1.0, "monarchy", "Early gunpowder", 2.003),
             (0.45, "monarchy", "Early industrial", 3.548),
-            (0.15, "monarchy", "Total industrial mobilization", 7.818),
+            (0.15, "monarchy", "Total industrial mobilization", 7.658),
         ] {
             let m = at(f, gov);
             let pct = 100.0 * m.standing_citizen_share;
@@ -2844,7 +2979,10 @@ mod tests {
     /// On the industrial rows, after Ruling DL Q1's term, it fails on 0
     /// (`earlyIndustrial`) and 1 003 (`industrial`; before the term 39 004 and
     /// 227 309), the latter mostly empires and stratocracies at high state
-    /// capacity, which is Ruling DL Q2's measure-first row.
+    /// capacity (Ruling DL Q2's row). **Ruling FU's C3 (2026-11-17)** took the
+    /// industrial 1 003 to 0: the upkeep of brackets 5 and 6 now follows the
+    /// fee, so the ordering holds on five of the six rows and fails on
+    /// `improvedAgrarian` alone.
     ///
     /// Protects: the four pre-industrial counts (Ruling DE Q4's rows), the
     /// logistics bound of the one class that fails there, the industrial
@@ -2856,6 +2994,9 @@ mod tests {
         let mut unordered = Vec::new();
         let mut improved_l_max = 0.0f64;
         let mut readings = 0usize;
+        // The industrial row's readings that land in `Total industrial
+        // mobilization`: standing verdicts (within, above, below), Ruling FU.
+        let mut era13 = (0usize, 0usize, 0usize);
         for row in AG_TECH_LEVELS {
             let f = row.farmers_per_urbanite;
             let mut bad = 0usize;
@@ -2878,6 +3019,15 @@ mod tests {
                                         sea_share: sea,
                                     });
                                     readings += 1;
+                                    if row.key == "industrial"
+                                        && m.era_band.name == "Total industrial mobilization"
+                                    {
+                                        match m.era_standing_verdict {
+                                            "within" => era13.0 += 1,
+                                            "above" => era13.1 += 1,
+                                            _ => era13.2 += 1,
+                                        }
+                                    }
                                     let ordered = m.standing_army < m.field_army
                                         && m.field_army < m.emergency_mobilization;
                                     assert_eq!(
@@ -2904,7 +3054,16 @@ mod tests {
             unordered.push(bad);
         }
         assert_eq!(readings, 6 * 284_240, "the grid is the one the doc states");
-        assert_eq!(unordered, vec![0, 0, 0, 853, 0, 1_003], "unordered readings per ag-tech row");
+        // RE-PINNED 2026-11-17 under Ruling FU (C3): the industrial 1 003 -> 0.
+        // The upkeep now follows the fee on brackets 5 and 6, so the standing
+        // army no longer outruns the field army at high state capacity.
+        assert_eq!(unordered, vec![0, 0, 0, 853, 0, 0], "unordered readings per ag-tech row");
+        // Ruling FU's C3, `ECOLOGICAL_ARMY_TERM_SCOPE.md` section 10.9.3's grid
+        // column, reproduced from the model's own readings: 248 624 within, 0
+        // above, 34 400 below (before: 202 572 / 20 720 / 59 732). Not
+        // asserted against a constant: the verdict is the model's own
+        // comparison of its standing share with the era table's band.
+        assert_eq!(era13, (248_624, 0, 34_400), "industrial era-13 standing verdicts on the grid");
         assert!(improved_l_max > 0.15 && improved_l_max < 0.20, "{improved_l_max}");
         // The empty case is its own answer, and a NaN headcount is not ordered.
         assert_eq!(ManpowerOrder::of(0.0, 0.0, 0.0, 0.0), ManpowerOrder::Empty);

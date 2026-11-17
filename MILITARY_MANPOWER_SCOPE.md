@@ -405,6 +405,14 @@ standing soldier costs the treasury, in subsistence-equivalents.
 > harness worlds more than the field army their levy could concentrate. The
 > linear budget is not kept as an option (`DECISIONS.md` §7p).
 
+> **Ruling FU (owner, 2026-11-17): brackets 5 and 6 are no longer flat.** On `α < 0.25` the upkeep
+> is `table × (fee / 0.09056)^0.5` (`soldier_upkeep(alpha, fee)`), so a state that collects more per
+> head pays its conscript more; at the reference fee the value is the table's, exactly. `0.09056` is the
+> geometric-mean fee of the derivation set and `0.5` is fitted to the bar (the smallest round exponent
+> that clears the driver-space grid); both are labelled as such in the code. The derivation rule above
+> still holds, because the term preserves the set's geometric mean. Brackets 0-4 are flat in the fee by
+> control flow. Port-only, so no §7p switch. See `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.11.
+
 > **Until 2026-09-23 this was one constant, `SOLDIER_UPKEEP = 3.0`** (Roman
 > legionary pay against a subsistence wage). Owner ruling AI, option (c),
 > replaced it with one value per `era_for` α-bracket,

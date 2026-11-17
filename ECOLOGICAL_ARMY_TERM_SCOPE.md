@@ -793,6 +793,23 @@ Not covered by any candidate: the one `Modern mechanized` reading on the sweep (
 | **Q14** | After the fix, assert `standing < field < levy` on all six rows (today the two industrial rows are only reported) | **Yes**: the sweep reads 290 of 290 and the grid 0 of 284 240 on the industrial row (the pre-industrial rows already hold) |
 | **Q15** | The `Modern mechanized` standing band (0.5-3 %) sits below the 5-10 % one it follows at `s >= 0.8` and logistics `>= 0.8`. Restate it, or keep the owner's table as written? | **Keep as written** and report it; it is the owner's table (`ERA_BANDS`) and no ordering fails because of it |
 
+### 10.11 Ruling FU item 1: C3 built (2026-11-17)
+
+**Built** (`manpower.rs`): `soldier_upkeep(alpha, fee)` now returns, on `alpha_bracket >= INDUSTRIAL_UPKEEP_FIRST_BRACKET` (5, so brackets 5 and 6, Q13), `SOLDIER_UPKEEP_BY_BRACKET[b] * (fee / INDUSTRIAL_UPKEEP_REFERENCE_FEE)^INDUSTRIAL_UPKEEP_FEE_EXPONENT`, with the reference fee 0.09056 and the exponent 0.5 (Q12). `military_drivers` computes the fee once and passes it. Brackets 0-4 read no fee: by control flow, so `earlyIndustrial` and every pre-industrial row are bit-identical. No §7p switch (port-only, Ruling DE Q5 and DL precedent). **Both constants are fitted to the bar and say so in their doc comments (Ruling BK):** 0.09056 is the measured geometric-mean fee of bracket 5's derivation set, 0.5 the smallest round exponent that clears the grid; neither is sourced. The shape (a state that collects more per head pays its soldier more) is what has independent support.
+
+**Reproduced against §10.9.3's C3 column**, from the model's own readings (not a re-price):
+
+| | §10.9.3 C3 | now |
+|---|---|---|
+| sweep leaves (industrial unordered, of 290) | 0 | **0** (`ea0_`: 290 ordered on all six rows) |
+| sweep within / above / below | 121 / 1 / 168 | **121 / 1 / 168** (pinned in `ea0_`) |
+| grid unordered, industrial | 0 | **0** (was 1 003; pinned) |
+| grid era-13 within / above / below | 248 624 / 0 / 34 400 | **248 624 / 0 / 34 400** (pinned in the driver-space test) |
+
+**Re-pinned, each with its reason in the test:** the bracket 5/6 value literals now carry the fee (`soldier_upkeep_by_alpha_literals` at the reference fee, unmoved; `industrial_upkeep_follows_the_fee_on_brackets_5_and_6_only` for the term); `standing_army_rises_with_industrialisation_at_equal_population` industrial standing 68 929 -> 71 178 and the ratio 8.265 -> 8.534 (a monarchy's fee 0.0966 gives x1.0326); `a_median_polity_of_each_bracket_lands_in_its_own_band`'s industrial share 7.818 -> 7.658 %; the driver-space pin 1 003 -> 0 (the other five rows unchanged: `[0, 0, 0, 853, 0, 0]`); the `ea0_` industrial ordered count 288 -> 290, now asserted on all six rows, and the industrial manpower hash `0xfd92dc8c3684a768` -> `0xb982324cf21769af` with the other five bit-identical (the positive control). New: `industrial_upkeep_reference_fee_is_the_derivation_sets_geometric_mean` recomputes the reference fee and checks the derivation rule's geometric mean still lands at the band centre, so the term is the rule's own consequence and not a number asserted against itself. **Unmoved, run:** `G1_0`, `fh_r2` and Kingdom A and B (no generated faction is on bracket 5 or 6 at the default `civ.base_ag_tech`).
+
+**Mutants (Python, exact literal, restored in a `finally`), all killed:** exponent 0.5 -> 0.25 and 1.0; reference fee 0.09056 -> 0.0906 and 0.09; gate 5 -> 4 and 5 -> 6; `>=` -> `>`; fee source replaced by `state_capacity`, by `EXTRACTION_FLOOR` and by `EXTRACTION_CEILING`.
+
 #### Evidence
 
 `cartalith-native/docs/evidence/industrial-army-2026-11-17/`: `ea0_run.log` (the existing `ea0_` diagnostic, passing), `ia_dump_run.log` (300 `IA row` and 300 `IA default` lines), `driver_space_run.log` (the grid), `analyse.py` and `analyse_out.txt` (the re-pricing, with its control). Code, ignored and pinning nothing: `g1_baseline.rs` `ia_dump_industrial_rows`; `cartalith-civ/tests/industrial_army_driver_space.rs`. Commands, each run alone:
