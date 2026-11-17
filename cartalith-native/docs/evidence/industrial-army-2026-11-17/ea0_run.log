@@ -1,0 +1,539 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1941:4
+     |
+1941 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2040:4
+     |
+2040 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: function `cpus_allowed_count` is never used
+    --> crates\cartalith-engine\src\lib.rs:2144:4
+     |
+2144 | fn cpus_allowed_count(status: &str) -> Option<usize> {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-engine` (lib) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:149:9
+    |
+149 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:7987:9
+     |
+7987 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SALT_BIOMES_FOR_TEST` is never used
+   --> crates\cartalith-civ\src\landmark\natural_kinds.rs:371:18
+    |
+371 | pub(super) const SALT_BIOMES_FOR_TEST: [u8; 3] = [crate::BIOME_DESERT, crate::BIOME_TROP_DRY, crate::BIOME_SHRUB];
+    |                  ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 2 warnings (run `cargo fix --lib -p cartalith-civ` to apply 1 suggestion)
+   Compiling cartalith-godot v0.1.0 (C:\cw\army\cartalith-native\crates\cartalith-godot)
+warning: trailing semicolon in macro used in expression position
+    --> crates\cartalith-godot\src\project_bridge.rs:4440:27
+     |
+4440 |                   Err(e) => godot_warn!(
+     |  ___________________________^
+4441 | |                     "cartalith-godot: this project's vault.json could not be read ({e}); \
+4442 | |                      its links were left out of the opened project rather than merged. \
+4443 | |                      The links already in memory are untouched."
+4444 | |                 ),
+     | |_________________^
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+     = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+     = note: this warning originates in the macro `godot_warn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+   --> crates\cartalith-godot\src\town_river_census.rs:284:17
+    |
+284 |             let mut moved: Vec<f64> = civ
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `dir` is never used
+   --> crates\cartalith-godot\src\asset_store.rs:196:12
+    |
+182 | impl LibraryStore {
+    | ----------------- method in this implementation
+...
+196 |     pub fn dir(&self) -> &Path {
+    |            ^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `preview_patch` is never used
+    --> crates\cartalith-godot\src\paint_bridge.rs:1211:12
+     |
+ 482 | impl PaintEditor {
+     | ---------------- method in this implementation
+...
+1211 |     pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+     |            ^^^^^^^^^^^^^
+
+warning: function `is_new_world_rule` is never used
+    --> crates\cartalith-godot\src\params.rs:1656:8
+     |
+1656 | pub fn is_new_world_rule(key: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^
+
+warning: function `grain_lattice` is never used
+    --> crates\cartalith-godot\src\render.rs:6711:15
+     |
+6711 | pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+     |               ^^^^^^^^^^^^^
+
+warning: function `land_grain` is never used
+    --> crates\cartalith-godot\src\render.rs:6838:15
+     |
+6838 | pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
+     |               ^^^^^^^^^^
+
+warning: function `lake_color` is never used
+    --> crates\cartalith-godot\src\render.rs:8830:4
+     |
+8830 | fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+     |    ^^^^^^^^^^
+
+warning: method `pixel` is never used
+     --> crates\cartalith-godot\src\render.rs:10669:12
+      |
+10594 | impl BakeFields {
+      | --------------- method in this implementation
+...
+10669 |     pub fn pixel(&self, ctx: &RenderCtx, gx: f64, gy: f64) -> (f64, f64, f64) {
+      |            ^^^^^
+
+warning: field `repainted` is never read
+     --> crates\cartalith-godot\src\render.rs:11692:9
+      |
+11691 | pub struct RiverPost {
+      |            --------- field in this struct
+11692 |     pub repainted: usize,
+      |         ^^^^^^^^^
+
+warning: function `shore_depth_forced` is never used
+     --> crates\cartalith-godot\src\render.rs:15018:8
+      |
+15018 | pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, s...
+      |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `ref_fit_ppc` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1339:8
+     |
+1339 | pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+     |        ^^^^^^^^^^^
+
+warning: function `visible_share` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1418:8
+     |
+1418 | pub fn visible_share(ppc: f32) -> f32 {
+     |        ^^^^^^^^^^^^^
+
+warning: method `is_empty` is never used
+   --> crates\cartalith-godot\src\undo.rs:150:12
+    |
+132 | impl ColumnSnapshot {
+    | ------------------- method in this implementation
+...
+150 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: `cartalith-godot` (lib test) generated 14 warnings (run `cargo fix --lib -p cartalith-godot --tests` to apply 1 suggestion)
+    Finished `test` profile [optimized + debuginfo] target(s) in 54.93s
+     Running unittests src\lib.rs (C:/cw/army_target\debug\deps\cartalith_godot-79b8946b4ca0e1d8.exe)
+
+running 1 test
+test g1_baseline::ea0_ecological_ordering_diagnostic ... EA row 12345 800 6 f1 Ordered E 0.4104 a 0.900 standing 953.3 field 12206.1 levy 23473.3 0x408dca90d7633901 0x40c7d7112e1ac57e
+EA row 12345 800 6 f2 Ordered E 4.0000 a 0.900 standing 245.5 field 1666.2 levy 1851.3 0x406eb0d07fd771fe 0x409a08beadab1de9
+EA row 12345 800 6 f3 Ordered E 0.2500 a 0.900 standing 835.9 field 10210.2 levy 22329.2 0x408a1f51455c5f75 0x40c3f11792b39dd1
+EA row 12345 800 6 f4 Ordered E 3.2633 a 0.900 standing 2154.1 field 11211.6 levy 13791.9 0x40a0d42fdbc69c5f 0x40c5e5c7d30bee21
+EA row 12345 800 6 f5 Ordered E 0.3103 a 0.900 standing 668.4 field 8657.8 levy 16893.8 0x4084e359af53412e 0x40c0e8e7ceb76d47
+EA row 12345 800 6 f6 Ordered E 0.2500 a 0.900 standing 575.4 field 6129.8 levy 14057.0 0x4081fb290e0f595d 0x40b7f1d4eb15cc6b
+EA world 12345 800 6: ordered 6 unordered 0 empty 0; f1 E 0.410
+EA forced 12345 800 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 12345 800 24 f1 Ordered E 1.3011 a 0.900 standing 142.0 field 448.3 levy 914.0 0x4061c14f118940c0 0x407c04ed0dba0840
+EA row 12345 800 24 f2 Ordered E 4.0000 a 0.900 standing 188.4 field 1262.1 levy 1402.3 0x40678d1a761b0ecc 0x4093b86954b0fc30
+EA row 12345 800 24 f3 Ordered E 0.3810 a 0.900 standing 84.1 field 564.3 levy 1312.4 0x405507cbe17b1e58 0x4081a2b5362e9037
+EA row 12345 800 24 f4 Ordered E 0.2500 a 0.900 standing 67.7 field 686.0 levy 1595.4 0x4050ebb5c80f71aa 0x408570363150dae3
+EA row 12345 800 24 f5 Ordered E 0.2500 a 0.900 standing 758.8 field 8461.7 levy 18953.4 0x4087b60c35d40bcc 0x40c086dacf765415
+EA row 12345 800 24 f6 Ordered E 0.2500 a 0.900 standing 615.6 field 6293.3 levy 14635.7 0x40833c71b01fea08 0x40b8955701f75105
+EA row 12345 800 24 f7 Ordered E 0.2500 a 0.900 standing 664.4 field 6551.6 levy 15236.3 0x4084c2d58e4e8fd2 0x40b997a0e83a109d
+EA row 12345 800 24 f8 Ordered E 4.0000 a 0.900 standing 211.0 field 1061.0 levy 1233.7 0x406a5fecbfb4b829 0x409093f3343fa2ae
+EA row 12345 800 24 f9 Ordered E 4.0000 a 0.900 standing 133.6 field 871.9 levy 968.7 0x4060b3868be0492f 0x408b3ee2122fad6c
+EA row 12345 800 24 f10 Ordered E 1.2755 a 0.900 standing 134.2 field 482.4 levy 949.2 0x4060c71efd4782ba 0x407e26ab33421506
+EA row 12345 800 24 f11 Ordered E 2.4936 a 0.900 standing 207.8 field 957.4 levy 1347.2 0x4069fa59301bcf38 0x408deae3b071f246
+EA row 12345 800 24 f12 Ordered E 0.2500 a 0.900 standing 543.9 field 5513.4 levy 12821.8 0x4080ff908166c0b3 0x40b5895ded7c6fbd
+EA row 12345 800 24 f13 Ordered E 0.2500 a 0.900 standing 63.5 field 638.8 levy 1485.6 0x404fc2af703b6a74 0x4083f6935989df12
+EA row 12345 800 24 f14 Ordered E 0.2500 a 0.900 standing 531.2 field 5430.9 levy 12630.0 0x4080999af5061235 0x40b536e8d8b60f1c
+EA row 12345 800 24 f15 Ordered E 0.2500 a 0.900 standing 61.3 field 604.7 levy 1406.3 0x404ea8d3c5dc9abb 0x4082e5a60b2c83ed
+EA row 12345 800 24 f16 Ordered E 0.2545 a 0.900 standing 66.1 field 653.4 levy 1519.5 0x405088ecb8af22b5 0x40846b3157cd4670
+EA row 12345 800 24 f17 Ordered E 0.2500 a 0.900 standing 156.9 field 1736.9 levy 4039.4 0x40639dbf03b947df 0x409b23b0807bbb62
+EA row 12345 800 24 f18 Ordered E 0.2500 a 0.900 standing 399.4 field 4342.7 levy 10099.4 0x4078f7217904cdc5 0x40b0f6bc855da273
+EA row 12345 800 24 f19 Ordered E 0.2500 a 0.900 standing 50.2 field 629.7 levy 1364.4 0x40491c201d444495 0x4083ad8d5d9688b6
+EA row 12345 800 24 f20 Ordered E 4.0000 a 0.900 standing 206.2 field 1188.2 levy 1320.3 0x4069c69044a6c7ac 0x409290f1930be0df
+EA row 12345 800 24 f21 Ordered E 0.2500 a 0.900 standing 505.2 field 5080.6 levy 11815.3 0x407f92f020531edf 0x40b3d8905638865a
+EA row 12345 800 24 f22 Ordered E 4.0000 a 0.900 standing 180.2 field 1051.6 levy 1168.5 0x406687fe1a0037d1 0x40906e96161e4f76
+EA row 12345 800 24 f23 Ordered E 4.0000 a 0.900 standing 252.5 field 1244.9 levy 1447.6 0x406f8f6dafea0f6a 0x409373c7c6da4485
+EA row 12345 800 24 f24 Ordered E 4.0000 a 0.900 standing 220.9 field 1110.7 levy 1291.5 0x406b9c6bd8b130ca 0x40915ae29ab29e4d
+EA world 12345 800 24: ordered 24 unordered 0 empty 0; f1 E 1.301
+EA forced 12345 800 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 12345 40075 6 f1 Ordered E 3.4402 a 0.900 standing 2539.7 field 13566.2 levy 16826.7 0x40a3d7584a3e81d9 0x40ca7f13b6fe0871
+EA row 12345 40075 6 f2 Ordered E 0.9885 a 0.900 standing 1765.6 field 5702.1 levy 12659.7 0x409b968d7dda98ef 0x40b6461ca67695d6
+EA row 12345 40075 6 f3 Ordered E 0.2500 a 0.900 standing 1039.6 field 10684.1 levy 24803.0 0x40903e6879e12532 0x40c4de12a4ce9c6b
+EA row 12345 40075 6 f4 Ordered E 0.2500 a 0.900 standing 537.3 field 5470.0 levy 12701.7 0x4080cab0fd91b95b 0x40b55e09f3431130
+EA row 12345 40075 6 f5 Ordered E 0.3284 a 0.900 standing 770.7 field 6302.4 levy 14311.9 0x408815a5f4d54bc9 0x40b89e66484012d4
+EA row 12345 40075 6 f6 Ordered E 0.3864 a 0.900 standing 1581.5 field 10474.3 levy 24348.9 0x4098b5dccbadc857 0x40c475268b0298fd
+EA world 12345 40075 6: ordered 6 unordered 0 empty 0; f1 E 3.440
+EA forced 12345 40075 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 12345 40075 24 f1 Ordered E 4.0000 a 0.900 standing 1426.3 field 7893.5 levy 9178.5 0x4096496083796949 0x40bed581c1a47a9f
+EA row 12345 40075 24 f2 Ordered E 0.2500 a 0.900 standing 158.1 field 1719.0 levy 3997.6 0x4063c398ab329d74 0x409adbeed7625204
+EA row 12345 40075 24 f3 Ordered E 4.0000 a 0.900 standing 247.4 field 1443.7 levy 1604.1 0x406eee538c8f4fac 0x40968ed219b90ea9
+EA row 12345 40075 24 f4 Ordered E 0.2500 a 0.900 standing 477.5 field 4839.9 levy 11255.6 0x407dd80e4a20f404 0x40b2e7eb05681ece
+EA row 12345 40075 24 f5 Ordered E 0.4985 a 0.900 standing 143.2 field 722.0 levy 1679.1 0x4061e4fa183d0fb3 0x40868ffab90a7829
+EA row 12345 40075 24 f6 Ordered E 0.2500 a 0.900 standing 57.6 field 588.6 levy 1368.9 0x404cc94e12b70838 0x408264e94aa10e03
+EA row 12345 40075 24 f7 Ordered E 0.2500 a 0.900 standing 795.1 field 7840.8 levy 18234.5 0x4088d8a9c61d9f8d 0x40bea0d40ba62670
+EA row 12345 40075 24 f8 Ordered E 4.0000 a 0.900 standing 232.4 field 1324.0 levy 1471.1 0x406d0bd924c793a3 0x4094afeeb5b2d4d4
+EA row 12345 40075 24 f9 Ordered E 0.7432 a 0.900 standing 940.3 field 3500.7 levy 8141.2 0x408d6204faf449fa 0x40ab5970047d3d42
+EA row 12345 40075 24 f10 Ordered E 0.2500 a 0.900 standing 36.8 field 399.8 levy 929.9 0x40426387147b3557 0x4078fd79c5a3e39f
+EA row 12345 40075 24 f11 Ordered E 0.2500 a 0.900 standing 614.4 field 6281.1 levy 14607.1 0x408332d829e621ed 0x40b8891257625206
+EA row 12345 40075 24 f12 Ordered E 0.2500 a 0.900 standing 50.1 field 508.3 levy 1182.1 0x40491302c3a7775b 0x407fc4ca5657fb69
+EA row 12345 40075 24 f13 Ordered E 2.4783 a 0.900 standing 234.6 field 1052.3 levy 1485.5 0x406d549b24a37485 0x40907159b830b444
+EA row 12345 40075 24 f14 Ordered E 0.6040 a 0.900 standing 120.6 field 510.3 levy 1186.8 0x405e2585b8a39f5b 0x407fe4e5ae3e6c4e
+EA row 12345 40075 24 f15 Ordered E 2.1830 a 0.900 standing 268.1 field 976.5 levy 1537.0 0x4070c12ece2d7a4d 0x408e83f1c2181a54
+EA row 12345 40075 24 f16 Ordered E 0.2500 a 0.900 standing 64.9 field 739.1 levy 1642.4 0x405036d544c010aa 0x408718950678c006
+EA row 12345 40075 24 f17 Ordered E 0.3703 a 0.900 standing 53.2 field 397.9 levy 925.3 0x404a9f16385b0af7 0x4078de2a2fcefaa5
+EA row 12345 40075 24 f18 Ordered E 0.2500 a 0.900 standing 35.3 field 384.1 levy 893.3 0x4041aa69cfe28c70 0x407801e84dfce315
+EA row 12345 40075 24 f19 Ordered E 0.2500 a 0.900 standing 51.2 field 523.6 levy 1217.7 0x40499b93abd679be 0x40805cf27f3cf702
+EA row 12345 40075 24 f20 Ordered E 0.2500 a 0.900 standing 639.1 field 6477.7 levy 15064.5 0x4083f8b8ac8d61cc 0x40b94dbdc5197a24
+EA row 12345 40075 24 f21 Ordered E 0.2985 a 0.900 standing 82.0 field 690.3 levy 1605.3 0x40547d6efcfb408f 0x4085922a6277c45d
+EA row 12345 40075 24 f22 Ordered E 0.2500 a 0.900 standing 57.8 field 590.7 levy 1373.7 0x404ce372e7c154c3 0x4082759df18c9fb6
+EA row 12345 40075 24 f23 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA row 12345 40075 24 f24 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA world 12345 40075 24: ordered 22 unordered 0 empty 2; f1 E 4.000
+EA forced 12345 40075 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 314159 800 6 f1 Ordered E 0.2500 a 0.900 standing 359.5 field 5387.0 levy 11501.6 0x4076773d7b79f9c5 0x40b50af3bf0c453b
+EA row 314159 800 6 f2 Ordered E 1.9062 a 0.900 standing 1714.2 field 11620.6 levy 16331.4 0x409ac8d87909babc 0x40c6b2494ced46e8
+EA row 314159 800 6 f3 Ordered E 1.0125 a 0.900 standing 3591.9 field 12045.2 levy 25380.3 0x40ac0fd8cb75f939 0x40c7869eb9c0390d
+EA row 314159 800 6 f4 Ordered E 0.4425 a 0.900 standing 1161.3 field 8181.4 levy 17670.8 0x409225136da543b2 0x40bff565a8961ecc
+EA row 314159 800 6 f5 Ordered E 0.5285 a 0.900 standing 1484.1 field 11438.8 levy 22203.8 0x4097306ae423293f 0x40c65769de440540
+EA row 314159 800 6 f6 Ordered E 2.1730 a 0.900 standing 2077.7 field 9822.0 levy 14321.7 0x40a03b724dbefa86 0x40c32efcf6056e34
+EA world 314159 800 6: ordered 6 unordered 0 empty 0; f1 E 0.250
+EA forced 314159 800 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 314159 800 24 f1 Ordered E 0.2500 a 0.900 standing 348.6 field 4549.0 levy 10108.9 0x4075c8f5cd116e53 0x40b1c4fd68c692f7
+EA row 314159 800 24 f2 Ordered E 2.3050 a 0.900 standing 1564.2 field 6454.9 levy 9887.4 0x409870fb400459da 0x40b936e9124e4f46
+EA row 314159 800 24 f3 Ordered E 0.2500 a 0.900 standing 608.4 field 6220.3 levy 14465.7 0x408303411e196297 0x40b84c40a7b0b392
+EA row 314159 800 24 f4 Ordered E 1.1915 a 0.900 standing 1878.4 field 5195.5 levy 11069.3 0x409d59978c320d4b 0x40b44b8451921695
+EA row 314159 800 24 f5 Ordered E 4.0000 a 0.900 standing 276.9 field 1392.5 levy 1619.2 0x40714ef35dce98db 0x4095c22f34938584
+EA row 314159 800 24 f6 Ordered E 0.2500 a 0.900 standing 572.2 field 6288.1 levy 14267.3 0x4081e1d55fad5f35 0x40b89021584097cd
+EA row 314159 800 24 f7 Ordered E 0.2500 a 0.900 standing 784.9 field 10519.3 levy 21663.0 0x408886e791635346 0x40c48ba4f4874238
+EA row 314159 800 24 f8 Ordered E 0.2500 a 0.900 standing 557.8 field 5609.9 levy 13046.3 0x40816e8e08f21b56 0x40b5e9ea0d1526d9
+EA row 314159 800 24 f9 Ordered E 0.3280 a 0.900 standing 429.9 field 4675.8 levy 10127.4 0x407ade797c99743f 0x40b243c1dda2259a
+EA row 314159 800 24 f10 Ordered E 0.2500 a 0.900 standing 42.1 field 458.0 levy 1065.0 0x40450fbf698557da 0x407c9f52a38b8ae2
+EA row 314159 800 24 f11 Ordered E 0.2500 a 0.900 standing 50.1 field 585.1 levy 1300.2 0x404912524d6067e1 0x408248deb463497b
+EA row 314159 800 24 f12 Ordered E 0.2500 a 0.900 standing 501.6 field 5084.6 levy 11824.7 0x407f5a5a6b59f033 0x40b3dca2718a86d7
+EA row 314159 800 24 f13 Ordered E 1.7801 a 0.900 standing 2460.5 field 8253.5 levy 14386.4 0x40a338edd4db5749 0x40c01ebf01f60d96
+EA row 314159 800 24 f14 Ordered E 4.0000 a 0.900 standing 2063.5 field 10548.6 levy 12265.8 0x40a01f0e4e65cb66 0x40c49a4b3bd59925
+EA row 314159 800 24 f15 Ordered E 4.0000 a 0.900 standing 240.0 field 1183.6 levy 1376.2 0x406e011e045e746a 0x40927e47b139c94f
+EA row 314159 800 24 f16 Ordered E 0.2500 a 0.900 standing 540.6 field 5436.7 levy 12643.5 0x4080e4c50c69b645 0x40b53cb41731098e
+EA row 314159 800 24 f17 Ordered E 0.3911 a 0.900 standing 589.4 field 4170.0 levy 9697.6 0x40826b88ffe0c4a9 0x40b049f516ca46e0
+EA row 314159 800 24 f18 Ordered E 0.5705 a 0.900 standing 945.6 field 4504.9 levy 10476.6 0x408d8d0bb04ce749 0x40b198f133871609
+EA row 314159 800 24 f19 Ordered E 1.8419 a 0.900 standing 216.2 field 856.0 levy 1401.5 0x406b0652b7c55fd0 0x408abf9c33620cd5
+EA row 314159 800 24 f20 Ordered E 1.3582 a 0.900 standing 1904.8 field 5625.2 levy 11225.1 0x409dc35693dc1bfa 0x40b5f939edd9a63e
+EA row 314159 800 24 f21 Ordered E 0.2500 a 0.900 standing 536.0 field 5390.4 levy 12535.8 0x4080bfefa2e26605 0x40b50e664c964629
+EA row 314159 800 24 f22 Ordered E 2.1031 a 0.900 standing 1909.5 field 7078.0 levy 11350.4 0x409dd618c108eb33 0x40bba5f7d5108ff6
+EA row 314159 800 24 f23 Ordered E 0.2500 a 0.900 standing 570.6 field 5627.4 levy 13087.1 0x4081d51e40223bbe 0x40b5fb72f26f1dc5
+EA row 314159 800 24 f24 Ordered E 1.1331 a 0.900 standing 191.4 field 512.4 levy 1119.4 0x4067ee352751c3c8 0x408002da668be1d9
+EA world 314159 800 24: ordered 24 unordered 0 empty 0; f1 E 0.250
+EA forced 314159 800 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 314159 40075 6 f1 Ordered E 3.1603 a 0.900 standing 2107.7 field 10456.1 levy 13647.3 0x40a0775d28701c37 0x40c46c0dc607db91
+EA row 314159 40075 6 f2 Ordered E 1.0787 a 0.900 standing 1808.7 field 5155.8 levy 11513.1 0x409c42fb8cdb7eb0 0x40b423d2fc0a0881
+EA row 314159 40075 6 f3 Ordered E 0.2500 a 0.900 standing 733.1 field 7789.9 levy 17879.8 0x4086e902c8946fde 0x40be6ded35673f46
+EA row 314159 40075 6 f4 Ordered E 0.2500 a 0.900 standing 928.1 field 9407.5 levy 21877.9 0x408d011c4716b2a3 0x40c25fc074927914
+EA row 314159 40075 6 f5 Ordered E 0.7833 a 0.900 standing 2774.0 field 10089.2 levy 22420.5 0x40a5ac0d4226c016 0x40c3b49bddebd902
+EA row 314159 40075 6 f6 Ordered E 0.2500 a 0.900 standing 64.7 field 708.0 levy 1609.2 0x40502fcde6e06470 0x40862056adf71eb0
+EA world 314159 40075 6: ordered 6 unordered 0 empty 0; f1 E 3.160
+EA forced 314159 40075 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 314159 40075 24 f1 Ordered E 4.0000 a 0.900 standing 1429.3 field 7909.9 levy 9197.6 0x4096553f5a405575 0x40bee5ee0d887ec0
+EA row 314159 40075 24 f2 Ordered E 1.9657 a 0.900 standing 1603.8 field 6111.5 levy 10137.3 0x40990f26148d44e5 0x40b7df78e9c319c4
+EA row 314159 40075 24 f3 Ordered E 1.1107 a 0.900 standing 249.9 field 673.2 levy 1485.4 0x406f3cc20bae354e 0x4085093ef0fb0afe
+EA row 314159 40075 24 f4 Ordered E 4.0000 a 0.900 standing 192.4 field 975.0 levy 1133.8 0x40680c966994c6e4 0x408e784dd6e04c06
+EA row 314159 40075 24 f5 Ordered E 0.2500 a 0.900 standing 720.7 field 7247.7 levy 16855.1 0x4086855fd66b4e1d 0x40bc4fb30b47c73f
+EA row 314159 40075 24 f6 Ordered E 0.2500 a 0.900 standing 577.6 field 5904.9 levy 13732.4 0x40820c8583883032 0x40b710eed912556e
+EA row 314159 40075 24 f7 Ordered E 4.0000 a 0.900 standing 318.8 field 1571.8 levy 1827.7 0x4073ec7ad9662073 0x40988f64857f3062
+EA row 314159 40075 24 f8 Ordered E 0.2500 a 0.900 standing 582.5 field 5858.6 levy 13624.6 0x4082345d788fe6bb 0x40b6e2954d24e161
+EA row 314159 40075 24 f9 Ordered E 0.2500 a 0.900 standing 316.4 field 3501.5 levy 8142.9 0x4073c5ac90566245 0x40ab5aee39ef0f17
+EA row 314159 40075 24 f10 Ordered E 0.2500 a 0.900 standing 367.1 field 3991.1 levy 9281.5 0x4076f1927a7249cc 0x40af2e1de03f7057
+EA row 314159 40075 24 f11 Ordered E 0.5012 a 0.900 standing 123.0 field 627.5 levy 1459.3 0x405ec26e3e577803 0x40839c0def8487ba
+EA row 314159 40075 24 f12 Ordered E 0.2500 a 0.900 standing 500.8 field 5075.9 levy 11804.4 0x407f4c8a9c81602c 0x40b3d3e289225311
+EA row 314159 40075 24 f13 Ordered E 0.4524 a 0.900 standing 1058.7 field 5884.0 levy 13683.8 0x40908ad43b50f8bd 0x40b6fc0591c8eac0
+EA row 314159 40075 24 f14 Ordered E 0.2500 a 0.900 standing 49.8 field 509.0 levy 1183.7 0x4048e491d88e61ed 0x407fd003dd97f62c
+EA row 314159 40075 24 f15 Ordered E 0.4036 a 0.900 standing 107.4 field 736.8 levy 1637.4 0x405ad8dbdefa9ae5 0x408706cb721d53cd
+EA row 314159 40075 24 f16 Ordered E 0.2500 a 0.900 standing 638.7 field 6423.1 levy 14937.4 0x4083f56acfb0f6ac 0x40b917171dd5d3dd
+EA row 314159 40075 24 f17 Ordered E 0.2500 a 0.900 standing 35.3 field 460.6 levy 1023.5 0x4041a5405bb31286 0x407cc93907746887
+EA row 314159 40075 24 f18 Ordered E 1.9125 a 0.900 standing 138.8 field 521.9 levy 877.6 0x40615abe6e4fd592 0x40804ed862bdfcf3
+EA row 314159 40075 24 f19 Ordered E 1.3563 a 0.900 standing 2011.4 field 6833.6 levy 13039.5 0x409f6dc71b2184d4 0x40bab190070c6e5c
+EA row 314159 40075 24 f20 Ordered E 0.7483 a 0.900 standing 1879.2 field 7235.7 levy 16079.4 0x409d5ce24fd55876 0x40bc43bdbb2fec56
+EA row 314159 40075 24 f21 Ordered E 0.4551 a 0.900 standing 122.6 field 677.1 levy 1574.7 0x405ea47091e30d6e 0x408528fb40e5a35e
+EA row 314159 40075 24 f22 Ordered E 0.6073 a 0.900 standing 137.7 field 579.5 levy 1347.6 0x4061361344fc9d71 0x40821bd2f05a7090
+EA row 314159 40075 24 f23 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA row 314159 40075 24 f24 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA world 314159 40075 24: ordered 22 unordered 0 empty 2; f1 E 4.000
+EA forced 314159 40075 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 404 800 6 f1 Ordered E 1.9543 a 0.900 standing 2327.2 field 11977.8 levy 18387.7 0x40a22e4d22abb93f 0x40c764e815c56bc9
+EA row 404 800 6 f2 Ordered E 0.3155 a 0.900 standing 572.3 field 7539.4 levy 15440.0 0x4081e28ff48d09e3 0x40bd736890bb0f32
+EA row 404 800 6 f3 Ordered E 0.7567 a 0.900 standing 1408.1 field 6075.8 levy 12976.2 0x409600489a377b55 0x40b7bbcb535058c5
+EA row 404 800 6 f4 Ordered E 0.4599 a 0.900 standing 1425.8 field 10824.8 levy 22429.3 0x409647607f20d3c9 0x40c5246a0ce5314f
+EA row 404 800 6 f5 Ordered E 1.2868 a 0.900 standing 2262.0 field 7309.9 levy 14320.1 0x40a1abf1b8d3a115 0x40bc8decdd538415
+EA row 404 800 6 f6 Ordered E 0.2500 a 0.900 standing 56.1 field 654.2 levy 1453.8 0x404c087e6f8b13b2 0x408471cdbca9691a
+EA world 404 800 6: ordered 6 unordered 0 empty 0; f1 E 1.954
+EA forced 404 800 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 404 800 24 f1 Ordered E 0.9332 a 0.900 standing 1338.6 field 3969.1 levy 9230.6 0x4094ea8ad8f0dbda 0x40af024c04fb1184
+EA row 404 800 24 f2 Ordered E 4.0000 a 0.900 standing 160.4 field 872.1 levy 1014.1 0x40640dfe5b050838 0x408b4109b5a63f9a
+EA row 404 800 24 f3 Ordered E 0.2956 a 0.900 standing 73.4 field 634.6 levy 1475.7 0x405259507fd372fa 0x4083d46fa2df937a
+EA row 404 800 24 f4 Ordered E 1.1957 a 0.900 standing 191.3 field 530.1 levy 1127.4 0x4067ea0ee4775ed5 0x408090e70b205e01
+EA row 404 800 24 f5 Ordered E 4.0000 a 0.900 standing 287.7 field 1446.9 levy 1682.4 0x4071fbc01d78cef2 0x40969b6995bbbe88
+EA row 404 800 24 f6 Ordered E 0.2500 a 0.900 standing 576.9 field 5897.6 levy 13715.4 0x408206cd74edef73 0x40b7099fd00b45b0
+EA row 404 800 24 f7 Ordered E 0.3589 a 0.900 standing 112.8 field 774.9 levy 1802.2 0x405c34505b657dd6 0x4088378785d744f6
+EA row 404 800 24 f8 Ordered E 0.5845 a 0.900 standing 1341.5 field 5770.3 levy 13419.2 0x4094f605b6be2316 0x40b68a434ab1d4fa
+EA row 404 800 24 f9 Ordered E 4.0000 a 0.900 standing 124.8 field 814.6 levy 905.2 0x405f35e6e304f5d5 0x4089752ada122fac
+EA row 404 800 24 f10 Ordered E 4.0000 a 0.900 standing 156.1 field 993.7 levy 1104.1 0x406383be5ee0cae3 0x408f0d3463497b74
+EA row 404 800 24 f11 Ordered E 4.0000 a 0.900 standing 241.5 field 1234.7 levy 1435.6 0x406e30c88404a4b7 0x40934a9d41c8216d
+EA row 404 800 24 f12 Ordered E 1.1608 a 0.900 standing 787.7 field 2150.5 levy 4641.9 0x40889d9c6576af25 0x40a0cd015e86399e
+EA row 404 800 24 f13 Ordered E 0.5687 a 0.900 standing 524.0 field 2316.6 levy 5387.5 0x40805fd9b4bc920a 0x40a2193edba0a527
+EA row 404 800 24 f14 Ordered E 0.2968 a 0.900 standing 58.2 field 501.2 levy 1165.5 0x404d19f99242c0fc 0x407f52b8f9b13166
+EA row 404 800 24 f15 Ordered E 0.2500 a 0.900 standing 65.8 field 648.6 levy 1508.5 0x405071854577f4e7 0x4084451a09cc319c
+EA row 404 800 24 f16 Ordered E 2.5579 a 0.900 standing 252.8 field 1152.0 levy 1600.6 0x406f9aab23827b92 0x4091fffb92b6035d
+EA row 404 800 24 f17 Ordered E 0.2500 a 0.900 standing 352.7 field 5258.0 levy 11243.9 0x40760b98bcee1c1c 0x40b489fb7a1944c5
+EA row 404 800 24 f18 Ordered E 0.2969 a 0.900 standing 163.8 field 1499.7 levy 3487.6 0x40647a002b8778a7 0x40976ea0e9f6a93f
+EA row 404 800 24 f19 Ordered E 0.2500 a 0.900 standing 499.8 field 5109.8 levy 11883.4 0x407f3cc20bae354e 0x40b3f5d8f0b6b6e1
+EA row 404 800 24 f20 Ordered E 0.2500 a 0.900 standing 622.8 field 6312.9 levy 14681.1 0x40837696bbacf4d1 0x40b8a8dd81adea8a
+EA row 404 800 24 f21 Ordered E 1.0024 a 0.900 standing 2662.7 field 6702.6 levy 15568.9 0x40a4cd6abf45ba4a 0x40ba2e961c52b29e
+EA row 404 800 24 f22 Ordered E 0.4073 a 0.900 standing 91.3 field 654.2 levy 1453.8 0x4056d655687a636a 0x408471cdbca9691a
+EA row 404 800 24 f23 Ordered E 0.2500 a 0.900 standing 635.2 field 6264.1 levy 14567.8 0x4083d99ccd3b228a 0x40b878227e0ef999
+EA row 404 800 24 f24 Ordered E 0.9076 a 0.900 standing 2300.8 field 8721.1 levy 18062.6 0x40a1f9a67ef2c95a 0x40c1088dd6b9654d
+EA world 404 800 24: ordered 24 unordered 0 empty 0; f1 E 0.933
+EA forced 404 800 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA industrial unordered: industrial seed 404 800 24 f21 (republic): E 1.002 s 0.715 L 0.450 standing 2750.1 (10.42 % of citizens, above) field 2722.0 levy 5125.6
+EA row 404 40075 6 f1 Ordered E 0.2572 a 0.900 standing 588.7 field 6945.4 levy 15750.8 0x408265ff80f0e85f 0x40bb2168b3c953a2
+EA row 404 40075 6 f2 Ordered E 1.2581 a 0.900 standing 3010.9 field 9312.1 levy 19228.9 0x40a785c7e2c8ddfc 0x40c2300eb6ff47bf
+EA row 404 40075 6 f3 Ordered E 0.2500 a 0.900 standing 527.8 field 5791.1 levy 13146.5 0x40807e70afa95eac 0x40b69f18d3cf1de7
+EA row 404 40075 6 f4 Ordered E 0.2500 a 0.900 standing 886.4 field 9036.5 levy 20972.7 0x408bb3412b3bf94b 0x40c1a63ea3939e93
+EA row 404 40075 6 f5 Ordered E 1.7447 a 0.900 standing 2175.2 field 7248.7 levy 12746.7 0x40a0fe765ac35b48 0x40bc50b6ca261c6b
+EA row 404 40075 6 f6 Ordered E 4.0000 a 0.900 standing 866.8 field 5057.4 levy 5619.4 0x408b16a9bcebcfa6 0x40b3c16fd6b65a9a
+EA world 404 40075 6: ordered 6 unordered 0 empty 0; f1 E 0.257
+EA forced 404 40075 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 404 40075 24 f1 Ordered E 2.3716 a 0.900 standing 142.1 field 714.0 levy 1030.3 0x4061c37795ad6bb1 0x40865046f4217127
+EA row 404 40075 24 f2 Ordered E 1.8555 a 0.900 standing 1589.1 field 5883.2 levy 10044.3 0x4098d4467e549dc3 0x40b6fb3ff1de7eb6
+EA row 404 40075 24 f3 Ordered E 1.5127 a 0.900 standing 2483.2 field 7806.0 levy 14760.1 0x40a36650ad5268a0 0x40be7e037bc69af5
+EA row 404 40075 24 f4 Ordered E 0.2500 a 0.900 standing 479.9 field 4864.0 levy 11311.6 0x407dfe09c2f48015 0x40b2fffac486ad2d
+EA row 404 40075 24 f5 Ordered E 0.2500 a 0.900 standing 719.7 field 8201.1 levy 18224.6 0x40867d6a9e6f4184 0x40c00486a6d48020
+EA row 404 40075 24 f6 Ordered E 0.2500 a 0.900 standing 577.2 field 5901.5 levy 13724.5 0x408209ddc5e5246b 0x40b70d8a272a7bd5
+EA row 404 40075 24 f7 Ordered E 0.2500 a 0.900 standing 797.4 field 7863.4 levy 18287.1 0x4088eb01a7476bbe 0x40beb770af533f42
+EA row 404 40075 24 f8 Ordered E 0.2500 a 0.900 standing 58.2 field 585.7 levy 1362.0 0x404d1e09a4be8bdb 0x40824d4414940bbb
+EA row 404 40075 24 f9 Ordered E 0.6363 a 0.900 standing 80.7 field 351.0 levy 816.4 0x40542e6b3e81ee85 0x4075f0ad629d840a
+EA row 404 40075 24 f10 Ordered E 1.8659 a 0.900 standing 147.4 field 547.3 levy 931.7 0x40626ce6895f4ada 0x40811a1f3c1e762e
+EA row 404 40075 24 f11 Ordered E 0.2819 a 0.900 standing 695.3 field 6303.8 levy 14660.0 0x4085baba4f146f33 0x40b89fc7ea4a8c16
+EA row 404 40075 24 f12 Ordered E 4.0000 a 0.900 standing 200.7 field 1017.1 levy 1182.7 0x40691676b75d9b5d 0x408fc92a4a8c154c
+EA row 404 40075 24 f13 Ordered E 0.2500 a 0.900 standing 234.5 field 2358.1 levy 5483.9 0x406d4f263172f6db 0x40a26c229ba5e354
+EA row 404 40075 24 f14 Ordered E 0.6118 a 0.900 standing 122.0 field 509.5 levy 1184.9 0x405e7d32234e4338 0x407fd85e310dbf07
+EA row 404 40075 24 f15 Ordered E 0.2500 a 0.900 standing 668.4 field 6591.4 levy 15328.7 0x4084e310e3180196 0x40b9bf5c5f99c38c
+EA row 404 40075 24 f16 Ordered E 1.4455 a 0.900 standing 258.3 field 884.7 levy 1635.2 0x407024a4c4c91871 0x408ba59a3967f75d
+EA row 404 40075 24 f17 Ordered E 4.0000 a 0.900 standing 143.1 field 933.9 levy 1037.7 0x4061e3d753cbefcc 0x408d2f541dd1a21e
+EA row 404 40075 24 f18 Ordered E 4.0000 a 0.900 standing 141.0 field 766.2 levy 891.0 0x40619eb27dc5718c 0x4087f1fc432ca57a
+EA row 404 40075 24 f19 Ordered E 0.2500 a 0.900 standing 510.6 field 5220.3 levy 12140.1 0x407fe98d7bbe4738 0x40b46442eff3ade3
+EA row 404 40075 24 f20 Ordered E 0.2500 a 0.900 standing 638.0 field 6466.3 levy 15037.8 0x4083efa84ccf4347 0x40b94241e410b631
+EA row 404 40075 24 f21 Ordered E 0.2500 a 0.900 standing 273.8 field 2753.4 levy 6403.2 0x40711c79944e0e71 0x40a582bb1eeed891
+EA row 404 40075 24 f22 Ordered E 0.2500 a 0.900 standing 576.1 field 6721.9 levy 14937.6 0x40820078895570e9 0x40ba41e600dc3371
+EA row 404 40075 24 f23 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA row 404 40075 24 f24 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA world 404 40075 24: ordered 22 unordered 0 empty 2; f1 E 2.372
+EA forced 404 40075 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 707 800 6 f1 Ordered E 1.7641 a 0.900 standing 2069.9 field 13401.9 levy 19875.7 0x40a02bd3177e3d4c 0x40ca2cf7591c5614
+EA row 707 800 6 f2 Ordered E 4.0000 a 0.900 standing 165.5 field 1500.8 levy 1667.5 0x4064afacfb637b56 0x40977325c91d14e3
+EA row 707 800 6 f3 Ordered E 0.2500 a 0.900 standing 856.5 field 14425.0 levy 28082.6 0x408ac3f132d93975 0x40cc2c823838fa00
+EA row 707 800 6 f4 Ordered E 0.2500 a 0.900 standing 611.4 field 8617.3 levy 17794.5 0x40831b4d408d9ce8 0x40c0d4a20bf042a5
+EA row 707 800 6 f5 Ordered E 0.2500 a 0.900 standing 840.5 field 11142.3 levy 23404.8 0x408a442f9628e405 0x40c5c3218fbc6807
+EA row 707 800 6 f6 Ordered E 0.2500 a 0.900 standing 471.5 field 5874.8 levy 12758.3 0x407d7824636be81d 0x40b6f2cd2f074592
+EA world 707 800 6: ordered 6 unordered 0 empty 0; f1 E 1.764
+EA forced 707 800 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 707 800 24 f1 Ordered E 2.1775 a 0.900 standing 1420.9 field 5801.9 levy 9143.8 0x409633cb5a0fbbe1 0x40b6a9f12d8a8652
+EA row 707 800 24 f2 Ordered E 4.0000 a 0.900 standing 131.2 field 713.3 levy 829.4 0x4060670c8f25a636 0x40864a7589efd86a
+EA row 707 800 24 f3 Ordered E 1.0683 a 0.900 standing 2182.7 field 5766.2 levy 12974.2 0x40a10d6a1cb9b147 0x40b6862c883ebbfb
+EA row 707 800 24 f4 Ordered E 0.2500 a 0.900 standing 646.3 field 7448.1 levy 16551.3 0x4084322060417866 0x40bd1814e1b0899f
+EA row 707 800 24 f5 Ordered E 1.6078 a 0.900 standing 1998.0 field 11099.0 levy 16515.4 0x409f37fda08045c6 0x40c5ad7dc9abf2d9
+EA row 707 800 24 f6 Ordered E 2.3674 a 0.900 standing 249.7 field 1120.8 levy 1618.7 0x406f3638d66ba22b 0x4091830e32bf2553
+EA row 707 800 24 f7 Ordered E 0.2500 a 0.900 standing 726.9 field 8040.0 levy 17876.2 0x4086b714e642714f 0x40bf67f582ee1fc6
+EA row 707 800 24 f8 Ordered E 0.2500 a 0.900 standing 665.0 field 6688.1 levy 15553.6 0x4084c83000e1ec85 0x40ba200d252ef912
+EA row 707 800 24 f9 Ordered E 0.2500 a 0.900 standing 329.1 field 3642.9 levy 8471.9 0x4074922b78b946e3 0x40ac75dac9afe1db
+EA row 707 800 24 f10 Ordered E 1.3035 a 0.900 standing 1673.9 field 5194.3 levy 10580.3 0x409a2774d452684c 0x40b44a5353869032
+EA row 707 800 24 f11 Ordered E 0.2500 a 0.900 standing 449.3 field 4593.5 levy 10682.6 0x407c14bfb367e793 0x40b1f189a9d627c0
+EA row 707 800 24 f12 Ordered E 1.0193 a 0.900 standing 210.2 field 537.7 levy 1238.7 0x406a46527df9fbe6 0x4080cde6c893c138
+EA row 707 800 24 f13 Ordered E 0.2500 a 0.900 standing 521.0 field 5240.1 levy 12186.2 0x408048572650f92c 0x40b4780e1014b59a
+EA row 707 800 24 f14 Ordered E 0.2500 a 0.900 standing 531.8 field 6205.9 levy 13790.9 0x40809eb626a21528 0x40b83de80b588e36
+EA row 707 800 24 f15 Ordered E 0.2500 a 0.900 standing 63.5 field 703.8 levy 1564.1 0x404fc5ef28664244 0x4085feace703afb7
+EA row 707 800 24 f16 Ordered E 1.4647 a 0.900 standing 199.1 field 686.3 levy 1260.2 0x4068e1f240725b88 0x408572ab73c6aa54
+EA row 707 800 24 f17 Ordered E 0.2500 a 0.900 standing 303.7 field 3361.3 levy 7817.0 0x4072fb111b93233b 0x40aa429e87b56b87
+EA row 707 800 24 f18 Ordered E 0.2500 a 0.900 standing 389.2 field 4230.9 levy 9839.3 0x40785285041f13ee 0x40b086e253005815
+EA row 707 800 24 f19 Ordered E 0.4511 a 0.900 standing 99.7 field 644.4 levy 1432.0 0x4058e9d81efc86cc 0x4084232752a84380
+EA row 707 800 24 f20 Ordered E 0.2755 a 0.900 standing 52.9 field 552.8 levy 1228.4 0x404a6dbd013de3be 0x408146271758e219
+EA row 707 800 24 f21 Ordered E 0.2500 a 0.900 standing 192.0 field 2188.4 levy 4863.1 0x4068014e7a7b7b9c 0x40a118c9a1dfb938
+EA row 707 800 24 f22 Ordered E 0.2500 a 0.900 standing 463.6 field 5410.2 levy 12022.6 0x407cfa53222a57be 0x40b5222ba29c779a
+EA row 707 800 24 f23 Ordered E 4.0000 a 0.900 standing 272.7 field 1973.5 levy 2192.8 0x40710a8e52d4ab10 0x409ed61611dbca96
+EA row 707 800 24 f24 Ordered E 4.0000 a 0.900 standing 216.1 field 1086.7 levy 1263.6 0x406b03a13f637223 0x4090fad8f67b1c00
+EA world 707 800 24: ordered 24 unordered 0 empty 0; f1 E 2.178
+EA forced 707 800 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 707 40075 6 f1 Ordered E 2.6639 a 0.900 standing 3200.4 field 15042.3 levy 21203.4 0x40a900e0da0076df 0x40cd6121630dde1e
+EA row 707 40075 6 f2 Ordered E 0.9839 a 0.900 standing 1813.5 field 5703.5 levy 12779.3 0x409c55f2cc0bcc11 0x40b647815b1f81e7
+EA row 707 40075 6 f3 Ordered E 0.2500 a 0.900 standing 584.3 field 5978.6 levy 13899.8 0x4082423d31435978 0x40b75a9c1d1a64df
+EA row 707 40075 6 f4 Ordered E 0.2500 a 0.900 standing 1215.2 field 12448.1 levy 28841.8 0x4092fca82d9d1d5a 0x40c8500aa6e81be9
+EA row 707 40075 6 f5 Ordered E 0.3380 a 0.900 standing 719.1 field 5710.5 levy 12969.3 0x408678d5c8953ca7 0x40b64e89f4bfe507
+EA row 707 40075 6 f6 Ordered E 1.0125 a 0.900 standing 3016.1 field 7793.5 levy 17983.5 0x40a7904a73b455a4 0x40be717afa7a2e80
+EA world 707 40075 6: ordered 6 unordered 0 empty 0; f1 E 2.664
+EA forced 707 40075 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 707 40075 24 f1 Ordered E 4.0000 a 0.900 standing 1428.8 field 7907.3 levy 9194.6 0x4096535be6a0afe3 0x40bee35130014f8b
+EA row 707 40075 24 f2 Ordered E 1.0556 a 0.900 standing 638.2 field 1782.1 levy 4033.7 0x4083f14a050a8655 0x409bd85da69298b3
+EA row 707 40075 24 f3 Ordered E 4.0000 a 0.900 standing 248.7 field 1450.9 levy 1612.1 0x406f158acc1ec27d 0x4096ab6bb4a2339b
+EA row 707 40075 24 f4 Ordered E 4.0000 a 0.900 standing 192.1 field 1106.8 levy 1229.8 0x4068023a8e725ae0 0x40914b2083126e97
+EA row 707 40075 24 f5 Ordered E 0.3982 a 0.900 standing 1147.4 field 8209.1 levy 18242.6 0x4091edb0d310bae4 0x40c0089309a5657f
+EA row 707 40075 24 f6 Ordered E 0.3118 a 0.900 standing 71.8 field 588.6 levy 1368.9 0x4051f413f4dea53e 0x408264e94aa10e03
+EA row 707 40075 24 f7 Ordered E 0.4331 a 0.900 standing 551.1 field 3136.9 levy 7295.1 0x4081387947155726 0x40a881d3567dbb17
+EA row 707 40075 24 f8 Ordered E 4.0000 a 0.900 standing 232.0 field 1166.7 levy 1356.7 0x406d00ef3e66984f 0x40923af919dece58
+EA row 707 40075 24 f9 Ordered E 3.1202 a 0.900 standing 126.3 field 617.1 levy 812.5 0x405f908c90f40155 0x408348f3ff4b5292
+EA row 707 40075 24 f10 Ordered E 0.2500 a 0.900 standing 366.8 field 3987.5 levy 9273.2 0x4076ec4cc8b1fdb2 0x40af26f3a82e87d2
+EA row 707 40075 24 f11 Ordered E 0.2500 a 0.900 standing 613.7 field 6274.3 levy 14591.4 0x40832d88aea00a61 0x40b88248f3929ed5
+EA row 707 40075 24 f12 Ordered E 0.2500 a 0.900 standing 500.6 field 5769.3 levy 12820.6 0x407f4985274200ac 0x40b689415c91d14e
+EA row 707 40075 24 f13 Ordered E 0.7621 a 0.900 standing 178.6 field 589.4 levy 1370.6 0x406654641d504792 0x40826afdebfa8f7e
+EA row 707 40075 24 f14 Ordered E 2.4087 a 0.900 standing 199.6 field 791.6 levy 1186.2 0x4068f1a443138833 0x4088bcb8dbb8e161
+EA row 707 40075 24 f15 Ordered E 0.2500 a 0.900 standing 67.0 field 660.6 levy 1536.3 0x4050bf162228b36c 0x4084a4b7b69984a1
+EA row 707 40075 24 f16 Ordered E 0.2500 a 0.900 standing 259.0 field 2604.4 levy 6056.9 0x40702f8eab2a13c6 0x40a458e65d18090b
+EA row 707 40075 24 f17 Ordered E 0.2500 a 0.900 standing 35.7 field 395.6 levy 920.1 0x4041df864b8399eb 0x4078ba552d234eb9
+EA row 707 40075 24 f18 Ordered E 0.2500 a 0.900 standing 35.1 field 381.7 levy 887.7 0x40418e4b71364be6 0x4077dbb1cda2b5a2
+EA row 707 40075 24 f19 Ordered E 1.8651 a 0.900 standing 814.3 field 2842.6 levy 4840.5 0x408972ba1ef66224 0x40a6351999bc63ed
+EA row 707 40075 24 f20 Ordered E 0.2500 a 0.900 standing 63.6 field 733.1 levy 1629.1 0x404fce06cfafa668 0x4086e8b31f8a0903
+EA row 707 40075 24 f21 Ordered E 0.2500 a 0.900 standing 682.7 field 6865.8 levy 15967.1 0x4085559c4a355009 0x40bad1d5d9c065b7
+EA row 707 40075 24 f22 Ordered E 0.2500 a 0.900 standing 57.4 field 587.3 levy 1365.8 0x404cb8f70d909860 0x40825a78624dd2f2
+EA row 707 40075 24 f23 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA row 707 40075 24 f24 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA world 707 40075 24: ordered 22 unordered 0 empty 2; f1 E 4.000
+EA forced 707 40075 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 24601 800 6 f1 Ordered E 0.2500 a 0.900 standing 832.0 field 11416.9 levy 25010.1 0x4089fff55b7309e7 0x40c64c74274a9ca9
+EA row 24601 800 6 f2 Ordered E 4.0000 a 0.900 standing 184.7 field 1284.6 levy 1427.3 0x4067159963befc7e 0x4094123864d14832
+EA row 24601 800 6 f3 Ordered E 0.4116 a 0.900 standing 1249.0 field 8599.0 levy 19302.2 0x409383edc330dd90 0x40c0cb8167520ca9
+EA row 24601 800 6 f4 Ordered E 2.8187 a 0.900 standing 3078.4 field 17511.0 levy 21852.0 0x40a80ccda8d02924 0x40d119bda2327b61
+EA row 24601 800 6 f5 Ordered E 0.3553 a 0.900 standing 795.6 field 6310.6 levy 14078.9 0x4088dc69ca7b520b 0x40b8a6980eed987c
+EA row 24601 800 6 f6 Ordered E 0.7916 a 0.900 standing 1646.9 field 7740.5 levy 15771.5 0x4099bba108d21db5 0x40be3c7e7366f599
+EA world 24601 800 6: ordered 6 unordered 0 empty 0; f1 E 0.250
+EA forced 24601 800 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 24601 800 24 f1 Ordered E 0.3556 a 0.900 standing 509.3 field 3962.8 levy 9215.8 0x407fd4c5fb97f945 0x40aef59b3eb399f5
+EA row 24601 800 24 f2 Ordered E 4.0000 a 0.900 standing 173.9 field 1199.4 levy 1332.6 0x4065bd255c00e5dc 0x4092bd8358086f9c
+EA row 24601 800 24 f3 Ordered E 0.2500 a 0.900 standing 55.0 field 562.5 levy 1308.2 0x404b8281abb64b66 0x40819417242070ba
+EA row 24601 800 24 f4 Ordered E 4.0000 a 0.900 standing 260.0 field 1317.9 levy 1532.5 0x407040ca28577b5c 0x409497a8793dd97f
+EA row 24601 800 24 f5 Ordered E 0.2500 a 0.900 standing 198.6 field 1997.1 levy 4644.3 0x4068d27c3a13a224 0x409f34468909289f
+EA row 24601 800 24 f6 Ordered E 0.2500 a 0.900 standing 636.6 field 7428.6 levy 16507.9 0x4083e4f3153c4b63 0x40bd048ea9c779a6
+EA row 24601 800 24 f7 Ordered E 0.2500 a 0.900 standing 779.5 field 7686.7 levy 17876.2 0x40885baab580cd64 0x40be06be9a5ebb78
+EA row 24601 800 24 f8 Ordered E 1.0232 a 0.900 standing 227.4 field 578.2 levy 1329.4 0x406c6bc7f1e3d819 0x408211e5ab2ff781
+EA row 24601 800 24 f9 Ordered E 1.6784 a 0.900 standing 526.0 field 1885.7 levy 3384.9 0x408070146a760b4b 0x409d769d78e14c56
+EA row 24601 800 24 f10 Ordered E 3.7916 a 0.900 standing 695.6 field 3681.7 levy 4397.1 0x4085bd255c00e5dc 0x40acc34dc932ae8c
+EA row 24601 800 24 f11 Ordered E 0.5106 a 0.900 standing 1027.0 field 5777.1 levy 12907.6 0x40900bda5cdd59f3 0x40b6911e597a6423
+EA row 24601 800 24 f12 Ordered E 2.5013 a 0.900 standing 875.3 field 4407.1 levy 5973.0 0x408b5a8ea6e53c64 0x40b1371506d23de3
+EA row 24601 800 24 f13 Ordered E 0.3401 a 0.900 standing 756.2 field 5590.8 levy 13001.8 0x4087a1b7c8e498ec 0x40b5d6c38e9f6a95
+EA row 24601 800 24 f14 Ordered E 2.5016 a 0.900 standing 222.5 field 899.6 levy 1322.7 0x406bd0f02ad53109 0x408c1cdca4255051
+EA row 24601 800 24 f15 Ordered E 0.3104 a 0.900 standing 82.8 field 657.7 levy 1529.5 0x4054b35de87bcef9 0x40848d75af294dd7
+EA row 24601 800 24 f16 Ordered E 1.4342 a 0.900 standing 210.0 field 632.2 levy 1227.7 0x406a3f2f0c91c629 0x4083c1bd851c59d1
+EA row 24601 800 24 f17 Ordered E 0.2500 a 0.900 standing 129.4 field 1432.2 levy 3330.6 0x40602ca2490bcd66 0x409660a70af5fd48
+EA row 24601 800 24 f18 Ordered E 3.4311 a 0.900 standing 165.6 field 833.9 levy 1047.0 0x4064b45cb5d58617 0x408a0f43d97dbb76
+EA row 24601 800 24 f19 Ordered E 0.2500 a 0.900 standing 587.0 field 6001.5 levy 13957.0 0x40825817fb59f575 0x40b771833e1437c6
+EA row 24601 800 24 f20 Ordered E 0.2500 a 0.900 standing 580.0 field 6684.5 levy 14854.5 0x40822019be8ae176 0x40ba1c86c9eecbfa
+EA row 24601 800 24 f21 Ordered E 0.5649 a 0.900 standing 121.7 field 541.6 levy 1259.6 0x405e6cfb3b748ee0 0x4080ed20ba732df5
+EA row 24601 800 24 f22 Ordered E 0.2867 a 0.900 standing 52.7 field 469.6 levy 1092.1 0x404a5579aafb1064 0x407d5960405b39e4
+EA row 24601 800 24 f23 Ordered E 0.2500 a 0.900 standing 63.3 field 623.8 levy 1450.6 0x404fa03310104672 0x40837e1e030c23fb
+EA row 24601 800 24 f24 Ordered E 4.0000 a 0.900 standing 208.3 field 1186.7 levy 1318.5 0x406a089d8cacdd80 0x40928aa5db76b3bc
+EA world 24601 800 24: ordered 24 unordered 0 empty 0; f1 E 0.356
+EA forced 24601 800 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA industrial unordered: industrial seed 24601 800 24 f8 (city_state): E 1.023 s 0.715 L 0.450 standing 234.8 (10.42 % of citizens, above) field 234.8 levy 437.7
+EA row 24601 40075 6 f1 Ordered E 0.5414 a 0.900 standing 875.8 field 4494.7 levy 10441.1 0x408b5e8ec64a9537 0x40b18eb7f6a48bfc
+EA row 24601 40075 6 f2 Ordered E 0.5903 a 0.900 standing 992.1 field 4580.9 levy 10645.0 0x408f0097ccb19e92 0x40b1e4e78bb197c5
+EA row 24601 40075 6 f3 Ordered E 1.7867 a 0.900 standing 3451.3 field 12654.8 levy 21491.9 0x40aaf6988f9d2dc4 0x40c8b765ca7d5ccd
+EA row 24601 40075 6 f4 Ordered E 1.2096 a 0.900 standing 4483.7 field 13591.9 levy 27900.6 0x40b183bf4afb530f 0x40ca8bf7f4feab6e
+EA row 24601 40075 6 f5 Ordered E 0.2500 a 0.900 standing 63.0 field 674.6 levy 1533.3 0x404f79ed705f8992 0x4085150adc0980b2
+EA row 24601 40075 6 f6 Ordered E 0.3550 a 0.900 standing 718.8 field 5183.9 levy 12048.3 0x4086761bc60bf241 0x40b43fede72830a1
+EA world 24601 40075 6: ordered 6 unordered 0 empty 0; f1 E 0.541
+EA forced 24601 40075 6: G1 ordered 8 of 8, reference ordered 8 of 8
+EA row 24601 40075 24 f1 Ordered E 0.5605 a 0.900 standing 803.1 field 3964.5 levy 9219.7 0x408918990da5bebc 0x40aef8f736f3b214
+EA row 24601 40075 24 f2 Ordered E 2.5518 a 0.900 standing 160.4 field 696.3 levy 1013.6 0x40640ba67dcc02d7 0x4085c2193bf4301c
+EA row 24601 40075 24 f3 Ordered E 4.0000 a 0.900 standing 249.8 field 1457.4 levy 1619.3 0x406f397d710cebbc 0x4096c5a32d4d4024
+EA row 24601 40075 24 f4 Ordered E 0.5037 a 0.900 standing 970.5 field 4882.0 levy 11353.5 0x408e53c879fcfb86 0x40b3120693dd97f6
+EA row 24601 40075 24 f5 Ordered E 2.1456 a 0.900 standing 289.6 field 1066.4 levy 1693.0 0x407218da83d0c27f 0x4090a976f679604a
+EA row 24601 40075 24 f6 Ordered E 0.9698 a 0.900 standing 224.7 field 592.3 levy 1377.4 0x406c1758fc45023c 0x408282256ebd4cfe
+EA row 24601 40075 24 f7 Ordered E 4.0000 a 0.900 standing 320.2 field 1773.4 levy 1970.4 0x4074038a3d9aac1e 0x409bb57d7342edba
+EA row 24601 40075 24 f8 Ordered E 0.8208 a 0.900 standing 1913.1 field 6640.3 levy 14756.3 0x409de46c9ee208cc 0x40b9f051c5cbbc2c
+EA row 24601 40075 24 f9 Ordered E 1.7746 a 0.900 standing 1267.8 field 4673.4 levy 8158.6 0x4093cf62e2f92381 0x40b2416f2c23c679
+EA row 24601 40075 24 f10 Ordered E 0.3035 a 0.900 standing 446.2 field 4679.3 levy 10398.4 0x407be32c6c71f1a4 0x40b2474ae7d566cf
+EA row 24601 40075 24 f11 Ordered E 0.2500 a 0.900 standing 61.4 field 627.8 levy 1459.9 0x404eb380ad382372 0x40839e248461f9f1
+EA row 24601 40075 24 f12 Ordered E 0.2500 a 0.900 standing 50.1 field 508.0 levy 1181.5 0x40490f8ecff1535a 0x407fc06a6223e186
+EA row 24601 40075 24 f13 Ordered E 0.2500 a 0.900 standing 58.4 field 665.9 levy 1479.7 0x404d3780be4b80f7 0x4084cf06277c45cc
+EA row 24601 40075 24 f14 Ordered E 0.5241 a 0.900 standing 104.2 field 508.2 levy 1181.9 0x405a0cfc18f1fdc9 0x407fc37c606748e5
+EA row 24601 40075 24 f15 Ordered E 2.9448 a 0.900 standing 266.9 field 1129.2 levy 1530.2 0x4070ae50c2027c64 0x4091a4a07adcab69
+EA row 24601 40075 24 f16 Ordered E 0.7836 a 0.900 standing 2019.5 field 6479.4 levy 15068.4 0x409f8e0535191eb5 0x40b94f65e98bb4d5
+EA row 24601 40075 24 f17 Ordered E 0.2500 a 0.900 standing 356.7 field 3948.2 levy 9182.0 0x40764b89079d943a 0x40aed87e2c881e47
+EA row 24601 40075 24 f18 Ordered E 1.1101 a 0.900 standing 561.7 field 1608.5 levy 3550.5 0x40818db579e80a8d 0x4099222bba8aa4a2
+EA row 24601 40075 24 f19 Ordered E 0.2500 a 0.900 standing 50.9 field 520.2 levy 1209.8 0x40497117d1a5bd5b 0x408041cceffe2a3e
+EA row 24601 40075 24 f20 Ordered E 0.2500 a 0.900 standing 63.6 field 644.5 levy 1498.8 0x404fca92dbf98266 0x408423b9b1d92b7f
+EA row 24601 40075 24 f21 Ordered E 0.2500 a 0.900 standing 681.1 field 7761.2 levy 17247.2 0x408548a688a22594 0x40be513c540cc78f
+EA row 24601 40075 24 f22 Ordered E 2.4745 a 0.900 standing 2294.8 field 9226.9 levy 13640.7 0x40a1edae103609e5 0x40c2056d88fefc68
+EA row 24601 40075 24 f23 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA row 24601 40075 24 f24 Empty E 1.0000 a 0.900 standing 0.0 field 0.0 levy 0.0 0x0000000000000000 0x0000000000000000
+EA world 24601 40075 24: ordered 22 unordered 0 empty 2; f1 E 0.561
+EA forced 24601 40075 24: G1 ordered 8 of 8, reference ordered 8 of 8
+EA default governments: ordered 290 unordered 0 empty 10 (non-empty 290); standing verdicts within 122 above 7 below 161; E > 1 on 106; field capped 20; unordered on 0 worlds []
+EA forced: G1 ordered 160 of 160 (empty 0); reference ordered 160 of 160 (empty 0)
+EA sweep subsistence: ordered 290 of 290 (empty 10), standing within 283 above 7 below 0, mobilization within 194 above 43 below 53, field capped 20, hash 0x4e2b00ad37fbc793
+EA sweep traditionalAgrarian: ordered 290 of 290 (empty 10), standing within 122 above 7 below 161, mobilization within 179 above 1 below 110, field capped 20, hash 0x2878c0ddc886ffe9
+EA sweep advancedAgrarian: ordered 290 of 290 (empty 10), standing within 149 above 0 below 141, mobilization within 233 above 2 below 55, field capped 20, hash 0x937338a15ca8d3e9
+EA sweep improvedAgrarian: ordered 290 of 290 (empty 10), standing within 148 above 7 below 135, mobilization within 44 above 0 below 246, field capped 20, hash 0x48e60129b69425e9
+EA sweep earlyIndustrial: ordered 290 of 290 (empty 10), standing within 131 above 7 below 152, mobilization within 25 above 0 below 265, field capped 41, hash 0xdb810a7aff1bfe26
+EA sweep industrial: ordered 288 of 290 (empty 10), standing within 98 above 28 below 164, mobilization within 289 above 1 below 0, field capped 47, hash 0xfd92dc8c3684a768
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 14.55s
+

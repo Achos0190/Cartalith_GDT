@@ -1,0 +1,167 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1941:4
+     |
+1941 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2040:4
+     |
+2040 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:149:9
+    |
+149 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
+warning: function `cpus_allowed_count` is never used
+    --> crates\cartalith-engine\src\lib.rs:2144:4
+     |
+2144 | fn cpus_allowed_count(status: &str) -> Option<usize> {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-engine` (lib) generated 1 warning
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:7987:9
+     |
+7987 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SALT_BIOMES_FOR_TEST` is never used
+   --> crates\cartalith-civ\src\landmark\natural_kinds.rs:371:18
+    |
+371 | pub(super) const SALT_BIOMES_FOR_TEST: [u8; 3] = [crate::BIOME_DESERT, crate::BIOME_TROP_DRY, crate::BIOME_SHRUB];
+    |                  ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 2 warnings (run `cargo fix --lib -p cartalith-civ` to apply 1 suggestion)
+   Compiling cartalith-civ v0.1.0 (C:\cw\army\cartalith-native\crates\cartalith-civ)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1.18s
+     Running tests\industrial_army_driver_space.rs (C:/cw/army_target\debug\deps\industrial_army_driver_space-2f8838f4b30e88c9.exe)
+
+running 1 test
+DS s_max over the grid 0.9100, u0 1.0714, alpha 0.13043
+DS derivation set: geometric-mean fee 0.09056, state capacity min 0.107 median 0.474 max 0.910 (n 88)
+DS exact: C1 upkeep 1.3239, C2 ceiling 0.1287, fee needed 0.12075
+DS baseline: unordered 1003 (field>=levy 0); era-13 standing verdicts within 202572 above 20720 below 59732; median standing 6.87 % of citizens, max 12.36 %; unordered by government [republic:30 empire:737 city_state:30 merchant_republic:30 stratocracy:176]
+DS   unordered readings: state capacity from 0.692, E 0.85..1.45, logistics up to 1.000
+DS upkeep alone 1.100: unordered 662 (field>=levy 0); era-13 standing verdicts within 196016 above 18000 below 69008; median standing 6.69 % of citizens, max 12.04 %; unordered by government [republic:1 empire:566 city_state:1 merchant_republic:1 stratocracy:93]
+DS   unordered readings: state capacity from 0.715, E 0.85..1.35, logistics up to 1.000
+DS upkeep alone 1.150: unordered 327 (field>=levy 0); era-13 standing verdicts within 199968 above 7184 below 75872; median standing 6.40 % of citizens, max 11.51 %; unordered by government [empire:316 stratocracy:11]
+DS   unordered readings: state capacity from 0.780, E 0.90..1.25, logistics up to 1.000
+DS upkeep alone 1.200: unordered 152 (field>=levy 0); era-13 standing verdicts within 192612 above 4428 below 85984; median standing 6.13 % of citizens, max 11.03 %; unordered by government [empire:152]
+DS   unordered readings: state capacity from 0.910, E 0.95..1.15, logistics up to 1.000
+DS upkeep alone 1.250: unordered 47 (field>=levy 0); era-13 standing verdicts within 187864 above 2232 below 92928; median standing 5.88 % of citizens, max 10.59 %; unordered by government [empire:47]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.810
+DS upkeep alone 1.300: unordered 0 (field>=levy 0); era-13 standing verdicts within 178396 above 2196 below 102432; median standing 5.66 % of citizens, max 10.18 %; unordered by government []
+DS upkeep alone 1.324: unordered 0 (field>=levy 0); era-13 standing verdicts within 177124 above 0 below 105900; median standing 5.56 % of citizens, max 10.00 %; unordered by government []
+DS upkeep alone 1.330: unordered 0 (field>=levy 0); era-13 standing verdicts within 174176 above 0 below 108848; median standing 5.53 % of citizens, max 9.95 %; unordered by government []
+DS upkeep alone 1.400: unordered 0 (field>=levy 0); era-13 standing verdicts within 161248 above 0 below 121776; median standing 5.25 % of citizens, max 9.46 %; unordered by government []
+DS upkeep alone 1.500: unordered 0 (field>=levy 0); era-13 standing verdicts within 140232 above 0 below 142792; median standing 4.90 % of citizens, max 8.83 %; unordered by government []
+DS ceiling alone 0.150: unordered 387 (field>=levy 0); era-13 standing verdicts within 206260 above 7184 below 69580; median standing 6.57 % of citizens, max 11.60 %; unordered by government [empire:361 stratocracy:26]
+DS   unordered readings: state capacity from 0.780, E 0.90..1.25, logistics up to 1.000
+DS ceiling alone 0.140: unordered 99 (field>=levy 0); era-13 standing verdicts within 201104 above 4428 below 77492; median standing 6.27 % of citizens, max 10.85 %; unordered by government [empire:99]
+DS   unordered readings: state capacity from 0.910, E 0.95..1.10, logistics up to 1.000
+DS ceiling alone 0.130: unordered 0 (field>=levy 0); era-13 standing verdicts within 193092 above 2196 below 87736; median standing 5.98 % of citizens, max 10.10 %; unordered by government []
+DS ceiling alone 0.128: unordered 0 (field>=levy 0); era-13 standing verdicts within 192040 above 0 below 90984; median standing 5.92 % of citizens, max 9.94 %; unordered by government []
+DS ceiling alone 0.125: unordered 0 (field>=levy 0); era-13 standing verdicts within 191520 above 0 below 91504; median standing 5.83 % of citizens, max 9.72 %; unordered by government []
+DS ceiling alone 0.120: unordered 0 (field>=levy 0); era-13 standing verdicts within 187516 above 0 below 95508; median standing 5.68 % of citizens, max 9.34 %; unordered by government []
+DS ceiling alone 0.110: unordered 0 (field>=levy 0); era-13 standing verdicts within 171516 above 0 below 111508; median standing 5.39 % of citizens, max 8.59 %; unordered by government []
+DS ceiling alone 0.100: unordered 0 (field>=levy 0); era-13 standing verdicts within 155340 above 0 below 127684; median standing 5.09 % of citizens, max 7.83 %; unordered by government []
+DS upkeep fine 1.250: unordered 47 (field>=levy 0); era-13 standing verdicts within 187864 above 2232 below 92928; median standing 5.88 % of citizens, max 10.59 %; unordered by government [empire:47]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.810
+DS upkeep fine 1.255: unordered 40 (field>=levy 0); era-13 standing verdicts within 187644 above 2232 below 93148; median standing 5.86 % of citizens, max 10.55 %; unordered by government [empire:40]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.730
+DS upkeep fine 1.260: unordered 34 (field>=levy 0); era-13 standing verdicts within 187196 above 2196 below 93632; median standing 5.84 % of citizens, max 10.51 %; unordered by government [empire:34]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.675
+DS upkeep fine 1.265: unordered 27 (field>=levy 0); era-13 standing verdicts within 179100 above 2196 below 101728; median standing 5.81 % of citizens, max 10.47 %; unordered by government [empire:27]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.610
+DS upkeep fine 1.270: unordered 19 (field>=levy 0); era-13 standing verdicts within 179012 above 2196 below 101816; median standing 5.79 % of citizens, max 10.42 %; unordered by government [empire:19]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.540
+DS upkeep fine 1.275: unordered 14 (field>=levy 0); era-13 standing verdicts within 178792 above 2196 below 102036; median standing 5.77 % of citizens, max 10.38 %; unordered by government [empire:14]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.465
+DS upkeep fine 1.280: unordered 10 (field>=levy 0); era-13 standing verdicts within 178792 above 2196 below 102036; median standing 5.75 % of citizens, max 10.34 %; unordered by government [empire:10]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.385
+DS upkeep fine 1.285: unordered 7 (field>=levy 0); era-13 standing verdicts within 178792 above 2196 below 102036; median standing 5.72 % of citizens, max 10.30 %; unordered by government [empire:7]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.330
+DS upkeep fine 1.290: unordered 4 (field>=levy 0); era-13 standing verdicts within 178572 above 2196 below 102256; median standing 5.70 % of citizens, max 10.26 %; unordered by government [empire:4]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.250
+DS upkeep fine 1.295: unordered 2 (field>=levy 0); era-13 standing verdicts within 178572 above 2196 below 102256; median standing 5.68 % of citizens, max 10.22 %; unordered by government [empire:2]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.195
+DS upkeep fine 1.300: unordered 0 (field>=levy 0); era-13 standing verdicts within 178396 above 2196 below 102432; median standing 5.66 % of citizens, max 10.18 %; unordered by government []
+DS upkeep fine 1.305: unordered 0 (field>=levy 0); era-13 standing verdicts within 178044 above 2196 below 102784; median standing 5.64 % of citizens, max 10.14 %; unordered by government []
+DS upkeep fine 1.310: unordered 0 (field>=levy 0); era-13 standing verdicts within 177956 above 2196 below 102872; median standing 5.62 % of citizens, max 10.11 %; unordered by government []
+DS ceiling fine 0.130: unordered 0 (field>=levy 0); era-13 standing verdicts within 193092 above 2196 below 87736; median standing 5.98 % of citizens, max 10.10 %; unordered by government []
+DS ceiling fine 0.131: unordered 0 (field>=levy 0); era-13 standing verdicts within 193488 above 2196 below 87340; median standing 6.01 % of citizens, max 10.17 %; unordered by government []
+DS ceiling fine 0.132: unordered 3 (field>=levy 0); era-13 standing verdicts within 193928 above 2196 below 86900; median standing 6.04 % of citizens, max 10.25 %; unordered by government [empire:3]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.240
+DS ceiling fine 0.133: unordered 8 (field>=levy 0); era-13 standing verdicts within 193972 above 2196 below 86856; median standing 6.07 % of citizens, max 10.32 %; unordered by government [empire:8]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.340
+DS ceiling fine 0.134: unordered 16 (field>=levy 0); era-13 standing verdicts within 194192 above 2196 below 86636; median standing 6.10 % of citizens, max 10.40 %; unordered by government [empire:16]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.495
+DS ceiling fine 0.135: unordered 28 (field>=levy 0); era-13 standing verdicts within 202464 above 2196 below 78364; median standing 6.13 % of citizens, max 10.47 %; unordered by government [empire:28]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.610
+DS ceiling fine 0.136: unordered 40 (field>=levy 0); era-13 standing verdicts within 202736 above 2232 below 78056; median standing 6.16 % of citizens, max 10.55 %; unordered by government [empire:40]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.730
+DS ceiling fine 0.137: unordered 52 (field>=levy 0); era-13 standing verdicts within 202824 above 2232 below 77968; median standing 6.18 % of citizens, max 10.62 %; unordered by government [empire:52]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.05, logistics up to 0.865
+DS ceiling fine 0.138: unordered 66 (field>=levy 0); era-13 standing verdicts within 203088 above 2232 below 77704; median standing 6.21 % of citizens, max 10.70 %; unordered by government [empire:66]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.10, logistics up to 0.955
+DS ceiling fine 0.139: unordered 82 (field>=levy 0); era-13 standing verdicts within 203132 above 2232 below 77660; median standing 6.24 % of citizens, max 10.77 %; unordered by government [empire:82]
+DS   unordered readings: state capacity from 0.910, E 0.95..1.10, logistics up to 1.000
+DS ceiling fine 0.140: unordered 99 (field>=levy 0); era-13 standing verdicts within 201104 above 4428 below 77492; median standing 6.27 % of citizens, max 10.85 %; unordered by government [empire:99]
+DS   unordered readings: state capacity from 0.910, E 0.95..1.10, logistics up to 1.000
+DS C2' ceiling 0.15 with upkeep re-derived to 1.0229: unordered 803 (field>=levy 0); era-13 standing verdicts within 202616 above 20720 below 59688; median standing 6.88 % of citizens, max 12.15 %; unordered by government [republic:12 empire:637 city_state:12 merchant_republic:12 stratocracy:130]
+DS   unordered readings: state capacity from 0.705, E 0.85..1.40, logistics up to 1.000
+DS C2' ceiling 0.14 with upkeep re-derived to 0.9744: unordered 626 (field>=levy 0); era-13 standing verdicts within 208204 above 18000 below 56820; median standing 6.90 % of citizens, max 11.93 %; unordered by government [republic:2 empire:533 city_state:2 merchant_republic:2 stratocracy:87]
+DS   unordered readings: state capacity from 0.715, E 0.90..1.35, logistics up to 1.000
+DS C2' ceiling 0.13 with upkeep re-derived to 0.9256: unordered 465 (field>=levy 0); era-13 standing verdicts within 213476 above 15280 below 54268; median standing 6.92 % of citizens, max 11.69 %; unordered by government [empire:416 stratocracy:49]
+DS   unordered readings: state capacity from 0.780, E 0.90..1.30, logistics up to 1.000
+DS C2' ceiling 0.12 with upkeep re-derived to 0.8767: unordered 312 (field>=levy 0); era-13 standing verdicts within 226984 above 7184 below 48856; median standing 6.94 % of citizens, max 11.42 %; unordered by government [empire:295 stratocracy:17]
+DS   unordered readings: state capacity from 0.780, E 0.90..1.25, logistics up to 1.000
+DS C2' ceiling 0.11 with upkeep re-derived to 0.8275: unordered 188 (field>=levy 0); era-13 standing verdicts within 235292 above 7148 below 40584; median standing 6.97 % of citizens, max 11.12 %; unordered by government [empire:188]
+DS   unordered readings: state capacity from 0.808, E 0.95..1.15, logistics up to 1.000
+DS C2' ceiling 0.10 with upkeep re-derived to 0.7782: unordered 85 (field>=levy 0); era-13 standing verdicts within 243608 above 4428 below 34988; median standing 7.01 % of citizens, max 10.79 %; unordered by government [empire:85]
+DS   unordered readings: state capacity from 0.910, E 0.95..1.10, logistics up to 1.000
+DS C2' ceiling 0.09 with upkeep re-derived to 0.7285: unordered 18 (field>=levy 0); era-13 standing verdicts within 246156 above 2196 below 34672; median standing 7.05 % of citizens, max 10.41 %; unordered by government [empire:18]
+DS   unordered readings: state capacity from 0.910, E 1.00..1.00, logistics up to 0.520
+DS C2' ceiling 0.08 with upkeep re-derived to 0.6785: unordered 0 (field>=levy 0); era-13 standing verdicts within 248580 above 0 below 34444; median standing 7.10 % of citizens, max 9.99 %; unordered by government []
+DS C2' ceiling 0.06 with upkeep re-derived to 0.5772: unordered 0 (field>=levy 0); era-13 standing verdicts within 249476 above 0 below 33548; median standing 7.25 % of citizens, max 8.95 %; unordered by government []
+DS C2' ceiling 0.04 with upkeep re-derived to 0.4732: unordered 0 (field>=levy 0); era-13 standing verdicts within 249508 above 0 below 33516; median standing 7.50 % of citizens, max 7.50 %; unordered by government []
+DS C3 scaled upkeep theta 0.25: unordered 117 (field>=levy 0); era-13 standing verdicts within 232652 above 7112 below 43260; median standing 7.02 % of citizens, max 10.91 %; unordered by government [empire:117]
+DS   unordered readings: state capacity from 0.808, E 0.95..1.10, logistics up to 1.000
+DS C3 scaled upkeep theta 0.5: unordered 0 (field>=levy 0); era-13 standing verdicts within 248624 above 0 below 34400; median standing 7.18 % of citizens, max 9.63 %; unordered by government []
+DS C3 scaled upkeep theta 0.75: unordered 0 (field>=levy 0); era-13 standing verdicts within 249572 above 0 below 33452; median standing 7.34 % of citizens, max 8.50 %; unordered by government []
+DS C3 scaled upkeep theta 1: unordered 0 (field>=levy 0); era-13 standing verdicts within 249508 above 0 below 33516; median standing 7.50 % of citizens, max 7.50 %; unordered by government []
+test industrial_army_driver_space_candidates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+

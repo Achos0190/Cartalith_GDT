@@ -1008,3 +1008,70 @@ fn g1_comparison_report() {
     assert_eq!(checked, 20 * 16);
     assert!(lines > 0, "silently empty comparison output");
 }
+
+/// Scratch dump for the industrial standing-army row (`OUTSTANDING_WORK.md`,
+/// "Military manpower: on the industrial rows, a high-state-capacity standing
+/// army above its own band"; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.9,
+/// 2026-11-17). **Pins nothing; ignored.** Prints, per real faction on the 20
+/// harness worlds with every faction forced to the `industrial` ag-tech row
+/// (and restored), the drivers and outputs the analysis needs: one `IA row`
+/// line each, plus the bracket of every faction at its *default* ag-tech
+/// (`IA default`) to count how many generated factions sit on an industrial
+/// row today. The ablations are done offline on these lines
+/// (`evidence/industrial-army-2026-11-17/analyse.py`), because chain 1's
+/// standing army is the only output that reads the fiscal fee or the soldier
+/// upkeep, so re-pricing it needs no model change.
+///
+/// Run (alone): `cargo test -p cartalith-godot --lib ia_dump -j 2 -- --ignored --nocapture --test-threads 1`
+#[test]
+#[ignore = "scratch dump for the industrial standing-army measurement; pins nothing; run alone"]
+fn ia_dump_industrial_rows() {
+    use cartalith_civ::manpower::alpha_bracket;
+    use cartalith_civ::roster::AG_TECH_LEVELS;
+    let mut printed = 0usize;
+    for &(seed, width, factions) in worlds().iter() {
+        let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
+        let base = read(&civ, &ws, gh, p.map_width_km, seed, true);
+        for (i, m) in base.rows.iter().enumerate() {
+            println!(
+                "IA default {seed} {width} {factions} f{} bracket {} tech {}",
+                i + 1,
+                alpha_bracket(m.drivers.agricultural_labour_ratio),
+                civ.faction_roster.0[i + 1].ag_tech
+            );
+        }
+        let saved: Vec<String> = civ.faction_roster.0.iter().map(|e| e.ag_tech.clone()).collect();
+        let row = AG_TECH_LEVELS.iter().find(|r| r.key == "industrial").unwrap();
+        for e in civ.faction_roster.0.iter_mut().skip(1) {
+            e.ag_tech = row.key.to_string();
+        }
+        for (i, m) in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter().enumerate() {
+            let d = &m.drivers;
+            println!(
+                "IA row {seed} {width} {factions} f{} gov {} pop {:.3} E {:.6} s {:.6} L {:.6} a {:.6} cf {:.6} fee {:.6} u {:.6} standing {:.6} field {:.6} levy {:.6} band {:.3} {:.3} era {} order {:?}",
+                i + 1,
+                civ.faction_roster.0[i + 1].government,
+                m.total_population,
+                d.ecological_factor,
+                d.state_capacity,
+                d.logistics_capacity,
+                d.agricultural_labour_ratio,
+                d.citizen_fraction,
+                d.fiscal_extraction_efficiency,
+                d.soldier_upkeep,
+                m.standing_army,
+                m.field_army,
+                m.emergency_mobilization,
+                m.era_band.standing.0,
+                m.era_band.standing.1,
+                m.era_band.name.replace(' ', "_").replace('/', "-"),
+                order_of(m)
+            );
+            printed += 1;
+        }
+        for (e, t) in civ.faction_roster.0.iter_mut().zip(saved) {
+            e.ag_tech = t;
+        }
+    }
+    assert!(printed >= 290, "silently empty dump: {printed}");
+}

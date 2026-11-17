@@ -1,0 +1,48 @@
+rows 300, non-empty 290
+control: chain 1 reconstructs the model's standing on every row
+
+== 1. baseline leaves ==
+baseline: unordered 2 of 290; standing verdicts {'within': 98, 'above': 28, 'below': 164}; median 3.53 %
+   leaf 404/800/24 ff21 republic E 1.002 s 0.715 L 0.450 standing 10.42 % of citizens, band (0.05, 0.1), era Total_industrial_mobilization, standing/field 1.010
+   leaf 24601/800/24 ff8 city_state E 1.023 s 0.715 L 0.450 standing 10.42 % of citizens, band (0.05, 0.1), era Total_industrial_mobilization, standing/field 1.000
+eras over the 290: {'Total_industrial_mobilization': 289, 'Modern_mechanized': 1}
+state capacity of the live factions: min 0.195 median 0.585 max 0.910
+standing above its own band, ordered or not: 28 (of which unordered 2)
+by government [n, unordered, above band]: {'chiefdom': [40, 0, 0], 'tribal_confederacy': [40, 0, 0], 'monarchy': [40, 0, 0], 'oligarchy': [40, 0, 0], 'republic': [40, 1, 9], 'theocracy': [40, 0, 0], 'empire': [25, 0, 7], 'city_state': [25, 1, 12]}
+
+== 2. attribution: each cause isolated ==
+-- upkeep alone (a level change: every polity scaled alike)
+upkeep 1.1: unordered 0 of 290; standing verdicts {'within': 98, 'above': 28, 'below': 164}; median 3.44 %
+upkeep 1.15: unordered 0 of 290; standing verdicts {'within': 100, 'above': 7, 'below': 183}; median 3.29 %
+upkeep 1.2: unordered 0 of 290; standing verdicts {'within': 96, 'above': 7, 'below': 187}; median 3.16 %
+upkeep 1.25: unordered 0 of 290; standing verdicts {'within': 94, 'above': 7, 'below': 189}; median 3.03 %
+upkeep 1.3: unordered 0 of 290; standing verdicts {'within': 68, 'above': 7, 'below': 215}; median 2.91 %
+upkeep 1.324: unordered 0 of 290; standing verdicts {'within': 73, 'above': 1, 'below': 216}; median 2.86 %
+upkeep 1.33: unordered 0 of 290; standing verdicts {'within': 73, 'above': 1, 'below': 216}; median 2.85 %
+upkeep 1.4: unordered 0 of 290; standing verdicts {'within': 73, 'above': 1, 'below': 216}; median 2.71 %
+upkeep 1.5: unordered 0 of 290; standing verdicts {'within': 72, 'above': 1, 'below': 217}; median 2.52 %
+-- ceiling alone, industrial brackets (a slope change: the spread over s compressed)
+ceiling 0.15: unordered 0 of 290; standing verdicts {'within': 118, 'above': 7, 'below': 165}; median 3.35 %
+ceiling 0.14: unordered 0 of 290; standing verdicts {'within': 96, 'above': 7, 'below': 187}; median 3.19 %
+ceiling 0.13: unordered 0 of 290; standing verdicts {'within': 94, 'above': 7, 'below': 189}; median 3.05 %
+ceiling 0.128: unordered 0 of 290; standing verdicts {'within': 99, 'above': 1, 'below': 190}; median 3.02 %
+ceiling 0.125: unordered 0 of 290; standing verdicts {'within': 99, 'above': 1, 'below': 190}; median 2.97 %
+ceiling 0.12: unordered 0 of 290; standing verdicts {'within': 97, 'above': 1, 'below': 192}; median 2.89 %
+ceiling 0.11: unordered 0 of 290; standing verdicts {'within': 73, 'above': 1, 'below': 216}; median 2.70 %
+
+== 3. candidates on the 290-faction sweep ==
+C1 upkeep 1.33 (level; band top at s 0.91): unordered 0 of 290; standing verdicts {'within': 73, 'above': 1, 'below': 216}; median 2.85 %
+C2prime ceiling 0.08 with upkeep re-derived to 0.6785 (rule-consistent slope change): unordered 0 of 290; standing verdicts {'within': 123, 'above': 1, 'below': 166}; median 3.40 %
+C2 industrial ceiling 0.128 (slope; band top at s 0.91): unordered 0 of 290; standing verdicts {'within': 99, 'above': 1, 'below': 190}; median 3.02 %
+C3 upkeep scaled by (fee/fee_ref)^0.25: unordered 0 of 290; standing verdicts {'within': 118, 'above': 7, 'below': 165}; median 3.47 %
+C3 upkeep scaled by (fee/fee_ref)^0.5: unordered 0 of 290; standing verdicts {'within': 121, 'above': 1, 'below': 168}; median 3.40 %
+C3 upkeep scaled by (fee/fee_ref)^0.75: unordered 0 of 290; standing verdicts {'within': 118, 'above': 1, 'below': 171}; median 3.23 %
+C3 upkeep scaled by (fee/fee_ref)^1.0: unordered 0 of 290; standing verdicts {'within': 118, 'above': 1, 'below': 171}; median 3.04 %
+
+== 4. minimal single change that clears the sweep's leaves ==
+upkeep alone clears the sweep from 1.083
+ceiling alone first clears the sweep at 0.1580
+highest fee on the sweep 0.14920 against EXTRACTION_CEILING 0.16 (the ceiling is never reached: state capacity clamps at 0.95 and tops out at 0.910 here)
+margins standing/field of the leaves: [1.0103, 1.0]
+above-band factions: s median 0.715, E median 2.751
+below-band factions: s median 0.585, E median 0.250

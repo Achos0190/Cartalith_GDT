@@ -1,0 +1,788 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1941:4
+     |
+1941 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2040:4
+     |
+2040 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: function `cpus_allowed_count` is never used
+    --> crates\cartalith-engine\src\lib.rs:2144:4
+     |
+2144 | fn cpus_allowed_count(status: &str) -> Option<usize> {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-engine` (lib) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:149:9
+    |
+149 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:7987:9
+     |
+7987 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SALT_BIOMES_FOR_TEST` is never used
+   --> crates\cartalith-civ\src\landmark\natural_kinds.rs:371:18
+    |
+371 | pub(super) const SALT_BIOMES_FOR_TEST: [u8; 3] = [crate::BIOME_DESERT, crate::BIOME_TROP_DRY, crate::BIOME_SHRUB];
+    |                  ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 2 warnings (run `cargo fix --lib -p cartalith-civ` to apply 1 suggestion)
+warning: trailing semicolon in macro used in expression position
+    --> crates\cartalith-godot\src\project_bridge.rs:4440:27
+     |
+4440 |                   Err(e) => godot_warn!(
+     |  ___________________________^
+4441 | |                     "cartalith-godot: this project's vault.json could not be read ({e}); \
+4442 | |                      its links were left out of the opened project rather than merged. \
+4443 | |                      The links already in memory are untouched."
+4444 | |                 ),
+     | |_________________^
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+     = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+     = note: this warning originates in the macro `godot_warn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+   --> crates\cartalith-godot\src\town_river_census.rs:284:17
+    |
+284 |             let mut moved: Vec<f64> = civ
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `dir` is never used
+   --> crates\cartalith-godot\src\asset_store.rs:196:12
+    |
+182 | impl LibraryStore {
+    | ----------------- method in this implementation
+...
+196 |     pub fn dir(&self) -> &Path {
+    |            ^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `preview_patch` is never used
+    --> crates\cartalith-godot\src\paint_bridge.rs:1211:12
+     |
+ 482 | impl PaintEditor {
+     | ---------------- method in this implementation
+...
+1211 |     pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+     |            ^^^^^^^^^^^^^
+
+warning: function `is_new_world_rule` is never used
+    --> crates\cartalith-godot\src\params.rs:1656:8
+     |
+1656 | pub fn is_new_world_rule(key: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^
+
+warning: function `grain_lattice` is never used
+    --> crates\cartalith-godot\src\render.rs:6711:15
+     |
+6711 | pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+     |               ^^^^^^^^^^^^^
+
+warning: function `land_grain` is never used
+    --> crates\cartalith-godot\src\render.rs:6838:15
+     |
+6838 | pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
+     |               ^^^^^^^^^^
+
+warning: function `lake_color` is never used
+    --> crates\cartalith-godot\src\render.rs:8830:4
+     |
+8830 | fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+     |    ^^^^^^^^^^
+
+warning: method `pixel` is never used
+     --> crates\cartalith-godot\src\render.rs:10669:12
+      |
+10594 | impl BakeFields {
+      | --------------- method in this implementation
+...
+10669 |     pub fn pixel(&self, ctx: &RenderCtx, gx: f64, gy: f64) -> (f64, f64, f64) {
+      |            ^^^^^
+
+warning: field `repainted` is never read
+     --> crates\cartalith-godot\src\render.rs:11692:9
+      |
+11691 | pub struct RiverPost {
+      |            --------- field in this struct
+11692 |     pub repainted: usize,
+      |         ^^^^^^^^^
+
+warning: function `shore_depth_forced` is never used
+     --> crates\cartalith-godot\src\render.rs:15018:8
+      |
+15018 | pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, s...
+      |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `ref_fit_ppc` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1339:8
+     |
+1339 | pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+     |        ^^^^^^^^^^^
+
+warning: function `visible_share` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1418:8
+     |
+1418 | pub fn visible_share(ppc: f32) -> f32 {
+     |        ^^^^^^^^^^^^^
+
+warning: method `is_empty` is never used
+   --> crates\cartalith-godot\src\undo.rs:150:12
+    |
+132 | impl ColumnSnapshot {
+    | ------------------- method in this implementation
+...
+150 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: `cartalith-godot` (lib test) generated 14 warnings (run `cargo fix --lib -p cartalith-godot --tests` to apply 1 suggestion)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.13s
+     Running unittests src\lib.rs (C:/cw/army_target\debug\deps\cartalith_godot-79b8946b4ca0e1d8.exe)
+
+running 1 test
+test g1_baseline::ia_dump_industrial_rows ... IA default 12345 800 6 f1 bracket 1 tech traditionalAgrarian
+IA default 12345 800 6 f2 bracket 1 tech traditionalAgrarian
+IA default 12345 800 6 f3 bracket 1 tech traditionalAgrarian
+IA default 12345 800 6 f4 bracket 1 tech traditionalAgrarian
+IA default 12345 800 6 f5 bracket 1 tech traditionalAgrarian
+IA default 12345 800 6 f6 bracket 1 tech traditionalAgrarian
+IA row 12345 800 6 f1 gov chiefdom pop 39609.450 E 0.410377 s 0.195000 L 0.900000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 836.414581 field 4030.679720 levy 7488.338738 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 6 f2 gov tribal_confederacy pop 3855.950 E 4.000000 s 0.260000 L 0.612341 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 222.823969 field 652.782460 levy 725.313845 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 6 f3 gov monarchy pop 37652.150 E 0.250000 s 0.585000 L 0.586286 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 841.902697 field 3813.593105 levy 7157.577889 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 6 f4 gov oligarchy pop 22957.450 E 3.263297 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 2198.650364 field 3932.910630 levy 4369.900700 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 6 f5 gov republic pop 21791.350 E 0.310286 s 0.715000 L 0.862418 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 690.363789 field 2252.431291 levy 4189.733745 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 6 f6 gov theocracy pop 25917.550 E 0.250000 s 0.585000 L 0.480349 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 579.516847 field 2609.006346 levy 4913.729067 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 12345 800 24 f1 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f2 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f3 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f4 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f5 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f6 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f7 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f8 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f9 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f10 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f11 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f12 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f13 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f14 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f15 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f16 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f17 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f18 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f19 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f20 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f21 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f22 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f23 bracket 1 tech traditionalAgrarian
+IA default 12345 800 24 f24 bracket 1 tech traditionalAgrarian
+IA row 12345 800 24 f1 gov chiefdom pop 2421.900 E 1.301052 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 124.622363 field 273.873405 levy 452.658375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f2 gov tribal_confederacy pop 2958.950 E 4.000000 s 0.260000 L 0.599400 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 170.988986 field 500.762484 levy 556.402760 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f3 gov monarchy pop 2486.300 E 0.380998 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 84.724419 field 249.844715 levy 471.018725 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f4 gov oligarchy pop 2885.350 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 69.082976 field 290.593471 levy 547.840150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f5 gov republic pop 30701.550 E 0.250000 s 0.715000 L 0.532241 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 783.666838 field 3113.740370 levy 5854.380426 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f6 gov theocracy pop 27726.500 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 619.964999 field 2786.196151 levy 5252.664875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f7 gov empire pop 23324.300 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 706.102856 field 2370.048701 levy 4468.124600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f8 gov city_state pop 2134.400 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 217.924958 field 365.546160 levy 406.162400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f9 gov chiefdom pop 2278.150 E 4.000000 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 117.225499 field 384.192664 levy 426.880738 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f10 gov tribal_confederacy pop 2107.950 E 1.275519 s 0.260000 L 0.550000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 121.812208 field 237.937553 levy 395.882175 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f11 gov monarchy pop 2340.250 E 2.493633 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 209.312115 field 373.518210 levy 444.469438 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f12 gov oligarchy pop 23188.600 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 555.196939 field 2335.403247 levy 4402.809400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f13 gov republic pop 2570.250 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 65.606450 field 259.436614 levy 489.101813 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f14 gov theocracy pop 23926.900 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 535.005880 field 2404.379806 levy 4532.847175 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f15 gov empire pop 2152.800 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 65.172298 field 218.752153 levy 412.401600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f16 gov city_state pop 2628.900 E 0.254498 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 68.310886 field 265.356644 levy 500.262525 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f17 gov chiefdom pop 10703.050 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 137.685225 field 1061.094105 levy 2000.423313 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f18 gov tribal_confederacy pop 25093.000 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 362.512600 field 2493.347683 levy 4700.573500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f19 gov monarchy pop 2262.050 E 0.250000 s 0.585000 L 0.607510 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 50.579475 field 229.392583 levy 430.239559 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f20 gov oligarchy pop 2197.650 E 4.000000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 210.470413 field 376.486110 levy 418.317900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f21 gov republic pop 20441.250 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 521.769414 field 2063.304611 levy 3889.836563 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f22 gov theocracy pop 2029.750 E 4.000000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 181.540974 field 346.948256 levy 385.498063 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f23 gov empire pop 2216.050 E 4.000000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 268.348329 field 382.066290 levy 424.518100 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 800 24 f24 gov city_state pop 2234.450 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 228.140190 field 382.681136 levy 425.201263 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 12345 40075 6 f1 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 6 f2 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 6 f3 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 6 f4 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 6 f5 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 6 f6 bracket 1 tech traditionalAgrarian
+IA row 12345 40075 6 f1 gov chiefdom pop 43303.250 E 3.440245 s 0.195000 L 0.473368 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 2228.231286 field 7288.479991 levy 8098.311101 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 6 f2 gov tribal_confederacy pop 28051.950 E 0.988493 s 0.260000 L 0.552071 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1602.385834 field 2803.977898 levy 5268.556075 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 6 f3 gov monarchy pop 46826.850 E 0.250000 s 0.585000 L 0.453799 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1047.049141 field 4706.600215 levy 8871.993833 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 6 f4 gov oligarchy pop 22906.850 E 0.250000 s 0.650000 L 0.453263 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 548.451092 field 2307.463707 levy 4349.671138 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 6 f5 gov republic pop 23742.900 E 0.328362 s 0.715000 L 0.501804 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 796.009244 field 2403.763579 levy 4524.001495 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 6 f6 gov theocracy pop 46090.850 E 0.386378 s 0.585000 L 0.450881 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1592.794335 field 4631.839988 levy 8731.905249 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 12345 40075 24 f1 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f2 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f3 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f4 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f5 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f6 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f7 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f8 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f9 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f10 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f11 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f12 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f13 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f14 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f15 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f16 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f17 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f18 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f19 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f20 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f21 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f22 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f23 bracket 1 tech traditionalAgrarian
+IA default 12345 40075 24 f24 bracket 1 tech traditionalAgrarian
+IA row 12345 40075 24 f1 gov chiefdom pop 24320.200 E 4.000000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1251.431025 field 4090.948425 levy 4545.498250 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f2 gov tribal_confederacy pop 9932.550 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 143.493186 field 986.940602 levy 1860.625725 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f3 gov monarchy pop 2786.450 E 4.000000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 249.220273 field 476.292139 levy 529.213488 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f4 gov oligarchy pop 20356.150 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 487.380530 field 2050.137516 levy 3865.013350 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f5 gov republic pop 2904.900 E 0.498511 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 147.855498 field 293.215609 levy 552.783525 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f6 gov theocracy pop 2593.250 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 57.985113 field 260.591967 levy 491.279938 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f7 gov empire pop 27913.950 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 845.046575 field 2836.416138 levy 5347.341900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f8 gov city_state pop 2350.600 E 4.000000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 239.999253 field 403.585245 levy 448.428050 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f9 gov chiefdom pop 21571.700 E 0.743195 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 824.948860 field 2138.605697 levy 4031.797625 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f10 gov tribal_confederacy pop 2310.350 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 33.377077 field 229.566246 levy 432.788825 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f11 gov monarchy pop 27672.450 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 618.756440 field 2780.764744 levy 5242.425337 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f12 gov oligarchy pop 2137.850 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 51.185832 field 215.310188 levy 405.912650 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f13 gov republic pop 2373.600 E 2.478265 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 242.347583 field 379.357781 levy 452.815800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f14 gov theocracy pop 2248.250 E 0.603978 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 121.450098 field 225.923413 levy 425.921188 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f15 gov empire pop 2352.900 E 2.182982 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 284.919918 field 353.245923 levy 450.733800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f16 gov city_state pop 2624.300 E 0.250000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 66.986093 field 266.428759 levy 500.642275 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f17 gov chiefdom pop 2451.800 E 0.370271 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 46.713669 field 243.070015 levy 458.246750 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f18 gov tribal_confederacy pop 2219.500 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 32.064588 field 220.539002 levy 415.770250 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f19 gov monarchy pop 2306.900 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 51.582322 field 231.817067 levy 437.032175 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f20 gov oligarchy pop 27244.650 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 652.309595 field 2743.901920 levy 5172.929850 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f21 gov republic pop 2777.250 E 0.298528 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 84.650742 field 280.330838 levy 528.492563 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f22 gov theocracy pop 2602.450 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 58.190825 field 261.516462 levy 493.022838 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 12345 40075 24 f23 gov empire pop 0.000 E 1.000000 s 0.500500 L 0.150000 a 0.130435 cf 0.980000 fee 0.100060 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA row 12345 40075 24 f24 gov city_state pop 0.000 E 1.000000 s 0.393250 L 0.150000 a 0.130435 cf 0.980000 fee 0.087190 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA default 314159 800 6 f1 bracket 1 tech traditionalAgrarian
+IA default 314159 800 6 f2 bracket 1 tech traditionalAgrarian
+IA default 314159 800 6 f3 bracket 1 tech traditionalAgrarian
+IA default 314159 800 6 f4 bracket 1 tech traditionalAgrarian
+IA default 314159 800 6 f5 bracket 1 tech traditionalAgrarian
+IA default 314159 800 6 f6 bracket 1 tech traditionalAgrarian
+IA row 314159 800 6 f1 gov chiefdom pop 24515.700 E 0.250000 s 0.195000 L 0.641837 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 315.372690 field 2457.765150 levy 4604.530351 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 6 f2 gov tribal_confederacy pop 26921.500 E 1.906193 s 0.260000 L 0.876862 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1555.714019 field 3785.789063 levy 5098.059871 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 6 f3 gov monarchy pop 40447.800 E 1.012462 s 0.585000 L 0.658304 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 3617.653911 field 4139.374595 levy 7702.955386 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 6 f4 gov oligarchy pop 27968.000 E 0.442518 s 0.650000 L 0.614947 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1185.289534 field 2843.752671 levy 5332.335295 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 6 f5 gov republic pop 28405.000 E 0.528528 s 0.715000 L 0.875869 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 1532.829328 field 2938.302013 levy 5463.140507 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 6 f6 gov theocracy pop 23396.750 E 2.173001 s 0.585000 L 0.626188 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2092.606870 field 3501.314417 levy 4452.127607 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 314159 800 24 f1 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f2 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f3 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f4 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f5 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f6 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f7 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f8 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f9 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f10 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f11 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f12 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f13 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f14 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f15 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f16 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f17 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f18 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f19 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f20 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f21 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f22 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f23 bracket 1 tech traditionalAgrarian
+IA default 314159 800 24 f24 bracket 1 tech traditionalAgrarian
+IA row 314159 800 24 f1 gov chiefdom pop 23772.800 E 0.250000 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 305.815942 field 2370.599349 levy 4454.557600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f2 gov tribal_confederacy pop 24566.300 E 2.305044 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1419.613963 field 3706.035655 levy 4601.908850 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f3 gov monarchy pop 27404.500 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 612.765074 field 2753.838834 levy 5191.663375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f4 gov oligarchy pop 20019.200 E 1.191460 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1917.252193 field 2200.765372 levy 3801.036800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f5 gov republic pop 2801.400 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 286.026507 field 479.779335 levy 533.088150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f6 gov theocracy pop 25774.950 E 0.250000 s 0.585000 L 0.503685 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 576.328309 field 2598.163123 levy 4889.569996 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f7 gov empire pop 27555.150 E 0.250000 s 0.910000 L 0.727942 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 834.184525 field 2845.079242 levy 5315.237019 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f8 gov city_state pop 22571.050 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 576.133237 field 2278.282960 levy 4295.123613 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f9 gov chiefdom pop 22346.800 E 0.328019 s 0.195000 L 0.608470 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 377.185261 field 2235.990004 levy 4193.602137 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f10 gov tribal_confederacy pop 2646.150 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 38.228299 field 262.932769 levy 495.692925 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f11 gov monarchy pop 2258.600 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 50.502333 field 228.282466 levy 428.962150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f12 gov oligarchy pop 21385.400 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 512.023521 field 2153.796805 levy 4060.436600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f13 gov republic pop 24889.450 E 1.780065 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2541.244540 field 3351.885584 levy 4736.300012 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f14 gov theocracy pop 23236.900 E 4.000000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2078.309875 field 3961.916708 levy 4402.129675 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f15 gov empire pop 2106.800 E 4.000000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 255.118910 field 363.230640 levy 403.589600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f16 gov city_state pop 21874.150 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 558.344643 field 2207.939073 levy 4162.508088 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f17 gov chiefdom pop 25695.600 E 0.391134 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 517.158374 field 2547.446726 levy 4802.563500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f18 gov tribal_confederacy pop 26030.250 E 0.570529 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 858.196923 field 2586.476847 levy 4876.144875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f19 gov monarchy pop 2434.550 E 1.841900 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 217.746313 field 333.952738 levy 462.379262 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f20 gov oligarchy pop 20300.950 E 1.358196 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1944.235580 field 2382.785684 levy 3854.532550 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f21 gov republic pop 21687.850 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 553.589276 field 2189.134271 levy 4127.056413 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f22 gov theocracy pop 21502.700 E 2.103095 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1923.202912 field 3133.567845 levy 4073.593025 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f23 gov empire pop 20034.150 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 606.499253 field 2035.727168 levy 3837.846300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 800 24 f24 gov city_state pop 1936.600 E 1.133068 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 197.729326 field 208.076871 levy 368.522350 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 314159 40075 6 f1 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 6 f2 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 6 f3 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 6 f4 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 6 f5 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 6 f6 bracket 1 tech traditionalAgrarian
+IA row 314159 40075 6 f1 gov chiefdom pop 35937.500 E 3.160271 s 0.195000 L 0.454913 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1849.215979 field 6045.877236 levy 6717.641374 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 6 f2 gov tribal_confederacy pop 28406.150 E 1.078689 s 0.260000 L 0.455903 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1641.507560 field 2932.515668 levy 5322.014910 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 6 f3 gov monarchy pop 33022.250 E 0.250000 s 0.585000 L 0.478413 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 738.378057 field 3323.832252 levy 6260.409056 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 6 f4 gov oligarchy pop 39566.900 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 947.337129 field 3984.917879 levy 7512.550100 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 6 f5 gov republic pop 35824.800 E 0.783294 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2865.100520 field 3637.067785 levy 6834.359400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 6 f6 gov theocracy pop 2916.400 E 0.250000 s 0.585000 L 0.500000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 65.210752 field 293.915812 levy 553.196700 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 314159 40075 24 f1 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f2 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f3 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f4 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f5 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f6 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f7 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f8 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f9 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f10 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f11 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f12 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f13 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f14 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f15 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f16 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f17 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f18 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f19 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f20 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f21 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f22 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f23 bracket 1 tech traditionalAgrarian
+IA default 314159 40075 24 f24 bracket 1 tech traditionalAgrarian
+IA row 314159 40075 24 f1 gov chiefdom pop 24370.800 E 4.000000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1254.034721 field 4099.459950 levy 4554.955500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f2 gov tribal_confederacy pop 25187.300 E 1.965652 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1455.499720 field 3508.853382 levy 4718.238350 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f3 gov monarchy pop 2814.050 E 1.110696 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 251.688818 field 298.020439 levy 533.109537 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f4 gov oligarchy pop 2050.450 E 4.000000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 196.372970 field 350.386245 levy 389.318050 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f5 gov republic pop 29160.550 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 744.332322 field 2943.415754 levy 5549.062488 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f6 gov theocracy pop 26015.300 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 581.702539 field 2614.240122 levy 4928.485475 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f7 gov empire pop 2797.950 E 4.000000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 338.812395 field 482.390910 levy 535.989900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f8 gov city_state pop 23571.550 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 601.671318 field 2379.271709 levy 4485.512238 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f9 gov chiefdom pop 21576.300 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 277.559922 field 2139.061738 levy 4032.657375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f10 gov tribal_confederacy pop 23060.950 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 333.156057 field 2291.434513 levy 4319.917525 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f11 gov monarchy pop 2764.600 E 0.501158 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 123.919352 field 277.810682 levy 523.741450 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f12 gov oligarchy pop 21348.600 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 511.142430 field 2150.090551 levy 4053.449400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f13 gov republic pop 23673.900 E 0.452381 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 1093.465897 field 2389.602742 levy 4504.988775 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f14 gov theocracy pop 2242.500 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 50.142337 field 225.345603 levy 424.831875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f15 gov empire pop 2335.650 E 0.403551 s 0.910000 L 0.550000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 114.136798 field 238.704666 levy 448.546350 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f16 gov city_state pop 25842.800 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 659.645697 field 2608.527777 levy 4917.716300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f17 gov chiefdom pop 2406.950 E 0.250000 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 30.963272 field 240.018597 levy 451.015338 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f18 gov tribal_confederacy pop 2180.400 E 1.912523 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 125.998880 field 299.619288 levy 408.445800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f19 gov monarchy pop 22650.400 E 1.356276 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2025.853276 field 2666.141197 levy 4301.852600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f20 gov oligarchy pop 26765.100 E 0.748287 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1918.092229 field 2711.255046 levy 5094.678600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f21 gov republic pop 2724.350 E 0.455111 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 126.593471 field 274.991203 levy 518.426038 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f22 gov theocracy pop 2553.000 E 0.607322 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 138.676184 field 256.547302 levy 483.654750 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 314159 40075 24 f23 gov empire pop 0.000 E 1.000000 s 0.500500 L 0.150000 a 0.130435 cf 0.980000 fee 0.100060 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA row 314159 40075 24 f24 gov city_state pop 0.000 E 1.000000 s 0.393250 L 0.150000 a 0.130435 cf 0.980000 fee 0.087190 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA default 404 800 6 f1 bracket 1 tech traditionalAgrarian
+IA default 404 800 6 f2 bracket 1 tech traditionalAgrarian
+IA default 404 800 6 f3 bracket 1 tech traditionalAgrarian
+IA default 404 800 6 f4 bracket 1 tech traditionalAgrarian
+IA default 404 800 6 f5 bracket 1 tech traditionalAgrarian
+IA default 404 800 6 f6 bracket 1 tech traditionalAgrarian
+IA row 404 800 6 f1 gov chiefdom pop 39679.600 E 1.954322 s 0.195000 L 0.629821 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 2041.771141 field 5557.231650 levy 7450.328574 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 6 f2 gov tribal_confederacy pop 28492.400 E 0.315460 s 0.260000 L 0.741517 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 519.403091 field 2879.458872 levy 5377.094188 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 6 f3 gov monarchy pop 20954.150 E 0.756698 s 0.585000 L 0.641127 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1418.157515 field 2129.070950 levy 3988.826485 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 6 f4 gov oligarchy pop 33044.100 E 0.459872 s 0.650000 L 0.713105 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1455.337470 field 3378.938696 levy 6315.649151 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 6 f5 gov republic pop 22881.550 E 1.286790 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2336.235393 field 2635.159079 levy 4365.153088 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 6 f6 gov theocracy pop 2525.400 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 56.467986 field 255.248623 levy 479.633850 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 404 800 24 f1 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f2 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f3 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f4 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f5 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f6 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f7 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f8 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f9 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f10 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f11 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f12 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f13 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f14 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f15 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f16 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f17 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f18 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f19 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f20 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f21 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f22 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f23 bracket 1 tech traditionalAgrarian
+IA default 404 800 24 f24 bracket 1 tech traditionalAgrarian
+IA row 404 800 24 f1 gov chiefdom pop 24458.200 E 0.933213 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1174.478118 field 2424.771615 levy 4571.290750 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f2 gov tribal_confederacy pop 2519.650 E 4.000000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 145.603136 field 424.796558 levy 471.996175 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f3 gov monarchy pop 2795.650 E 0.295634 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 73.921302 field 280.930852 levy 529.623738 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f4 gov oligarchy pop 2038.950 E 1.195745 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 195.271607 field 224.550118 levy 387.134550 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f5 gov republic pop 2910.650 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 297.181071 field 498.489941 levy 553.877713 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f6 gov theocracy pop 25983.100 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 580.982546 field 2611.004390 levy 4922.385325 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f7 gov empire pop 2758.850 E 0.358919 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 119.906945 field 280.334623 levy 528.499700 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f8 gov city_state pop 23216.200 E 0.584520 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 1385.548830 field 2343.403291 levy 4417.891450 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f9 gov chiefdom pop 2128.650 E 4.000000 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 109.532761 field 358.980626 levy 398.867363 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f10 gov tribal_confederacy pop 2451.800 E 4.000000 s 0.260000 L 0.550000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 141.682285 field 414.412830 levy 460.458700 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f11 gov monarchy pop 2719.750 E 4.000000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 243.254620 field 463.720331 levy 515.244813 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f12 gov oligarchy pop 8395.000 E 1.160790 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 803.994773 field 910.929930 levy 1593.955000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f13 gov republic pop 9320.750 E 0.568674 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 541.184242 field 940.820471 levy 1773.677938 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f14 gov theocracy pop 2208.000 E 0.296834 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 58.619861 field 221.878748 levy 418.296000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f15 gov empire pop 2309.200 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 69.907038 field 234.644403 levy 442.362400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f16 gov city_state pop 2557.600 E 2.557932 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 261.134217 field 415.283572 levy 487.917800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f17 gov chiefdom pop 24056.850 E 0.250000 s 0.195000 L 0.638152 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 309.469993 field 2411.248350 levy 4517.925324 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f18 gov tribal_confederacy pop 8665.250 E 0.296894 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 148.666282 field 861.016260 levy 1623.227375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f19 gov monarchy pop 22512.400 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 503.377637 field 2262.238733 levy 4264.876300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f20 gov oligarchy pop 26551.200 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 635.706552 field 2674.062198 levy 5041.264800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f21 gov republic pop 26935.300 E 1.002380 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2750.128430 field 2722.035952 levy 5125.611925 band 0.050 0.100 era Total_industrial_mobilization order Unordered
+IA row 404 800 24 f22 gov theocracy pop 2525.400 E 0.407325 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 92.003335 field 255.248623 levy 479.633850 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f23 gov empire pop 22300.800 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 675.118163 field 2266.047944 levy 4272.057600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 800 24 f24 gov city_state pop 25645.000 E 0.907568 s 0.715000 L 0.714129 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2376.364060 field 2628.311578 levy 4912.471722 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 404 40075 6 f1 bracket 1 tech traditionalAgrarian
+IA default 404 40075 6 f2 bracket 1 tech traditionalAgrarian
+IA default 404 40075 6 f3 bracket 1 tech traditionalAgrarian
+IA default 404 40075 6 f4 bracket 1 tech traditionalAgrarian
+IA default 404 40075 6 f5 bracket 1 tech traditionalAgrarian
+IA default 404 40075 6 f6 bracket 1 tech traditionalAgrarian
+IA row 404 40075 6 f1 gov chiefdom pop 39025.250 E 0.257234 s 0.195000 L 0.504786 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 516.551114 field 3881.323710 levy 7304.129470 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 6 f2 gov tribal_confederacy pop 47285.700 E 1.258144 s 0.260000 L 0.458731 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 2732.501027 field 5272.861544 levy 8859.819589 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 6 f3 gov monarchy pop 23773.950 E 0.250000 s 0.585000 L 0.502525 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 531.585916 field 2396.297508 levy 4509.843582 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 6 f4 gov oligarchy pop 37787.850 E 0.250000 s 0.650000 L 0.454344 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 904.741926 field 3806.702139 levy 7175.547675 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 6 f5 gov republic pop 22004.100 E 1.744680 s 0.715000 L 0.452666 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2246.646631 field 2934.164112 levy 4187.517269 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 6 f6 gov theocracy pop 9761.200 E 4.000000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 873.042374 field 1668.496770 levy 1853.885300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 404 40075 24 f1 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f2 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f3 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f4 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f5 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f6 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f7 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f8 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f9 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f10 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f11 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f12 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f13 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f14 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f15 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f16 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f17 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f18 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f19 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f20 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f21 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f22 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f23 bracket 1 tech traditionalAgrarian
+IA default 404 40075 24 f24 bracket 1 tech traditionalAgrarian
+IA row 404 40075 24 f1 gov chiefdom pop 2423.050 E 2.371617 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 124.681538 field 372.102403 levy 454.032163 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f2 gov tribal_confederacy pop 24956.150 E 1.855486 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1442.142244 field 3377.821224 levy 4674.937925 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f3 gov monarchy pop 27962.250 E 1.512663 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2500.945492 field 3455.889163 levy 5297.326687 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f4 gov oligarchy pop 20457.350 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 489.803528 field 2060.329714 levy 3884.228150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f5 gov republic pop 29120.300 E 0.250000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 743.304928 field 2956.401851 levy 5555.330275 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f6 gov theocracy pop 26000.350 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 581.368256 field 2612.737818 levy 4925.653262 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f7 gov empire pop 27994.450 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 847.483573 field 2844.595973 levy 5362.762900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f8 gov city_state pop 2356.350 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 60.146584 field 237.845916 levy 448.398038 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f9 gov chiefdom pop 2163.150 E 0.636306 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 70.825917 field 214.453423 levy 404.297438 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f10 gov tribal_confederacy pop 2314.950 E 1.865910 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 133.774127 field 314.208006 levy 433.650525 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f11 gov monarchy pop 27772.500 E 0.281936 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 700.321996 field 2790.818625 levy 5261.379375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f12 gov oligarchy pop 2139.000 E 4.000000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 204.853463 field 365.517900 levy 406.131000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f13 gov republic pop 9487.500 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 242.171458 field 957.651929 levy 1805.409375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f14 gov theocracy pop 2244.800 E 0.611778 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 122.829809 field 225.576727 levy 425.267600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f15 gov empire pop 23465.750 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 710.385010 field 2384.421839 levy 4495.221500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f16 gov city_state pop 2612.800 E 1.445548 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 266.770207 field 318.926112 levy 498.448400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f17 gov chiefdom pop 2440.300 E 4.000000 s 0.195000 L 0.550000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 125.569162 field 411.538028 levy 457.264475 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f18 gov tribal_confederacy pop 2213.750 E 4.000000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 127.926078 field 373.223813 levy 414.693125 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f19 gov monarchy pop 22998.850 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 514.254667 field 2311.121395 levy 4357.032138 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f20 gov oligarchy pop 27196.350 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 651.153164 field 2739.037462 levy 5163.759150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f21 gov republic pop 11077.950 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 282.768200 field 1118.189216 levy 2108.061637 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f22 gov theocracy pop 25947.450 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 580.185412 field 2622.574989 levy 4928.041237 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 404 40075 24 f23 gov empire pop 0.000 E 1.000000 s 0.500500 L 0.150000 a 0.130435 cf 0.980000 fee 0.100060 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA row 404 40075 24 f24 gov city_state pop 0.000 E 1.000000 s 0.393250 L 0.150000 a 0.130435 cf 0.980000 fee 0.087190 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA default 707 800 6 f1 bracket 1 tech traditionalAgrarian
+IA default 707 800 6 f2 bracket 1 tech traditionalAgrarian
+IA default 707 800 6 f3 bracket 1 tech traditionalAgrarian
+IA default 707 800 6 f4 bracket 1 tech traditionalAgrarian
+IA default 707 800 6 f5 bracket 1 tech traditionalAgrarian
+IA default 707 800 6 f6 bracket 1 tech traditionalAgrarian
+IA row 707 800 6 f1 gov chiefdom pop 35293.500 E 1.764069 s 0.195000 L 0.838389 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1816.078029 field 4753.233945 levy 6661.989991 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 6 f2 gov tribal_confederacy pop 2599.000 E 4.000000 s 0.260000 L 0.950000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 150.188538 field 443.767950 levy 493.075500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 6 f3 gov monarchy pop 38579.050 E 0.250000 s 0.585000 L 0.868318 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 862.628197 field 3971.426543 levy 7385.816550 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 6 f4 gov oligarchy pop 26064.750 E 0.250000 s 0.650000 L 0.721333 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 624.059642 field 2666.524009 levy 4982.726385 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 6 f5 gov republic pop 34010.100 E 0.250000 s 0.715000 L 0.680337 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 868.118630 field 3478.869833 levy 6509.366149 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 6 f6 gov theocracy pop 21238.200 E 0.250000 s 0.585000 L 0.602351 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 474.886504 field 2153.106250 levy 4038.959601 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 707 800 24 f1 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f2 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f3 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f4 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f5 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f6 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f7 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f8 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f9 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f10 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f11 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f12 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f13 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f14 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f15 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f16 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f17 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f18 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f19 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f20 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f21 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f22 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f23 bracket 1 tech traditionalAgrarian
+IA default 707 800 24 f24 bracket 1 tech traditionalAgrarian
+IA row 707 800 24 f1 gov chiefdom pop 24228.200 E 2.177503 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1246.697032 field 3544.433928 levy 4528.303250 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f2 gov tribal_confederacy pop 2060.800 E 4.000000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 119.087549 field 347.437440 levy 386.041600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f3 gov monarchy pop 24578.950 E 1.068259 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2198.342916 field 2552.808524 levy 4656.375213 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f4 gov oligarchy pop 27550.550 E 0.250000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 659.633657 field 2790.819676 levy 5244.187300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f5 gov republic pop 20211.250 E 1.607807 s 0.715000 L 0.950000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2063.594363 field 2662.265772 levy 3894.400313 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f6 gov theocracy pop 2811.750 E 2.367447 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 251.483106 field 437.270409 levy 534.018563 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f7 gov empire pop 25519.650 E 0.250000 s 0.910000 L 0.548791 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 772.563282 field 2607.940152 levy 4900.734779 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f8 gov city_state pop 26908.850 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 686.856963 field 2716.133030 levy 5120.578663 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f9 gov chiefdom pop 22448.000 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 288.773567 field 2225.481565 levy 4195.580000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f10 gov tribal_confederacy pop 26287.850 E 1.303546 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1519.097256 field 2982.280804 levy 4924.400075 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f11 gov monarchy pop 20237.700 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 452.515307 field 2033.657398 levy 3833.944275 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f12 gov oligarchy pop 2240.200 E 1.019254 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 214.545455 field 227.779932 levy 425.345800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f13 gov republic pop 21082.950 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 538.149011 field 2128.076706 levy 4011.947887 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f14 gov theocracy pop 23955.650 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 535.648731 field 2421.258680 levy 4549.750788 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f15 gov empire pop 2231.000 E 0.250000 s 0.910000 L 0.550000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 67.539668 field 228.009381 levy 428.449000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f16 gov city_state pop 2013.650 E 1.464722 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 205.596229 field 247.416829 levy 384.147513 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f17 gov chiefdom pop 20712.650 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 266.449832 field 2053.439983 levy 3871.239313 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f18 gov tribal_confederacy pop 24446.700 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 353.175658 field 2429.128553 levy 4579.504650 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f19 gov monarchy pop 2487.450 E 0.451136 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 100.367679 field 251.412919 levy 472.426238 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f20 gov oligarchy pop 2044.700 E 0.275508 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 53.950671 field 207.124322 levy 389.204200 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f21 gov republic pop 7770.550 E 0.250000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 198.345763 field 788.895320 levy 1482.401338 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f22 gov theocracy pop 20884.000 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 466.966586 field 2110.799176 levy 3966.371000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 800 24 f23 gov empire pop 2393.150 E 4.000000 s 0.910000 L 1.000000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 289.793915 field 418.265392 levy 464.739325 band 0.005 0.030 era Modern_mechanized order Ordered
+IA row 707 800 24 f24 gov city_state pop 2186.150 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 223.208699 field 374.409079 levy 416.010087 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 707 40075 6 f1 bracket 1 tech traditionalAgrarian
+IA default 707 40075 6 f2 bracket 1 tech traditionalAgrarian
+IA default 707 40075 6 f3 bracket 1 tech traditionalAgrarian
+IA default 707 40075 6 f4 bracket 1 tech traditionalAgrarian
+IA default 707 40075 6 f5 bracket 1 tech traditionalAgrarian
+IA default 707 40075 6 f6 bracket 1 tech traditionalAgrarian
+IA row 707 40075 6 f1 gov chiefdom pop 54569.800 E 2.663851 s 0.195000 L 0.473319 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 2807.967892 field 8841.881014 levy 10205.300219 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 6 f2 gov tribal_confederacy pop 28946.650 E 0.983900 s 0.260000 L 0.531543 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 1645.810614 field 2889.956656 levy 5433.751553 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 6 f3 gov monarchy pop 26317.750 E 0.250000 s 0.585000 L 0.450614 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 588.465326 field 2644.727063 levy 4985.860548 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 6 f4 gov oligarchy pop 51802.900 E 0.250000 s 0.650000 L 0.457997 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 1240.299608 field 5219.666462 levy 9837.775378 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 6 f5 gov republic pop 21519.950 E 0.338025 s 0.715000 L 0.501552 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 742.713453 field 2178.677388 levy 4100.411961 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 6 f6 gov theocracy pop 33964.100 E 1.012518 s 0.585000 L 0.453403 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 3037.751353 field 3434.978147 levy 6434.903819 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 707 40075 24 f1 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f2 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f3 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f4 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f5 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f6 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f7 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f8 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f9 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f10 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f11 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f12 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f13 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f14 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f15 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f16 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f17 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f18 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f19 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f20 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f21 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f22 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f23 bracket 1 tech traditionalAgrarian
+IA default 707 40075 24 f24 bracket 1 tech traditionalAgrarian
+IA row 707 40075 24 f1 gov chiefdom pop 24362.750 E 4.000000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1253.620497 field 4098.105844 levy 4553.450937 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f2 gov tribal_confederacy pop 10022.250 E 1.055620 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 579.156244 field 1023.173682 levy 1877.428875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f3 gov monarchy pop 2800.250 E 4.000000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 250.454545 field 478.650994 levy 531.834438 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f4 gov oligarchy pop 2047.000 E 4.000000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 196.042561 field 350.677800 levy 389.642000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f5 gov republic pop 29149.050 E 0.398196 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 1185.093954 field 2959.320658 levy 5560.814963 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f6 gov theocracy pop 2593.250 E 0.311839 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 72.328150 field 260.591967 levy 491.279938 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f7 gov empire pop 11167.650 E 0.433097 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 585.688242 field 1134.776794 levy 2139.333300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f8 gov city_state pop 2347.150 E 4.000000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 239.647004 field 401.982604 levy 446.647337 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f9 gov chiefdom pop 2152.800 E 3.120218 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 110.775434 field 362.126700 levy 402.363000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f10 gov tribal_confederacy pop 23040.250 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 332.857010 field 2289.377673 levy 4316.039875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f11 gov monarchy pop 27642.550 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 618.087876 field 2777.760136 levy 5236.760913 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f12 gov oligarchy pop 21340.550 E 0.250000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 510.949692 field 2161.758181 levy 4062.127300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f13 gov republic pop 2371.300 E 0.762050 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 184.502097 field 239.354943 levy 451.242925 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f14 gov theocracy pop 2247.100 E 2.408706 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 200.980773 field 350.453938 levy 425.703325 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f15 gov empire pop 2351.750 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 71.195165 field 238.968030 levy 450.513500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f16 gov city_state pop 10478.800 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 267.474706 field 1057.712046 levy 1994.047300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f17 gov chiefdom pop 2438.000 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 31.362703 field 241.701891 levy 455.667500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f18 gov tribal_confederacy pop 2205.700 E 0.250000 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 31.865223 field 219.167775 levy 413.185150 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f19 gov monarchy pop 9170.100 E 1.865073 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 820.174351 field 1258.457676 levy 1737.235575 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f20 gov oligarchy pop 2711.700 E 0.250000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 64.925331 field 274.690186 levy 516.166200 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f21 gov republic pop 27624.150 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 705.115223 field 2788.334181 levy 5256.695588 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f22 gov theocracy pop 2587.500 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 57.856543 field 260.014158 levy 490.190625 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 707 40075 24 f23 gov empire pop 0.000 E 1.000000 s 0.500500 L 0.150000 a 0.130435 cf 0.980000 fee 0.100060 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA row 707 40075 24 f24 gov city_state pop 0.000 E 1.000000 s 0.393250 L 0.150000 a 0.130435 cf 0.980000 fee 0.087190 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA default 24601 800 6 f1 bracket 1 tech traditionalAgrarian
+IA default 24601 800 6 f2 bracket 1 tech traditionalAgrarian
+IA default 24601 800 6 f3 bracket 1 tech traditionalAgrarian
+IA default 24601 800 6 f4 bracket 1 tech traditionalAgrarian
+IA default 24601 800 6 f5 bracket 1 tech traditionalAgrarian
+IA default 24601 800 6 f6 bracket 1 tech traditionalAgrarian
+IA row 24601 800 6 f1 gov chiefdom pop 56744.450 E 0.250000 s 0.195000 L 0.582456 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 729.966912 field 5669.192597 levy 10641.607699 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 6 f2 gov tribal_confederacy pop 2900.300 E 4.000000 s 0.260000 L 0.637424 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 167.599776 field 491.311446 levy 545.901607 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 6 f3 gov monarchy pop 34168.800 E 0.411618 s 0.585000 L 0.527466 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1257.929183 field 3449.026460 levy 6485.789853 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 6 f4 gov oligarchy pop 32808.350 E 2.818691 s 0.650000 L 0.686516 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 3142.077655 field 5623.800558 levy 6266.418765 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 6 f5 gov republic pop 22649.250 E 0.355314 s 0.715000 L 0.541153 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 821.670579 field 2298.261942 levy 4319.878456 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 6 f6 gov theocracy pop 23426.650 E 0.791638 s 0.585000 L 0.753954 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1658.704761 field 2395.814805 levy 4472.132123 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 24601 800 24 f1 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f2 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f3 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f4 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f5 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f6 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f7 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f8 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f9 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f10 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f11 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f12 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f13 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f14 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f15 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f16 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f17 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f18 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f19 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f20 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f21 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f22 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f23 bracket 1 tech traditionalAgrarian
+IA default 24601 800 24 f24 bracket 1 tech traditionalAgrarian
+IA row 24601 800 24 f1 gov chiefdom pop 24419.100 E 0.355619 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 446.842855 field 2420.895264 levy 4563.982875 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f2 gov tribal_confederacy pop 2731.250 E 4.000000 s 0.260000 L 0.628659 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 157.830875 field 462.571301 levy 513.968113 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f3 gov monarchy pop 2478.250 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 55.413711 field 249.035782 levy 469.493688 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f4 gov oligarchy pop 2771.500 E 4.000000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 265.428411 field 473.601150 levy 526.223500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f5 gov republic pop 8035.050 E 0.250000 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 205.097209 field 811.044125 levy 1529.017613 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f6 gov theocracy pop 28675.250 E 0.250000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 641.179065 field 2898.280696 levy 5446.115687 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f7 gov empire pop 27365.400 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 828.440172 field 2780.676407 levy 5242.258800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f8 gov city_state pop 2300.000 E 1.023169 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 234.832929 field 234.832079 levy 437.675000 band 0.050 0.100 era Total_industrial_mobilization order Unordered
+IA row 24601 800 24 f9 gov chiefdom pop 8968.850 E 1.678436 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 461.505133 field 1151.954832 levy 1676.297562 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f10 gov tribal_confederacy pop 10925.000 E 3.791585 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 631.323502 field 1841.883750 levy 2046.537500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f11 gov monarchy pop 22649.250 E 0.510586 s 0.585000 L 0.537882 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 1034.319822 field 2287.612616 levy 4300.321504 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f12 gov oligarchy pop 9328.800 E 2.501265 s 0.650000 L 0.632630 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 893.425425 field 1501.685612 levy 1779.403421 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f13 gov republic pop 22494.000 E 0.340077 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 781.042183 field 2270.505665 levy 4280.461500 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f14 gov theocracy pop 2505.850 E 2.501635 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 224.123390 field 398.275583 levy 474.722388 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f15 gov empire pop 2341.400 E 0.310397 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 88.005992 field 237.916337 levy 448.530800 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f16 gov city_state pop 2124.050 E 1.434150 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 216.868210 field 256.754449 levy 404.192862 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f17 gov chiefdom pop 8825.100 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 113.527067 field 874.915242 levy 1649.430375 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f18 gov tribal_confederacy pop 2601.300 E 3.431103 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 150.321449 field 438.562215 levy 487.291350 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f19 gov monarchy pop 26440.800 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 591.216726 field 2656.998005 levy 5009.094600 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f20 gov oligarchy pop 24726.150 E 0.250000 s 0.650000 L 0.550000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 592.009987 field 2504.713189 levy 4706.568900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f21 gov republic pop 2179.250 E 0.564926 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 125.698485 field 219.969746 levy 414.697063 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f22 gov theocracy pop 2068.850 E 0.286671 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 53.045057 field 207.895764 levy 391.934638 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f23 gov empire pop 2220.650 E 0.250000 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 67.226339 field 225.646585 levy 425.399300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 800 24 f24 gov city_state pop 2106.800 E 4.000000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 215.106963 field 361.726110 levy 401.917900 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 24601 40075 6 f1 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 6 f2 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 6 f3 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 6 f4 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 6 f5 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 6 f6 bracket 1 tech traditionalAgrarian
+IA row 24601 40075 6 f1 gov chiefdom pop 27581.600 E 0.541425 s 0.195000 L 0.452409 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 768.417555 field 2734.808223 levy 5155.378788 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 6 f2 gov tribal_confederacy pop 26395.950 E 0.590258 s 0.260000 L 0.451677 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 900.346141 field 2623.070844 levy 4944.861706 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 6 f3 gov monarchy pop 38864.250 E 1.786669 s 0.585000 L 0.502565 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 3476.021094 field 5236.158080 levy 7372.433615 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 6 f4 gov oligarchy pop 47785.950 E 1.209639 s 0.650000 L 0.514675 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 4576.492440 field 5313.030295 levy 9087.878419 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 6 f5 gov republic pop 2547.250 E 0.250000 s 0.715000 L 0.500000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 65.019367 field 257.860164 levy 485.334188 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 6 f6 gov theocracy pop 22797.600 E 0.355030 s 0.585000 L 0.451317 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 723.912372 field 2291.073151 levy 4319.049784 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA default 24601 40075 24 f1 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f2 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f3 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f4 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f5 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f6 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f7 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f8 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f9 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f10 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f11 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f12 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f13 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f14 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f15 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f16 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f17 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f18 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f19 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f20 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f21 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f22 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f23 bracket 1 tech traditionalAgrarian
+IA default 24601 40075 24 f24 bracket 1 tech traditionalAgrarian
+IA row 24601 40075 24 f1 gov chiefdom pop 24429.450 E 0.560512 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 704.593323 field 2421.921357 levy 4565.917312 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f2 gov tribal_confederacy pop 2518.500 E 2.551762 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 145.536681 field 399.753492 levy 471.780750 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f3 gov monarchy pop 2812.900 E 4.000000 s 0.585000 L 0.550000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 251.585962 field 480.813278 levy 534.236975 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f4 gov oligarchy pop 20533.250 E 0.503715 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 990.546880 field 2067.973863 levy 3898.639250 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f5 gov republic pop 2929.050 E 2.145607 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 299.059735 field 433.069700 levy 557.379113 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f6 gov theocracy pop 2609.350 E 0.969830 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 226.339447 field 262.209833 levy 494.330013 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f7 gov empire pop 2810.600 E 4.000000 s 0.910000 L 0.550000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 340.344223 field 485.781660 levy 539.757400 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f8 gov city_state pop 23578.450 E 0.820771 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 1975.915661 field 2393.772496 levy 4498.101913 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f9 gov chiefdom pop 21617.700 E 1.774629 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 1112.369983 field 2855.023143 levy 4040.395125 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f10 gov tribal_confederacy pop 23092.000 E 0.303460 s 0.260000 L 0.550000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 404.942484 field 2307.920118 levy 4336.778000 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f11 gov monarchy pop 2765.750 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 61.842216 field 277.926244 levy 523.959313 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f12 gov oligarchy pop 2136.700 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 51.158298 field 215.194368 levy 405.694300 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f13 gov republic pop 2364.400 E 0.250000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 60.352063 field 240.042738 levy 451.060700 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f14 gov theocracy pop 2239.050 E 0.524063 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 104.949337 field 224.998918 levy 424.178288 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f15 gov empire pop 2342.550 E 2.944757 s 0.910000 L 0.450000 a 0.130435 cf 0.980000 fee 0.149200 u 1.071400 standing 283.666604 field 403.875990 levy 448.751100 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f16 gov city_state pop 26069.350 E 0.783633 s 0.715000 L 0.450000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 2085.807879 field 2631.395344 levy 4960.827288 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f17 gov chiefdom pop 24329.400 E 0.250000 s 0.195000 L 0.450000 a 0.130435 cf 0.980000 fee 0.063400 u 1.071400 standing 312.976106 field 2412.002459 levy 4547.217750 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f18 gov tribal_confederacy pop 8821.650 E 1.110053 s 0.260000 L 0.450000 a 0.130435 cf 0.980000 fee 0.071200 u 1.071400 standing 509.777114 field 923.532042 levy 1652.525175 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f19 gov monarchy pop 2291.950 E 0.250000 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 51.248040 field 230.314763 levy 434.199963 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f20 gov oligarchy pop 2710.550 E 0.250000 s 0.650000 L 0.450000 a 0.130435 cf 0.980000 fee 0.118000 u 1.071400 standing 64.897797 field 272.988765 levy 514.650950 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f21 gov republic pop 27558.600 E 0.250000 s 0.715000 L 0.550000 a 0.130435 cf 0.980000 fee 0.125800 u 1.071400 standing 703.442038 field 2797.852221 levy 5257.402050 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f22 gov theocracy pop 25841.650 E 2.474541 s 0.585000 L 0.450000 a 0.130435 cf 0.980000 fee 0.110200 u 1.071400 standing 2311.278887 field 4084.926363 levy 4895.588238 band 0.050 0.100 era Total_industrial_mobilization order Ordered
+IA row 24601 40075 24 f23 gov empire pop 0.000 E 1.000000 s 0.500500 L 0.150000 a 0.130435 cf 0.980000 fee 0.100060 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+IA row 24601 40075 24 f24 gov city_state pop 0.000 E 1.000000 s 0.393250 L 0.150000 a 0.130435 cf 0.980000 fee 0.087190 u 1.071400 standing 0.000000 field 0.000000 levy 0.000000 band 0.050 0.100 era Total_industrial_mobilization order Empty
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 11.11s
+

@@ -692,3 +692,114 @@ The shell reads every band through the bridge's `era_mobilization_lo` and `_hi`,
 |---|---|---|
 | **Q7** | `Early industrial` mobilization (15-30 %) was not restated. If the owner's table uses the male denominator throughout its industrial rows, it would be 7.5-15 % of citizens. Restate it the same way? Its readings under the term today: 26 within, 264 below, of 290 | **Ask before restating.** It is reachable as stated, and halving it would also need the shell's `%.0f` band format widened to show 7.5 |
 | **Q8** | Prevent Q3's class rather than name it? The measured cause is that bracket 3's levy reads below its own band (244 of 290). A bracket-3 levy term would move `improvedAgrarian` readings, and Kingdom B | **Measure first, as its own row**, as for Q2 |
+
+
+### 10.9 The industrial standing army above its band: measured first, nothing built (2026-11-17)
+
+**Task and rule.** `OUTSTANDING_WORK.md` §2.3's row *Military manpower: on the industrial rows, a high-state-capacity standing army above its own band* (Ruling DL Q2: measure first, do not build). This section is the measurement. **No product code changed**; the scratch code is ignored and pins nothing. Tree `7d7cead5` (`origin/main`), worktree `C:/cw/army`, its own target dir. Opened at the symbols first: `manpower.rs` `manpower_with_levy_bonus` (chain 1: `standing = non_agricultural * budget_ecology * fiscal_extraction_efficiency / soldier_upkeep`), `SOLDIER_UPKEEP_BY_BRACKET` (bracket 5 = 1.0714), `soldier_upkeep_is_derived_from_the_era_table`, `EXTRACTION_FLOOR` and `EXTRACTION_CEILING` (0.04 and 0.16), `military_drivers` (state capacity clamped to 0.03..0.95; `citizen_fraction` 0.98 on this row), `era_for`, `the_ordering_holds_across_the_driver_space_but_one_class`; `g1_baseline.rs` `ea0_ecological_ordering_diagnostic`. Every number below was produced this session by the commands under "Evidence"; numbers from elsewhere are cited.
+
+#### 10.9.1 Today's reading (290 factions, every faction forced to `industrial`)
+
+| | at `7d7cead5` | the row's 2026-11-15 text |
+|---|---|---|
+| `industrial` ordered, of 290 (10 empty factions apart) | **288** | 286 |
+| `earlyIndustrial` ordered | 290 | |
+| pre-industrial rows | 290 each (the `ea0_` test passes) | |
+| `industrial` standing verdicts, within / above / below the era's standing band | **98 / 28 / 164** | |
+| median standing, of citizens | **3.53 %** | |
+| generated factions (300) whose default ag-tech is on bracket 5 or 6 | **0** (all 300 are bracket 1, `traditionalAgrarian`) | "no generated world uses the row" |
+
+The two leaves (`EA industrial unordered`, `ea0_run.log`):
+
+| leaf | government | E | state capacity | logistics | standing, of citizens | standing / field |
+|---|---|---|---|---|---|---|
+| 404/800/24 f21 | republic | 1.002 | 0.715 | 0.450 | **10.42 %** (band 5-10 %) | 1.0103 |
+| 24601/800/24 f8 | city state | 1.023 | 0.715 | 0.450 | **10.42 %** | 1.0000 |
+
+So the row's older picture (empires at 0.910) is gone. Both leaves are at state capacity 0.715 (0.55 x full reach x 1.30 urbanisation), at `E` just over 1, where the budget factor is already saturated (`E <= 1` arm) and the forage term on the field army (`E^0.5`, `E > 1` only) has barely started. They miss the ordering by 0 to 1 %.
+
+**Over the driver space** (the shipped test's 284 240-reading grid on the `industrial` row, re-run read-only): **1 003 unordered readings**, the pinned figure, so the model has not moved. By government: empire 737, stratocracy 176, republic 30, city state 30, merchant republic 30. They begin at state capacity **0.692**, `E` 0.85-1.45, logistics up to 1.000. The ordering never fails on `field >= levy` (0 readings).
+
+**On the sweep, 28 of 290 `industrial` readings stand above the band and 164 stand below it.** The above-band ones have median state capacity 0.715; the below-band ones have median `E` **0.250**, the ecological floor, where chain 1's budget is linear in `E` (Ruling DE C1 kept the linear arm below 1). Whatever is done to the high-capacity tail, most generated industrial factions have the opposite problem. That is a separate finding (Q10).
+
+#### 10.9.2 Telling apart the two causes §10.7 names
+
+The formula is standing proportional to `fee(s) / upkeep`, with `fee(s) = 0.04 + (ceiling - 0.04) * s`. Field army and levy read neither factor, so an ablation re-prices the standing army **analytically** from the model's own drivers. The control: chain 1 reconstructed from the printed drivers equals the model's standing on all 290 rows (`analyse.py`; a re-price that cannot reproduce the baseline proves nothing). The driver-space version applies the same ratio to the shipped model's readings. No shipped constant was touched.
+
+**Cause (b), "`EXTRACTION_CEILING` is too high for an industrial fiscal base": yes in effect, but it is not "binding".** A lower ceiling on the industrial brackets does clear the grid (with the upkeep re-derived, at 0.08; table below). But the ceiling is never reached: the highest fee on the 290 is **0.1492**, against 0.16, because state capacity tops out at 0.910 on this row (empire, full capital reach; the clamp is 0.95). It acts as a parameter of the fee's slope: the fee spans 0.053-0.149 (2.8x) over the upkeep derivation set's state capacities 0.107-0.910, while the band (5-10 %) is 2x wide.
+
+**Cause (a), "bracket 5's upkeep, derived at median state capacity, under-prices a conscript army at high state capacity": yes in effect, but as a flat level it is not wrong.** An upkeep that rises with the fee (C3) clears the grid. The flat value is centred on its derivation set by construction: the geometric mean over its set (the reference's eight governments but `none` x capital reach 0..1 by 0.1, `E` 1, logistics 0.5) is at the band centre 7.5 % (geometric-mean fee 0.09056, `driver_space_run.log`), and the full grid's median standing is 6.87 %, inside the band. So a *level* correction (C1) has nothing to correct on average and moves the below-band majority further down. What is wrong is that the upkeep is flat over state capacity.
+
+**Isolated ablations** (each alone; `driver_space_run.log` for the grid, `analyse_out.txt` for the sweep). "DS" is the 284 240-reading grid; its verdicts are for era-13 readings only.
+
+| change, alone | sweep unordered | sweep within / above / below | DS unordered | DS median / max standing | DS era-13 within / above / below |
+|---|---|---|---|---|---|
+| baseline | 2 | 98 / 28 / 164 | 1 003 | 6.87 % / 12.36 % | 202 572 / 20 720 / 59 732 |
+| upkeep 1.20 | 0 | 96 / 7 / 187 | 152 | 6.13 % / 11.03 % | 192 612 / 4 428 / 85 984 |
+| upkeep 1.30 | 0 | 68 / 7 / 215 | 0 | 5.66 % / 10.18 % | 178 396 / 2 196 / 102 432 |
+| upkeep 1.324 (10 % at s 0.91) | 0 | 73 / 1 / 216 | 0 | 5.56 % / 10.00 % | 177 124 / 0 / 105 900 |
+| ceiling 0.14 | 0 | 96 / 7 / 187 | 99 | 6.27 % / 10.85 % | 201 104 / 4 428 / 77 492 |
+| ceiling 0.131 | not run | not run | 0 | 6.01 % / 10.17 % | 193 488 / 2 196 / 87 340 |
+| ceiling 0.128 (10 % at s 0.91) | 0 | 99 / 1 / 190 | 0 | 5.92 % / 9.94 % | 192 040 / 0 / 90 984 |
+
+Where each first clears (isolated, nothing re-derived): the **sweep** needs only upkeep 1.083 (+1.1 %) or ceiling 0.158; the **grid** needs upkeep 1.300 (+21 %; 1.295 leaves 2) or ceiling 0.131 (0.132 leaves 3). Both single changes also move every faction on the row, and both push the below-band count up (164 to 216 on the sweep at the exact upkeep; to 190 at the exact ceiling).
+
+**The finding.** The two readings cannot be told apart by this data, and each alone is sufficient. They are one lever, `fee(s) / upkeep(s)`: the best slope-side change of each kind clears the grid (C2 and C3 below), and their grid results differ by 44 of 284 240 readings. The only reading the data rules out is a *flat level* change of the upkeep (C1), which worsens the band; and a ceiling change alone breaks the derivation test (see next). Isolated, an upkeep change is a level change and a ceiling change is a slope change, but **any ceiling change breaks `soldier_upkeep_is_derived_from_the_era_table` unless the upkeep is re-derived at it** (the rule's share-at-upkeep-1 contains the fee), and re-deriving cancels most of the level effect. With the upkeep re-derived to hold the geometric mean at the band centre, the ceiling must fall to **0.08** (twice the floor) before the grid clears:
+
+| ceiling, upkeep re-derived | upkeep | DS unordered | DS median / max | DS era-13 within / above / below |
+|---|---|---|---|---|
+| 0.15 | 1.0229 | 803 | 6.88 % / 12.15 % | 202 616 / 20 720 / 59 688 |
+| 0.12 | 0.8767 | 312 | 6.94 % / 11.42 % | 226 984 / 7 184 / 48 856 |
+| 0.10 | 0.7782 | 85 | 7.01 % / 10.79 % | 243 608 / 4 428 / 34 988 |
+| 0.09 | 0.7285 | 18 | 7.05 % / 10.41 % | 246 156 / 2 196 / 34 672 |
+| **0.08** | **0.6785** | **0** | 7.10 % / 9.99 % | 248 580 / 0 / 34 444 |
+| 0.04 (fee flat in s) | 0.4732 | 0 | 7.50 % / 7.50 % | 249 508 / 0 / 33 516 |
+
+So the attribution: **the leaves belong to the fee's spread over state capacity, which the flat upkeep (a) does not follow and the ceiling (b) sets.** Either reading fixes it; neither is a wrong level, and the ceiling is not reached. The field army reads state capacity only through the levy reach (`LEVY_STATE` 0.30) and never through the fee, so standing rises faster in `s` than field does; the grid's unordered readings begin at `s` 0.692 (measured).
+
+#### 10.9.3 Three candidates, scored
+
+All three are brackets 5 and 6 only (`alpha < 0.25`; `SOLDIER_UPKEEP_BY_BRACKET[6]` repeats `[5]`), so `earlyIndustrial` and every pre-industrial row are bit-identical by control flow, as Ruling DL did. Numbers are from the tables above and `analyse_out.txt`; "sweep" is the 290-faction industrial sweep.
+
+| | C1: upkeep 1.0714 to **1.33** (a level change: band top at the highest reachable capacity) | C2: industrial ceiling **0.08** with the upkeep re-derived to **0.6785** (a slope change, rule-consistent) | C3: upkeep **scaled by the fee**, `u0 * (fee(s) / 0.09056)^0.5` (a slope change; the derivation set's geometric mean preserved exactly) |
+|---|---|---|---|
+| sweep leaves | 0 (from 2) | 0 | 0 |
+| sweep within / above / below (baseline 98 / 28 / 164) | 73 / 1 / 216 | 123 / 1 / 166 | 121 / 1 / 168 |
+| sweep median standing (baseline 3.53 %) | 2.85 % | 3.40 % | 3.40 % |
+| DS unordered (baseline 1 003) | 0 | 0 | 0 |
+| DS median / max standing | 5.53 % / 9.95 % | 7.10 % / 9.99 % | 7.18 % / 9.63 % |
+| DS era-13 within / above / below (baseline 202 572 / 20 720 / 59 732) | 174 176 / 0 / 108 848 | 248 580 / 0 / 34 444 | 248 624 / 0 / 34 400 |
+| smaller change that fails | 1.295 leaves 2 on the grid | ceiling 0.09 leaves 18 | exponent 0.25 leaves 117; 0.5, 0.75 and 1.0 clear |
+| what else moves | `SOLDIER_UPKEEP_BY_BRACKET[5]` and `[6]`; **breaks `soldier_upkeep_is_derived_from_the_era_table`** (its rule centres the mean polity, this centres the top), so the rule must be restated; the values literal test; the industrial hash and verdict counts in `ea0_`; the 1 003 pin in the driver-space test; `standing_army_rises_with_industrialisation_at_equal_population`'s 8.27x ratio | a new bracket-gated ceiling constant read in `military_drivers`; bracket 5's upkeep re-derived (the derivation test needs the ceiling as an input); the same pins as C1 | `military_drivers` gains one expression for `soldier_upkeep` on brackets 5 and 6; the derivation test passes for bracket 5 because the geometric mean is preserved by construction (it should assert that, not the constant); the same pins as C1 |
+| `fh_r2` / `g1_baseline` / Kingdom A and B | **unmoved at the default `civ.base_ag_tech` (1)**: 0 of 300 generated factions are on bracket 5 or 6; both worked examples are pre-industrial. A world generated with `civ.base_ag_tech` 4 or 5 (the parameter exists; `lib.rs` `base_ag_tech_seeds_the_generated_roster_and_moves_no_settlement` sets all six levels but reads no manpower, and no baseline sets it) would read the new values | same | same |
+| standing-army outputs that move | `standing_army`, `professional_core` (standing x professionalization), the standing shares and verdict. **Not** field, levy or the durations: `campaign_capability` reads state capacity, logistics and professionalization, none of which read the fee or the upkeep | same | same |
+| needs a §7p switch | **no.** The manpower model is port-only, (`MILITARY_MANPOWER_SCOPE.md`: the reference has no manpower model, checked by unit tests and a live probe, not golden parity; §6 above and Q5), so under §7p the new reading replaces the old, old value beside new, as Ruling DE Q5 and Ruling DL did | no | no |
+
+A fourth reading was scored and **rejected**: a global `EXTRACTION_CEILING` change. Every row's standing army is `fee(s) / upkeep`, so it moves every faction on all six rows (arithmetic, not run: at `s` 0.5, a ceiling of 0.128 gives a fee of 0.084 against 0.100, a factor 0.84), which re-records `G1_0` on 20 of 20 worlds, both Kingdoms and every pre-industrial hash, for 2 leaves.
+
+Not covered by any candidate: the one `Modern mechanized` reading on the sweep (state capacity at least 0.8 and logistics at least 0.8 lands in the 0.5-3 % standing band, a different table row from the 5-10 % one, so it reads "above" at any level). That is a band-edge discontinuity in `era_for`, not this row (Q15).
+
+**Verdict.** All three clear the sweep and the grid, none touches a world at the default base technology, none needs a switch. They differ in collateral: C1 is the only one that worsens the band (grid below-band 59 732 to 108 848) and the only one that breaks the derivation rule; C2 and C3 both lower the below-band count (to 34 444 and 34 400) and raise the grid median to 7.1-7.2 %. C2 and C3 are the same lever (C3 at exponent 0.5 is the fee to the power 0.5, C2 at ceiling 0.08 is a fee line with a third of the slope; their grid "within" counts differ by 44 of 284 240); C3 is one expression with one labelled exponent, C2 adds a constant and a bracket branch. **Recommended: C3.** **The 0.08 of C2 and the 0.5 of C3 are fitted to the bar, not sourced**: each is the smallest scanned value that clears the grid (C3: between 0.25 and 0.5), so they are labelled judgements whose only support is this measurement. §10.7 Q3 declined a term whose job was to force the ordering; the owner should read Q9 with that in mind. What does carry independent support is the shape (a state that collects more per head pays its soldier more), not the number.
+
+### 10.10 Owner questions from §10.9, each with a recommended default
+
+| # | Question | Recommended default |
+|---|---|---|
+| **Q9** | Build a fix at all, given 2 leaves of 290, both within 1 % of the ordering, on a row no generated world uses? | **Yes, C3, small.** The cost is one expression and a re-record of the industrial row's pins; no generated output moves. If the owner would rather wait, the row stays measured and costs nothing |
+| **Q10** | The industrial sweep's larger problem is the other tail: 164 of 290 standing armies read below the band (median `E` 0.25, the floor, with the budget linear in `E` below 1). Open a separate measure-first row for it? | **Yes, its own row, measured first.** Candidates would be a floor on the budget factor or a sub-linear arm below 1, which also moves the pre-industrial rows and so is a Ruling DE question. Not folded into Q9 |
+| **Q11** | Which of §10.7's two readings should the model adopt, given that the data cannot separate them (each alone clears; 44 of 284 240 readings apart)? (a) the upkeep follows the fee (C3), or (b) a lower industrial ceiling with the upkeep re-derived (C2) | **(a), C3.** It keeps the derivation rule's mean exactly and adds no constant; and note the ceiling is never reached (highest fee 0.1492), so (b) is a slope parameter, not a binding limit |
+| **Q12** | C3's exponent: 0.5 (a labelled judgement), or another value? 0.25 leaves 117 grid readings; 0.5, 0.75 and 1.0 clear. 1.0 makes the standing army a constant 7.5 % of citizens, which makes the band a definition rather than a result | **0.5**, the smallest round value that clears; not 1.0 |
+| **Q13** | Apply to bracket 6 (`alpha < 0.10`, which repeats bracket 5's upkeep) as well | **Yes**, so the existing `[6] == [5]` test keeps its meaning |
+| **Q14** | After the fix, assert `standing < field < levy` on all six rows (today the two industrial rows are only reported) | **Yes**: the sweep reads 290 of 290 and the grid 0 of 284 240 on the industrial row (the pre-industrial rows already hold) |
+| **Q15** | The `Modern mechanized` standing band (0.5-3 %) sits below the 5-10 % one it follows at `s >= 0.8` and logistics `>= 0.8`. Restate it, or keep the owner's table as written? | **Keep as written** and report it; it is the owner's table (`ERA_BANDS`) and no ordering fails because of it |
+
+#### Evidence
+
+`cartalith-native/docs/evidence/industrial-army-2026-11-17/`: `ea0_run.log` (the existing `ea0_` diagnostic, passing), `ia_dump_run.log` (300 `IA row` and 300 `IA default` lines), `driver_space_run.log` (the grid), `analyse.py` and `analyse_out.txt` (the re-pricing, with its control). Code, ignored and pinning nothing: `g1_baseline.rs` `ia_dump_industrial_rows`; `cartalith-civ/tests/industrial_army_driver_space.rs`. Commands, each run alone:
+
+- `cargo test -p cartalith-godot --lib ea0_ -j 4 -- --ignored --nocapture --test-threads 1`
+- `cargo test -p cartalith-godot --lib ia_dump -j 4 -- --ignored --nocapture --test-threads 1`
+- `cargo test -p cartalith-civ --test industrial_army_driver_space -- --ignored --nocapture`
+- `python -I analyse.py ia_dump_run.log`
+
+Not done: no `cargo test --workspace` (no product code changed; the two scratch tests are `#[ignore]`d); no probe; no mutation test (nothing is pinned).
