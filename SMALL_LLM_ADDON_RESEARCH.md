@@ -374,3 +374,12 @@ For the owner, on the owner's own machine. **Every command is a sketch from the 
 - LM Studio import: `lmstudio.ai/docs/app/advanced/import-model` and `lmstudio.ai/docs/cli/local-models/import.md` (search extracts).
 - Android: llama.cpp Snapdragon docs and benchmark pages (search extracts, unclear on decode versus prefill).
 - Repository: `LLM_ASSISTANT_SCOPE.md` s.4; `ASSISTANT_ACTIONS_PROPOSAL.md`; `STATUS.md` (AC-1 and AC-4 entries); the evidence folders named in s.13.
+
+## Candidate noted by the owner, 2026-11-18: MiniMind (not scheduled)
+
+Owner: *"https://github.com/jingyaogong/minimind think this might be a good candidate for a basis of a cartalith llm"*. Read 2026-11-18 (README + LICENSE, via a fetch agent; some points from a model summary, marked *):
+- **What:** train a very small LLM from scratch in native PyTorch: minimind-3 64M dense (8 layers, d 768), minimind-3-moe 198M-A64M; older 26M-145M. Latest release 2026-04-01.
+- **Pipeline:** pretrain, full SFT, LoRA (own code), DPO, RLAIF (PPO/GRPO/CISPO), black/white-box distillation, tool-call data in SFT and multi-turn agentic RL (`train_agent.py`*), `<think>` adaptive thinking.
+- **Cost:** about 2-3 h and about 3-4 RMB on one RTX 3090 (24 GB) for pretrain + SFT (author's figures).
+- **Licence:** Apache-2.0 code; some SFT datasets are CC-BY-NC-2.0 -- check before reuse.
+- **Fit for Cartalith:** a from-scratch small model fits the "specially trained model" idea (the live runs' capability limits in `cartalith-native/docs/evidence/llm-live-2026-11-17/CAPABILITY_LIMITS.md`: tool choice, argument format, multi-step) better than the 1-4B fine-tunes above for a phone add-on, and it serves an OpenAI-compatible API, transformers, and Ollama/llama.cpp*. **Open:** CUDA is the documented path and the README has no AMD/ROCm mention, while the owner's GPU is an RX 7800 XT (ROCm only) -- training would need PyTorch on ROCm (Linux/WSL) or rented NVIDIA time; Chinese-first tokenizer and data, so an English Cartalith tokenizer/corpus would be built; a 64M model's tool-calling quality on Cartalith's action catalogue is unmeasured. A separate job, not now (owner, 2026-11-17).
