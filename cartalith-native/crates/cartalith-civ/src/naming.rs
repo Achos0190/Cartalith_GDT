@@ -252,6 +252,15 @@ pub fn world_name(seed: u32) -> String {
     decorate(&stem, FeatureKind::Continent, &mut rng)
 }
 
+/// [`world_name`] in a user name style (Ruling FZ): the same seed derivation and one fresh stream, the stem and
+/// template from the style's `[World]` section. The culture draw is skipped (a style *is* the culture), so the
+/// stream is not shared with the built-in path and does not need to be: a style is off unless chosen.
+pub fn world_name_styled(seed: u32, style: &crate::name_style::NameStyle) -> String {
+    let raw = seed.wrapping_mul(0x9E37_79B1).wrapping_add(0x517C_C1B7);
+    let mut rng = cartalith_rng::Mulberry32::new(if raw == 0 { 1 } else { raw });
+    style.feature_name(&mut rng, "World", &mut BTreeSet::new())
+}
+
 /// Unit tests for the length-rejection rule, the bounded/unique naming
 /// wrappers, the feature-name templates, and `world_name`.
 #[cfg(test)]

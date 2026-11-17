@@ -1293,6 +1293,12 @@ pub const LAKE_LABEL_MIN_CELLS: usize = 24;
 /// Returns no per-cell raster, for the memory reason [`crate::civ_continents`]
 /// gives for the identical decision.
 pub fn lake_features(water: &[u8], gw: usize, gh: usize, min_cells: usize) -> Vec<LakeFeature> {
+    lake_features_styled(water, gw, gh, min_cells, None)
+}
+
+/// [`lake_features`] with Ruling FZ's name style: given one, every lake is named by its `[Lakes]` section
+/// (same stream, same bound, same uniqueness); `None` is the original function byte for byte.
+pub fn lake_features_styled(water: &[u8], gw: usize, gh: usize, min_cells: usize, style: Option<&crate::name_style::NameStyle>) -> Vec<LakeFeature> {
     if gw == 0 || gh == 0 || water.len() < gw * gh {
         return Vec::new();
     }
@@ -1347,11 +1353,14 @@ pub fn lake_features(water: &[u8], gw: usize, gh: usize, min_cells: usize) -> Ve
         .into_iter()
         .zip(anchors)
         .map(|(c, (cx, cy))| LakeFeature {
-            name: crate::naming::decorate(
-                &crate::naming::civ_settle_name_bounded(&mut rng, 1, &mut seen),
-                crate::naming::FeatureKind::Lake,
-                &mut rng,
-            ),
+            name: match style {
+                Some(st) => st.feature_name(&mut rng, "Lakes", &mut seen),
+                None => crate::naming::decorate(
+                    &crate::naming::civ_settle_name_bounded(&mut rng, 1, &mut seen),
+                    crate::naming::FeatureKind::Lake,
+                    &mut rng,
+                ),
+            },
             cx,
             cy,
             cells: acc[c].0,
@@ -1429,6 +1438,8 @@ pub struct LabelWorld<'a> {
     pub gh: usize,
     /// Floor for [`lake_features`]; [`LAKE_LABEL_MIN_CELLS`] is the default.
     pub lake_min_cells: usize,
+    /// Ruling FZ: the world's default name style, naming the lakes; `None` is the built-in lake names.
+    pub lake_style: Option<&'a crate::name_style::NameStyle>,
 }
 
 /// Half a cell: the offset from a **cell index** -- the frame every feature
@@ -1505,7 +1516,7 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
 
     if let Some(water) = world.water {
         let floor = if world.lake_min_cells == 0 { LAKE_LABEL_MIN_CELLS } else { world.lake_min_cells };
-        for lake in lake_features(water, world.gw, world.gh, floor) {
+        for lake in lake_features_styled(water, world.gw, world.gh, floor, world.lake_style) {
             out.push(LabelCandidate {
                 class: LabelClass::Water,
                 name: lake.name,
@@ -2795,6 +2806,7 @@ mod tests {
             gw: 16,
             gh: 16,
             lake_min_cells: 0, // -> LAKE_LABEL_MIN_CELLS
+            lake_style: None,
         };
         let cands = label_candidates(&world);
         let by_class = |c: LabelClass| cands.iter().filter(|k| k.class == c).count();
@@ -2871,6 +2883,7 @@ mod tests {
             gw: 16,
             gh: 16,
             lake_min_cells: 0,
+            lake_style: None,
         };
         let cands = label_candidates(&world);
         let at = |c: LabelClass| cands.iter().find(|k| k.class == c).map(|k| (k.x, k.y)).expect("one per class");

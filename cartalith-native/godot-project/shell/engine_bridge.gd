@@ -10303,3 +10303,79 @@ func landmark_headroom() -> Dictionary:
 	if generating or not _has("landmark_headroom"):
 		return {}
 	return world_gen.landmark_headroom()
+
+# -- Name styles (Ruling FZ, `Records ▸ Name styles…`) ---------------------------------------------------------------
+# Every call is refused while `generating` (the worker holds `WorldGen`; see `param_get`) and answers its empty default.
+
+## Every section a style may carry, in file order: `[{key, label, templates:[{text, weight}]}]`.
+func ns_sections() -> Array:
+	if generating or not _has("ns_sections"):
+		return []
+	return world_gen.ns_sections()
+
+## A built-in culture as an import-format CSV (the worked example); `""` for a key that is not one of the seven.
+func ns_builtin_csv(key: String) -> String:
+	if generating or not _has("ns_builtin_csv"):
+		return ""
+	return world_gen.ns_builtin_csv(key)
+
+## Parses a name-style CSV: `{ok, name, key, csv, issues:[{line, error, message}], errors, sections, min_syl, max_syl, max_len}`.
+## `register` adds the style to the process library so a roster or a preview can name it by `key`.
+func ns_parse(csv: String, register: bool) -> Dictionary:
+	if generating or not _has("ns_parse"):
+		return {}
+	return world_gen.ns_parse(csv, register)
+
+## `count` sample names for `section` of the style `key`, from `seed` (the same arguments give the same names).
+func ns_preview(key: String, section: String, seed_value: int, count: int) -> PackedStringArray:
+	if generating or not _has("ns_preview"):
+		return PackedStringArray()
+	return world_gen.ns_preview(key, section, seed_value, count)
+
+## The canonical CSV of a registered style (Export .csv); `""` for a built-in or unknown key.
+func ns_style_csv(key: String) -> String:
+	if generating or not _has("ns_style_csv"):
+		return ""
+	return world_gen.ns_style_csv(key)
+
+## `{world_default?, tracked, generated, hand_given, unknown, copies, can_undo}`; `{}` with no API.
+func ns_world_state() -> Dictionary:
+	if generating or not _has("ns_world_state"):
+		return {}
+	return world_gen.ns_world_state()
+
+## Sets the world default style (`""` clears). The world keeps a copy. `false` for a key that names nothing.
+func ns_set_world_default(key: String) -> bool:
+	if generating or not _has("ns_set_world_default"):
+		return false
+	var ok: bool = world_gen.ns_set_world_default(key)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+## Gives faction `faction` the naming culture `key` (a built-in culture or a library style).
+func ns_assign_faction(faction: int, key: String) -> bool:
+	if generating or not _has("ns_assign_faction"):
+		return false
+	var ok: bool = world_gen.ns_assign_faction(faction, key)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+## Rename all (one step; never a hand-given name): `{ok, renamed, kept_hand, kept_unknown, continents, provinces}` or `{ok:false, reason}`.
+func ns_rename_all(key: String, include_unknown: bool) -> Dictionary:
+	if generating or not _has("ns_rename_all"):
+		return {"ok": false, "reason": "the engine is busy or has no name styles"}
+	var r: Dictionary = world_gen.ns_rename_all(key, include_unknown)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
+## Undoes the last Rename all in one step; `false` when there is nothing to undo or a renamed place changed since.
+func ns_rename_undo() -> bool:
+	if generating or not _has("ns_rename_undo"):
+		return false
+	var ok: bool = world_gen.ns_rename_undo()
+	if ok:
+		mark_world_dirty()
+	return ok

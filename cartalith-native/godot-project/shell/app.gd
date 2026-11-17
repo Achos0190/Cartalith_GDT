@@ -7099,6 +7099,20 @@ var saved_journeys_window: AcceptDialog = null
 ## survives between opens).
 var conflicts_window: AcceptDialog = null
 
+## `shell/name_styles_window.gd` (Ruling FZ), preloaded for the reason `SAVED_JOURNEYS_WINDOW` is.
+const NAME_STYLES_WINDOW := preload("res://shell/name_styles_window.gd")
+## The one Name styles window, built on first open and kept (its import report and selection live in it).
+var name_styles_window: AcceptDialog = null
+
+## Records ▸ Name styles… (Ruling FZ): import, preview, assign and Rename all. Returns the window (the probes drive it).
+func open_name_styles() -> AcceptDialog:
+	if name_styles_window == null:
+		name_styles_window = NAME_STYLES_WINDOW.new()
+		add_child(name_styles_window)
+		name_styles_window.setup(self, bridge)
+	name_styles_window.open()
+	return name_styles_window
+
 ## Story ▸ JOURNEYS ▸ Saved journeys… (SM-6): every saved journey; a row opens
 ## it in the planner.
 func open_saved_journeys() -> void:

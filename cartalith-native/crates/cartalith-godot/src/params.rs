@@ -214,6 +214,10 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's market every urban golden pins
     // (`DECISIONS.md` section 7p). See `WorldParams::urban_market_road_bank`.
     p.urban_market_road_bank = true;
+    // Ruling FZ item 5 (2026-11-17): rivers and the landmark kinds that were unnamed get names from the
+    // world's name style. Off in `WorldParams::defaults` (nothing named, as every golden had it).
+    // See `WorldParams::name_unnamed_kinds`.
+    p.name_unnamed_kinds = true;
     // Ruling FN (owner 2026-11-16): river towns stretch along their river.
     // On since Ruling FS (owner 2026-11-17), which accepted the riverside
     // share Ruling FQ's fix reached (4.1 % at 384, 3.7 % at 2 048, against
@@ -515,6 +519,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_market_road_bank", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River town markets on their roads' bank", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_market_road_bank), set_fn: |p, v| p.urban_market_road_bank = v != 0.0 },
+    // Ruling FZ item 5 (2026-11-17): names for rivers and the landmark kinds the engine did not name
+    // (`cartalith_civ::name_style`). ON at the app boundary, OFF in `WorldParams::defaults`; no reference
+    // control. A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read when the names are asked
+    // for, so `param_catalogue::regen` calls it live.
+    ParamSpec { key: "name_unnamed_kinds", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Name rivers, mounts, cliffs and holy sites", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.name_unnamed_kinds), set_fn: |p, v| p.name_unnamed_kinds = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1229,6 +1240,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_burgage", ""),
     // Port-only (the 483920 #4 row); the reference takes the first dry ring point.
     ("urban_market_road_bank", ""),
+    // Port-only (Ruling FZ item 5); the reference names none of these kinds.
+    ("name_unnamed_kinds", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1591,6 +1604,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // A river town's market on its roads' bank (2026-11-17): every save
     // without the key drew the reference's first dry ring point.
     ("urban_market_road_bank", Value::Bool(false)),
+    // Names for rivers and the other unnamed kinds (Ruling FZ, 2026-11-17): every save without the key
+    // had none.
+    ("name_unnamed_kinds", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

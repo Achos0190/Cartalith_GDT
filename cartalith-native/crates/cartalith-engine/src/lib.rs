@@ -1366,6 +1366,16 @@ pub struct WorldParams {
     /// time a layout is asked for (never stored), so it moves no generated
     /// field and needs no regeneration.
     pub urban_market_road_bank: bool,
+    /// **Names for the kinds the engine did not name** (Ruling FZ item 5, owner 2026-11-17): rivers get a
+    /// proper name and every landmark of a kind that has a name-style section (mounts, cliffs, holy sites,
+    /// waterfalls, passes ...) gets a `style_name`, drawn from the world's name style (the world default
+    /// if one is set, else the built-in culture the lakes already use) by `cartalith_civ::name_style`.
+    /// Read when `get_rivers`, `river_at` and `landmark_names` are asked (never stored), so it moves no
+    /// generated field and needs no regeneration.
+    ///
+    /// **`false` here** (no such key is written, nothing is named); **`true` in the shipped app**
+    /// (`params::defaults`), and off on load for a save without the key (`DECISIONS.md` section 7p).
+    pub name_unnamed_kinds: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1605,6 +1615,8 @@ impl WorldParams {
             urban_burgage: false,
             // The reference's first dry ring point (the 483920 #4 row).
             urban_market_road_bank: false,
+            // Ruling FZ: no names for the unnamed kinds, as every golden and every old save had.
+            name_unnamed_kinds: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

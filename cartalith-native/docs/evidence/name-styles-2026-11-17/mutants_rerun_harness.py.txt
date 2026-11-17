@@ -1,0 +1,27 @@
+import subprocess, os, hashlib
+env=dict(os.environ, CARGO_TARGET_DIR='C:/cw/names_target')
+R='C:/cw/names/cartalith-native/'
+CIV=R+'crates/cartalith-civ/src/name_style.rs'
+LIB=R+'crates/cartalith-civ/src/lib.rs'
+CIVT=['cargo','test','-p','cartalith-civ','--lib','name_style']
+CIVT2=['cargo','test','-p','cartalith-civ','--lib','continents_name']
+M=[
+('M1 pick uses <= on the cumulative weight',CIV,"        if x < acc {\n            return t;","        if x <= acc {\n            return t;",CIVT),
+('M5 a non-numeric weight is silently repaired to 1',CIV,'let w: f64 = t.parse().map_err(|_| format!("weight \\"{t}\\" is not a number"))?;','let w: f64 = t.parse().unwrap_or(1.0);',CIVT),
+('M14 continents ignore the faction style',LIB,"usize::try_from(faction).ok().and_then(|f| cultures.get(f)).and_then(|k| name_style::style_for_key(k))","None",CIVT2),
+]
+for name,path,old,new,cmd in M:
+    src=open(path,encoding='utf-8').read()
+    h=hashlib.sha256(src.encode()).hexdigest()
+    assert src.count(old)==1,(name,src.count(old))
+    try:
+        open(path,'w',encoding='utf-8').write(src.replace(old,new))
+        r=subprocess.run(cmd,cwd=R,env=env,capture_output=True,text=True)
+        out=r.stdout+r.stderr
+        if 'error[' in out or 'could not compile' in out: v='BUILD_ERROR'
+        elif r.returncode==0: v='SURVIVED'
+        else: v='KILLED'
+    finally:
+        open(path,'w',encoding='utf-8').write(src)
+    assert hashlib.sha256(open(path,encoding='utf-8').read().encode()).hexdigest()==h
+    print(v,name,flush=True)

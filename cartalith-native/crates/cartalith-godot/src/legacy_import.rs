@@ -116,6 +116,8 @@ pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
             .collect();
         let next_tid = settlements.iter().map(|s| s.tid + 1).max().unwrap_or(1);
         CivData {
+            // A flat legacy export records no hand-given names (Ruling FZ item 4): none may be assumed generated.
+            names_tracked: false,
             trade_balances: settlements
                 .iter()
                 .map(|_| cartalith_civ::TradeBalance { exports: Vec::new(), imports: Vec::new() })

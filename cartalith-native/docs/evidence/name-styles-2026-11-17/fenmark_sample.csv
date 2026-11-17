@@ -1,0 +1,32 @@
+# Cartalith name style. Rows starting with # are comments the importer skips.
+# WEIGHTS: the number in a "... weight" column sits next to its fragment and says how often it is chosen
+# relative to the others in the same column. Blank means 1. A weight of 3 beside two blank (1) neighbours is
+# chosen 3 times in 5. Weights must be positive; delete a row to remove a fragment.
+# A name is built from 2 to 3 pieces (see Syllables): the first from Start, the last from End, any between from
+# Middle, then one Suffix. The Suffix cell (none) means no suffix.
+# A [Section] row starts each kind of name. A section with no fragments borrows [Settlements]'s; a section
+# with no templates uses the built-in ones. In a Template, {name} stands for the stem the fragments built.
+Name style,Fenmark
+Syllables,2,3
+Max length,14
+[Settlements]
+Start,Start weight,Middle,Middle weight,End,End weight,Suffix,Suffix weight
+Ald,3,en,2,wick,2,(none),4
+Brae,2,ar,,stow,,by,2
+Cor,,el,,ham,3,thorpe,1
+Hol,2,,,mere,,ton,2
+[Rivers]
+Start,Start weight,End,End weight
+Wen,2,ley,
+Tam,,flow,3
+Template,Weight
+River {name},2
+{name} Beck,3
+The {name},1
+[Mounts]
+Template,Weight
+Mount {name},3
+{name} Tor,2
+[Holy sites]
+Template,Weight
+The Shrine of {name},1

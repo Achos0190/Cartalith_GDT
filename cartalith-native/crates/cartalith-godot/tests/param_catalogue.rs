@@ -40,17 +40,17 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 141, "registry rows counted 2026-11-17 (140 until `urban_market_road_bank`); re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 142, "registry rows counted 2026-11-17 (140 until `urban_market_road_bank`); re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
-    assert_eq!(offered.len(), 133); // 132 until `urban_market_road_bank` (2026-11-17); 131 until Ruling FE item 3's `urban_burgage` prototype (2026-11-17); 130 until Ruling FO item 1's `civ.founding_year` (2026-11-16); 129 until Ruling FN's `urban_river_stretch` (2026-11-16); 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach` (2026-11-16); 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings` (2026-11-16); 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box` (2026-11-15); 122 until `urban_market_scale` (judgement change 6, 2026-11-15); 121 until `urban_street_village` (Ruling FE item 2, 2026-11-15); 120 until `urban_riverbank`
+    assert_eq!(offered.len(), 134); // 133 until `name_unnamed_kinds` (Ruling FZ, 2026-11-17); 132 until `urban_market_road_bank` (2026-11-17); 131 until Ruling FE item 3's `urban_burgage` prototype (2026-11-17); 130 until Ruling FO item 1's `civ.founding_year` (2026-11-16); 129 until Ruling FN's `urban_river_stretch` (2026-11-16); 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach` (2026-11-16); 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings` (2026-11-16); 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box` (2026-11-15); 122 until `urban_market_scale` (judgement change 6, 2026-11-15); 121 until `urban_street_village` (Ruling FE item 2, 2026-11-15); 120 until `urban_riverbank`
     let missing: Vec<&&str> = offered.iter().filter(|k| param_catalogue::desc(k).is_none_or(|d| d.trim().is_empty())).collect();
     assert!(missing.is_empty(), "offered keys with no description: {missing:?}");
     for (k, _) in param_catalogue::DESCS {
         assert!(params::spec(k).is_some(), "DESCS row for a key the registry does not have: {k}");
         assert!(!param_catalogue::EXCLUDED.contains(k), "DESCS describes an excluded key: {k}");
     }
-    assert_eq!(param_catalogue::DESCS.len(), 133, "one row per offered key, no duplicates"); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(param_catalogue::DESCS.len(), 134, "one row per offered key, no duplicates"); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     for (k, gate, _, _) in param_catalogue::INERT_WHEN {
         assert!(params::spec(k).is_some(), "INERT_WHEN row for an unknown key {k}");
         assert_eq!(params::spec(gate).map(|s| s.kind), Some(params::Kind::Bool), "INERT_WHEN gate {gate} must be a switch");
@@ -143,7 +143,7 @@ fn the_generated_schema_is_valid_and_small() {
     let c = fresh();
     assert!(c.problems().is_empty(), "{:?}", c.problems());
     assert_eq!(c.groups.len(), 9);
-    assert_eq!(c.rows.len(), 133); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(c.rows.len(), 134); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     let mut total = 0;
     for g in all_groups(&c) {
         let (_, v, keys) = c.schema_for(Some(&json!([g]))).unwrap();
@@ -291,7 +291,7 @@ fn two_step_flow_over_real_rows() {
     assert_eq!(s, Step::Continue);
     let tools = conv.tools(&c);
     let en: &Value = &tools[1].parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"];
-    assert_eq!(en.as_array().unwrap().len(), 44); // 43 until `urban_market_road_bank` (the 483920 #4 row) joined the world group; 42 until `urban_burgage` (Ruling FE item 3's prototype) joined the world group; 41 until `urban_river_stretch` (Ruling FN) joined the world group; 40 until `urban_harbour_front` (Ruling FK item 1) joined the world group; 39 until `urban_market_scale` (judgement change 6) joined the world group; 38 until `urban_street_village` (Ruling FE item 2) joined the world group; 37 until `urban_riverbank` (2026-11-15) joined the world group; 36 until `urban_river_kind_map` (Ruling EX follow-up (c)) joined the world group; 35 until Ruling EW item 1's `urban_wall_hug` joined the world group; 34 until Ruling ET's `lake_balance`
+    assert_eq!(en.as_array().unwrap().len(), 45); // 43 until `urban_market_road_bank` (the 483920 #4 row) joined the world group; 42 until `urban_burgage` (Ruling FE item 3's prototype) joined the world group; 41 until `urban_river_stretch` (Ruling FN) joined the world group; 40 until `urban_harbour_front` (Ruling FK item 1) joined the world group; 39 until `urban_market_scale` (judgement change 6) joined the world group; 38 until `urban_street_village` (Ruling FE item 2) joined the world group; 37 until `urban_riverbank` (2026-11-15) joined the world group; 36 until `urban_river_kind_map` (Ruling EX follow-up (c)) joined the world group; 35 until Ruling EW item 1's `urban_wall_hug` joined the world group; 34 until Ruling ET's `lake_balance`
     let mut bad = ParamsConversation::new(&c, "x").unwrap();
     bad.on_reply(&c, "", vec![IncomingCall { id: None, name: "get_param_schema".into(), arguments: json!({"groups": ["rainfall"]}) }]);
     assert!(bad.shown_groups().is_empty() && bad.tools(&c).len() == 1);
@@ -401,7 +401,7 @@ fn get_parameters_equals_the_registry_for_every_offered_key() {
             seen += 1;
         }
     }
-    assert_eq!(seen, 133, "every offered key is answered exactly once across the nine groups");
+    assert_eq!(seen, 134, "every offered key is answered exactly once across the nine groups");
 }
 
 /// Protects `get_changed_parameters` against an independent diff of the two registry snapshots, and
@@ -455,13 +455,13 @@ fn describe_parameter_equals_the_registry_for_every_offered_key() {
             Some(PipelineStage::Climate) => "settlements_refresh",
             Some(_) => "full_generate",
             // Read fresh each time it is asked for: the garrison scale, and (Ruling EW item 1) a town layout's wall hug.
-            None if s.key == "civ.garrison_exposure_scale" || s.key == "urban_wall_hug" || s.key == "urban_river_kind_map" || s.key == "urban_riverbank" || s.key == "urban_street_village" || s.key == "urban_market_scale" || s.key == "urban_harbour_front" || s.key == "urban_river_stretch" || s.key == "urban_burgage" || s.key == "urban_market_road_bank" => "live",
+            None if s.key == "civ.garrison_exposure_scale" || s.key == "urban_wall_hug" || s.key == "urban_river_kind_map" || s.key == "urban_riverbank" || s.key == "urban_street_village" || s.key == "urban_market_scale" || s.key == "name_unnamed_kinds" || s.key == "urban_harbour_front" || s.key == "urban_river_stretch" || s.key == "urban_burgage" || s.key == "urban_market_road_bank" => "live",
             None => "full_generate",
         };
         assert_eq!(v["needs"], needs, "{}", s.key);
         n += 1;
     }
-    assert_eq!(n, 133); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(n, 134); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     for e in param_catalogue::EXCLUDED {
         let v = answer(&QueryCall::Describe { key: (*e).to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
         assert!(v["error"].as_str().unwrap().contains("not offered"), "{e}: {v}");
@@ -492,7 +492,7 @@ fn query_answers_fit_the_result_cap() {
     assert!(total > MAX_RESULT_BYTES, "all 116 at once would not fit, which is why no-argument is an overview: {total}");
     let groups = all["groups"].as_array().unwrap();
     assert_eq!(groups.len(), 9);
-    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 133); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 134); // 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     assert!(all.get("settings").is_none(), "the overview carries no values");
     let ch = answer(&QueryCall::Changed, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
     assert_eq!(ch["changed_count"], 0, "a fresh world has nothing changed");

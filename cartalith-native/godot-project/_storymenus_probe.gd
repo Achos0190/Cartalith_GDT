@@ -80,7 +80,7 @@ var world_p: PopupMenu
 ## (separators by caption). Travel library… closed RECORDS until SM-2 moved it.
 const WORLD_ROWS: Array = ["⧉ Data manager", "|RECORDS", "Factions…", "Places…",
 	"Markdown vault…", "Browse & edit a note…", "Places without notes…", "Timeline is in Story ▸ Timeline",
-	"|TECHNICAL", "World data tables…", "Import", "Sources & validation",
+	"|TECHNICAL", "World data tables…", "Name styles…", "Import", "Sources & validation",
 	"Export is in File ▸ Export"]
 
 ## File ▸ Export ▸'s rows, the proposal's §3.1 table in A2's order. The DATA

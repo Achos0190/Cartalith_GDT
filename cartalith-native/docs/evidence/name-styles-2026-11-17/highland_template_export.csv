@@ -1,0 +1,184 @@
+# Cartalith name style. Rows starting with # are comments the importer skips.
+# WEIGHTS: the number in a "... weight" column sits next to its fragment and says how often it is chosen
+# relative to the others in the same column. Blank means 1. A weight of 3 beside two blank (1) neighbours is
+# chosen 3 times in 5. Weights must be positive; delete a row to remove a fragment.
+# A name is built from 2 to 4 pieces (see Syllables): the first from Start, the last from End, any between from
+# Middle, then one Suffix. The Suffix cell (none) means no suffix.
+# A [Section] row starts each kind of name. A section with no fragments borrows [Settlements]'s; a section
+# with no templates uses the built-in ones. In a Template, {name} stands for the stem the fragments built.
+# Max length (optional) is the longest name in characters; leave it out to let the style size itself.
+Name style,highland
+Syllables,2,4
+[Settlements]
+Start,Start weight,Middle,Middle weight,End,End weight,Suffix,Suffix weight
+brak,,brak,,brak,,dun,
+dun,,dun,,dun,,crag,
+gorm,,gorm,,gorm,,hold,
+krag,,krag,,krag,,fell,
+thorn,,thorn,,thorn,,stone,
+bruk,,bruk,,bruk,,peak,
+garn,,garn,,garn,,ridge,
+hask,,hask,,hask,,cairn,
+krun,,krun,,krun,,tor,
+morg,,morg,,morg,,ward,
+stok,,stok,,stok,,,
+vrag,,vrag,,vrag,,,
+and,,and,,and,,,
+bald,,bald,,bald,,,
+crun,,crun,,crun,,,
+dagr,,dagr,,dagr,,,
+forn,,forn,,forn,,,
+grim,,grim,,grim,,,
+hurn,,hurn,,hurn,,,
+kar,,kar,,kar,,,
+[Provinces]
+Template,Weight
+{name} Province,70
+The {name} March,15
+{name} County,15
+[Continents]
+Template,Weight
+The {name} Reach,18
+Greater {name},14
+The {name} Expanse,10
+{name},58
+[World]
+Template,Weight
+The {name} Reach,18
+Greater {name},14
+The {name} Expanse,10
+{name},58
+[Bays]
+Template,Weight
+{name} Bay,50
+Gulf of {name},25
+{name} Sound,25
+[Lakes]
+Template,Weight
+Lake {name},62
+{name} Mere,23
+{name} Water,15
+[Mountains]
+Template,Weight
+The {name} Range,55
+The {name} Mountains,25
+{name} Heights,20
+[Mounts]
+Template,Weight
+Mount {name},60
+{name} Peak,25
+Mount {name},15
+[Rivers]
+Template,Weight
+River {name},40
+The {name},35
+{name} River,25
+[Cliffs]
+Template,Weight
+{name} Cliffs,50
+The {name} Scarp,30
+{name} Bluff,20
+[Holy sites]
+Template,Weight
+The Shrine of {name},30
+{name} Temple,30
+{name} Sanctuary,20
+The {name} Grove,20
+[Seas]
+Template,Weight
+The {name} Sea,60
+{name} Ocean,25
+The {name} Deep,15
+[Islands]
+Template,Weight
+{name} Isle,40
+{name} Island,40
+The {name} Skerries,20
+[Forests]
+Template,Weight
+The {name} Wood,40
+{name} Forest,40
+{name} Weald,20
+[Deserts]
+Template,Weight
+The {name} Waste,40
+{name} Desert,40
+The {name} Sands,20
+[Glaciers]
+Template,Weight
+{name} Glacier,60
+The {name} Ice,40
+[Gorges]
+Template,Weight
+{name} Gorge,50
+The {name} Cleft,30
+{name} Canyon,20
+[Waterfalls]
+Template,Weight
+{name} Falls,50
+{name} Spring,30
+The {name} Cascade,20
+[Caves]
+Template,Weight
+{name} Cave,60
+The {name} Hollow,40
+[Passes]
+Template,Weight
+{name} Pass,60
+The {name} Gap,20
+{name} Ridge,20
+[Crossings]
+Template,Weight
+{name} Bridge,40
+{name} Ford,40
+{name} Crossing,20
+[Castles]
+Template,Weight
+{name} Castle,40
+Fort {name},30
+{name} Keep,30
+[Ruins]
+Template,Weight
+The Ruins of {name},50
+{name} Barrow,30
+Old {name},20
+[Monuments]
+Template,Weight
+The {name} Stone,40
+{name} Monument,30
+The {name} Spire,30
+[Harbours]
+Template,Weight
+{name} Harbour,60
+{name} Landing,40
+[Inns]
+Template,Weight
+The {name} Arms,40
+The {name} Inn,40
+The Sleeping {name},20
+[Markets]
+Template,Weight
+{name} Market,50
+{name} Exchange,30
+{name} Depot,20
+[Mines]
+Template,Weight
+{name} Mine,50
+{name} Quarry,30
+The {name} Works,20
+[Fields]
+Template,Weight
+{name} Fields,50
+{name} Farm,30
+{name} Well,20
+[Battlefields]
+Template,Weight
+The Field of {name},50
+{name} Field,50
+[Hazards]
+Template,Weight
+{name} Rockfall,50
+The {name} Hazard,50
+[Landmarks]
+Template,Weight
+{name},

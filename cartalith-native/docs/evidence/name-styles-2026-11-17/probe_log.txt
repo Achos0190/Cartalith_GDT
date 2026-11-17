@@ -1,0 +1,96 @@
+== desktop
+NS form=desktop_1600x900
+NS ok    the Records menu has a Name styles row
+NS ok    the row opens the window
+NS ok    seven built-in cultures are listed  -- 7
+NS ok    the drop zone and Import are drawn
+NS ok    the bad-rows sample is readable
+NS ok    a file with bad rows still imports its good rows
+NS ok    the bad rows are reported at lines 6, 7, 8, 9, 14, 15 and 16  -- [6, 7, 8, 9, 14, 15, 16]
+NS ok    the check panel lists each line number  -- → CHECK | fenmark_bad_rows.csv: 7 rows with a problem | line 6: weight "abc" is not a number | line 7: weight "-1" must be a positive number (delete the row to remove a fragment) | line 8: a weight wi
+NS ok    the library holds the style
+NS ok    the committed sample imports with no issue  -- []
+NS ok    two styles are in the library
+NS ok    a preview is drawn (12 names) and a new seed changes it  -- ["Aldarmereton", "Braeham", "Braeenwick", "Aldham", "Holstow", "Braehamton", "Aldhamby", "Aldarhamthorpe", "Aldelwick", "Aldwickthorpe", "Aldenwickby", "Aldelham"]
+NS ok    the same seed gives the same names
+NS ok    the Rivers section uses the style's own templates  -- ["The Wenflow", "Wenley Beck", "Tamley Beck", "River Tamflow", "Wenflow 2 Beck", "River Wenley 2", "River Wenflow 3", "River Tamflow 2"]
+NS ok    a section the style lacks falls back to the built-in templates  -- ["Aldarmereton Cliffs", "Corenmereby Cliffs", "Braewick Cliffs", "Braeham Cliffs", "Braehamton Cliffs", "Corhamthorpe Cliffs", "The Braeelmere Scarp", "Aldstow Cliffs"]
+NS ok    the world default is set
+NS ok    the engine reports it
+NS ok    faction 2 holds the style as its culture  -- style:cf7b82952e898c53
+NS ok    an unknown key is refused
+NS ok    the world has places to rename  -- 215
+NS ok    a hand-given name is accepted
+NS ok    the world tracks names and counts one hand-given  -- { "tracked": true, "generated": 214, "hand_given": 1, "unknown": 0, "copies": ["style:cf7b82952e898c53"], "can_undo": false, "world_default": "style:cf7b82952e898c53" }
+NS ok    Rename all succeeded  -- { "ok": true, "renamed": 214, "kept_hand": 1, "kept_unknown": 0, "continents": 2, "provinces": 5 }
+NS ok    the hand-given name is untouched  -- Handy Rest
+NS ok    every other place was renamed  -- 214 of 214
+NS ok    the new names come from the style (start with a fragment of it)  -- Corhamthorpe
+NS ok    the undo is offered
+NS ok    one undo puts every name back
+NS ok    the exported template imports clean and unchanged
+NS RESULT 29 checks, 0 failed (desktop_1600x900)
+== tablet
+NS form=tablet_1700x1000
+NS ok    the Records menu has a Name styles row
+NS ok    the row opens the window
+NS ok    seven built-in cultures are listed  -- 7
+NS ok    the drop zone and Import are drawn
+NS ok    the bad-rows sample is readable
+NS ok    a file with bad rows still imports its good rows
+NS ok    the bad rows are reported at lines 6, 7, 8, 9, 14, 15 and 16  -- [6, 7, 8, 9, 14, 15, 16]
+NS ok    the check panel lists each line number  -- → CHECK | fenmark_bad_rows.csv: 7 rows with a problem | line 6: weight "abc" is not a number | line 7: weight "-1" must be a positive number (delete the row to remove a fragment) | line 8: a weight wi
+NS ok    the library holds the style
+NS ok    the committed sample imports with no issue  -- []
+NS ok    two styles are in the library
+NS ok    a preview is drawn (12 names) and a new seed changes it  -- ["Aldarmereton", "Braeham", "Braeenwick", "Aldham", "Holstow", "Braehamton", "Aldhamby", "Aldarhamthorpe", "Aldelwick", "Aldwickthorpe", "Aldenwickby", "Aldelham"]
+NS ok    the same seed gives the same names
+NS ok    the Rivers section uses the style's own templates  -- ["The Wenflow", "Wenley Beck", "Tamley Beck", "River Tamflow", "Wenflow 2 Beck", "River Wenley 2", "River Wenflow 3", "River Tamflow 2"]
+NS ok    a section the style lacks falls back to the built-in templates  -- ["Aldarmereton Cliffs", "Corenmereby Cliffs", "Braewick Cliffs", "Braeham Cliffs", "Braehamton Cliffs", "Corhamthorpe Cliffs", "The Braeelmere Scarp", "Aldstow Cliffs"]
+NS ok    the world default is set
+NS ok    the engine reports it
+NS ok    faction 2 holds the style as its culture  -- style:cf7b82952e898c53
+NS ok    an unknown key is refused
+NS ok    the world has places to rename  -- 215
+NS ok    a hand-given name is accepted
+NS ok    the world tracks names and counts one hand-given  -- { "tracked": true, "generated": 214, "hand_given": 1, "unknown": 0, "copies": ["style:cf7b82952e898c53"], "can_undo": false, "world_default": "style:cf7b82952e898c53" }
+NS ok    Rename all succeeded  -- { "ok": true, "renamed": 214, "kept_hand": 1, "kept_unknown": 0, "continents": 2, "provinces": 7 }
+NS ok    the hand-given name is untouched  -- Handy Rest
+NS ok    every other place was renamed  -- 214 of 214
+NS ok    the new names come from the style (start with a fragment of it)  -- Corhamthorpe
+NS ok    the undo is offered
+NS ok    one undo puts every name back
+NS ok    the exported template imports clean and unchanged
+NS RESULT 29 checks, 0 failed (tablet_1700x1000)
+== phone
+NS form=phone_450x975
+NS ok    the Records menu has a Name styles row
+NS ok    the row opens the window
+NS ok    seven built-in cultures are listed  -- 7
+NS ok    the drop zone and Import are drawn
+NS ok    the bad-rows sample is readable
+NS ok    a file with bad rows still imports its good rows
+NS ok    the bad rows are reported at lines 6, 7, 8, 9, 14, 15 and 16  -- [6, 7, 8, 9, 14, 15, 16]
+NS ok    the check panel lists each line number  -- → CHECK | fenmark_bad_rows.csv: 7 rows with a problem | line 6: weight "abc" is not a number | line 7: weight "-1" must be a positive number (delete the row to remove a fragment) | line 8: a weight wi
+NS ok    the library holds the style
+NS ok    the committed sample imports with no issue  -- []
+NS ok    two styles are in the library
+NS ok    a preview is drawn (12 names) and a new seed changes it  -- ["Aldarmereton", "Braeham", "Braeenwick", "Aldham", "Holstow", "Braehamton", "Aldhamby", "Aldarhamthorpe", "Aldelwick", "Aldwickthorpe", "Aldenwickby", "Aldelham"]
+NS ok    the same seed gives the same names
+NS ok    the Rivers section uses the style's own templates  -- ["The Wenflow", "Wenley Beck", "Tamley Beck", "River Tamflow", "Wenflow 2 Beck", "River Wenley 2", "River Wenflow 3", "River Tamflow 2"]
+NS ok    a section the style lacks falls back to the built-in templates  -- ["Aldarmereton Cliffs", "Corenmereby Cliffs", "Braewick Cliffs", "Braeham Cliffs", "Braehamton Cliffs", "Corhamthorpe Cliffs", "The Braeelmere Scarp", "Aldstow Cliffs"]
+NS ok    the world default is set
+NS ok    the engine reports it
+NS ok    faction 2 holds the style as its culture  -- style:cf7b82952e898c53
+NS ok    an unknown key is refused
+NS ok    the world has places to rename  -- 215
+NS ok    a hand-given name is accepted
+NS ok    the world tracks names and counts one hand-given  -- { "tracked": true, "generated": 214, "hand_given": 1, "unknown": 0, "copies": ["style:cf7b82952e898c53"], "can_undo": false, "world_default": "style:cf7b82952e898c53" }
+NS ok    Rename all succeeded  -- { "ok": true, "renamed": 214, "kept_hand": 1, "kept_unknown": 0, "continents": 2, "provinces": 7 }
+NS ok    the hand-given name is untouched  -- Handy Rest
+NS ok    every other place was renamed  -- 214 of 214
+NS ok    the new names come from the style (start with a fragment of it)  -- Corhamthorpe
+NS ok    the undo is offered
+NS ok    one undo puts every name back
+NS ok    the exported template imports clean and unchanged
+NS RESULT 29 checks, 0 failed (phone_450x975)

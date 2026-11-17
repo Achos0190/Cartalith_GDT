@@ -1,0 +1,16 @@
+Name style,Fenmark (bad rows)
+Syllables,2,3
+[Settlements]
+Start,Start weight,End,End weight,Suffix,Suffix weight
+Ald,3,wick,,(none),
+Brae,abc,stow,,by,
+Cor,-1,ham,,thorpe,
+,2,mere,,,
+Hol,2,{x},,ton,
+Fen,1,low,,,
+[Rivers]
+Template,Weight
+River {name},2
+NoPlaceholder,1
+[Nowhere]
+x,y

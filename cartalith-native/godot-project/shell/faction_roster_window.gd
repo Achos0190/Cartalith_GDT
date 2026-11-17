@@ -152,6 +152,7 @@ const TAB_MIN_H_POINTER := 28
 ## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
 const ContextWindow := preload("res://shell/context_window.gd")
 const WindowRepresent := preload("res://shell/window_represent.gd")
+const NameStyleLibrary := preload("res://shell/name_style_library.gd")
 
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `civ_*` call here goes through it, and `setup`
@@ -2855,12 +2856,20 @@ func _forget_town_layouts() -> void:
 ## carries no display label, so capitalising the key is the honest render,
 ## not an invented label table.
 func _culture_choice(parent: Control, current: String) -> void:
-	var keys := bridge.civ_culture_vocabulary()
+	var keys: Array = Array(bridge.civ_culture_vocabulary())
 	if keys.is_empty():
 		return
 	var labels: Array = []
 	for k in keys:
 		labels.append(String(k).capitalize())
+	## Ruling FZ: the user's imported name styles (`name_style_library.gd`) are naming cultures too, after the seven.
+	for e in NameStyleLibrary.entries(bridge):
+		keys.append(String(e["key"]))
+		labels.append("%s (style)" % String(e["name"]))
+	## A faction already on a style this device does not hold (a world's own copy) still shows it, never as the first row.
+	if current.begins_with("style:") and not keys.has(current):
+		keys.append(current)
+		labels.append("a style not in this library")
 	DccWidgets.choice(parent, "Culture", labels, maxi(0, Array(keys).find(current)),
 		func(i: int): _set_field("culture", String(keys[i])),
 		"Naming culture -- the pool _civSettleName draws this faction's settlement names from. Also what the Territory tab's fit verdict judges the land against.")
@@ -2956,6 +2965,10 @@ func _fill_culture_card(key: String) -> void:
 		return
 	_clear(host)
 	var row := _culture_row(key)
+	if row.is_empty() and key.begins_with("style:"):
+		## Ruling FZ: an imported name style is a naming culture with no terrain theme.
+		DccWidgets.note(host, "Naming style (Records ▸ Name styles…): it names this faction's settlements, re-rolls and continents. It has no terrain theme, so the Territory tab gives no culture-fit verdict for it.")
+		return
 	if row.is_empty():
 		DccWidgets.note(host,
 			"No profile for the culture \"%s\"." % key)

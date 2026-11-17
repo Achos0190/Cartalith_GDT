@@ -29,6 +29,7 @@ pub mod lake_balance;
 /// with no parity contract; see the module header for why nothing here
 /// touches `civ_settle_name`.
 pub mod naming;
+pub mod name_style;
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
 /// User-placed points of interest (Ruling EW item 4, CL-11): the record, the kind list, id issue. Never read by generation.
@@ -2691,6 +2692,22 @@ pub fn civ_continents_with_cultures(
     territory: Option<&[i32]>,
     cultures: &[&str],
 ) -> Vec<Continent> {
+    civ_continents_with_styles(lq, gw, gh, min_cells, territory, cultures, None)
+}
+
+/// [`civ_continents_with_cultures`] with Ruling FZ's name styles: a landmass whose plurality faction's culture key
+/// is a registered `style:` key ([`name_style::style_for_key`]) is named by that style's `[Continents]` section,
+/// and a landmass **no faction holds** by `default_style` when one is given. With no style anywhere this is the
+/// same function byte for byte (every built-in key takes the original branch), which the golden tests pin.
+pub fn civ_continents_with_styles(
+    lq: &LandmassQuality,
+    gw: usize,
+    gh: usize,
+    min_cells: usize,
+    territory: Option<&[i32]>,
+    cultures: &[&str],
+    default_style: Option<&name_style::NameStyle>,
+) -> Vec<Continent> {
     if lq.count == 0 {
         return Vec::new();
     }
@@ -2753,6 +2770,20 @@ pub fn civ_continents_with_cultures(
             let faction = a.by_faction.iter().max_by_key(|(id, n)| (**n, std::cmp::Reverse(**id))).map(|(id, _)| *id).unwrap_or(0);
             // Unowned land keeps the fixed default; see this function's doc.
             let culture = if faction > 0 { civ_faction_culture(cultures, faction) } else { civ_default_culture(1) };
+            // Ruling FZ: a user style names this landmass when its faction (or, unclaimed, the world default) has one.
+            let styled: Option<std::sync::Arc<name_style::NameStyle>> = if faction > 0 {
+                usize::try_from(faction).ok().and_then(|f| cultures.get(f)).and_then(|k| name_style::style_for_key(k))
+            } else {
+                default_style.map(|d| std::sync::Arc::new(d.clone()))
+            };
+            let name = match &styled {
+                Some(st) => st.feature_name(&mut rng, "Continents", &mut seen_names),
+                None => crate::naming::decorate(
+                    &crate::naming::civ_settle_name_bounded_in(&mut rng, culture, &mut seen_names),
+                    crate::naming::FeatureKind::Continent,
+                    &mut rng,
+                ),
+            };
             Continent {
                 id: rank as i32 + 1,
                 // A continent used to take the bare settlement stem, so it
@@ -2762,11 +2793,7 @@ pub fn civ_continents_with_cultures(
                 // the map -- neither is a parity change, because the reference
                 // has no continents at all (`MARKDOWN_VAULT_SCOPE.md`'s entity
                 // audit found they did not exist).
-                name: crate::naming::decorate(
-                    &crate::naming::civ_settle_name_bounded_in(&mut rng, culture, &mut seen_names),
-                    crate::naming::FeatureKind::Continent,
-                    &mut rng,
-                ),
+                name,
                 cells: a.cells,
                 min_x: a.min_x,
                 min_y: a.min_y,
@@ -6960,7 +6987,7 @@ pub fn name_and_populate_settlements_with_rng(
     placements
         .iter()
         .map(|p| {
-            let name = civ_settle_name(rng, civ_faction_culture(cultures, p.faction));
+            let name = name_style::settle_name_for_key(rng, cultures, p.faction);
             let base_pop = civ_base_pop_for_kind(p.kind);
             let pop =
                 (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
@@ -9651,7 +9678,7 @@ pub fn civ_seed_villages_on_rivers(
                 faction = p.placement.faction;
             }
         }
-        let name = civ_settle_name(rng, civ_faction_culture(cultures, faction));
+        let name = name_style::settle_name_for_key(rng, cultures, faction);
         added.push(VillageSettlement {
             x: vx,
             y: vy,
@@ -21192,6 +21219,45 @@ mod tests {
         // which is what makes a knowledge link's stored label meaningful.
         let again = civ_continents(&lq, gw, gh, 1, Some(&territory));
         assert_eq!(c.iter().map(|x| x.name.clone()).collect::<Vec<_>>(), again.iter().map(|x| x.name.clone()).collect::<Vec<_>>());
+    }
+
+    /// Protects Ruling FZ: a landmass whose plurality faction holds a registered name style is named by that
+    /// style's `[Continents]` template (a literal template and a literal stem), a landmass no faction holds takes
+    /// the world default style when one is given, and with no style the names are the built-in ones unchanged.
+    #[test]
+    fn civ_continents_name_a_landmass_in_the_plurality_factions_style() {
+        let (field, gw, gh) = three_landmass_world();
+        let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
+        let territory = plurality_territory(gw, gh);
+        let parse = |csv: &str| name_style::parse_style_csv(csv).style.expect("a style");
+        let key = name_style::register_style(parse("Name style,CT
+Syllables,1,1
+[Settlements]
+Start
+zo
+[Continents]
+Template,Weight
+Land of {name},1
+"));
+        let dflt = parse("Name style,Def
+Syllables,1,1
+[Settlements]
+Start
+qu
+[Continents]
+Template,Weight
+Isle {name},1
+");
+        let mut cultures: Vec<&str> = vec!["common"; 4];
+        cultures[3] = key.as_str();
+        let plain = civ_continents_with_cultures(&lq, gw, gh, 1, Some(&territory), &["common", "common", "common", "common"]);
+        let styled = civ_continents_with_styles(&lq, gw, gh, 1, Some(&territory), &cultures, Some(&dflt));
+        assert_eq!(styled[0].faction, 3);
+        assert_eq!(styled[0].name, "Land of Zo", "faction 3's style names the landmass it holds");
+        assert_eq!(styled[1].faction, 0);
+        assert_eq!(styled[1].name, "Isle Qu", "the unclaimed landmass takes the world default");
+        let none = civ_continents_with_styles(&lq, gw, gh, 1, Some(&territory), &["common", "common", "common", "common"], None);
+        assert_eq!(plain.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), none.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), "no style anywhere is the built-in function");
     }
 
     /// The pre-roster naming, re-derived independently: every landmass named

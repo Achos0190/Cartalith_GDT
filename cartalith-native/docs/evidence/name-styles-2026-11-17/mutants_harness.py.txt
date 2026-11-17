@@ -1,0 +1,42 @@
+import subprocess, os, hashlib, sys
+env=dict(os.environ, CARGO_TARGET_DIR='C:/cw/names_target')
+R='C:/cw/names/cartalith-native/'
+CIV=R+'crates/cartalith-civ/src/name_style.rs'
+BR=R+'crates/cartalith-godot/src/name_style_bridge.rs'
+PA=R+'crates/cartalith-godot/src/params.rs'
+LIB=R+'crates/cartalith-civ/src/lib.rs'
+CIVT=['cargo','test','-p','cartalith-civ','--lib','name_style']
+BRT=['cargo','test','-p','cartalith-godot','--lib','name_style_bridge']
+PAT=['cargo','test','-p','cartalith-godot','--test','params_mapping']
+M=[
+('M1 pick uses <= on the cumulative weight',CIV,'        if x < acc {\n            return t;','        if x <= acc {\n            return t;',CIVT),
+('M2 a weight of 0 is accepted',CIV,'if !w.is_finite() || w <= 0.0 {','if !w.is_finite() || w < 0.0 {',CIVT),
+('M3 a blank weight reads as 2',CIV,'    if t.is_empty() {\n        return Ok(1.0);','    if t.is_empty() {\n        return Ok(2.0);',CIVT),
+('M4 export writes the empty suffix as blank not (none)',CIV,'if k == 3 && t.is_empty() { NO_SUFFIX.to_string() }','if k == 9 && t.is_empty() { NO_SUFFIX.to_string() }',CIVT),
+('M5 a bad row is half-imported (error no longer skips the row)',CIV,'                    Some(e) => err(ln, e, &mut issues),\n                    None => {','                    Some(e) => err(ln, e, &mut issues),\n                    None if false => {}\n                    None => {',CIVT),
+('M6 a Templates row error pushes line off by one',CIV,'        let ln = i + 1;\n        let trimmed','        let ln = i + 2;\n        let trimmed',CIVT),
+('M7 settlement name ignores the style key',CIV,'        if let Some(st) = style_for_key(key) {\n            return st.settlement_name(rng);','        if let Some(st) = style_for_key("") {\n            return st.settlement_name(rng);',CIVT),
+('M8 rename_all renames hand-given names',BR,'let given = civ.place_extras.0.get(&tid).is_some_and(|e| e.name_given);\n        if given {','let given = civ.place_extras.0.get(&tid).is_some_and(|e| e.name_given);\n        if false && given {',BRT),
+('M9 rename_all ignores the untracked-world rule',BR,'if !civ.names_tracked && !include_unknown {','if false && !civ.names_tracked && !include_unknown {',BRT),
+('M10 undo overwrites a newer name',BR,'if !civ.settlements.iter().any(|s| s.tid == *tid && &s.name == after) {','if false && !civ.settlements.iter().any(|s| s.tid == *tid && &s.name == after) {',BRT),
+('M11 save writes unused copies / drops the used ones',BR,'if used_keys.contains(k) || state.world_default.as_deref() == Some(k.as_str()) {','if !used_keys.contains(k) {',BRT),
+('M12 unnamed kinds load ON for a save without the key',PA,'("name_unnamed_kinds", Value::Bool(false)),','("name_unnamed_kinds", Value::Bool(true)),',PAT),
+('M13 unnamed kinds default OFF in the app',PA,'    p.name_unnamed_kinds = true;','    p.name_unnamed_kinds = false;',PAT),
+('M14 continents ignore the faction style',LIB,'usize::try_from(faction).ok().and_then(|f| cultures.get(f)).and_then(|k| name_style::style_for_key(k))','None',CIVT),
+]
+res=[]
+for name,path,old,new,cmd in M:
+    src=open(path,encoding='utf-8').read()
+    h=hashlib.sha256(src.encode()).hexdigest()
+    assert src.count(old)==1,(name,src.count(old))
+    try:
+        open(path,'w',encoding='utf-8').write(src.replace(old,new))
+        r=subprocess.run(cmd,cwd=R,env=env,capture_output=True,text=True)
+        out=r.stdout+r.stderr
+        if 'error[' in out or 'could not compile' in out: v='BUILD_ERROR'
+        elif r.returncode==0: v='SURVIVED'
+        else: v='KILLED'
+    finally:
+        open(path,'w',encoding='utf-8').write(src)
+    assert hashlib.sha256(open(path,encoding='utf-8').read().encode()).hexdigest()==h
+    print(v,name,flush=True)

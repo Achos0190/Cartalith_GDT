@@ -594,6 +594,13 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// and untouched projects carry no such member and stay byte-identical, and a
 /// project without it opens with no bookmarks.
 ///
+/// # `entities/name_styles.json` is engine-owned
+///
+/// Registered 2026-11-17 (Ruling FZ, name styles from CSV). The payload is the world's copies of the name styles it
+/// uses, its default style and whether hand-given settlement names are recorded (`names_tracked`), held by
+/// `WorldGen::name_styles` and `CivData`, so `project_bridge.rs` writes and reads it. Additive: written only when
+/// there is something to say, so an older archive stays byte-identical and opens with no style.
+///
 /// # `appearance_paint.json` is engine-owned
 ///
 /// Registered 2026-10-18 (`COLOUR_PAINT_SCOPE.md` CP-3, Ruling CN). The
@@ -615,6 +622,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/landmarks.json",
     "entities/conflicts.json",
     "entities/religions.json",
+    "entities/name_styles.json",
     "history/timeline.json",
     "annotations/labels.json",
     "annotations/icons.json",

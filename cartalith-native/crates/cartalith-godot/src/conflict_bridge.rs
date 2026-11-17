@@ -496,6 +496,7 @@ mod tests {
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
             territory_year: None,
+            names_tracked: false,
         }
     }
 

@@ -461,7 +461,8 @@ impl FactionRoster {
                 entry.name = value.to_string();
             }
             "culture" => {
-                if !cartalith_civ::CIV_CULTURES.iter().any(|c| c.key == value) {
+                // Ruling FZ: a registered name style (`style:<id>`) is a culture too.
+                if !cartalith_civ::CIV_CULTURES.iter().any(|c| c.key == value) && cartalith_civ::name_style::style_for_key(value).is_none() {
                     return false;
                 }
                 entry.culture = value.to_string();
@@ -647,6 +648,13 @@ pub struct PlaceExtras {
     /// [`PlaceExtrasTable::stamp_founded`] at generation and at a hand drop; edited by
     /// [`PlaceExtrasTable::set_founded`]. Saved as `extras.founded` (`SAVEFILE_COMPAT.md` 9.1).
     pub founded: Option<i64>,
+    /// Ruling FZ item 4: **the name was given by hand** (typed in the place editor, or a hand drop that
+    /// was given one), so "Rename all" never touches it. `false` is "generated, or unknown": whether an
+    /// older save's names were hand-given is not recorded anywhere, which is what
+    /// `CivData::names_tracked` says; with it `false` nothing is assumed generated. A re-roll
+    /// (`civ_reroll_settlement_name`) clears it, because the user asked for a generated name.
+    /// Saved as `extras.name_given` (`SAVEFILE_COMPAT.md` 9.1), omitted when `false`.
+    pub name_given: bool,
 }
 
 /// Every place edit, keyed by the settlement's stable `tid`.
@@ -795,6 +803,16 @@ impl PlaceExtrasTable {
                     e.founded = None;
                 }
             }
+        }
+    }
+
+    /// Ruling FZ item 4: record that `tid`'s name was given by hand (`true`) or generated (`false`). Clearing a
+    /// row that does not exist creates none, so a re-roll never grows the table.
+    pub fn set_name_given(&mut self, tid: u64, given: bool) {
+        if given {
+            self.0.entry(tid).or_default().name_given = true;
+        } else if let Some(e) = self.0.get_mut(&tid) {
+            e.name_given = false;
         }
     }
 

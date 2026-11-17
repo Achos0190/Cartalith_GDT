@@ -180,6 +180,8 @@ impl WorldGen {
             gw: self.gw.max(0) as usize,
             gh: self.gh.max(0) as usize,
             lake_min_cells,
+            // Ruling FZ: the world default style names the lakes; none means the built-in lake names.
+            lake_style: self.name_styles.resolved_default.as_ref(),
         }
     }
 }

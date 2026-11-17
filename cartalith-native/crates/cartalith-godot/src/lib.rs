@@ -88,6 +88,7 @@ mod journey_bridge;
 mod knowledge_bridge;
 mod knowledge_service;
 mod label_bridge;
+mod name_style_bridge;
 mod legacy_import;
 mod landmark_bridge;
 mod llm_bridge;
@@ -578,6 +579,11 @@ struct CivData {
     /// are edits to the held year and leave it as it is, the way the
     /// readout's "recorded" word already treats an edited recorded year.
     territory_year: Option<i64>,
+    /// Ruling FZ item 4: whether this build recorded which settlement names were given by hand
+    /// (`PlaceExtras::name_given`). `true` for every world this build generated or re-populated; `false` for a
+    /// save written before the record existed, where nothing is assumed generated ("Rename all" then leaves every
+    /// name alone unless the user says to treat them all as generated). Saved in `entities/name_styles.json`.
+    names_tracked: bool,
     /// `TIMELINE_SCOPE.md` milestone 5's own addition -- `currentAgrarianDensity()`'s
     /// per-cell output (`cartalith_civ::timeline::civ_current_agrarian_density`),
     /// computed once here from `carrying_cap`/`water_access`/`biome` (already-live
@@ -779,6 +785,8 @@ fn civ_merge(mode: CivRebuild, mut fresh: CivData, mut old: CivData) -> (CivData
             // `custom:<id>` keys point into, so it moves with the roster.
             fresh.religions = old.religions;
             fresh.place_extras = old.place_extras;
+            // The names are the old ones (kept), so what is known about them is too.
+            fresh.names_tracked = old.names_tracked;
             (fresh, true)
         }
         CivRebuild::Replace => {
@@ -1413,6 +1421,7 @@ mod civ_merge_tests {
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
             territory_year: None,
+            names_tracked: false,
         }
     }
 
@@ -3852,6 +3861,7 @@ mod civ_timeline_tests {
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
             territory_year: None,
+            names_tracked: false,
         }
     }
 
@@ -6051,6 +6061,7 @@ fn compute_civilisation(
         belief: Vec::new(),
         belief_seed_key: Vec::new(),
         territory_year: None,
+        names_tracked: true,
     }
 }
 
@@ -7378,6 +7389,9 @@ struct WorldGen {
     /// committed operation, not only the reversible ones. See
     /// `undo::HistoryLedger` for why it records more than `undo` can revert.
     ledger: undo::HistoryLedger,
+    /// Ruling FZ: the world's name styles (the copies it uses, its default style, the last Rename all's undo).
+    /// `name_style_bridge.rs` owns what they mean; saved as `entities/name_styles.json`.
+    name_styles: name_style_bridge::NameStylesState,
     /// The held half of every way delete (Ruling BA): the deleted way and its
     /// index, per [`undo::EntryKind::WayDelete`] ledger row -- and, since ET-D4,
     /// every committed drag's ways per [`undo::EntryKind::WayDrag`] row plus the
@@ -7945,6 +7959,7 @@ impl IRefCounted for WorldGen {
             undo: undo::HeightUndo::new(),
             redo: RedoTail::new(),
             ledger: undo::HistoryLedger::new(),
+            name_styles: Default::default(),
             way_undo: context_pick_bridge::WayUndo::new(),
             anno_undo: annotation_undo::AnnoUndo::new(),
             stages: pipeline_stage_graph(1),
@@ -8552,14 +8567,28 @@ impl WorldGen {
         self.gpu_stages_used = ws.gpu_stages_used.clone();
         let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
         // `&[]`: a generation seeds a fresh roster (`CivData::faction_roster`),
-        // so every faction is at its default culture.
+        // so every faction is at its default culture -- unless the world has a default name style (Ruling FZ),
+        // which every faction then speaks (the roster's culture column is set to it just below).
+        let default_key = self.name_styles.world_default.clone();
+        let default_cultures: Vec<&str> = match default_key.as_deref() {
+            Some(k) => vec![k; p.civ.factions.max(1) as usize + 1],
+            None => Vec::new(),
+        };
         self.civ = Some(compute_civilisation(
-            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&ocean_f, &wind_f),
+            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &default_cultures, None, (&ocean_f, &wind_f),
             // A new world: nothing has been forced on it yet (`absorb` resets
             // `forced_lakes`).
             None,
             p.lake_balance,
         ));
+        if let (Some(k), Some(civ)) = (default_key.as_deref(), self.civ.as_mut()) {
+            for e in civ.faction_roster.0.iter_mut().skip(1) {
+                e.culture = k.to_string();
+            }
+        }
+        if let (Some(st), Some(civ)) = (self.name_styles.resolved_default.as_ref(), self.civ.as_mut()) {
+            name_style_bridge::name_unowned_continents(civ, st);
+        }
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
         // carve_river_valleys already locked during generation
@@ -10779,6 +10808,10 @@ impl WorldGen {
         if let Some(tools) = self.civ_tools.as_mut() {
             civ_rebase_territory_paint(tools, &mut fresh, p.gw, p.gh, rederived);
         }
+        // Ruling FZ: landmasses no faction holds take the world default style's `[Continents]` names.
+        if let Some(st) = self.name_styles.resolved_default.as_ref() {
+            name_style_bridge::name_unowned_continents(&mut fresh, st);
+        }
         let (n_places, n_ways, n_prov) = (fresh.settlements.len(), fresh.ways.len(), fresh.province_list.len());
         self.civ = Some(fresh);
         // SG-01, and only for a mode that earned it: everything derived from
@@ -11161,6 +11194,8 @@ impl WorldGen {
         // (`appearance_paint.json`, CP-3) after this.
         self.colour_paint = None;
         self.colour_paint_epoch = self.colour_paint_epoch.wrapping_add(1);
+        // Ruling FZ: the world's name styles belong to the file being closed.
+        self.name_styles = Default::default();
         // The *settings* half, which `invalidate()` deliberately leaves alone
         // and which `absorb()` deliberately does not touch either: a cap
         // table describes what the user wants placed, so it rightly survives
@@ -14100,12 +14135,17 @@ impl WorldGen {
     fn get_rivers(&self, min_order: i64) -> Array<VarDictionary> {
         let Some(f) = self.sample_refs() else { return Array::new() };
         let Some((rivers, draws)) = self.river_draws(min_order) else { return Array::new() };
+        // Ruling FZ item 5: a name per river when `name_unnamed_kinds` is on (the key is omitted otherwise).
+        let names = self.river_style_names(&rivers);
         rivers
             .iter()
             .zip(draws)
             .enumerate()
             .map(|(i, (r, dr))| {
                 let mut d = river_dict(&f, r, i);
+                if let Some(n) = names.as_ref().and_then(|n| n.get(i)) {
+                    d.set("name", n.as_str());
+                }
                 d.set("render_points", &dr.rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
                 d.set("pieces", &dr.pieces.iter().flat_map(|&(a, b)| [a as i32, b as i32]).collect::<PackedInt32Array>());
                 // `widths`: the full drawn width in grid cells at each render
@@ -14942,7 +14982,11 @@ impl WorldGen {
         let Some(i) = cartalith_hydrology::pick_river(&rivers, gx, gy, radius_cells) else {
             return VarDictionary::new();
         };
-        river_dict(&f, &rivers[i], i)
+        let mut d = river_dict(&f, &rivers[i], i);
+        if let Some(n) = self.river_style_names(&rivers).and_then(|n| n.get(i).cloned()) {
+            d.set("name", n.as_str());
+        }
+        d
     }
 
     /// The traced network behind both river bindings.
@@ -16761,8 +16805,16 @@ impl WorldGen {
         }
         let pick_r = cartalith_civ::tools::civ_place_pick_radius(gw);
         let name = name.to_string();
+        // Ruling FZ item 4: a name the user gave is hand-given; a blank one is generated.
+        let hand_name = !name.trim().is_empty();
         // A blank name is generated in the faction's culture as the roster
-        // holds it, so a reassigned culture names the next drop.
+        // holds it, so a reassigned culture names the next drop. A name style (Ruling FZ) is a culture too:
+        // its name is drawn here and handed on as the name, so the drop path itself is unchanged.
+        let name = if !hand_name && cartalith_civ::name_style::style_for_key(civ.faction_roster.cultures().get(faction as usize).copied().unwrap_or("")).is_some() {
+            cartalith_civ::name_style::settle_name_for_key(&mut tools.name_rng, &civ.faction_roster.cultures(), faction as i32)
+        } else {
+            name
+        };
         let culture = cartalith_civ::civ_faction_culture(&civ.faction_roster.cultures(), faction as i32);
         // Ruling FF item 6: a hand-placed town is badged a harbour on the test a
         // generated one is (`harbour_badge`), when the world's switch is on.
@@ -16797,6 +16849,9 @@ impl WorldGen {
                 // (the one thing the engine knows about when it came to be), not in an inferred past.
                 if founding_year && civ.settlements.len() > before {
                     civ.place_extras.stamp_founded(civ.settlements[i].tid, civ.year);
+                }
+                if hand_name && civ.settlements.len() > before {
+                    civ.place_extras.set_name_given(civ.settlements[i].tid, true);
                 }
                 // SG-01: roads, territory, provinces and trade balances were
                 // all derived before this settlement existed.
@@ -27036,9 +27091,15 @@ impl WorldGen {
         // -- apply --
         let tid = civ.settlements[i].tid;
         let s = &mut civ.settlements[i];
+        let hand_named = name.is_some();
         if let Some(n) = name {
             s.name = n;
         }
+        // Ruling FZ item 4: a name typed here is hand-given, which Rename all never touches.
+        if hand_named {
+            civ.place_extras.set_name_given(tid, true);
+        }
+        let s = &mut civ.settlements[i];
         if let Some(k) = kind {
             s.placement.kind = k;
             // `place_settlements`' own invariant, kept: `capital` and
@@ -27186,9 +27247,12 @@ impl WorldGen {
         };
         // The roster's culture, not the id default: a reassigned culture is
         // the pool the reference's own reroll draws from.
-        let culture = cartalith_civ::civ_faction_culture(&civ.faction_roster.cultures(), s.placement.faction);
-        s.name = cartalith_civ::civ_settle_name(&mut tools.name_rng, culture);
-        GString::from(s.name.as_str())
+        // Ruling FZ: a faction whose culture is a name style re-rolls in that style (built-in keys: unchanged).
+        s.name = cartalith_civ::name_style::settle_name_for_key(&mut tools.name_rng, &civ.faction_roster.cultures(), s.placement.faction);
+        let (tid, out) = (s.tid, GString::from(s.name.as_str()));
+        // A re-roll asks for a generated name, so it is no longer hand-given.
+        civ.place_extras.set_name_given(tid, false);
+        out
     }
 
     /// `_civPopulatePlaceEditor`'s Delete button and `_civCtxShow`'s
@@ -28875,10 +28939,14 @@ impl WorldGen {
     /// the settlements, never stored, so it cannot drift from either.
     #[func]
     fn landmark_names(&self) -> Array<VarDictionary> {
+        // Ruling FZ item 5: with `name_unnamed_kinds` on, a landmark that is not user-named also carries
+        // `style_name` (a proper name from the world's name style); `name` and `source` are unchanged.
+        let style_names = self.landmark_style_names();
         self.landmark_name_list()
             .into_iter()
             .map(|n| {
-                dict! {
+                let style_name = if n.source == cartalith_civ::landmark::NameSource::UserGiven { None } else { style_names.get(&n.key).cloned() };
+                let mut d = dict! {
                     "key" => n.key.as_str(),
                     // The vault's entity id for this landmark, so a caller listing every landmark
                     // for a `[[` card does not make one `vault_landmark_entity_id` call (and one
@@ -28890,7 +28958,11 @@ impl WorldGen {
                         cartalith_civ::landmark::NameSource::NearPlace => "near_place",
                         cartalith_civ::landmark::NameSource::Fallback => "fallback",
                     },
+                };
+                if let Some(sn) = style_name {
+                    d.set("style_name", sn.as_str());
                 }
+                d
             })
             .collect()
     }

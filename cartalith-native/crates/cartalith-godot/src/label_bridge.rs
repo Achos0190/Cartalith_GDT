@@ -1700,6 +1700,7 @@ mod cull_vs_drawn_tests {
             gw: p.gw,
             gh: p.gh,
             lake_min_cells: LAKE_LABEL_MIN_CELLS,
+            lake_style: None,
         };
         let cands = label_candidates(&world);
         for ppc in [0.464, 0.928, 1.856] {

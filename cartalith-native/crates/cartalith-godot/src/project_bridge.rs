@@ -220,6 +220,8 @@ const SLOT_RELIGIONS: &str = "entities/religions.json";
 /// `COLOUR_PAINT_SCOPE.md` CP-3 (Ruling CN): the colour-paint layer
 /// (`WorldGen::colour_paint`), written only when it has marks.
 const SLOT_COLOUR_PAINT: &str = "appearance_paint.json";
+/// Ruling FZ: the world's name styles (copies it uses, its default, whether hand-given names are recorded).
+const SLOT_NAME_STYLES: &str = "entities/name_styles.json";
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -276,6 +278,9 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // reaches only through the `colour_paint_*` funcs -- the landmarks
     // slot's reason.
     SLOT_COLOUR_PAINT,
+    // Ruling FZ: the payload is `WorldGen::name_styles` plus `CivData::names_tracked`, engine state the shell reaches
+    // only through the `ns_*` funcs -- the landmarks slot's reason.
+    SLOT_NAME_STYLES,
 ];
 
 // ===================== the document schemas =====================
@@ -380,6 +385,10 @@ struct ExtrasDto {
     // unknown and a world made without the switch writes the bytes it wrote before this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     founded: Option<i64>,
+    // Ruling FZ item 4: the name was typed by hand. Omitted when false, so an old save (no member) loads
+    // with no hand-given names recorded and a world with none writes the bytes it wrote before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    name_given: bool,
 }
 
 /// `skip_serializing_if` predicate: true for `0`, so a default `variant` writes no member.
@@ -2260,6 +2269,7 @@ fn settlement_to_dto(
                 rules_preset: e.rules_preset.clone(),
                 variant: e.variant,
                 founded: e.founded,
+                name_given: e.name_given,
             }),
     }
 }
@@ -2919,6 +2929,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
                     rules_preset: e.rules_preset.clone(),
                     variant: e.variant,
                     founded: e.founded,
+                    name_given: e.name_given,
                 },
             );
         }
@@ -3267,6 +3278,8 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         dens,
         faction_roster,
         religions,
+        // Ruling FZ item 4: absent (every older save) means the record of hand-given names does not exist.
+        names_tracked: data.parse::<crate::name_style_bridge::NameStylesDoc>(SLOT_NAME_STYLES).and_then(|r| r.ok()).is_some_and(|d| d.names_tracked),
         place_extras: civ_roster_bridge::PlaceExtrasTable(place_extras),
         village_tids,
         // Not persisted: `CivData::belief`'s own doc states the decision and
@@ -3699,6 +3712,20 @@ impl WorldGen {
         // CP-3: the colour paint, only when the layer has marks.
         if let Some(doc) = colour_paint_save_doc(self.colour_paint_layer()) {
             insert_doc(&mut documents, SLOT_COLOUR_PAINT, &doc);
+        }
+        // Ruling FZ: the name styles, only when there is something to say (a generated world always says
+        // `names_tracked`; an old save with no style and no default writes nothing, so it re-saves its bytes).
+        if let Some(civ) = self.civ.as_ref() {
+            // A faction given a library style through the roster (`set_field`) holds no copy yet: take one now, so
+            // the world carries every style it uses (Ruling FZ item 5, "each world saves a copy").
+            let used = self.name_style_used_keys();
+            let mut held = self.name_styles.clone();
+            for k in &used {
+                held.adopt(k);
+            }
+            if let Some(doc) = crate::name_style_bridge::save_doc(&held, civ.names_tracked, &used) {
+                insert_doc(&mut documents, SLOT_NAME_STYLES, &doc);
+            }
         }
 
         // The Landmark dock's settings. Unconditional, unlike the editors
@@ -4333,6 +4360,16 @@ impl WorldGen {
             }
         }
 
+        // Ruling FZ: the world's name styles. `load_save` (run first) cleared the previous world's; an archive
+        // without the slot opens with none (every older save), a damaged one warns and opens with none.
+        match data.parse::<crate::name_style_bridge::NameStylesDoc>(SLOT_NAME_STYLES) {
+            Some(Ok(doc)) => {
+                self.name_styles = crate::name_style_bridge::restore(&doc, &mut restore_warnings);
+                restored.push("name_styles");
+            }
+            Some(Err(_)) => restore_warnings.push(format!("{SLOT_NAME_STYLES}: unreadable -- the name styles were not restored")),
+            None => {}
+        }
         // CP-3: the colour paint. `load_save` (run first) removed the
         // previous project's layer; an archive without the slot opens with
         // none, a damaged one warns and opens with none.
@@ -5591,6 +5628,7 @@ mod tests {
                 rules_preset: "market_town".into(),
                 variant: 3,
                 founded: Some(-340),
+                name_given: true,
             },
         );
         let mut village_tids = std::collections::HashSet::new();
@@ -5601,6 +5639,7 @@ mod tests {
             belief: Vec::new(),
             belief_seed_key: Vec::new(),
             territory_year: None,
+            names_tracked: false,
             settlements: vec![
                 cartalith_civ::NamedSettlement {
                     tid: 7,
@@ -7692,7 +7731,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach", "civ.founding_year", "urban_market_road_bank"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach", "civ.founding_year", "urban_market_road_bank", "name_unnamed_kinds"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7768,7 +7807,7 @@ mod tests {
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
             "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
-            "urban_harbour_front", "civ.port_reach", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank",
+            "urban_harbour_front", "civ.port_reach", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank", "name_unnamed_kinds",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

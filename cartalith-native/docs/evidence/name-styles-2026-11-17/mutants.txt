@@ -1,0 +1,20 @@
+SURVIVED M1 pick uses <= on the cumulative weight
+KILLED M2 a weight of 0 is accepted
+KILLED M3 a blank weight reads as 2
+KILLED M4 export writes the empty suffix as blank not (none)
+SURVIVED M5 a bad row is half-imported (error no longer skips the row)
+KILLED M6 a Templates row error pushes line off by one
+KILLED M7 settlement name ignores the style key
+KILLED M8 rename_all renames hand-given names
+KILLED M9 rename_all ignores the untracked-world rule
+KILLED M10 undo overwrites a newer name
+KILLED M11 save writes unused copies / drops the used ones
+KILLED M12 unnamed kinds load ON for a save without the key
+KILLED M13 unnamed kinds default OFF in the app
+SURVIVED M14 continents ignore the faction style
+KILLED M1 pick uses <= on the cumulative weight
+KILLED M5 a non-numeric weight is silently repaired to 1
+KILLED M14 continents ignore the faction style
+
+M5 (first run) was a no-op mutation (`None if false =>`), an equivalent mutant; replaced by the silent-repair mutant in the re-run.
+M1, M5 (repair) and M14 survived the first run and each got a test (`the_weighted_pick_boundary_is_exclusive`, `a_file_that_cannot_work_is_refused_not_repaired` / bad-rows test, `civ_continents_name_a_landmass_in_the_plurality_factions_style`); the re-run above shows all three killed.
