@@ -33,7 +33,7 @@ use godot::prelude::*;
 
 use cartalith_engine::staleness::PipelineStage;
 use cartalith_spatial::colour_paint::ColourBlend;
-use cartalith_terrain::region_edit::{self as re, EditOp, Op, RegionMask, RegionSpec};
+use cartalith_terrain::region_edit::{self as re, EditOp, Op, RegionMask, RegionSpec, StampKind};
 use cartalith_terrain::region_paint;
 use cartalith_terrain::sculpt::Falloff;
 
@@ -111,7 +111,10 @@ fn ops_from(a: &VarArray) -> Result<Vec<EditOp>, String> {
                 Op::Smooth { strength: get("strength").ok_or("smooth needs strength")?, passes: p as u32 }
             }
             "paint" => return Err("paint is not a height edit; it goes through region_paint_preview and region_paint_marks".into()),
-            other => return Err(format!("unknown operation {other}")),
+            other => match StampKind::from_key(other) {
+                Some(kind) => Op::Stamp { kind, amount_m: get("amount_m").ok_or_else(|| format!("{other} needs amount_m"))? },
+                None => return Err(format!("unknown operation {other}")),
+            },
         };
         let fk = d.get("falloff").and_then(|x| x.try_to::<GString>().ok()).map(|g| g.to_string()).ok_or("an operation needs a falloff")?;
         let falloff = falloff_from(&fk).ok_or_else(|| format!("unknown falloff {fk}"))?;
@@ -130,6 +133,17 @@ fn region_id(mask: &RegionMask) -> String {
     }
     bytes.extend(mask.cells.iter().map(|c| u8::from(*c)));
     format!("region_{:012x}", fnv1a(&bytes) & 0xffff_ffff_ffff)
+}
+
+/// The digest of the painted path, when any operation is a path stamp (ridge, cliff, canyon): what the
+/// preview returns and Apply checks (`region_edit::path_digest`). `None` when no stamp follows the path.
+fn path_digest_for(mask: &RegionMask, ops: &[EditOp]) -> Option<String> {
+    ops.iter().any(|o| matches!(o.op, Op::Stamp { kind, .. } if kind.follows_path())).then(|| re::path_digest(mask))
+}
+
+/// The `path_digest` a shell stored on its stamp operation dictionaries, if any (they all carry the same).
+fn digest_in(ops: &VarArray) -> Option<String> {
+    ops.iter_shared().find_map(|v| v.try_to::<VarDictionary>().ok().and_then(|d| d.get("path_digest")).and_then(|x| x.try_to::<GString>().ok()).map(|g| g.to_string()))
 }
 
 /// A paint operation dictionary `{colour, blend, opacity}` into the marks' inputs.
@@ -268,6 +282,9 @@ impl WorldGen {
             "thumb_w" => tw as i64,
             "thumb_h" => th as i64,
         };
+        if let Some(dg) = path_digest_for(&mask, &ops) {
+            d.set("path_digest", dg.as_str());
+        }
         d.set("before", &stats_dict(&sb));
         d.set("after", &stats_dict(&sa));
         d.set("thumb_before", &PackedByteArray::from(tb.as_slice()));
@@ -285,6 +302,7 @@ impl WorldGen {
         }
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let (sea, peak) = (self.sea_level, self.params.peak_m);
+        let expected_digest = digest_in(&ops);
         let parsed = (|| -> Result<(RegionMask, Vec<EditOp>), String> {
             let spec = spec_from(&spec)?;
             let mask = re::rasterise(&spec, gw, gh).map_err(|e| e.to_string())?;
@@ -296,6 +314,13 @@ impl WorldGen {
             Ok(t) => t,
             Err(w) => return fail(w),
         };
+        // Ruling FW item 1: a path stamp is derived from the painted path, which the region id (cells only)
+        // does not cover. Apply runs only the path the preview reported.
+        if let Some(now) = path_digest_for(&mask, &ops) {
+            if expected_digest.as_deref() != Some(now.as_str()) {
+                return fail("The painted path is not the one that was previewed (it was painted again, or the preview did not report it). Nothing was applied; ask again.");
+            }
+        }
         let paint = self.paint_cells_under(&mask);
         if paint > 0 {
             return fail(format!(

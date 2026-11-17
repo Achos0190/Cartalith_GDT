@@ -83,7 +83,7 @@ mod tests {
         let (w, h) = (rows[0].len(), rows.len());
         let cells: Vec<bool> = rows.iter().flat_map(|r| r.bytes().map(|b| b == b'#')).collect();
         let count = cells.iter().filter(|c| **c).count();
-        RegionMask { x0, y0, w, h, cells, count, clipped: false }
+        RegionMask { x0, y0, w, h, cells, count, clipped: false, path: vec![], path_r: 0.0, boxed: false }
     }
 
     const GREY: [f64; 3] = [120.0, 130.0, 140.0];

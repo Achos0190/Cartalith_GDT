@@ -23,7 +23,7 @@
 //! (the engine writes only mask cells, `cartalith_terrain::region_edit`). First-version scope is
 //! owner question E1's default: raise, lower, smooth. Ridge, noise and paint are later rows.
 //!
-//! ## Rules R1-R10 (the validator; numbered like V1-V13 and A1-A9)
+//! ## Rules R1-R11 (the validator; numbered like V1-V13 and A1-A9)
 //!
 //! `R1` not JSON, not an object, over [`MAX_EDIT_ARGUMENT_BYTES`] or deeper than
 //! [`MAX_EDIT_DEPTH`]; `R2` `edits` missing, not an array, empty or another top-level field; `R3`
@@ -33,7 +33,8 @@
 //! missing or wrongly typed argument (a string for a number, `3.5` for the integer `passes`, an
 //! amount on a `smooth`); `R8` a number outside its range or a falloff that is not offered (never
 //! clamped: the refusal quotes the number as written); `R9` the proposal as a whole would move
-//! more than [`MAX_TOTAL_AMOUNT_M`] metres; `R10` the same operation twice on the region.
+//! more than [`MAX_TOTAL_AMOUNT_M`] metres; `R10` the same operation twice on the region; `R11` a path
+//! stamp (ridge, cliff, canyon) over a drawn box, which has no path.
 //!
 //! **The world's ceiling is not a rule.** A first cut refused a raise whose region maximum plus the
 //! raise passed the world's peak altitude; three real worlds showed why that is wrong: the generator
@@ -62,7 +63,16 @@ pub const EDIT_TOOL: &str = "propose_edit_actions";
 /// question E1's default: the fewest operations, easiest to bound and to preview). **Ruling FW (owner,
 /// 2026-11-17) added the five sculpt stamps (E10) and colour paint (E11)**, designed in
 /// `LLM_ASSISTANT_SCOPE.md` s.5i: each stays bounded to the painted cells and previewed by the app.
-pub const OPERATIONS: [&str; 4] = ["raise", "lower", "smooth", "paint"];
+pub const OPERATIONS: [&str; 9] = ["raise", "lower", "smooth", "ridge", "cliff", "canyon", "mesa", "volcano", "paint"];
+
+/// The five stamps (Ruling FW item 1): the sculpt panel's Freehand shapes, each given the largest
+/// change it makes in metres as `amount_m`. Twin of `region_edit::StampKind` (pinned by
+/// `cartalith-godot/tests/region_edit_limits.rs`).
+pub const STAMPS: [&str; 5] = ["ridge", "cliff", "canyon", "mesa", "volcano"];
+
+/// The stamps that follow the painted stroke and so cannot run on a drawn box (R11); mesa and volcano
+/// centre on the region's deepest cell and can.
+pub const PATH_STAMPS: [&str; 3] = ["ridge", "cliff", "canyon"];
 
 /// The closed list of colours the paint operation may use (Ruling FW item 2; owner question E11's
 /// default: twelve named colours, never free RGB). Each is a labelled judgement: a plain, recognisable
@@ -154,6 +164,8 @@ pub enum EditRule {
     R9,
     /// The same operation twice on the region.
     R10,
+    /// A path stamp (ridge, cliff, canyon) over a drawn box, which has no path (Ruling FW item 1).
+    R11,
 }
 
 impl EditRule {
@@ -170,6 +182,7 @@ impl EditRule {
             EditRule::R8 => "R8",
             EditRule::R9 => "R9",
             EditRule::R10 => "R10",
+            EditRule::R11 => "R11",
         }
     }
 }
@@ -440,10 +453,13 @@ impl EditCatalogue {
                  nothing happens by this call. At most {MAX_EDIT_OPS} edits. Each edit is {{operation, region_id, ...}} with region_id exactly \"{id}\". \
                  raise {{amount_m: >0..{MAX_AMOUNT_M}}} lifts the ground; lower {{amount_m: >0..{MAX_AMOUNT_M}}} sinks it; \
                  smooth {{strength: {}..{}, passes: whole number 1..{MAX_SMOOTH_PASSES}}} evens it out. \
-                 paint {{colour: {}, blend: {} (default colour), opacity: {}..{} (default {DEFAULT_OPACITY})}} \
-                 colours the region without moving any ground; it takes no amount_m, falloff or softness. Give an edit ONLY the arguments listed for its operation (raise and lower take no strength or passes, smooth takes no amount_m); any other argument gets the edit refused. Every raise, lower and smooth may also give \
+                 ridge {{amount_m}} makes one crest along the stroke the user painted, cliff {{amount_m}} a one-sided step across it (high side to its left), \
+                 canyon {{amount_m}} a channel along it; these three need a painted stroke and are refused on a drawn box. \
+                 mesa {{amount_m}} and volcano {{amount_m}} raise a flat-topped rise or a cone in the middle of the region (a box is fine). \
+                 For a stamp, amount_m is the largest change it makes, in metres. paint {{colour: {}, blend: {} (default colour), opacity: {}..{} (default {DEFAULT_OPACITY})}} \
+                 colours the region without moving any ground; it takes no amount_m, falloff or softness. Give an edit ONLY the arguments listed for its operation (raise, lower and the stamps take no strength or passes, smooth takes no amount_m); any other argument gets the edit refused. Every raise, lower, smooth and stamp may also give \
                  falloff ({}; default smooth) and softness (0..1; default {DEFAULT_SOFTNESS}): softness 0 edits the whole region evenly with a thin edge, \
-                 softness 1 makes the change strongest in the middle of the shape and fade towards its edge. All raises and lowers together \
+                 softness 1 makes the change strongest in the middle of the shape and fade towards its edge. All raises, lowers and stamps together \
                  move at most {MAX_TOTAL_AMOUNT_M} m.",
                 STRENGTH_RANGE.0,
                 STRENGTH_RANGE.1,
@@ -485,8 +501,9 @@ save or touch any file; the only colour you can set is the paint operation's, in
 How to work:\n\
 1. Read the REGION block. Heights are metres above sea level; the highest cell is a limit when raising.\n\
 2. Call propose_edit_actions once with at most {MAX_EDIT_OPS} edits, region_id exactly as written above, and a\n\
-   short reason for each. Use whole metres. A ridge: raise with softness 1 (the crest follows the middle\n\
-   of the shape). A colour change: paint, with a named colour. A flat plateau or block: raise with falloff constant and softness 0. A hollow or lake bed:\n\
+   short reason for each. Use whole metres. A ridge: the ridge operation (needs a brush-painted region), or\n\
+   raise with softness 1 (the crest follows the middle of the shape). A lone peak or cone: volcano; a\n\
+   flat-topped hill: mesa. A colour change: paint, with a named colour. A flat plateau or block: raise with falloff constant and softness 0. A hollow or lake bed:\n\
    lower. Rough ground made gentle: smooth, strength 0.5 to 1, a few passes. To raise then smooth, give both.\n\
 3. If the request cannot be done with the listed operations inside this region, say so in words and do\n\
    not call the tool. Say honestly that the result depends on the ground that is there.\n\
@@ -649,6 +666,11 @@ impl EditCatalogue {
                 continue;
             }
             // R7 and R8: arguments.
+            // R11: a path stamp needs a painted stroke; a drawn box has none.
+            if PATH_STAMPS.contains(&op) && region.shape == "box" {
+                reject(EditRule::R11, format!("{op} follows a painted stroke and a drawn box has no path; the user must paint the region with the brush, or use mesa or volcano"));
+                continue;
+            }
             let allowed: &[&str] = match op {
                 "smooth" => &["strength", "passes", "falloff", "softness", "reason", "operation", "region_id"],
                 "paint" => &["colour", "blend", "opacity", "reason", "operation", "region_id"],
@@ -765,6 +787,11 @@ impl EditCatalogue {
             let text = match op {
                 "raise" => format!("Raise the region by {} m ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
                 "lower" => format!("Lower the region by {} m ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
+                "ridge" => format!("Ridge along the painted stroke, crest {} m high ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
+                "cliff" => format!("Cliff along the painted stroke, a step of {} m ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
+                "canyon" => format!("Canyon along the painted stroke, {} m deep ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
+                "mesa" => format!("Mesa in the middle of the region, {} m high ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
+                "volcano" => format!("Volcano in the middle of the region, {} m high ({})", num_text(amount.unwrap_or(0.0)), shape(falloff, softness)),
                 "paint" => format!("Paint the region {} ({} blend, {:.0}% opacity)", colour.unwrap_or(""), blend.unwrap_or(""), opacity.unwrap_or(0.0) * 100.0),
                 _ => format!(
                     "Smooth the region, strength {}, {} pass{} ({})",
@@ -822,8 +849,8 @@ mod tests {
     fn the_limits_are_literal() {
         assert_eq!((MAX_EDIT_OPS, MAX_AMOUNT_M, MAX_TOTAL_AMOUNT_M, MAX_SMOOTH_PASSES), (3, 500.0, 600.0, 8));
         assert_eq!((STRENGTH_RANGE, MAX_REGION_CELLS, MIN_REGION_CELLS), ((0.05, 1.0), 250_000, 16));
-        assert_eq!((OPERATIONS.len(), FALLOFFS.len(), MAX_MASK_ROWS, MAX_MASK_RUNS), (4, 4, 24, 6));
-        assert_eq!((PAINT_COLOURS.len(), PAINT_BLENDS.len()), (12, 2));
+        assert_eq!((OPERATIONS.len(), FALLOFFS.len(), MAX_MASK_ROWS, MAX_MASK_RUNS), (9, 4, 24, 6));
+        assert_eq!((STAMPS.len(), PATH_STAMPS.len(), PAINT_COLOURS.len(), PAINT_BLENDS.len()), (5, 3, 12, 2));
         assert_eq!((OPACITY_RANGE, DEFAULT_OPACITY), ((0.2, 1.0), 0.8));
     }
 
@@ -834,7 +861,7 @@ mod tests {
         let s = c.tool_spec();
         assert_eq!(s.name, "propose_edit_actions");
         let item = &s.parameters["properties"]["edits"]["items"]["properties"];
-        assert_eq!(item["operation"]["enum"], json!(["raise", "lower", "smooth", "paint"]));
+        assert_eq!(item["operation"]["enum"], json!(["raise", "lower", "smooth", "ridge", "cliff", "canyon", "mesa", "volcano", "paint"]));
         assert_eq!(item["colour"]["enum"].as_array().unwrap().len(), 12);
         assert_eq!(item["blend"]["enum"], json!(["colour", "multiply"]));
         assert_eq!((item["opacity"]["minimum"].as_f64(), item["opacity"]["maximum"].as_f64()), (Some(0.2), Some(1.0)));
@@ -922,7 +949,7 @@ mod tests {
         assert_eq!(rule_of(call(json!([{"region_id": "region_ab12cd34"}]))).0, EditRule::R4);
         assert_eq!(rule_of(call(json!([{"operation": "raise"}]))).0, EditRule::R4);
         assert_eq!(rule_of(call(json!([{"operation": "erode", "region_id": "region_ab12cd34"}]))).0, EditRule::R5);
-        assert_eq!(rule_of(call(json!([{"operation": "ridge", "region_id": "region_ab12cd34", "amount_m": 5}]))).0, EditRule::R5);
+        assert_eq!(rule_of(call(json!([{"operation": "tornado", "region_id": "region_ab12cd34", "amount_m": 5}]))).0, EditRule::R5);
         assert_eq!(rule_of(call(json!([{"operation": "raise", "region_id": "region_ffff", "amount_m": 5}]))).0, EditRule::R6);
         assert_eq!(rule_of(call(json!([{"operation": "raise", "region_id": "whole_world", "amount_m": 5}]))).0, EditRule::R6);
         assert_eq!(rule_of(call(json!([{"operation": "raise", "region_id": "region_ab12cd34"}]))).0, EditRule::R7, "missing amount");
@@ -1037,6 +1064,60 @@ mod tests {
         Value::Object(m)
     }
 
+    /// Protects the five stamps: each validates with an amount (and the optional ramp), says what it does
+    /// in its card line, and takes no strength, passes, colour or blend. MUTATION: drop a name from
+    /// `OPERATIONS`, or let a stamp's `allowed` arguments be smooth's.
+    #[test]
+    fn the_five_stamps_validate_with_an_amount_and_nothing_else() {
+        for (name, words) in [("ridge", "Ridge along the painted stroke, crest 120 m high"), ("cliff", "Cliff along the painted stroke, a step of 120 m"),
+            ("canyon", "Canyon along the painted stroke, 120 m deep"), ("mesa", "Mesa in the middle of the region, 120 m high"),
+            ("volcano", "Volcano in the middle of the region, 120 m high")] {
+            let v = cat().validate(&call(json!([op(name, json!({"amount_m": 120}))])));
+            assert!(v.rejected.is_empty() && v.valid.len() == 1, "{name}: {v:?}");
+            assert!(v.valid[0].text.starts_with(words), "{}", v.valid[0].text);
+            assert_eq!((v.valid[0].amount_m, v.valid[0].colour, v.valid[0].blend, v.valid[0].opacity), (Some(120.0), None, None, None));
+            for bad in [json!({"amount_m": 120, "strength": 0.5}), json!({"amount_m": 120, "passes": 2}), json!({"amount_m": 120, "colour": "red"}), json!({})] {
+                assert_eq!(rule_of(call(json!([op(name, bad)]))).0, EditRule::R7, "{name}");
+            }
+            assert_eq!(rule_of(call(json!([op(name, json!({"amount_m": 500.5}))]))).0, EditRule::R8, "{name}: over the cap");
+            assert_eq!(cat().validate(&call(json!([op(name, json!({"amount_m": 500}))]))).valid.len(), 1, "{name}: 500 is the edge");
+        }
+    }
+
+    /// Protects R9 with stamps: a stamp's amount counts in the 600 m total with raise, so 300 + 300 passes
+    /// and a stamp of 301 after a raise of 300 is refused. MUTATION: leave the stamp's amount out of `total`.
+    #[test]
+    fn a_stamp_counts_in_the_six_hundred_metre_total() {
+        let ok = cat().validate(&call(json!([raise(json!(300)), op("ridge", json!({"amount_m": 300}))])));
+        assert_eq!((ok.valid.len(), ok.rejected.len()), (2, 0));
+        let over = cat().validate(&call(json!([raise(json!(300)), op("ridge", json!({"amount_m": 301}))])));
+        assert_eq!((over.valid.len(), over.rejected[0].rule), (1, EditRule::R9));
+        // Stamps alone fill the budget too: 300 + 300 passes, a third of 100 more does not.
+        let three = cat().validate(&call(json!([op("ridge", json!({"amount_m": 300})), op("mesa", json!({"amount_m": 300})), op("volcano", json!({"amount_m": 100}))])));
+        assert_eq!((three.valid.len(), three.rejected[0].rule), (2, EditRule::R9));
+        let dup = cat().validate(&call(json!([op("mesa", json!({"amount_m": 10})), op("mesa", json!({"amount_m": 20}))])));
+        assert_eq!((dup.valid.len(), dup.rejected[0].rule), (1, EditRule::R10));
+    }
+
+    /// Protects R11: over a drawn box the three path stamps are refused with the reason and mesa, volcano
+    /// and paint are not. MUTATION: empty `PATH_STAMPS`, or test `shape == "painted"`.
+    #[test]
+    fn a_drawn_box_refuses_exactly_the_path_stamps() {
+        let mut f = facts();
+        f["region"]["shape"] = json!("box");
+        let c = EditCatalogue::from_json(&f).unwrap();
+        for name in ["ridge", "cliff", "canyon"] {
+            let v = c.validate(&call(json!([op(name, json!({"amount_m": 50}))])));
+            assert_eq!((v.valid.len(), v.rejected[0].rule), (0, EditRule::R11), "{name}");
+            assert!(v.rejected[0].why.contains("drawn box has no path"), "{}", v.rejected[0].why);
+        }
+        for name in ["mesa", "volcano"] {
+            assert_eq!(c.validate(&call(json!([op(name, json!({"amount_m": 50}))]))).valid.len(), 1, "{name}");
+        }
+        assert_eq!(c.validate(&call(json!([op("paint", json!({"colour": "red"}))]))).valid.len(), 1);
+        assert_eq!(cat().validate(&call(json!([op("ridge", json!({"amount_m": 50}))]))).valid.len(), 1, "a painted region takes a ridge");
+    }
+
     /// Protects the paint operation with literals: the twelve colours, two blends, the opacity edges 0.2 and
     /// 1, the defaults (and that the card says so), and the refusals (a colour not on the list, free RGB, a
     /// blend not offered, opacity just outside, a ramp argument). MUTATION: change a name, a range edge, or
@@ -1069,7 +1150,7 @@ mod tests {
     /// Protects that paint moves no ground in the budget: a paint beside a 600 m raise is not an R9 breach.
     #[test]
     fn paint_does_not_count_as_metres() {
-        let v = cat().validate(&call(json!([raise(json!(500)), op("paint", json!({"colour": "red"})), json!({"operation": "lower", "region_id": "region_ab12cd34", "amount_m": 100})])));
+        let v = cat().validate(&call(json!([raise(json!(500)), op("paint", json!({"colour": "red"})), op("ridge", json!({"amount_m": 100}))])));
         assert_eq!((v.valid.len(), v.rejected.len()), (3, 0), "{v:?}");
     }
 }

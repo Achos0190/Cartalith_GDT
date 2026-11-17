@@ -27,7 +27,11 @@ fn the_model_facing_limits_equal_the_engine_limits() {
     assert_eq!(ea::MIN_REGION_CELLS, re::MIN_REGION_CELLS);
     let engine_falloffs: Vec<&str> = Falloff::ALL.iter().map(|f| f.key()).collect();
     assert_eq!(ea::FALLOFFS.to_vec(), engine_falloffs, "the model's ramp names are the sculpt tools' own");
-    // Ruling FW item 2: the paint caps and blends the model-facing and engine sides share.
+    // Ruling FW: the stamp names are the engine's, in the same order, and the path-following three agree.
+    let engine_stamps: Vec<&str> = re::StampKind::ALL.iter().map(|k| k.key()).collect();
+    assert_eq!(ea::STAMPS.to_vec(), engine_stamps, "the model's stamp names are the engine's StampKind keys");
+    let engine_path: Vec<&str> = re::StampKind::ALL.iter().filter(|k| k.follows_path()).map(|k| k.key()).collect();
+    assert_eq!(ea::PATH_STAMPS.to_vec(), engine_path, "the stamps that refuse a box agree");
     // Paint: the piece and point caps the engine traces to are the colour-paint document's own.
     assert_eq!(re::MAX_RING_POINTS, cartalith_spatial::colour_paint::MAX_POINTS_PER_MARK);
     assert!(re::MAX_PAINT_PIECES <= cartalith_spatial::colour_paint::MAX_MARKS);
@@ -154,5 +158,63 @@ fn a_described_validated_applied_region_behaves_as_the_card_promises_on_three_se
         let low = [re::EditOp { op: re::Op::Lower { amount_m: 200.0 }, falloff: Falloff::Smooth, softness: 0.5 }];
         let (down, _) = run(&low);
         assert!((0..field.len()).all(|i| down[i] <= field[i]), "seed {seed}: a lower raised a cell");
+    }
+}
+
+/// Ruling FW item 1 on three REAL generated worlds: each of the five stamps over a region painted as a
+/// curved stroke of dabs (a path with a bend, so the ridge, cliff and canyon have a real path) changes
+/// only cells inside the painted region (compared bit for bit over the whole world), changes at least
+/// one, never rises past the stated metres (a raise-like stamp) or sinks past them (the canyon), is
+/// deterministic (two runs, same bytes), and is held to the per-cell limit. The preview of the engine
+/// call IS the apply (`apply_ops`), so the equality is the same function twice. MUTATION: write every
+/// window cell back, drop the region's ramp from a stamp, or make a stamp read a clock.
+#[test]
+fn the_five_stamps_stay_inside_a_painted_region_on_real_worlds() {
+    for seed in [9137, 24601, 71077345] {
+        let (field, gw, gh, sea, peak) = world(seed);
+        let dabs: Vec<[f64; 3]> = (0..14).map(|i| {
+            let t = i as f64 / 13.0;
+            [40.0 + 50.0 * t, 40.0 + 12.0 * (t * 6.0).sin() + 6.0 * t, 9.0]
+        }).collect();
+        let mask = re::rasterise(&re::RegionSpec { rect: None, dabs }, gw, gh).unwrap();
+        let m_per_unit = peak / (1.0 - sea);
+        for kind in re::StampKind::ALL {
+            let amt = 150.0;
+            let ops = [re::EditOp { op: re::Op::Stamp { kind, amount_m: amt }, falloff: Falloff::Smooth, softness: 0.5 }];
+            let run = || {
+                let mut w = re::window(&mask, &field, gw, gh);
+                let rep = re::apply_ops(&mut w, &mask, &ops, sea, peak).unwrap();
+                let mut after = field.clone();
+                re::write_back(&w, &mask, &mut after, gw);
+                (after, rep)
+            };
+            let (after, rep) = run();
+            let (again, rep2) = run();
+            assert_eq!((&after, &rep), (&again, &rep2), "seed {seed} {kind:?}: deterministic");
+            let mut changed = 0usize;
+            for y in 0..gh {
+                for x in 0..gw {
+                    let inside = x >= mask.x0 && x < mask.x0 + mask.w && y >= mask.y0 && y < mask.y0 + mask.h && mask.cells[(y - mask.y0) * mask.w + (x - mask.x0)];
+                    let i = y * gw + x;
+                    if !inside {
+                        assert_eq!(after[i].to_bits(), field[i].to_bits(), "seed {seed} {kind:?}: ({x},{y}) outside the painted region moved");
+                    } else {
+                        changed += usize::from(after[i] != field[i]);
+                    }
+                }
+            }
+            assert_eq!(changed, rep.changed, "seed {seed} {kind:?}");
+            assert!(changed > 0, "seed {seed} {kind:?}: nothing changed");
+            for i in 0..field.len() {
+                let d = (after[i] as f64 - field[i] as f64) * m_per_unit;
+                assert!(d.abs() <= re::MAX_TOTAL_AMOUNT_M + 0.01, "seed {seed} {kind:?}: cell {i} moved {d} m, past the per-cell limit");
+                match kind {
+                    re::StampKind::Ridge | re::StampKind::Mesa | re::StampKind::Volcano => assert!(d >= -0.0001 && d <= amt + 0.01, "seed {seed} {kind:?}: cell {i} moved {d} m"),
+                    re::StampKind::Canyon => assert!(d <= 0.0001 || (d > 0.0 && d <= 0.36 * amt / 1.5 + 0.01), "seed {seed} {kind:?}: cell {i} moved {d} m"),
+                    re::StampKind::Cliff => assert!(d.abs() <= amt + 0.01, "seed {seed} {kind:?}: cell {i} moved {d} m"),
+                }
+            }
+            println!("seed {seed} {kind:?}: {changed} cells, largest rise {:.1} m, largest fall {:.1} m, held {}", rep.max_up_m, rep.max_down_m, rep.limited);
+        }
     }
 }

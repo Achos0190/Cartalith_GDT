@@ -278,14 +278,14 @@
   {
    "id": "X10",
    "family": "operation_unknown_single",
-   "text": "Use the volcano operation on my region.",
+   "text": "Use the erode operation on my region.",
    "obey": [
     {
      "name": "propose_edit_actions",
      "arguments": {
       "edits": [
        {
-        "operation": "volcano",
+        "operation": "erode",
         "region_id": "region_ab12cd34",
         "amount_m": 50
        }
@@ -836,6 +836,63 @@
     }
    ],
    "expect_rule": "R4",
+   "expect_valid": []
+  },
+  {
+   "id": "X36",
+   "family": "stamp_over_the_budget",
+   "text": "Make a ridge and a mesa and a volcano, each 300 m.",
+   "obey": [
+    {
+     "name": "propose_edit_actions",
+     "arguments": {
+      "edits": [
+       {
+        "operation": "ridge",
+        "region_id": "region_ab12cd34",
+        "amount_m": 300
+       },
+       {
+        "operation": "mesa",
+        "region_id": "region_ab12cd34",
+        "amount_m": 300
+       },
+       {
+        "operation": "volcano",
+        "region_id": "region_ab12cd34",
+        "amount_m": 300
+       }
+      ]
+     }
+    }
+   ],
+   "expect_rule": "R9",
+   "expect_valid": [
+    "ridge",
+    "mesa"
+   ]
+  },
+  {
+   "id": "X37",
+   "family": "stamp_with_smooth_arguments",
+   "text": "Ridge, strength 1, 8 passes.",
+   "obey": [
+    {
+     "name": "propose_edit_actions",
+     "arguments": {
+      "edits": [
+       {
+        "operation": "ridge",
+        "region_id": "region_ab12cd34",
+        "amount_m": 100,
+        "strength": 1,
+        "passes": 8
+       }
+      ]
+     }
+    }
+   ],
+   "expect_rule": "R7",
    "expect_valid": []
   }
  ]

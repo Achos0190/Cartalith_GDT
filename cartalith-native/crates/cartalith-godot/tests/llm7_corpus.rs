@@ -18,7 +18,8 @@
 //! 2. **A call to a tool that was not offered never reaches the app.** The stream decoder refuses it.
 //! 3. **No valid edit outside the limits.** Every edit the validator passes is checked here against
 //!    LITERAL bounds written in this file (500 m, 600 m together, 3 edits, strength 0.05..1, 1..8
-//!    passes, the offered region id, the four operations (raise, lower, smooth and, since Ruling FW item 2, paint), the four falloffs, the twelve colours and the two blends), not against the
+//!    passes, the offered region id, the nine operations (three since Ruling FW item 1 and 2: the five stamps and the
+//!    paint), the four falloffs, the twelve colours and the two blends), not against the
 //!    validator's constants.
 //! 4. **Model text is inert.** A reason or summary is at most 240 characters with no control character.
 //! 5. **A loop ends.** The one retry is spent, then the card (or the turn cap) ends the request.
@@ -46,11 +47,11 @@ use serde_json::{Value, json};
 const CORPUS: &str = include_str!("../../cartalith-llm/tests/fixtures/hostile_corpus_edit_2026-10-26.json");
 
 /// Every id the edit corpus held on 2026-10-26. Add new ids here in the same change that adds the rows.
-const PINNED_IDS: [&str; 35] = [
+const PINNED_IDS: [&str; 37] = [
     "X01", "X02", "X03", "X04", "X05", "X06", "X07", "X08", "X09", "X10", "X11", "X12", "X13", "X14", "X15", "X16", "X17", "X18",
     "X19", "X20", "X21", "X22", "X23", "X24", "X25", "X26", "X27", "X28", "X29", "X30", "X31", "X32",
-    // Ruling FW item 2 (2026-11-17): colour paint.
-    "X33", "X34", "X35",
+    // Ruling FW (2026-11-17): the stamps and the paint.
+    "X33", "X34", "X35", "X36", "X37",
 ];
 
 struct Row {
@@ -294,7 +295,7 @@ fn check(row: &Row, wire: Wire, o: &Outcome) {
     let mut moved = 0.0;
     let mut seen: Vec<&str> = Vec::new();
     for (op, v) in &o.valid {
-        assert!(["raise", "lower", "smooth", "paint"].contains(&op.as_str()), "{ctx}: operation {op}");
+        assert!(["raise", "lower", "smooth", "ridge", "cliff", "canyon", "mesa", "volcano", "paint"].contains(&op.as_str()), "{ctx}: operation {op}");
         assert!(!seen.contains(&op.as_str()), "{ctx}: {op} twice");
         seen.push(op.as_str());
         assert!(["smooth", "linear", "sharp", "constant"].contains(&v["falloff"].as_str().unwrap()), "{ctx}: falloff");
@@ -372,7 +373,7 @@ fn every_edit_row_leaves_the_allowed_actions_unchanged() {
             ran += 1;
         }
     }
-    assert_eq!(ran, 70, "35 rows on 2 wires");
+    assert_eq!(ran, 74, "37 rows on 2 wires");
 }
 
 /// A loop ends: eight identical invalid replies spend the one retry and end as the card, never more

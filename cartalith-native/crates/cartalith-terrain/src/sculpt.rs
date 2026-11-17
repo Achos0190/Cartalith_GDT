@@ -1939,43 +1939,75 @@ impl SculptStamp {
                 // reference keeps it, and because a no-op is the right
                 // answer if it ever is reached.
                 FreehandMode::Smooth => set(c.h0),
-                FreehandMode::Cliff => {
-                    let edge = c.sd / (c.r * 0.12);
-                    add(amount * (edge / (1.0 + edge * edge).sqrt()))
-                }
-                FreehandMode::Ridge => {
-                    let pf = (-(c.sd * c.sd) / (c.r * c.r * 0.08)).exp();
-                    add(amount * pf)
-                }
-                FreehandMode::Canyon => {
-                    let c_w = c.r * 0.18;
-                    let w_w = c.r * 0.45;
-                    let ad = c.sd.abs();
-                    add(if ad < c_w {
-                        -amount * 1.5 * (1.0 - ad / c_w)
-                    } else if ad < w_w {
-                        amount * 0.35 * (1.0 - (ad - c_w) / (w_w - c_w))
-                    } else {
-                        0.0
-                    })
-                }
-                FreehandMode::Mesa => {
-                    let t = clamp01(c.d / c.r);
-                    let mesa_h = c.h0 + amount * 1.25;
-                    set(if t < 0.6 {
-                        c.h0.max(mesa_h)
-                    } else {
-                        let u = (t - 0.6) / 0.4;
-                        c.h0.max(mesa_h * (1.0 - u * u) + c.h0 * (u * u))
-                    })
-                }
-                FreehandMode::Volcano => {
-                    let t = clamp01(c.d / c.r);
-                    add(amount * 1.5 * 0.0f64.max(1.0 - t).powf(1.8))
-                }
+                // The five shaped sub-modes live in `freehand_shape` so that the
+                // assistant's region edit (`region_edit::Op::Stamp`, Ruling FW item 1)
+                // evaluates the very same formulas rather than a second transcription.
+                FreehandMode::Cliff
+                | FreehandMode::Ridge
+                | FreehandMode::Canyon
+                | FreehandMode::Mesa
+                | FreehandMode::Volcano => match freehand_shape(sub_mode, amount, c.r, c.sd, c.d, c.h0) {
+                    Some((true, v)) => set(v),
+                    Some((false, v)) => add(v),
+                    None => set(c.h0),
+                },
             },
         }
     }
+}
+
+/// The closed forms of Freehand's five shaped sub-modes (`Cliff`, `Ridge`, `Canyon`, `Mesa`,
+/// `Volcano`), moved verbatim out of [`SculptStamp::eval`] (Ruling FW item 1) so the sculpt stamp and
+/// the assistant's region edit share one formula. `amount` is the sub-mode's own control, `r` the brush
+/// radius, `sd` the signed and `d` the unsigned distance to the path (a one-point path makes both the
+/// radial distance), `h0` the cell's height. Returns `(is_set, value)`: `false` means add `value` to the
+/// cell (weighted by coverage), `true` means lerp the cell toward `value`; `None` for a sub-mode that is
+/// not one of the five. **No noise and no randomness**: the result is a function of its arguments alone,
+/// which is why a preview of it can equal its Apply.
+pub fn freehand_shape(mode: FreehandMode, amount: f64, r: f64, sd: f64, d: f64, h0: f64) -> Option<(bool, f64)> {
+    Some(match mode {
+        FreehandMode::Cliff => {
+            let edge = sd / (r * 0.12);
+            (false, amount * (edge / (1.0 + edge * edge).sqrt()))
+        }
+        FreehandMode::Ridge => {
+            let pf = (-(sd * sd) / (r * r * 0.08)).exp();
+            (false, amount * pf)
+        }
+        FreehandMode::Canyon => {
+            let c_w = r * 0.18;
+            let w_w = r * 0.45;
+            let ad = sd.abs();
+            (
+                false,
+                if ad < c_w {
+                    -amount * 1.5 * (1.0 - ad / c_w)
+                } else if ad < w_w {
+                    amount * 0.35 * (1.0 - (ad - c_w) / (w_w - c_w))
+                } else {
+                    0.0
+                },
+            )
+        }
+        FreehandMode::Mesa => {
+            let t = clamp01(d / r);
+            let mesa_h = h0 + amount * 1.25;
+            (
+                true,
+                if t < 0.6 {
+                    h0.max(mesa_h)
+                } else {
+                    let u = (t - 0.6) / 0.4;
+                    h0.max(mesa_h * (1.0 - u * u) + h0 * (u * u))
+                },
+            )
+        }
+        FreehandMode::Volcano => {
+            let t = clamp01(d / r);
+            (false, amount * 1.5 * 0.0f64.max(1.0 - t).powf(1.8))
+        }
+        FreehandMode::Raise | FreehandMode::Lower | FreehandMode::Smooth => return None,
+    })
 }
 
 /// The pressure lookup of one stamp ([`SculptStamp::pressure_table`]): the

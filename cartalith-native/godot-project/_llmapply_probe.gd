@@ -25,9 +25,11 @@ extends Node
 ##   5. ENGINE GATES: committed colour paint under the region and a finalised world each refuse with nothing
 ##      written and no undo step; `blocked` names both.
 ##   6. GENERATING: `blocked` names a running generate.
-##   8. RULING FW ITEM 2 (colour): a colour is one area mark in the colour-paint document, undone in one step with
-##      a raise in the same group, a refused colour (a hole) rolls the raise back, E7 is not triggered by colour marks,
-##      and the card draws the pictures and its Apply works.
+##   8. RULING FW (stamps and colour): each of ridge, cliff, canyon, mesa and volcano previews and applies as one group,
+##      changes EXACTLY the previewed cells and NONE outside the painted region (every cell compared), undoes in one step;
+##      a path stamp is bound to the preview by a digest and a box refuses it; a colour is one area mark in the
+##      colour-paint document, undone in one step with a ridge in the same group, and a refused colour (a hole)
+##      rolls the ridge back; E7 is not triggered by colour marks; the card draws the pictures and its Apply works.
 ##   7. RUST GATES: `run.begin` refuses an edit request with the region source off (`region_context_off`) and
 ##      with a hosted endpoint (`edit_local_only`), each dialling nothing; the allowed case starts (control).
 const ENV_VAR := "CART_LLM_PROBE_KEYVAR"
@@ -353,6 +355,7 @@ func _ready() -> void:
 
 const GRID_W := 256
 const GRID_H := 164
+const STAMP_KINDS := ["ridge", "cliff", "canyon", "mesa", "volcano"]
 
 
 ## Every cell's raw height, in grid order. The engine's `sample_cell` is the only per-cell reader the shell has.
@@ -391,9 +394,8 @@ func _diff(a: PackedFloat64Array, b: PackedFloat64Array, spec: Dictionary) -> Ve
 
 
 func _stamp_rows(kind: String, amount := 200.0) -> Array:
-	## (Item 2 only: the height row that rides beside the colour is a raise, whatever `kind` says.)
-	return [{"operation": "raise", "falloff": "smooth", "softness": 0.5, "amount_m": amount,
-		"text": "probe raise", "defaulted": false}]
+	return [{"operation": kind, "falloff": "smooth", "softness": 0.5, "amount_m": amount,
+		"text": "probe %s" % kind, "defaulted": false}]
 
 
 func _paint_rows(colour := "red", blend := "multiply", opacity := 0.8) -> Array:
@@ -403,13 +405,60 @@ func _paint_rows(colour := "red", blend := "multiply", opacity := 0.8) -> Array:
 
 func _info_for(pv: Dictionary) -> Dictionary:
 	var i := _info()
+	i["path_digest"] = String(pv.get("path_digest", ""))
 	return i
 
 
 func _section8(ug) -> void:
-	print("== 8. Ruling FW item 2: the colour, through the shell's writer ==")
+	print("== 8. Ruling FW: the five stamps and the colour, through the shell's writer ==")
 	_ok(ug.paint_tool() != null, "the colour-paint tool exists for the group to collect")
 	var spec: Dictionary = _REGION.spec()
+	for kind in STAMP_KINDS:
+		var rows := _stamp_rows(kind)
+		var pv: Dictionary = _EDIT.preview(_bridge, rows)
+		_ok(bool(pv.get("ok", false)) and int(pv.get("changed", 0)) > 0, "%s: the preview says %d cells change" % [kind, int(pv.get("changed", 0))])
+		var path: bool = kind in ["ridge", "cliff", "canyon"]
+		_ok((String(pv.get("path_digest", "")).length() == 16) == path, "%s: the preview %s a path digest" % [kind, "reports" if path else "does not need"])
+		_ok(_EDIT.blocked(_bridge, {"preview": pv}) == "", "%s: nothing blocks Apply" % kind)
+		var s0 := _snapshot()
+		var d0 := _digest()
+		var top0: int = ug.undo_top_id()
+		var depth0 := _depth()
+		var r: Dictionary = _EDIT.apply(_app, _bridge, ug, _info_for(pv), rows)
+		_ok(bool(r.get("ok", false)), "%s: apply answered ok: %s" % [kind, str(r.get("reason", ""))])
+		var s1 := _snapshot()
+		var df := _diff(s0, s1, spec)
+		_ok(df.y == 0, "%s: NO cell outside the painted region changed (%d inside, %d outside)" % [kind, df.x, df.y])
+		_ok(df.x == int(pv["changed"]) and int(r.get("changed", -1)) == int(pv["changed"]), "%s: the preview's %d cells are exactly the cells Apply changed (%d)" % [kind, int(pv["changed"]), df.x])
+		_ok(ug.undo_top_id() != top0 and String(ug.undo_label()).begins_with("Assistant:") and _depth() == depth0 + 1, "%s: a new Assistant group on top and one height step" % kind)
+		_app.undo_last()
+		await _settle(8)
+		_ok(_digest()["field"] == d0["field"], "%s: ONE Edit > Undo restored the field digest" % kind)
+		_app.redo_last()
+		await _settle(8)
+		_app.undo_last()
+		await _settle(8)
+
+	print("-- 8b. the painted path is bound to the preview --")
+	var rows_b := _stamp_rows("ridge")
+	var pv_b: Dictionary = _EDIT.preview(_bridge, rows_b)
+	var d_b := _digest()
+	var n_b: int = ug.groups.size()
+	var wrong := _info()
+	wrong["path_digest"] = "0000000000000000"
+	var r_wrong: Dictionary = _EDIT.apply(_app, _bridge, ug, wrong, rows_b)
+	_ok(not bool(r_wrong.get("ok", true)) and String(r_wrong.get("reason", "")).contains("previewed"), "a ridge with another path's digest is refused: '%s'" % String(r_wrong.get("reason", "")).left(60))
+	var r_none: Dictionary = _EDIT.apply(_app, _bridge, ug, _info(), rows_b)
+	_ok(not bool(r_none.get("ok", true)), "a ridge with no digest is refused")
+	_ok(_digest() == d_b and ug.groups.size() == n_b and not ug.is_open(), "...nothing written, no group left open")
+	_ok(String(pv_b.get("path_digest", "")) != "", "control: the real digest is reported")
+
+	print("-- 8c. a drawn box has no path --")
+	var box_spec := {"rect": [70.0, 60.0, 40.0, 30.0]}
+	var ridge_box: Dictionary = _bridge.region_edit_preview(box_spec, _EDIT.ops_of(_stamp_rows("ridge")))
+	_ok(not bool(ridge_box.get("ok", true)) and String(ridge_box.get("reason", "")).contains("drawn box has no path"), "ridge on a box is refused with its reason: '%s'" % String(ridge_box.get("reason", "")).left(60))
+	_ok(bool(_bridge.region_edit_preview(box_spec, _EDIT.ops_of(_stamp_rows("volcano"))).get("ok", false)), "control: a volcano on the same box previews")
+
 	print("-- 8d. colour paint --")
 	var rows_p := _paint_rows()
 	var pv_p: Dictionary = _EDIT.preview(_bridge, rows_p)
@@ -468,7 +517,7 @@ func _section8(ug) -> void:
 	var pv_h_paint: Dictionary = _bridge.region_paint_preview(spec_h, {"colour": "red", "blend": "colour", "opacity": 0.8})
 	_ok(bool(pv_h.get("ok", false)), "control: the ring-shaped region previews a ridge")
 	_ok(not bool(pv_h_paint.get("ok", true)) and String(pv_h_paint.get("reason", "")).contains("hole"), "a region with a hole refuses the colour, with its reason: '%s'" % String(pv_h_paint.get("reason", "")).left(70))
-	var info_h := {"region_id": _rid(), "summary": "probe"}
+	var info_h := {"region_id": _rid(), "summary": "probe", "path_digest": String(pv_h.get("path_digest", ""))}
 	var r_h: Dictionary = _EDIT.apply(_app, _bridge, ug, info_h, _stamp_rows("ridge") + _paint_rows())
 	_ok(not bool(r_h.get("ok", true)) and String(r_h.get("reason", "")).contains("hole"), "the mixed apply is refused at the colour: '%s'" % String(r_h.get("reason", "")).left(60))
 	_ok(_digest() == d_h and ug.groups.size() == n_h and not ug.is_open(), "...the ridge's height step was rolled back with the group (digests equal, no group, none open)")
@@ -482,6 +531,7 @@ func _section8(ug) -> void:
 	await _settle(8)
 	var card: Dictionary = _win.cards[_win.cards.size() - 1]
 	_ok(String(card.get("kind", "")) == "edit" and card["apply"] != null and not (card["apply"] as Button).disabled, "the card has an enabled Apply: %s" % str(_EDIT.blocked(_bridge, card)))
+	_ok(String(card["info"].get("path_digest", "")).length() == 16, "the card stored the preview's path digest")
 	for t in ["edit_thumb_before", "edit_thumb_after", "edit_thumb_paint_before", "edit_thumb_paint_after"]:
 		_ok((card["box"] as Control).find_child(t, true, false) != null, "the card draws '%s'" % t)
 	await _shot_card("8_card", card)

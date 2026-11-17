@@ -41,7 +41,7 @@
 //! above [`MAX_REGION_CELLS`] or an amount above [`MAX_AMOUNT_M`]; clamp or round a caller's
 //! number instead of refusing it (the caller validated already; this is the second wall).
 
-use crate::sculpt::{Falloff, clamp_height};
+use crate::sculpt::{Falloff, FreehandMode, Point, clamp_height, freehand_shape, nearest_on_stroke};
 
 /// Most cells one edit's region may hold. A labelled judgement (no measurement behind it): 250 000
 /// cells is a 500 x 500 block, about 9 percent of the default 2048 x 1311 grid, so one proposal
@@ -146,6 +146,15 @@ pub struct RegionMask {
     pub count: usize,
     /// True when part of the user's shape lay outside the world and was cut off.
     pub clipped: bool,
+    /// The painted dabs' centres `[x, y]` in cell coordinates, in the order they were painted: the
+    /// polyline a path-following stamp (ridge, cliff, canyon) runs along (Ruling FW item 1). Empty for a
+    /// pure box. Not clipped to the world, as the user painted it.
+    pub path: Vec<[f64; 2]>,
+    /// The largest dab radius in cells (0 when there are no dabs): the brush radius `r` of a path stamp.
+    pub path_r: f64,
+    /// True when the region includes a drawn rectangle (the Region select box). A box has no path, so a
+    /// path-following stamp refuses it.
+    pub boxed: bool,
 }
 
 fn finite(label: &str, v: f64) -> Result<f64, EditError> {
@@ -228,7 +237,9 @@ pub fn rasterise(spec: &RegionSpec, gw: usize, gh: usize) -> Result<RegionMask, 
         return Err(EditError::TooLarge(count));
     }
     let clipped = lx < 0.0 || ly < 0.0 || hx > gw as f64 || hy > gh as f64;
-    Ok(RegionMask { x0, y0, w, h, cells, count, clipped })
+    let path: Vec<[f64; 2]> = spec.dabs.iter().map(|d| [d[0], d[1]]).collect();
+    let path_r = spec.dabs.iter().map(|d| d[2]).fold(0.0f64, f64::max);
+    Ok(RegionMask { x0, y0, w, h, cells, count, clipped, path, path_r, boxed: spec.rect.is_some() })
 }
 
 /// Height units to metres above sea (`metersPerUnit`'s anchoring, the formula `world_summary.rs`
@@ -320,6 +331,75 @@ pub enum Op {
         /// 1 to [`MAX_SMOOTH_PASSES`].
         passes: u32,
     },
+    /// One of the sculpt panel's five shaped Freehand sub-modes (Ruling FW item 1), evaluated by the
+    /// sculpt stamp's own formula ([`freehand_shape`]) over a path derived from the painted region and
+    /// weighted by the region's edge ramp so it is exactly bounded to the painted cells.
+    Stamp {
+        /// Which shape.
+        kind: StampKind,
+        /// The largest change the stamp makes, metres, `0 < amount_m <= MAX_AMOUNT_M` (the formulas'
+        /// own multiples are divided out, see [`StampKind::peak_factor`]).
+        amount_m: f64,
+    },
+}
+
+/// The five stamps (`FreehandMode`'s shaped sub-modes; `Feature` has no Mesa).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StampKind {
+    /// One crest along the painted path.
+    Ridge,
+    /// A one-sided step across the painted path (the high side is left of the stroke).
+    Cliff,
+    /// A carved channel along the painted path.
+    Canyon,
+    /// A flat-topped rise centred on the region's deepest cell.
+    Mesa,
+    /// A cone centred on the region's deepest cell.
+    Volcano,
+}
+
+impl StampKind {
+    /// Every kind, in the model-facing order.
+    pub const ALL: [StampKind; 5] = [StampKind::Ridge, StampKind::Cliff, StampKind::Canyon, StampKind::Mesa, StampKind::Volcano];
+
+    /// The sculpt Freehand sub-mode that evaluates it.
+    pub fn mode(self) -> FreehandMode {
+        match self {
+            StampKind::Ridge => FreehandMode::Ridge,
+            StampKind::Cliff => FreehandMode::Cliff,
+            StampKind::Canyon => FreehandMode::Canyon,
+            StampKind::Mesa => FreehandMode::Mesa,
+            StampKind::Volcano => FreehandMode::Volcano,
+        }
+    }
+
+    /// The model-facing name (also the sculpt sub-mode's key).
+    pub fn key(self) -> &'static str {
+        self.mode().key()
+    }
+
+    /// The reverse of [`StampKind::key`].
+    pub fn from_key(k: &str) -> Option<StampKind> {
+        StampKind::ALL.iter().copied().find(|s| s.key() == k)
+    }
+
+    /// True for the three that follow the painted path (and so refuse a box); mesa and volcano are
+    /// radial and centre on the deepest cell.
+    pub fn follows_path(self) -> bool {
+        matches!(self, StampKind::Ridge | StampKind::Cliff | StampKind::Canyon)
+    }
+
+    /// How many times the formula's `amount` its strongest change is: ridge 1 (the crest), cliff 1
+    /// (the step's two ends are +-amount), canyon 1.5 (the floor), mesa 1.25 (the top), volcano 1.5
+    /// (the peak), read off `freehand_shape`. The model's `amount_m` is the strongest change, so the
+    /// engine divides this out; a test pins each value by measuring the formula.
+    pub fn peak_factor(self) -> f64 {
+        match self {
+            StampKind::Ridge | StampKind::Cliff => 1.0,
+            StampKind::Canyon | StampKind::Volcano => 1.5,
+            StampKind::Mesa => 1.25,
+        }
+    }
 }
 
 /// An operation with its shape controls.
@@ -350,7 +430,7 @@ pub fn check_ops(ops: &[EditOp]) -> Result<(), EditError> {
             return bad("softness must be a number from 0 to 1".into());
         }
         match o.op {
-            Op::Raise { amount_m } | Op::Lower { amount_m } => {
+            Op::Raise { amount_m } | Op::Lower { amount_m } | Op::Stamp { amount_m, .. } => {
                 if !amount_m.is_finite() || amount_m <= 0.0 || amount_m > MAX_AMOUNT_M {
                     return bad(format!("an amount must be above 0 and at most {MAX_AMOUNT_M} m"));
                 }
@@ -464,14 +544,55 @@ pub fn apply_ops(win: &mut Window, mask: &RegionMask, ops: &[EditOp], sea: f64, 
     if !(peak_m > 0.0) || !(sea < 1.0) || !peak_m.is_finite() || !sea.is_finite() {
         return Err(EditError::NoScale);
     }
+    // Every stamp's geometry is derived BEFORE anything is written, so a region that cannot carry one
+    // (a box under a ridge) refuses with the window untouched.
+    let mut geos: Vec<Option<StampGeo>> = Vec::with_capacity(ops.len());
+    for o in ops {
+        geos.push(match o.op {
+            Op::Stamp { kind, .. } => Some(stamp_geometry(mask, kind)?),
+            _ => None,
+        });
+    }
     let before = win.data.clone();
     let m_per_unit = peak_m / (1.0 - sea);
     let (mut capped, mut floored) = (0usize, 0usize);
     // Offset of the mask's box inside the window.
     let (ox, oy) = (mask.x0 - win.x0, mask.y0 - win.y0);
-    for o in ops {
+    for (oi, o) in ops.iter().enumerate() {
         let wt = weights(mask, o.falloff, o.softness);
         match o.op {
+            Op::Stamp { kind, amount_m } => {
+                let Some(geo) = geos[oi].as_ref() else { continue };
+                let amount = amount_m / m_per_unit / kind.peak_factor();
+                let (pts, r): (&[Point], f64) = match geo {
+                    StampGeo::Path { pts, r } => (pts, *r),
+                    StampGeo::Radial { centre, r } => (std::slice::from_ref(centre), *r),
+                };
+                for row in 0..mask.h {
+                    for col in 0..mask.w {
+                        let k = wt[row * mask.w + col] as f64;
+                        if k <= 0.0 {
+                            continue;
+                        }
+                        let i = (row + oy) * win.w + col + ox;
+                        let h0 = win.data[i] as f64;
+                        // The cell's centre, the frame the dabs and the rasteriser use.
+                        let (px, py) = ((mask.x0 + col) as f64 + 0.5, (mask.y0 + row) as f64 + 0.5);
+                        let hit = nearest_on_stroke(px, py, pts);
+                        let Some((is_set, v)) = freehand_shape(kind.mode(), amount, r, hit.sd, hit.dist, h0) else { continue };
+                        // `k` is the REGION's edge ramp, so the stamp's change is exactly 0 outside the
+                        // mask (the loop never visits those cells) and fades to 0 over the mask's edge.
+                        let want = if is_set { h0 + k * (v - h0) } else { h0 + k * v };
+                        let nh = clamp_height(want, h0);
+                        if want > nh {
+                            capped += 1;
+                        } else if want < nh {
+                            floored += 1;
+                        }
+                        win.data[i] = nh as f32;
+                    }
+                }
+            }
             Op::Raise { amount_m } | Op::Lower { amount_m } => {
                 let sign = if matches!(o.op, Op::Raise { .. }) { 1.0 } else { -1.0 };
                 let delta = sign * amount_m / m_per_unit;
@@ -560,6 +681,94 @@ pub fn apply_ops(win: &mut Window, mask: &RegionMask, ops: &[EditOp], sea: f64, 
         }
     }
     Ok(rep)
+}
+
+/// The geometry a stamp runs on, derived from the region alone (no randomness anywhere).
+#[derive(Debug, Clone, PartialEq)]
+enum StampGeo {
+    /// Ridge, cliff, canyon: the painted dabs' centres in order, with the largest dab radius as `r`.
+    Path {
+        /// The polyline.
+        pts: Vec<Point>,
+        /// Brush radius in cells.
+        r: f64,
+    },
+    /// Mesa, volcano: the region's deepest cell, with that depth as `r`.
+    Radial {
+        /// The centre (a cell centre).
+        centre: Point,
+        /// Radius in cells.
+        r: f64,
+    },
+}
+
+/// The deepest cell of the mask: the largest chamfer distance to a cell outside it (the box's own
+/// border counts as outside), first in row-major order on a tie. Returns `(col, row, depth)` in the
+/// mask's own box. Always a mask cell.
+fn deepest_cell(mask: &RegionMask) -> (usize, usize, f64) {
+    let (pw, ph) = (mask.w + 2, mask.h + 2);
+    let mut outside = vec![1u8; pw * ph];
+    for row in 0..mask.h {
+        for col in 0..mask.w {
+            if mask.cells[row * mask.w + col] {
+                outside[(row + 1) * pw + col + 1] = 0;
+            }
+        }
+    }
+    let d = crate::infer::chamfer_dist(&outside, pw, ph);
+    let mut best = (0usize, 0usize, -1.0f64);
+    for row in 0..mask.h {
+        for col in 0..mask.w {
+            if mask.cells[row * mask.w + col] {
+                let v = d[(row + 1) * pw + col + 1] as f64;
+                if v > best.2 {
+                    best = (col, row, v);
+                }
+            }
+        }
+    }
+    best
+}
+
+/// The geometry `kind` runs on for this region, or why the region cannot carry it.
+fn stamp_geometry(mask: &RegionMask, kind: StampKind) -> Result<StampGeo, EditError> {
+    if kind.follows_path() {
+        if mask.boxed || mask.path.is_empty() {
+            return Err(EditError::Ops(format!(
+                "a {} follows a painted stroke; a drawn box has no path, so paint the region with the brush instead",
+                kind.key()
+            )));
+        }
+        return Ok(StampGeo::Path { pts: mask.path.iter().map(|p| Point { x: p[0], y: p[1] }).collect(), r: mask.path_r });
+    }
+    let (col, row, depth) = deepest_cell(mask);
+    Ok(StampGeo::Radial {
+        centre: Point { x: (mask.x0 + col) as f64 + 0.5, y: (mask.y0 + row) as f64 + 0.5 },
+        // At least 1.5 so a one-cell-deep sliver still has a footprint; at most the depth, so the footprint fits.
+        r: depth.max(1.5),
+    })
+}
+
+/// A digest (FNV-1a 64, 16 hex digits) of what a path stamp is derived from: the painted path's
+/// points and brush radius (as bit patterns) and whether a box is involved. The region's id hashes the
+/// CELLS only, so the same cells painted in another order give another path under one id; the preview
+/// returns this and Apply recomputes it and refuses a mismatch, so the ridge the user saw is the ridge
+/// applied. Radial stamps depend on the cells alone and are covered by the id.
+pub fn path_digest(mask: &RegionMask) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |b: u8| h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+    eat(u8::from(mask.boxed));
+    for b in mask.path_r.to_bits().to_le_bytes() {
+        eat(b);
+    }
+    for p in &mask.path {
+        for v in p {
+            for b in v.to_bits().to_le_bytes() {
+                eat(b);
+            }
+        }
+    }
+    format!("{h:016x}")
 }
 
 /// Most pieces (4-connected groups of cells) a colour paint may cover: one `Area` mark each, against
@@ -1173,13 +1382,174 @@ mod tests {
         assert_eq!(rgb.len(), tw * th * 3);
     }
 
-    /// A mask from ASCII art (`#` is in the region). Literal, so a test can state exactly which cells are inside.
-    fn art_mask(x0: usize, y0: usize, rows: &[&str]) -> RegionMask {
+    // ---------------------------------------------------------------- Ruling FW item 1: the stamps
+
+    /// A mask from ASCII art (`#` is in the region) with the given painted path. Literal, so a test can
+    /// state exactly which cells are inside; the notch and the L make the edge non-trivial.
+    fn art_mask(x0: usize, y0: usize, rows: &[&str], path: &[[f64; 2]], path_r: f64) -> RegionMask {
         let w = rows[0].len();
         let h = rows.len();
         let cells: Vec<bool> = rows.iter().flat_map(|r| r.bytes().map(|b| b == b'#')).collect();
         let count = cells.iter().filter(|c| **c).count();
-        RegionMask { x0, y0, w, h, cells, count, clipped: false }
+        RegionMask { x0, y0, w, h, cells, count, clipped: false, path: path.to_vec(), path_r, boxed: false }
+    }
+
+    /// 40 x 24 cells at (10, 10): a wide band with a notch cut from its top edge and a corner missing,
+    /// the path running through the middle of it.
+    fn notched_band() -> RegionMask {
+        let mut rows: Vec<String> = Vec::new();
+        for y in 0..24 {
+            let mut line = String::new();
+            for x in 0..40 {
+                let notch = (14..20).contains(&x) && y < 9;
+                let corner = x >= 34 && y >= 18;
+                line.push(if notch || corner { '.' } else { '#' });
+            }
+            rows.push(line);
+        }
+        let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+        art_mask(10, 10, &refs, &[[14.5, 22.5], [30.5, 22.5], [46.5, 22.5]], 11.0)
+    }
+
+    fn hills(gw: usize, gh: usize) -> Vec<f32> {
+        (0..gw * gh).map(|i| 0.30 + 0.25 * (((i % gw) as f32 * 0.13).sin() * ((i / gw) as f32 * 0.09).cos()).abs()).collect()
+    }
+
+    fn stamp_op(kind: StampKind, amount_m: f64) -> EditOp {
+        EditOp { op: Op::Stamp { kind, amount_m }, falloff: Falloff::Smooth, softness: 0.5 }
+    }
+
+    /// Protects Ruling FW item 1's bound: EVERY cell outside a literal mask is bit-identical after each of
+    /// the five stamps (compared as bit patterns, over the whole world, padding ring included), and the
+    /// stamp really changes cells inside. MUTATION: make the stamp branch write every window cell, or
+    /// multiply by 1 instead of the region's ramp `k`: the cliff (+-amount at the far edge) then moves
+    /// cells outside.
+    #[test]
+    fn no_stamp_changes_a_cell_outside_the_literal_mask() {
+        let (gw, gh) = (80, 60);
+        let field = hills(gw, gh);
+        let mask = notched_band();
+        for kind in StampKind::ALL {
+            let mut win = window(&mask, &field, gw, gh);
+            let rep = apply_ops(&mut win, &mask, &[stamp_op(kind, 300.0)], 0.0, 1000.0).unwrap();
+            let mut after = field.clone();
+            write_back(&win, &mask, &mut after, gw);
+            let mut inside_changed = 0;
+            for y in 0..gh {
+                for x in 0..gw {
+                    let inside = x >= mask.x0 && x < mask.x0 + mask.w && y >= mask.y0 && y < mask.y0 + mask.h && mask.cells[(y - mask.y0) * mask.w + (x - mask.x0)];
+                    let (a, b) = (field[y * gw + x], after[y * gw + x]);
+                    if inside {
+                        inside_changed += usize::from(a.to_bits() != b.to_bits());
+                    } else {
+                        assert_eq!(a.to_bits(), b.to_bits(), "{kind:?}: the cell ({x},{y}) OUTSIDE the mask changed");
+                    }
+                }
+            }
+            assert!(inside_changed > 50 && rep.changed == inside_changed, "{kind:?}: {inside_changed} inside cells changed, report says {}", rep.changed);
+            // The window's one-cell padding ring is not written either.
+            for y in 0..win.h {
+                for x in 0..win.w {
+                    let (wx, wy) = (win.x0 + x, win.y0 + y);
+                    let inside = wx >= mask.x0 && wx < mask.x0 + mask.w && wy >= mask.y0 && wy < mask.y0 + mask.h && mask.cells[(wy - mask.y0) * mask.w + (wx - mask.x0)];
+                    if !inside {
+                        assert_eq!(win.data[y * win.w + x].to_bits(), field[wy * gw + wx].to_bits(), "{kind:?}: window cell ({wx},{wy}) outside the mask moved");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Protects "the preview is bit for bit the result": two independent evaluations of the same stamp
+    /// over fresh window copies agree to the bit, and the stamp has no random input. MUTATION: seed
+    /// anything from a clock or a counter and the second run differs.
+    #[test]
+    fn a_stamp_previews_exactly_what_it_applies() {
+        let (gw, gh) = (80, 60);
+        let field = hills(gw, gh);
+        let mask = notched_band();
+        for kind in StampKind::ALL {
+            let mut a = window(&mask, &field, gw, gh);
+            let mut b = window(&mask, &field, gw, gh);
+            let ra = apply_ops(&mut a, &mask, &[stamp_op(kind, 200.0)], 0.0, 1000.0).unwrap();
+            let rb = apply_ops(&mut b, &mask, &[stamp_op(kind, 200.0)], 0.0, 1000.0).unwrap();
+            assert_eq!(ra, rb, "{kind:?}");
+            assert!(a.data.iter().zip(&b.data).all(|(x, y)| x.to_bits() == y.to_bits()), "{kind:?}");
+        }
+    }
+
+    /// Protects `StampKind::peak_factor`: the model's `amount_m` is the strongest change, so the factor
+    /// must be what the sculpt formula's strongest change is, MEASURED from `freehand_shape` itself with
+    /// `amount` 1. MUTATION: change any factor in `peak_factor` or any constant of an arm.
+    #[test]
+    fn the_peak_factors_are_what_the_formulas_measure() {
+        let m = |k: StampKind, sd: f64, d: f64, h0: f64| freehand_shape(k.mode(), 1.0, 10.0, sd, d, h0).unwrap();
+        assert!((m(StampKind::Ridge, 0.0, 0.0, 0.5).1 - 1.0).abs() < 1e-12);
+        assert!((m(StampKind::Cliff, 1.0e9, 1.0e9, 0.5).1 - 1.0).abs() < 1e-9);
+        assert!((m(StampKind::Cliff, -1.0e9, 1.0e9, 0.5).1 + 1.0).abs() < 1e-9);
+        assert!((m(StampKind::Canyon, 0.0, 0.0, 0.5).1 + 1.5).abs() < 1e-12);
+        let (set, top) = m(StampKind::Mesa, 0.0, 0.0, 0.5);
+        assert!(set && (top - 0.5 - 1.25).abs() < 1e-12);
+        assert!((m(StampKind::Volcano, 0.0, 0.0, 0.5).1 - 1.5).abs() < 1e-12);
+        let factors: Vec<f64> = StampKind::ALL.iter().map(|k| k.peak_factor()).collect();
+        assert_eq!(factors, [1.0, 1.0, 1.5, 1.25, 1.5]);
+    }
+
+    /// Protects the stamp's metres: a ridge of 100 m over a flat world (sea 0, peak 1000 m) raises its
+    /// crest by 100 m within one f32 step and no more, and a volcano of 100 m peaks at 100 m, not 150.
+    #[test]
+    fn a_stamp_amount_is_the_strongest_change_in_metres() {
+        let (gw, gh) = (80, 60);
+        let field = flat(gw, gh, 0.2);
+        let mask = notched_band();
+        for kind in [StampKind::Ridge, StampKind::Volcano, StampKind::Mesa] {
+            let mut w = window(&mask, &field, gw, gh);
+            let rep = apply_ops(&mut w, &mask, &[EditOp { op: Op::Stamp { kind, amount_m: 100.0 }, falloff: Falloff::Constant, softness: 0.0 }], 0.0, 1000.0).unwrap();
+            assert!(rep.max_up_m > 99.0 && rep.max_up_m < 100.0001, "{kind:?}: strongest rise {} m", rep.max_up_m);
+        }
+    }
+
+    /// Protects the refusals: a drawn box has no path, so ridge, cliff and canyon refuse it with the
+    /// window untouched; mesa and volcano accept it and centre on a cell INSIDE the region. MUTATION:
+    /// let `follows_path` return false, or drop the `boxed` test.
+    #[test]
+    fn a_box_refuses_the_path_stamps_and_carries_the_radial_ones() {
+        let (gw, gh) = (64, 64);
+        let field = hills(gw, gh);
+        let mask = rasterise(&rect_spec(10.0, 10.0, 24.0, 24.0), gw, gh).unwrap();
+        assert!(mask.boxed && mask.path.is_empty());
+        for kind in [StampKind::Ridge, StampKind::Cliff, StampKind::Canyon] {
+            let mut w = window(&mask, &field, gw, gh);
+            let before = w.clone();
+            let e = apply_ops(&mut w, &mask, &[stamp_op(kind, 100.0)], 0.0, 1000.0).unwrap_err();
+            assert!(e.to_string().contains("drawn box has no path"), "{e}");
+            assert_eq!(w, before, "{kind:?} wrote before refusing");
+        }
+        for kind in [StampKind::Mesa, StampKind::Volcano] {
+            let StampGeo::Radial { centre, r } = stamp_geometry(&mask, kind).unwrap() else { panic!("radial") };
+            let (cx, cy) = (centre.x.floor() as usize, centre.y.floor() as usize);
+            assert!(mask.cells[(cy - mask.y0) * mask.w + (cx - mask.x0)], "the centre is a region cell");
+            assert!((r - 12.0).abs() < 1.5, "a 24 x 24 box is about 12 deep, got {r}");
+            let mut w = window(&mask, &field, gw, gh);
+            assert!(apply_ops(&mut w, &mask, &[stamp_op(kind, 100.0)], 0.0, 1000.0).unwrap().changed > 0);
+        }
+    }
+
+    /// Protects the path digest: the same dabs in the same order give one digest, the same cells painted
+    /// in the opposite order another (the region id alone cannot tell them apart). MUTATION: hash the
+    /// cells instead of the points, or sort the points.
+    #[test]
+    fn the_path_digest_follows_the_painted_order() {
+        let dabs = vec![[20.0, 30.0, 8.0], [28.0, 30.0, 8.0], [36.0, 30.0, 8.0]];
+        let a = rasterise(&RegionSpec { rect: None, dabs: dabs.clone() }, 80, 80).unwrap();
+        let b = rasterise(&RegionSpec { rect: None, dabs: dabs.clone() }, 80, 80).unwrap();
+        let mut rev = dabs;
+        rev.reverse();
+        let c = rasterise(&RegionSpec { rect: None, dabs: rev }, 80, 80).unwrap();
+        assert_eq!(a.cells, c.cells, "the cells are the same either way");
+        assert_eq!(path_digest(&a), path_digest(&b));
+        assert_ne!(path_digest(&a), path_digest(&c));
+        assert_eq!(path_digest(&a).len(), 16);
     }
 
     // ---------------------------------------------------------------- Ruling FW item 2: the outline
@@ -1189,9 +1559,9 @@ mod tests {
     /// keep collinear vertices, or drop the `x0`/`y0` offset.
     #[test]
     fn rings_are_the_literal_cell_edge_outlines() {
-        let block = art_mask(5, 7, &["###", "###"]);
+        let block = art_mask(5, 7, &["###", "###"], &[], 0.0);
         assert_eq!(mask_rings(&block).unwrap(), vec![vec![[5.0, 7.0], [8.0, 7.0], [8.0, 9.0], [5.0, 9.0]]]);
-        let ell = art_mask(0, 0, &["#..", "#..", "###"]);
+        let ell = art_mask(0, 0, &["#..", "#..", "###"], &[], 0.0);
         let rings = mask_rings(&ell).unwrap();
         assert_eq!(rings.len(), 1);
         let mut got = rings[0].clone();
@@ -1199,7 +1569,7 @@ mod tests {
         let mut want = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 2.0], [3.0, 2.0], [3.0, 3.0], [0.0, 3.0]];
         want.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert_eq!(got, want);
-        let two = art_mask(0, 0, &["##.##", "##.##"]);
+        let two = art_mask(0, 0, &["##.##", "##.##"], &[], 0.0);
         assert_eq!(mask_rings(&two).unwrap().len(), 2);
     }
 
@@ -1207,7 +1577,7 @@ mod tests {
     /// traced into a ring that would paint the hole. MUTATION: skip the `used != total_edges` check.
     #[test]
     fn a_hole_is_refused_with_its_reason() {
-        let ring = art_mask(0, 0, &["###", "#.#", "###"]);
+        let ring = art_mask(0, 0, &["###", "#.#", "###"], &[], 0.0);
         let e = mask_rings(&ring).unwrap_err().to_string();
         assert!(e.contains("hole"), "{e}");
     }
@@ -1216,11 +1586,67 @@ mod tests {
     #[test]
     fn the_piece_cap_is_sixty_four() {
         let row = |n: usize| (0..n).map(|i| if i % 2 == 0 { '#' } else { '.' }).collect::<String>();
-        let ok = art_mask(0, 0, &[row(127).as_str()]);
+        let ok = art_mask(0, 0, &[row(127).as_str()], &[], 0.0);
         assert_eq!(ok.cells.iter().filter(|c| **c).count(), 64);
         assert_eq!(mask_rings(&ok).unwrap().len(), 64);
-        let over = art_mask(0, 0, &[row(129).as_str()]);
+        let over = art_mask(0, 0, &[row(129).as_str()], &[], 0.0);
         assert!(mask_rings(&over).unwrap_err().to_string().contains("64 separate pieces"));
         assert_eq!(MAX_PAINT_PIECES, 64);
+    }
+
+    /// Protects the clip-with-a-ramp rule (design s.5i item 2): a cliff is +-amount everywhere, so a hard
+    /// cut at the mask edge would leave a wall. Over a flat world the change at cells touching the outside
+    /// is a small fraction of the largest change, for every ramp that has a slope. MUTATION: drop `k` from
+    /// the stamp branch's `want`.
+    #[test]
+    fn the_region_ramp_fades_a_stamp_to_nothing_at_the_mask_edge() {
+        let (gw, gh) = (80, 60);
+        let field = flat(gw, gh, 0.4);
+        let mask = notched_band();
+        let mut w = window(&mask, &field, gw, gh);
+        apply_ops(&mut w, &mask, &[stamp_op(StampKind::Cliff, 300.0)], 0.0, 1000.0).unwrap();
+        let (mut edge_max, mut all_max) = (0.0f64, 0.0f64);
+        for row in 0..mask.h {
+            for col in 0..mask.w {
+                if !mask.cells[row * mask.w + col] {
+                    continue;
+                }
+                let d = (w.data[(row + (mask.y0 - w.y0)) * w.w + col + (mask.x0 - w.x0)] as f64 - 0.4).abs();
+                all_max = all_max.max(d);
+                let on_edge = [(0i64, 1i64), (0, -1), (1, 0), (-1, 0)].iter().any(|(dx, dy)| {
+                    let (c, r) = (col as i64 + dx, row as i64 + dy);
+                    c < 0 || r < 0 || c >= mask.w as i64 || r >= mask.h as i64 || !mask.cells[r as usize * mask.w + c as usize]
+                });
+                if on_edge {
+                    edge_max = edge_max.max(d);
+                }
+            }
+        }
+        assert!(all_max > 0.2, "the cliff is strong inside ({all_max})");
+        assert!(edge_max < 0.2 * all_max, "the change at the edge ({edge_max}) is not a small fraction of the largest ({all_max}): a wall");
+    }
+
+    /// Protects the box rule for a region that is BOTH a box and painted: the union has a path in `path`
+    /// but is still a drawn box, so the path stamps refuse it. MUTATION: drop `mask.boxed ||`.
+    #[test]
+    fn a_box_plus_paint_still_refuses_the_path_stamps() {
+        let (gw, gh) = (64, 64);
+        let spec = RegionSpec { rect: Some([10.0, 10.0, 20.0, 20.0]), dabs: vec![[40.0, 40.0, 8.0]] };
+        let mask = rasterise(&spec, gw, gh).unwrap();
+        assert!(mask.boxed && !mask.path.is_empty());
+        let e = stamp_geometry(&mask, StampKind::Ridge).unwrap_err().to_string();
+        assert!(e.contains("drawn box has no path"), "{e}");
+    }
+
+    /// Protects the radial centre's tie rule with a literal: a 6 x 4 block's deepest cells (depth 2) are
+    /// the inner ring-free middle; the FIRST in row-major order wins, column 1, row 1 of the block. MUTATION:
+    /// `>=` for `>` in `deepest_cell`.
+    #[test]
+    fn the_radial_centre_is_the_first_deepest_cell() {
+        let block = art_mask(10, 20, &["######", "######", "######", "######"], &[], 0.0);
+        let (col, row, depth) = deepest_cell(&block);
+        assert_eq!((col, row), (1, 1), "depth {depth}");
+        let StampGeo::Radial { centre, .. } = stamp_geometry(&block, StampKind::Volcano).unwrap() else { panic!("radial") };
+        assert_eq!((centre.x, centre.y), (11.5, 21.5));
     }
 }

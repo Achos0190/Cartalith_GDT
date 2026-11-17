@@ -36,7 +36,7 @@ const THUMB_SCALE_TOUCH := 1.5
 
 ## The validated rows as the engine's operation dictionaries (`{operation, amount_m?, strength?,
 ## passes?, falloff, softness}`), exactly as Rust validated them.
-static func ops_of(valid: Array) -> Array:
+static func ops_of(valid: Array, digest := "") -> Array:
 	var ops: Array = []
 	for r in valid:
 		var d: Dictionary = r
@@ -46,8 +46,16 @@ static func ops_of(valid: Array) -> Array:
 		for k in ["amount_m", "strength", "passes"]:
 			if d.has(k):
 				o[k] = d[k]
+		## Ruling FW item 1: a stamp carries the digest of the path the preview was made from, and the engine
+		## refuses an Apply whose recomputed path differs.
+		if digest != "" and STAMPS.has(String(d["operation"])):
+			o["path_digest"] = digest
 		ops.append(o)
 	return ops
+
+
+## The five stamps (`cartalith_llm::edit_actions::STAMPS`), by name.
+const STAMPS := ["ridge", "cliff", "canyon", "mesa", "volcano"]
 
 
 ## True for the colour operation (Ruling FW item 2): it recolours, moves no ground and has no ramp.
@@ -147,7 +155,7 @@ static func thumb_texture(w: int, h: int, bytes: PackedByteArray) -> Texture2D:
 static func apply(app, bridge, ug, info: Dictionary, valid: Array) -> Dictionary:
 	if valid.is_empty():
 		return {"ok": false, "reason": "There is nothing to apply."}
-	var hops := ops_of(valid)
+	var hops := ops_of(valid, String(info.get("path_digest", "")))
 	var pv := paint_of(valid)
 	## The region must still be the one the model was shown.
 	var now: Dictionary = _REGION.facts(bridge)
@@ -248,6 +256,8 @@ static func draw_card(w, v: Dictionary) -> void:
 	var p: Dictionary = {}
 	if not valid.is_empty():
 		p = preview(w.bridge, valid)
+		## Ruling FW item 1: Apply runs only the painted path this preview was made from.
+		v["path_digest"] = String(p.get("path_digest", ""))
 	var n := 0
 	for c in valid:
 		var cd: Dictionary = c
