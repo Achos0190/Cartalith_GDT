@@ -3894,3 +3894,11 @@ From `25a47318` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.9-§10.10, Q9-Q15):
 ## Ruling FV: industrial economies are less bound by their own land (owner, 2026-11-17)
 
 From `f4f00a92` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.13, Q16-Q20): 168 of 290 industrial factions sit below the 5-10 % standing band because chain 1 is linear in the ecological factor E below 1 (Ruling DE C1, as designed). Owner: **yes** (Q16) -- **candidate A**, a gated floor `g = max(E, 0.67)` (Q17, Q18), on brackets 5 and 6 only (Q19), pre-industrial rows untouched (Q20). The 0.67 is fitted to the band's lower edge and says so. Measured before build: sweep 253 / 1 / 36, grid era-13 262 740 / 0 / 20 284, 0 unordered.
+
+## Ruling FW: assistant region edits widened; deep plots get a second prototype (owner, 2026-11-17)
+
+From `8d7e131c` (`LLM_ASSISTANT_SCOPE.md` E10-E12) and `cd4448c7` (the deep burgage prototype):
+1. **E10: all five sculpt stamps become assistant region edits** -- ridge, cliff, canyon, mesa and volcano, redesigned to the first slice's rule (bounded to the painted cells, previewed bit for bit): clip to the mask, a path derived from the painted region, a stated noise seed, ceilings, and hydrology. Design first in the scope, then build; ridge first.
+2. **E11: colour paint inside a painted region** is an assistant edit operation (through Ruling CN's colour-paint marks and its undo).
+3. **E12: a seventh profile context tick for the painted region**, off in every built-in and new profile; reverses the recorded omission in `dcc_settings.gd` deliberately.
+4. **Deep plots: a second prototype** with back lanes two plot depths behind each street to make rectangular blocks (then the street budget), still OFF at both boundaries, re-measured against every must-hold bar, with real town plans beside the frames (`TOWN_GENERATOR_JUDGEMENT.md` §6).
