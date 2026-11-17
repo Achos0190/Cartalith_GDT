@@ -130,7 +130,12 @@ func _ready() -> void:
 		"rest_cadence": heavy,
 		"hours": 6.0,
 		"group_size": int(def_plan.get("group_size", 10)) + 3,
-		"supply_days": int(def_plan.get("supply_days", 7)) + 9,
+		## +1, not +9 (2026-11-17): with the party 13 strong, 16 days of supply loads 392 kg against the 210 kg the
+		## default party can carry, and the engine refuses to depart an overloaded party (`Overloaded 187% of capacity
+		## ... no party departs in this state`), so the whole non-default plan came back blocked, `total_days` null,
+		## and five checks went red. That refusal is the product working; the fixture exceeded the load. 13 x 8 days
+		## stays under it.
+		"supply_days": int(def_plan.get("supply_days", 7)) + 1,
 		"pace": _other_option(opts, "pace", String(def_plan.get("pace", ""))),
 		"season": _other_option(opts, "season", String(def_plan.get("season", ""))),
 		"foraging": _other_option(opts, "foraging", String(def_plan.get("foraging", ""))),
@@ -150,6 +155,8 @@ func _ready() -> void:
 	var res_b: Dictionary = jpv._last_result
 	_check("non-default plan computes", bool(res_b.get("ok", false)), String(res_b.get("error", "")))
 	var days_b := float((res_b.get("plan", {}) as Dictionary).get("total_days", -1.0))
+	_check("the non-default plan is travelable (a blocked B made every comparison below pass or fail vacuously)",
+		days_b > 0.0, "%.3f days" % days_b)
 	_check("the non-default plan plans a different length of trip than the default", not is_equal_approx(days_a, days_b),
 		"%.3f vs %.3f days" % [days_a, days_b])
 	jpv._commit_saved_journey("Heavy-rest road")

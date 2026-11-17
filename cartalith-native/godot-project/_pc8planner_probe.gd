@@ -68,13 +68,25 @@ extends Node
 ## route would fail whichever way it did it. The far pair of each seed is a BLOCKED journey (no calendar,
 ## `total_days` -1): a real answer of the planner, compared like any other.
 ## Re-baseline again the same way (tablet oracle first) whenever a planner or road-generation change lands.
+##
+## **Re-baselined again 2026-11-17** on origin/main `142371f5` with a DLL built at that commit: all six RESULT hashes
+## moved and the six request hashes (416343692) did not, so the planner's inputs are unchanged and the generated worlds
+## it routes over are what moved, through the generation commits since 2026-11-15 (`cfa1cf0d` river crossings charged,
+## `662d488c` harbour layout, `496c7a2d`/`872fe397` river towns). The d8f5b57f run that first saw these six red used a
+## DLL copied from another checkout and was red identically with its files reverted. Not a weaker check, for the reason
+## above: in this same run every row's "equals a direct jp_compute of the request" check passed, and no other leg
+## moved (111 checks, only these six rows red before the paste). The tablet form no longer prints ROUTE lines (its leg
+## runs seven checks), so there was no tablet oracle to compare against this time; the direct-compute check is the
+## oracle that remains.
+## Run the desktop form with `--resolution 1600x1000` as the header says: at the default window size the M, S, C, E and
+## P legs fail (no three settlements clear of the window), which looks like a product break and is not.
 const BASELINE_ROUTES := {
-	"4242:0": [2442811611, 416343692],
-	"4242:1": [3473665668, 416343692],
-	"24601:0": [3056905376, 416343692],
-	"24601:1": [3658827470, 416343692],
-	"71077345:0": [1773636061, 416343692],
-	"71077345:1": [367944316, 416343692],
+	"4242:0": [2467951731, 416343692],
+	"4242:1": [3332414007, 416343692],
+	"24601:0": [3646277639, 416343692],
+	"24601:1": [574735172, 416343692],
+	"71077345:0": [3211709332, 416343692],
+	"71077345:1": [3119163115, 416343692],
 }
 
 const SEEDS := [4242, 24601, 71077345]

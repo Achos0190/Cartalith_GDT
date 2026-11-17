@@ -16,6 +16,8 @@ extends Node
 ##       (`_town_pin_membership`): hidden one zoom step below the town layer, drawn at the zoom where the layer appears
 ##   S3  culling: with the town's centre panned off the left edge by more than 0.85 km but less than its own half box, the
 ##       town is still in the town layer's draw list (the old half-box slack would have dropped it)
+## The default town comes from seed 912345 (see the comment at `seed_n`); `--id` names a town on the chosen world and is
+## refused if it stands in the plate's frame margin (12 % of the grid), as the default search skips such towns.
 ## Frames (`--out`): `stretchmap_<seed>_<id>_{below,appears,closer,edge}.png`, the whole 1600 x 1000 viewport (`closer` is
 ## two zoom steps past `appears`).
 ## Result line `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 could not run.
@@ -52,7 +54,12 @@ func _ready() -> void:
 		print("RESULT: FAIL (windowed only: the frames are the evidence)")
 		get_tree().quit(2)
 		return
-	var seed_n := 483920
+	## Default seed 912345 since 2026-11-17 (was 483920). Under the shipped stretch (Ruling FS) 483920's four towns whose
+	## laid-out box is stretched all stand inside the plate's frame margin below (#0, #2, #17 at x < 12 % of the grid,
+	## #6 at y = 254 of 288, 0.6 cells past the 88 % line), and its other four planned boxes are laid out at the
+	## reference's 1 700 x 1 250 m, so the first-stretched-town search ended `no stretched town on this world`. 912345's
+	## #4 (172,236), #15 and #17 are stretched and clear of the frame (a scan of five seeds at 384 x 288, this PC).
+	var seed_n := 912345
 	var gw := 384
 	var gh := 288
 	var want_id := -1
@@ -105,8 +112,17 @@ func _ready() -> void:
 		if want_id < 0 and not boxes.has(int(places[k]["tid"])):
 			continue
 		## Away from the plate's frame (`_border_frac`), which clips and fades the map's edge: 12 % of the grid.
-		if want_id < 0 and (int(places[k]["x"]) < gw * 0.12 or int(places[k]["x"]) > gw * 0.88 or int(places[k]["y"]) < gh * 0.12 or int(places[k]["y"]) > gh * 0.88):
+		var in_frame: bool = int(places[k]["x"]) < gw * 0.12 or int(places[k]["x"]) > gw * 0.88 or int(places[k]["y"]) < gh * 0.12 or int(places[k]["y"]) > gh * 0.88
+		if want_id < 0 and in_frame:
 			continue
+		## An explicit `--id` used to skip that test, and `--id 17` on 483920 (a town at x = 4) failed four checks that
+		## read as a product defect: the overlay's interior rect (`_interior_rect`) is inset by the frame, so a town
+		## that deep in the margin is never in the town layer's draw list at any zoom (`visible_area` is intersected with
+		## the interior). That is the frame's clip working, not the stretch, so the probe refuses it by name (2026-11-17).
+		if want_id >= 0 and k == want_id and in_frame:
+			print("RESULT: FAIL (town #%d at (%d,%d) is inside the plate's frame margin, where the town layer never draws it; pick another --id)" % [k, int(places[k]["x"]), int(places[k]["y"])])
+			get_tree().quit(2)
+			return
 		var l: Dictionary = bridge.urban_layouts(PackedInt32Array([k]))[0]
 		if want_id >= 0 or float(l["wm"]) > 1701.0 or float(l["hm"]) > 1251.0:
 			id = k

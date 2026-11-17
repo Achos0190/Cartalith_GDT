@@ -166,6 +166,15 @@ var _scale_label: Label
 ## one `flex-direction:column;gap:3px` stack (the column is `ENV:914`, the label
 ## `:915`, the bar `:916`), and only the label existed here.
 var _scale_rule: Control
+## True while there is a km figure worth drawing the rule for (a world, a grid, a laid-out viewport): what
+## `_update_scale_bar()` used to write straight into `_scale_rule.visible`. A separate flag because on the phone
+## `_apply_safe_insets()` may also hide the vertical rule for want of room, and must be able to bring it back when
+## the room returns without asking `_update_scale_bar()` again. Starts false on the phone (nothing measured yet) and
+## true elsewhere (the desktop rule has always stood from the build).
+var _scale_valid := true
+## Whether the phone's vertical form is laid out right now (it fits the band between the corner chrome and the
+## bottom reserve). Read by the probe; written only by `_apply_safe_insets()`.
+var _scale_vertical := false
 ## Zoom readout chrome label, top-right; made by `_chrome()` in `_ready`, text set by
 ## `_update_zoom_readout`, positioned by `_apply_safe_insets`.
 var _readout_label: Label
@@ -1082,6 +1091,11 @@ func _build_chrome() -> void:
 	## §9's chrome, all corner-anchored so it survives any dock width.
 	## `false` on the scale bar: §5.4 gives it the ink and no pill.
 	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT, false)
+	if DccTheme.is_phone():
+		## The phone's label sits mid-map beside the vertical rule rather than in a corner, over any terrain colour,
+		## and measured faint there (2026-11-17 frames): it takes the same scrim and ink as its HUD siblings.
+		_scale_label.add_theme_stylebox_override("normal", _hud_scrim_box())
+		_scale_label.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	## §5.4's rule, the half of the scale bar this port never drew. See
 	## `_draw_scale_rule()` for the geometry and `_update_scale_bar()` for what
 	## had to change about the label's *meaning* once a rule exists to bind it
@@ -1093,7 +1107,8 @@ func _build_chrome() -> void:
 	_scale_rule.set_anchors_preset(Control.PRESET_BOTTOM_LEFT, true)
 	_scale_rule.grow_horizontal = Control.GROW_DIRECTION_END
 	_scale_rule.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_scale_rule.visible = not DccTheme.is_phone()
+	_scale_valid = not DccTheme.is_phone()
+	_scale_rule.visible = _scale_valid
 	_scale_rule.draw.connect(_draw_scale_rule)
 	add_child(_scale_rule)
 	_readout_label = _chrome(Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
@@ -2461,9 +2476,6 @@ func _apply_safe_insets() -> void:
 	## inset. The label therefore floats `tick + gap` higher than it used to,
 	## and `stack` is 0 on the phone, where `_scale_rule` is hidden because that
 	## canvas draws no bar at all.
-	var tick := float(DccTheme.role_px("h_scale_tick")) if _scale_rule.visible else 0.0
-	var stack := tick + (float(SCALE_BAR_GAP) if _scale_rule.visible else 0.0)
-
 	## MS-5 item 2: for a left-handed user the row takes the left edge, so the scale bar and the coordinate
 	## readout swap sides with it ("the scale bar takes the other side; the coordinate readout stays under the
 	## row"). Only on touch: the desktop has no row, so its corners never move.
@@ -2475,26 +2487,76 @@ func _apply_safe_insets() -> void:
 		_set_anchor_side(_coords_label, not left_hand)
 
 	var bar_w := float(DccTheme.role_px("w_scale_bar"))
-	_scale_rule.custom_minimum_size = Vector2(bar_w, tick)
-	if left_hand:
-		_scale_rule.offset_left = -r - bar_w
-		_scale_rule.offset_right = -r
-	else:
-		_scale_rule.offset_left = l
-		_scale_rule.offset_right = l + bar_w
-	_scale_rule.offset_top = -b - tick
-	_scale_rule.offset_bottom = -b
-	_scale_rule.queue_redraw()
-
 	var scale_size := _scale_label.get_minimum_size()
-	if left_hand:
-		_scale_label.offset_right = -r
-		_scale_label.offset_left = -r - scale_size.x
+	var readout_h := _readout_label.get_minimum_size().y
+
+	## **The phone draws the rule vertical** (owner, 2026-11-17: "Do the scale bar on phone. Maybe vertical instead
+	## of horizontal?"). A horizontal rule along the bottom would sit in the band the sheet, the coach tip, the
+	## armed-tool pill, the coordinate readout and the zoom row already share, so it runs down the dominant hand's
+	## OPPOSITE edge instead, from just under that edge's top-corner chrome (the Layers button on the left, the zoom
+	## readout on the right when the row has the left edge), with the label beside it and still horizontal so it reads
+	## the right way up. Same `_bar_km()` and ticks as the horizontal form; cells are square, so the length means the
+	## same km down the screen as across it. It is drawn only if it fits between that chrome and the bottom reserve
+	## (`b`, which is the sheet at its current detent, the timeline and the gesture inset): at the sheet's `full`
+	## detent, or in a short landscape band, it falls back to today's label-only corner rather than overlap.
+	var top_clear := (readout_h if left_hand else _layers_btn.custom_minimum_size.y) + float(NAVPAD_GAP)
+	var v_top := t + top_clear
+	var phone := DccTheme.is_phone()
+	_scale_vertical = phone and _scale_valid and (size.y <= 0.0 or v_top + bar_w <= size.y - b)
+	_scale_rule.visible = _scale_valid and (not phone or _scale_vertical)
+
+	var tick := float(DccTheme.role_px("h_scale_tick")) if _scale_rule.visible else 0.0
+	var stack := tick + (float(SCALE_BAR_GAP) if _scale_rule.visible else 0.0)
+
+	if _scale_vertical:
+		## Top-anchored, so the offsets are plain y from the top. `_set_anchor_side` above already chose the edge.
+		for c in [_scale_rule, _scale_label]:
+			c.anchor_top = 0.0
+			c.anchor_bottom = 0.0
+			c.grow_vertical = Control.GROW_DIRECTION_END
+		_scale_rule.custom_minimum_size = Vector2(tick, bar_w)
+		var edge := maxf(r if left_hand else l, float(NAVPAD_EDGE))
+		var gap := float(SCALE_BAR_GAP) * 2.0
+		_scale_rule.offset_top = v_top
+		_scale_rule.offset_bottom = v_top + bar_w
+		var mid_y := v_top + (bar_w - scale_size.y) * 0.5
+		_scale_label.offset_top = mid_y
+		_scale_label.offset_bottom = mid_y + scale_size.y
+		if left_hand:
+			_scale_rule.offset_right = -edge
+			_scale_rule.offset_left = -edge - tick
+			_scale_label.offset_right = -edge - tick - gap
+			_scale_label.offset_left = -edge - tick - gap - scale_size.x
+		else:
+			_scale_rule.offset_left = edge
+			_scale_rule.offset_right = edge + tick
+			_scale_label.offset_left = edge + tick + gap
+			_scale_label.offset_right = edge + tick + gap + scale_size.x
+		_scale_rule.queue_redraw()
 	else:
-		_scale_label.offset_left = l
-		_scale_label.offset_right = l + scale_size.x
-	_scale_label.offset_top = -b - stack - scale_size.y
-	_scale_label.offset_bottom = -b - stack
+		for c in [_scale_rule, _scale_label]:
+			c.anchor_top = 1.0
+			c.anchor_bottom = 1.0
+			c.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		_scale_rule.custom_minimum_size = Vector2(bar_w, tick)
+		if left_hand:
+			_scale_rule.offset_left = -r - bar_w
+			_scale_rule.offset_right = -r
+		else:
+			_scale_rule.offset_left = l
+			_scale_rule.offset_right = l + bar_w
+		_scale_rule.offset_top = -b - tick
+		_scale_rule.offset_bottom = -b
+		_scale_rule.queue_redraw()
+
+		if left_hand:
+			_scale_label.offset_right = -r
+			_scale_label.offset_left = -r - scale_size.x
+		else:
+			_scale_label.offset_left = l
+			_scale_label.offset_right = l + scale_size.x
+		_scale_label.offset_top = -b - stack - scale_size.y
+		_scale_label.offset_bottom = -b - stack
 
 	var readout_size := _readout_label.get_minimum_size()
 	_readout_label.offset_right = -r
@@ -3088,6 +3150,19 @@ func _draw_scale_rule() -> void:
 	var tick := float(DccTheme.role_px("h_scale_tick"))
 	var touch := DccTheme.is_touch()
 	var ink: Color = DccTheme.c("text_dim") if touch else DccTheme.c("text_secondary")
+	if _scale_vertical:
+		## The phone's form: the same rule turned a quarter, ticks pointing into the map (right of a left-edge
+		## rule, left of a right-edge one), the spine on the screen-edge side so the ticks and the label face inward.
+		## Two px lines on a 1px-wide halo of the HUD scrim: the horizontal bar's 1 px hairline is a fraction of a
+		## millimetre on a 400 ppi panel and vanishes over mid-tone terrain (seen in the 2026-11-17 phone frames).
+		var on_right := _applied_hand == "left"
+		var th := 2.0
+		var spine := tick - th if on_right else 0.0
+		_scale_rule.draw_rect(Rect2(-1.0, -1.0, tick + 2.0, w + 2.0), DccTheme.c("hud_scrim"))
+		_scale_rule.draw_rect(Rect2(spine, 0.0, th, w), DccTheme.c("text_secondary"))
+		_scale_rule.draw_rect(Rect2(0.0, 0.0, tick, th), DccTheme.c("text_secondary"))
+		_scale_rule.draw_rect(Rect2(0.0, w - th, tick, th), DccTheme.c("text_secondary"))
+		return
 	_scale_rule.draw_rect(Rect2(0.0, 0.0 if touch else tick - 1.0, w, 1.0), ink)
 	_scale_rule.draw_rect(Rect2(0.0, 0.0, 1.0, tick), ink)
 	_scale_rule.draw_rect(Rect2(w - 1.0, 0.0, 1.0, tick), ink)
@@ -4049,6 +4124,7 @@ func _update_scale_bar() -> void:
 		        ## the chrome is built on at least one path.
 	if _width_km <= 0.0:
 		_scale_label.text = ""
+		_scale_valid = false
 		_scale_rule.visible = false   ## An unlabelled rule is a false scale.
 		return
 	var gw := _bridge.grid_size().x
@@ -4059,9 +4135,13 @@ func _update_scale_bar() -> void:
 		## nothing has measured.
 		_scale_label.text = "%s across" % DccUnits.format_adaptive(
 			_width_km / maxf(1.0, _zoom))
+		_scale_valid = false
 		_scale_rule.visible = false
 		return
-	_scale_rule.visible = not DccTheme.is_phone()
+	## Phone too since 2026-11-17 (owner: "Do the scale bar on phone. Maybe vertical instead of horizontal?"):
+	## `_apply_safe_insets()` below draws it vertical there, or hides it if the band has no room.
+	_scale_valid = true
+	_scale_rule.visible = true
 	## Cells are square in km, so one quotient describes both axes.
 	var per_cell := _width_km / float(gw)
 	_scale_label.text = "%s  ·  %s / cell" % [

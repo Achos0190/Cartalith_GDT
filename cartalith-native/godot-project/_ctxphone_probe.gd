@@ -527,9 +527,15 @@ func _run() -> void:
 	await _frames(2)
 	_touch_release(ov, spos)
 	await _frames(6)
-	_ok("STL a settlement tap opens the phone's right sheet " +
-		"(`right_dock.gd::_show_on_phone()`, same as a landmark/icon tap)",
-		app.right_dock.visible, true)
+	## **Re-pointed 2026-11-17 (Ruling EO item 1, `app.gd::_on_element_tapped`).** A tap with Inspect armed selects the
+	## settlement, which opens the right sheet (`_show_on_phone()`), and then shows the tap chips and HIDES the sheet
+	## again ("with chips up the sheet goes away": the chips are children of the map host and would sit under it; a
+	## finger on a chip pressed the sheet's button instead). The leg asserted the sheet stayed open, which is the state
+	## the tap passes through, not the one it ends in. The selection (the context check below) is what reaches the
+	## Context panel's tabs; the sheet comes back on a swipe.
+	_ok("STL a settlement tap shows the tap chips (`app.gd::_on_element_tapped`)",
+		app.element_chips.visible, true)
+	_ok("STL ... and the chips replace the right sheet over the map", app.right_dock.visible, false)
 	_shot("stl_right_sheet")
 	_ok("STL the right dock's own context is Settlement",
 		String(app.right_dock_ctrl.get("_context")), "settlement")
@@ -783,6 +789,12 @@ func _find_cell(ov: Control, water: String, claimed: bool, inset: float = 60.0, 
 			var c := Vector2(x, y)
 			x += step
 			if ov._hit_test_settlement(c, inter, rect) != -1 or not ov.hits_at(c).is_empty():
+				continue
+			## A TOUCH press picks with a wider reach than `hits_at`'s pointer test, so a cell with a road a few px
+			## away passed the line above and the long-press there added "Inspect road" / "Delete road" OBJECT rows
+			## that ranked ahead of "Open <faction>..." and pushed it out of the four peek chips (2026-11-17: the FR
+			## legs went red once generated roads moved under the fixture's cell). Skip any cell a touch would hit.
+			if not (ov.request_at(c, "touch").get("hits", []) as Array).is_empty():
 				continue
 			var g: Dictionary = ov._grid_point(c, rect, inter)
 			var cell: Dictionary = app.bridge.sample_cell(int(g["gx"]), int(g["gy"]))
