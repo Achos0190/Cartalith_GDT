@@ -194,6 +194,9 @@ const SLOT_PROVINCES: &str = "entities/provinces.json";
 const SLOT_CONTINENTS: &str = "entities/continents.json";
 /// The per-year timeline snapshots and the held territory year.
 const SLOT_TIMELINE: &str = "history/timeline.json";
+/// Ruling GD/GE (CT-5): the events imported from vault notes onto the timeline, `VaultSession::events`;
+/// `SAVEFILE_COMPAT.md` 10.3. Engine-owned, additive: written only when something was imported.
+const SLOT_EVENTS: &str = "history/events.json";
 /// The Label tool's own label list.
 const SLOT_LABELS: &str = "annotations/labels.json";
 /// Manually placed and generated icons.
@@ -246,6 +249,7 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     SLOT_PROVINCES,
     SLOT_CONTINENTS,
     SLOT_TIMELINE,
+    SLOT_EVENTS,
     SLOT_LABELS,
     SLOT_ICONS,
     SLOT_POIS,
@@ -3790,6 +3794,11 @@ impl WorldGen {
         if !self.vault.store.is_empty() {
             documents.insert(SLOT_VAULT.to_string(), self.vault.store.to_json());
         }
+        // CT-5: the imported timeline events, only when there are some, so an older or untouched
+        // project stays byte-identical (`SAVEFILE_COMPAT.md` 10.3).
+        if !self.vault.events.is_empty() {
+            documents.insert(SLOT_EVENTS.to_string(), self.vault.events.to_json());
+        }
 
         // The caller's own documents, last -- but never over a slot the
         // engine already wrote, because the loser of that race would be
@@ -4459,6 +4468,8 @@ impl WorldGen {
                     // project's snapshots in place, so an archive that carries
                     // none inherited whatever was already loaded.
                     self.vault.store.snapshots = store.snapshots;
+                    // The timeline decisions are this project's too (CT-4, `vault.json` `timelines[]`).
+                    self.vault.store.timelines = store.timelines;
                     // The vault *registry* is merged, not replaced. A
                     // `VaultRef` is `{id, display_name}` and the first entry
                     // is what `vault_info()` reports as the device's bound
@@ -4479,6 +4490,22 @@ impl WorldGen {
                      its links were left out of the opened project rather than merged. \
                      The links already in memory are untouched."
                 ),
+            }
+        }
+
+        // CT-5: the imported timeline events are this project's, wholesale -- `load_save` emptied the
+        // outgoing project's. A row that cannot be read costs that row and is reported, never the
+        // whole document (`SAVEFILE_COMPAT.md` 10.3); an unreadable document leaves the list empty.
+        if let Some(Ok(text)) = data.document(SLOT_EVENTS).map(serde_json::to_string) {
+            match cartalith_vault::timelines::EventsDoc::from_json(&text) {
+                Ok((doc, dropped)) => {
+                    if dropped > 0 {
+                        restore_warnings.push(format!("history/events.json: {dropped} imported event row(s) could not be read and were left out"));
+                    }
+                    self.vault.events = doc;
+                    restored.push("imported events");
+                }
+                Err(e) => restore_warnings.push(format!("history/events.json could not be read ({e}); the imported events were left out")),
             }
         }
 

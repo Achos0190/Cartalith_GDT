@@ -132,6 +132,7 @@ mod undo_group_bridge;
 mod urban_bridge;
 mod valley_shade;
 mod vault_bridge;
+mod chronos_bridge;
 mod vault_saf;
 mod world_summary;
 /// ET-E2's tests for `pack::colour_import`, kept out of that module because
@@ -8449,6 +8450,9 @@ impl WorldGen {
         // (`vault_info()`), not world state. See `load_save`'s copy of this
         // clear for the longer version.
         self.vault.store.links.clear();
+        // Ruling GD: decisions and imported events are world state, cleared with the links they name.
+        self.vault.store.timelines.clear();
+        self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         // `snapshots` is world state too and must clear with `links`. Added
         // 2026-09-02: milestone 2 put snapshots in `LinkStore` without adding
         // them here, so a snapshot filed against world A's `settlement:1`
@@ -8737,6 +8741,9 @@ impl WorldGen {
         // carries the longer version. Any future member of `LinkStore` that is
         // world state belongs in all three.
         self.vault.store.links.clear();
+        // Ruling GD: decisions and imported events are world state, cleared with the links they name.
+        self.vault.store.timelines.clear();
+        self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         self.vault.store.snapshots.clear();
         // Which of the three ways into a world this was -- an element of the
         // atlas key, and the one thing about the incoming field that is not
@@ -11236,6 +11243,9 @@ impl WorldGen {
         // which calls this function first), so an archive that carries a
         // `vault.json` still wins.
         self.vault.store.links.clear();
+        // Ruling GD: decisions and imported events are world state, cleared with the links they name.
+        self.vault.store.timelines.clear();
+        self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         // World state, same as `links` -- see `absorb()`'s clear for why.
         self.vault.store.snapshots.clear();
         // The one world-replacement path that does **not** go through
