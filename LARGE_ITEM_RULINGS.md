@@ -3884,3 +3884,9 @@ After `872fe397` (every worse row fixed; riverside 4.1 % at 384 and 3.7 % at 2 0
 ## Ruling FT: no map rotation (owner, 2026-11-17)
 
 Owner: *"I don't think map rotation is a necessity."* The map does not rotate; the phone MAP sheet's North-up toggle is dropped (it waited on rotation). Follow-up the same day: *"Keep the scale bar, in fact there is one already"* -- the scale bar stays always drawn (as it is on PC and tablet); the phone MAP sheet's scale-bar toggle is dropped too.
+
+## Ruling FU: industrial standing armies, candidate C3; the below-band majority measured first (owner, 2026-11-17)
+
+From `25a47318` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.9-§10.10, Q9-Q15):
+1. **Build C3** (Q9, Q11, the defaults of Q12-Q14): on brackets 5 and 6 only, soldier upkeep x (fee / 0.09056)^0.5, reading (a); exponent 0.5; bracket 6 included; the ordering asserted on all six rows after the fix. The 0.5 and the reference fee are fitted to the bar and say so. No §7p switch (port-only model, no JS golden; Ruling DE Q5 and DL precedent). Q15: the `Modern mechanized` band is kept as written.
+2. **Open a measure-first row** (Q10) for the 164 of 290 industrial factions below the 5-10 % band (median E 0.25, the ecological floor). Nothing built there without a ruling.
