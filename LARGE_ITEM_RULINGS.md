@@ -3890,3 +3890,7 @@ Owner: *"I don't think map rotation is a necessity."* The map does not rotate; t
 From `25a47318` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.9-§10.10, Q9-Q15):
 1. **Build C3** (Q9, Q11, the defaults of Q12-Q14): on brackets 5 and 6 only, soldier upkeep x (fee / 0.09056)^0.5, reading (a); exponent 0.5; bracket 6 included; the ordering asserted on all six rows after the fix. The 0.5 and the reference fee are fitted to the bar and say so. No §7p switch (port-only model, no JS golden; Ruling DE Q5 and DL precedent). Q15: the `Modern mechanized` band is kept as written.
 2. **Open a measure-first row** (Q10) for the 164 of 290 industrial factions below the 5-10 % band (median E 0.25, the ecological floor). Nothing built there without a ruling.
+
+## Ruling FV: industrial economies are less bound by their own land (owner, 2026-11-17)
+
+From `f4f00a92` (`ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.13, Q16-Q20): 168 of 290 industrial factions sit below the 5-10 % standing band because chain 1 is linear in the ecological factor E below 1 (Ruling DE C1, as designed). Owner: **yes** (Q16) -- **candidate A**, a gated floor `g = max(E, 0.67)` (Q17, Q18), on brackets 5 and 6 only (Q19), pre-industrial rows untouched (Q20). The 0.67 is fitted to the band's lower edge and says so. Measured before build: sweep 253 / 1 / 36, grid era-13 262 740 / 0 / 20 284, 0 unordered.
