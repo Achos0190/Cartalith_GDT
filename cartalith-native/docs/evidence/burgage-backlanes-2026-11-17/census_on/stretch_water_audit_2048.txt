@@ -1,0 +1,34 @@
+
+running 1 test
+test town_river_census::stretch_water_audit ...   #  0 (1240,1248) town    river STRETCHED box 2537x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 909 -> 647 m
+  #  1 ( 283,  75) town    river refused   box 2964x2041: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 822 -> 822 m
+  #  2 (   3, 297) town    river STRETCHED box 2425x2425: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 737 -> 979 m
+  #  3 ( 240, 386) town    river STRETCHED box 2307x1525: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 335 -> 385 m
+  #  4 ( 266, 555) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 718 -> 718 m
+  #  5 (1494, 625) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 848 -> 848 m
+  # 11 ( 449, 728) town    river STRETCHED box 2735x2041: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 629 -> 961 m
+  # 13 (1279,1073) town    river STRETCHED box 1993x1708: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 132 -> 389 m
+  # 21 ( 693, 927) town    river refused   box 2537x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay -0 -> -0 m
+seed 483920 at 2048x1311: planned stretched 9, laid out stretched 5, flagged 0
+  #  0 ( 251,1145) town    river refused   box 2041x2537: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 728 -> 728 m
+  #  1 (1939, 908) town    river refused   box 1749x2964: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 628 -> 628 m
+  #  8 ( 789, 774) town    river STRETCHED box 2041x2136: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 956 -> 1106 m
+  # 10 (  49, 631) town    river STRETCHED box 2735x2041: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1034 -> -0 m FLAGGED (quay)
+  # 11 (1552,1200) town    river STRETCHED box 2136x2735: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1031 -> 696 m
+  # 19 ( 835, 685) town    river STRETCHED box 2588x2360: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 418 -> 618 m
+seed 912345 at 2048x1311: planned stretched 6, laid out stretched 4, flagged 1
+  #  1 (1995, 804) town    river refused   box 2735x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 734 -> 734 m
+  #  2 (1481,1210) town    river refused   box 2041x2136: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 563 -> 563 m
+  #  3 (1042, 550) town    river STRETCHED box 2506x2735: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 636 -> 895 m
+  # 11 (1979,1115) town    river STRETCHED box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 268 -> 984 m
+  # 12 (1888,1089) town    river STRETCHED box 2449x1667: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 399 -> 255 m
+  # 13 (1517,1022) town    river STRETCHED box 1994x1994: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 151 -> 876 m
+  # 15 (1696,1006) town    river STRETCHED box 2507x2780: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 606 -> 495 m
+  # 24 ( 984,1102) town    river refused   box 1954x2735: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1013 -> 1013 m
+  # 31 (   7,1174) town    river refused   box 2506x2506: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1062 -> 1062 m
+seed 246371 at 2048x1311: planned stretched 9, laid out stretched 5, flagged 0
+all seeds at 2048: planned stretched 24, laid out stretched 14, flagged 1
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 206.02s
+

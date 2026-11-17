@@ -264,6 +264,16 @@ pub struct GrowOpts {
     /// partly enforced. `false` (the `Default`, every reference path) is the
     /// reference's query by control flow.
     pub wide_spacing: bool,
+    /// **Not the reference** (owner Ruling FW item 4, 2026-11-17: *"then the
+    /// street budget"*, the deep-plot prototype's second lever): each epoch
+    /// aims at the budget so far (`target_len * ep / epochs`) less what is
+    /// already laid, so a short epoch's remainder is tried again later and an
+    /// early overshoot is taken off later epochs; together the epochs aim at
+    /// the whole `target_len`. The reference gives each epoch
+    /// `target_len / epochs` and drops any remainder.
+    /// `false` (the `Default`, every reference path) is the reference's
+    /// budget by control flow. A street village's `road_reach` budget wins.
+    pub whole_budget: bool,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -593,7 +603,16 @@ pub fn grow(
         // epoch on, not a share per epoch; a share of 12 m an epoch still
         // laid one whole street an epoch, eight for 100 m (measured on the
         // `village` fixtures, 2026-11-15: 497 m grown for a 100 m budget).
-        let budget = if opts.road_reach.is_some() { target_len - placed_len } else { target_len / epochs as f64 };
+        // **Not the reference** (`GrowOpts::whole_budget`, owner Ruling FW item
+        // 4): the budget so far less what is laid, so the epochs together aim
+        // at the whole budget (a shortfall carried forward, an overshoot taken off).
+        let budget = if opts.road_reach.is_some() {
+            target_len - placed_len
+        } else if opts.whole_budget {
+            target_len * ep as f64 / epochs as f64 - placed_len
+        } else {
+            target_len / epochs as f64
+        };
         let prim_edges: Vec<usize> =
             g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| e.id).collect();
         let mut len = 0.0f64;

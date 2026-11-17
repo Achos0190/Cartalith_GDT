@@ -1305,6 +1305,17 @@ fn spread2(v: &mut [f64]) -> String {
     format!("n {} min {:.2} p10 {:.2} median {:.2} p90 {:.2} max {:.2}", v.len(), v[0], q(0.1), q(0.5), q(0.9), v[v.len() - 1])
 }
 
+/// The `q` quantile of `v` (sorted here; nearest rank), or NaN for none. A
+/// measurement helper for the audits' printouts only.
+fn quantile(v: &[f64], q: f64) -> f64 {
+    if v.is_empty() {
+        return f64::NAN;
+    }
+    let mut w = v.to_vec();
+    w.sort_by(|a, b| a.total_cmp(b));
+    w[((w.len() - 1) as f64 * q).round() as usize]
+}
+
 /// Grid step of [`unbuilt_inside_wall`], metres. A labelled judgement: under
 /// the narrowest lot frontage the platting allows (`build_parcels`' 4.5 m
 /// floor), so a row of houses cannot slip between two cells.
@@ -1320,7 +1331,8 @@ const UNBUILT_REACH_M: f64 = 40.0;
 /// **The unbuilt area inside a town wall** (2026-11-15, the coordinator's
 /// defect (b) on seed 12345's town at (108,71): a refitted wall round a large
 /// unbuilt patch between two lobes). Over a [`UNBUILT_CELL_M`] grid, the
-/// cells inside `ring` that are farther than [`UNBUILT_REACH_M`] from every
+/// cells inside `ring` that are farther than `reach_m` ([`UNBUILT_REACH_M`],
+/// or a deep-plot town's [`census_reach_m`]) from every
 /// building footprint, leaving out the river channel (`river_w / 2` of the
 /// centreline, plus a cell), `water_poly` and the market square (`plaza`,
 /// which is open by design). Returns `(largest 4-connected patch, all such
@@ -1328,6 +1340,7 @@ const UNBUILT_REACH_M: f64 = 40.0;
 /// about 8 % of Euclidean), which is ample for a hectare-scale threshold.
 /// A measurement for the audits only; must never be read by generation.
 fn unbuilt_inside_wall(
+    reach_m: f64,
     ring: &[(f64, f64)],
     buildings: &[Vec<(f64, f64)>],
     river: &[(f64, f64)],
@@ -1338,10 +1351,10 @@ fn unbuilt_inside_wall(
     if ring.len() < 3 {
         return (0.0, 0.0);
     }
-    let x0 = ring.iter().map(|p| p.0).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
-    let y0 = ring.iter().map(|p| p.1).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
-    let x1 = ring.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
-    let y1 = ring.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let x0 = ring.iter().map(|p| p.0).fold(f64::INFINITY, f64::min) - reach_m;
+    let y0 = ring.iter().map(|p| p.1).fold(f64::INFINITY, f64::min) - reach_m;
+    let x1 = ring.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max) + reach_m;
+    let y1 = ring.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max) + reach_m;
     let (nx, ny) = (((x1 - x0) / UNBUILT_CELL_M).ceil() as usize + 1, ((y1 - y0) / UNBUILT_CELL_M).ceil() as usize + 1);
     let ctr = |i: usize, j: usize| (x0 + (i as f64 + 0.5) * UNBUILT_CELL_M, y0 + (j as f64 + 0.5) * UNBUILT_CELL_M);
     // Seed the distance field at every building: its cells and its corners.
@@ -1389,7 +1402,7 @@ fn unbuilt_inside_wall(
             d[j * nx + i] = v;
         }
     }
-    let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 3.0) as u32;
+    let reach = (reach_m / UNBUILT_CELL_M * 3.0) as u32;
     let open: Vec<bool> = (0..nx * ny)
         .map(|k| {
             let q = ctr(k % nx, k / nx);
@@ -1452,6 +1465,19 @@ fn settled_area_m2(buildings: &[Vec<(f64, f64)>]) -> f64 {
         }
     }
     cells.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M
+}
+
+/// The census's reaches for a town laid out with `burgage` (the deep-plot
+/// prototype, `GenOpts::burgage`): [`UNBUILT_REACH_M`] and [`ORPHAN_M`] (both
+/// 40 m, set against the reference's platting: its deepest lot, 46 m, less a
+/// little) scaled as the platting's far target is
+/// (`cartalith_urban::burgage::UNBUILT_REACH_M`, re-exported as
+/// `urban_adapter::BURGAGE_UNBUILT_REACH_M`: 40 x 42 / 30 = 56 m), so a
+/// deep plot's yard behind its house is not read as open land and its rear
+/// outbuilding not as a streetless house. Derived from the platting's
+/// constants, never from the measured lots. A measurement only.
+fn census_reach_m(burgage: bool) -> f64 {
+    if burgage { cartalith_civ::urban_adapter::BURGAGE_UNBUILT_REACH_M } else { UNBUILT_REACH_M }
 }
 
 /// How far from every street a house's centre may stand before the audit
@@ -1980,12 +2006,19 @@ fn both_banks_audit() {
     // patch inside it ([`unbuilt_inside_wall`]), in square metres.
     let (mut walled_all, mut market_out) = (0usize, 0usize);
     let mut patches: Vec<f64> = Vec::new();
+    // With deep plots on: the same patches measured at the reference's 40 m.
+    let mut patches40: Vec<f64> = Vec::new();
+    // The unbuilt and streetless reaches for this run's platting.
+    let reach_m = census_reach_m(burgage(&crate::params::defaults()));
+    let (mut orphans40, mut orphan_towns40) = (0usize, 0usize);
     // Deep burgage plots (owner Ruling FE item 3's prototype, 2026-11-17;
     // `TOWN_GENERATOR_JUDGEMENT.md` change 4's bars): over the four-cornered
     // lots of towns of 1 500 and up, depth / frontage and the lots over 40 m
     // deep; and each town of 5 000 and up's settled area against the
     // research's law, 0.12 N^0.714 ha (`MEDIEVAL_TOWN_GROWTH_RESEARCH.md`).
     let (mut lot_ratio, mut lot_deep, mut law_ratio): (Vec<f64>, usize, Vec<f64>) = (Vec::new(), 0, Vec::new());
+    // The same lots' depths, metres (the census's reaches are re-derived from them for deep plots).
+    let mut lot_depth: Vec<f64> = Vec::new();
     // Villages' vacant lots (2026-11-15, the coordinator's item 4: a ring of
     // emptied plots round trimmed villages): parcels with no building whose
     // centroid stands in them, pooled over villages, and the villages with
@@ -2080,9 +2113,21 @@ fn both_banks_audit() {
                 .iter()
                 .filter(|b| {
                     let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
-                    !segs.iter().any(|&(a, e)| seg_dist((c.x, c.y), a, e) <= ORPHAN_M)
+                    !segs.iter().any(|&(a, e)| seg_dist((c.x, c.y), a, e) <= reach_m)
                 })
                 .count();
+            if reach_m != ORPHAN_M {
+                let at40 = l
+                    .buildings
+                    .iter()
+                    .filter(|b| {
+                        let c = cartalith_civ::urban_adapter::poly_centroid(&b.poly);
+                        !segs.iter().any(|&(a, e)| seg_dist((c.x, c.y), a, e) <= ORPHAN_M)
+                    })
+                    .count();
+                orphans40 += at40;
+                orphan_towns40 += usize::from(at40 > 0);
+            }
             orphans += town_orphans;
             orphan_towns += usize::from(town_orphans > 0);
             // The square against the settled area (change 6).
@@ -2128,6 +2173,7 @@ fn both_banks_audit() {
                     let (front, depth) = (d(q.poly[0], q.poly[1]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0);
                     if front > 0.0 {
                         lot_ratio.push(depth / front);
+                        lot_depth.push(depth);
                         lot_deep += usize::from(depth > 40.0);
                     }
                 }
@@ -2226,7 +2272,12 @@ fn both_banks_audit() {
                 let out = !in_poly((mk.x, mk.y), &rg) && ring_d > BANK_STREET_W;
                 let bl: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|v| (v.x, v.y)).collect()).collect();
                 let pz: Vec<(f64, f64)> = l.plaza.as_ref().map_or(Vec::new(), |z| z.poly.iter().map(|v| (v.x, v.y)).collect());
-                let (patch, open) = unbuilt_inside_wall(&rg, &bl, &river, l.river_w, &wpoly, &pz);
+                let (patch, open) = unbuilt_inside_wall(reach_m, &rg, &bl, &river, l.river_w, &wpoly, &pz);
+                // Deep plots: the same patch at the reference's 40 m too, so the
+                // bar can be read both ways (2026-11-17, Ruling FW item 4).
+                if reach_m != UNBUILT_REACH_M {
+                    patches40.push(unbuilt_inside_wall(UNBUILT_REACH_M, &rg, &bl, &river, l.river_w, &wpoly, &pz).0);
+                }
                 walled_all += 1;
                 market_out += usize::from(out);
                 if l.pop_target >= cartalith_civ::urban_adapter::PLAZA_MARKET_POP {
@@ -2390,7 +2441,10 @@ fn both_banks_audit() {
         green_share.iter().filter(|&&v| v > 4.0).count(),
         green_share.len()
     );
-    println!("  houses over {ORPHAN_M} m from every street: {orphans} in {orphan_towns} towns");
+    println!("  houses over {reach_m} m from every street: {orphans} in {orphan_towns} towns");
+    if reach_m != ORPHAN_M {
+        println!("  (deep plots) houses over {ORPHAN_M} m from every street: {orphans40} in {orphan_towns40} towns");
+    }
     println!("  with a crossing {crossing} ({crossing_big} >= 1500); on both banks {both} ({both_big} >= 1500)");
     println!("  walled river towns {walled_river}: wall crosses the river {wall_cross}, of which around an empty far bank {wall_pointless}");
     println!(
@@ -2418,12 +2472,19 @@ fn both_banks_audit() {
         over(1.0),
         over(2.0)
     );
+    if !patches40.is_empty() {
+        let over40 = |ha: f64| patches40.iter().filter(|&&a| a >= ha * 1e4).count();
+        println!("  (deep plots, reach {reach_m} m above) the same patches at the reference's {UNBUILT_REACH_M} m reach: over 0.5 ha {}, over 1 ha {}, over 2 ha {}", over40(0.5), over40(1.0), over40(2.0));
+    }
     println!("  buildings in water: river channel {wet_ch}, sea or lake cell {wet_open}, water_poly {wet_poly}; within half river_w of a coast's shoreline polyline (not water) {wet_shore}");
     let n_lots = lot_ratio.len();
     println!(
-        "  plots (towns >= 1500, four-cornered lots {n_lots}): depth / frontage {}; over 40 m deep {lot_deep} ({:.1} %); settled area / 0.12 N^0.714 ha (towns >= 5000) {}",
+        "  plots (towns >= 1500, four-cornered lots {n_lots}): depth / frontage {}; over 40 m deep {lot_deep} ({:.1} %); depth m {} p95 {:.1} p99 {:.1}; settled area / 0.12 N^0.714 ha (towns >= 5000) {}",
         spread2(&mut lot_ratio),
         100.0 * lot_deep as f64 / n_lots.max(1) as f64,
+        spread2(&mut lot_depth),
+        quantile(&lot_depth, 0.95),
+        quantile(&lot_depth, 0.99),
         spread2(&mut law_ratio)
     );
 }

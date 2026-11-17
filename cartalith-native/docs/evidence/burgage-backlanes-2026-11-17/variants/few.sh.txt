@@ -1,0 +1,7 @@
+#!/bin/bash
+# few.sh <exe> <outdir>: both_banks_audit on a handful of towns (TOWN_RIVER_ONLY) at 384 and 2048, EXTRA_ENV added.
+EXE=$1; OUT=$2; mkdir -p $OUT
+cd C:/cw/plots2/cartalith-native/crates/cartalith-godot
+for sz in 384:288 2048:1311; do gw=${sz%%:*}; gh=${sz##*:}
+  env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 TOWN_RIVER_ONLY=0,1,2,4,8,10,29,38 ${EXTRA_ENV:-} $EXE both_banks_audit --ignored --nocapture --test-threads 1 > $OUT/both_banks_audit_$gw.txt 2>&1 &
+done; wait

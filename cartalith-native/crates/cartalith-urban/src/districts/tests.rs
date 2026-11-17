@@ -320,6 +320,7 @@ fn setup(c: &Case) -> Fixture {
             let opts = GrowOpts {
                 road_reach: None,
                 wide_spacing: false,
+                whole_budget: false,
                 target_len,
                 max_rf,
                 walls: true,

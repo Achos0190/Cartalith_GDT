@@ -1,0 +1,25 @@
+"""mut.py <spec.json>: each mutant is [file, old, new, test filter, package]. Exact literal replace (occurs exactly
+once), cargo test, KILLED / SURVIVED / BUILD_ERROR, the file restored in a finally and hash-checked after."""
+import json, subprocess, sys, hashlib, os
+os.environ["CARGO_TARGET_DIR"] = "C:/cw/plots2_target"
+ROOT = "C:/cw/plots2/cartalith-native/"
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+for i, (f, old, new, filt, pkg) in enumerate(spec):
+    p = ROOT + f
+    src = open(p, encoding="utf-8").read()
+    h0 = hashlib.sha256(src.encode()).hexdigest()
+    assert src.count(old) == 1, f"mutant {i}: {old!r} occurs {src.count(old)} times in {f}"
+    try:
+        open(p, "w", encoding="utf-8").write(src.replace(old, new))
+        r = subprocess.run(["cargo", "test", "-p", pkg, "--lib", filt], cwd=ROOT, capture_output=True, text=True)
+        out = r.stdout + r.stderr
+        if "error[" in out or "error:" in out and "test failed" not in out:
+            v = "BUILD_ERROR"
+        elif r.returncode != 0:
+            v = "KILLED"
+        else:
+            v = "SURVIVED"
+    finally:
+        open(p, "w", encoding="utf-8").write(src)
+    assert hashlib.sha256(open(p, encoding="utf-8").read().encode()).hexdigest() == h0
+    print(f"{i:2d} {v:11s} {f.split('/')[-1]}: {old.strip()[:70]!r} -> {new.strip()[:50]!r}", flush=True)

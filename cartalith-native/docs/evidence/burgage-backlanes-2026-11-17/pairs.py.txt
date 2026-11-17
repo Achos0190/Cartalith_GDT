@@ -1,0 +1,16 @@
+"""pairs.py <shots dir> <out dir>: side-by-side off | on frames from viewer_<seed>_<id>_burgage<0|1>.png."""
+import glob, os, re, sys
+from PIL import Image, ImageDraw
+src, out = sys.argv[1], sys.argv[2]
+os.makedirs(out, exist_ok=True)
+for f in sorted(glob.glob(f"{src}/viewer_*_burgage0.png")):
+    m = re.search(r"viewer_(\d+)_(\d+)_burgage0\.png$", f)
+    g = f.replace("_burgage0.png", "_burgage1.png")
+    if not os.path.exists(g):
+        continue
+    a, b = Image.open(f).convert("RGB"), Image.open(g).convert("RGB")
+    s = Image.new("RGB", (a.width + b.width + 10, max(a.height, b.height) + 18), (255, 255, 255))
+    s.paste(a, (0, 18)); s.paste(b, (a.width + 10, 18))
+    ImageDraw.Draw(s).text((4, 3), f"seed {m.group(1)} #{m.group(2)}  urban_burgage OFF (left) | ON (right), second prototype (back lanes, whole budget); City Viewer opening frame, app world 384x288", fill=(0, 0, 0))
+    s.save(f"{out}/pair_{m.group(1)}_{m.group(2)}.png")
+    print("pair", m.group(1), m.group(2))

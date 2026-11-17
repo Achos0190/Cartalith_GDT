@@ -1,0 +1,45 @@
+"""cmp.py <before_dir> <after_dir>: the must-hold bars and this change's counts, before -> after, at 384 and 2048."""
+import re, sys
+B, A = sys.argv[1], sys.argv[2]
+def rd(d, a, gw):
+    try: return open(f"{d}/{a}_{gw}.txt", encoding='utf-8', errors='replace').read()
+    except FileNotFoundError: return ''
+def g(pat, t, k=1, default='?'):
+    m = re.search(pat, t)
+    return m.group(k) if m else default
+rows = [
+ ("towns housed p10 (both_banks)", "both_banks_audit", r"towns \(pop_target >= 1500\) housed % n \d+ min \d+ p10 (\d+)"),
+ ("towns under 80 %", "both_banks_audit", r"towns \(pop_target >= 1500\) housed .*?under 80 %: (\d+)"),
+ ("villages under 80 %", "both_banks_audit", r"villages \(pop_target < 1500\) housed .*?under 80 %: (\d+)"),
+ ("wall/hull p90", "both_banks_audit", r"wall / hull length n \d+ min [\d.]+ p10 [\d.]+ median [\d.]+ p90 ([\d.]+)"),
+ ("wall/hull max", "both_banks_audit", r"wall / hull length n \d+ min [\d.]+ p10 [\d.]+ median [\d.]+ p90 [\d.]+ max ([\d.]+)"),
+ ("squares outside the wall", "both_banks_audit", r"market square outside the wall (\d+)"),
+ ("unbuilt patch over 1 ha", "both_banks_audit", r"over 1 ha (\d+)"),
+ ("unbuilt patch over 0.5 ha", "both_banks_audit", r"over 0.5 ha (\d+)"),
+ ("riverside within 2 widths, >=1500 %", "both_banks_audit", r">= 1500 with houses \d+: houses within 2 street widths of the bank ([\d.]+) %"),
+ ("river-kind every house > 2 widths", "both_banks_audit", r"\(\d+ >= 1500\): houses within 1 .*?every house over 2 street widths: (\d+)"),
+ ("stretched / refused", "both_banks_audit", r"stretched towns (\d+ \(Ruling FQ: refused and laid out in the reference box \d+)"),
+ ("green within 60 m", "both_banks_audit", r"within 60 m: (\d+ of \d+)"),
+ ("buildings in water (harbour audit)", "harbour_front_audit", r"all seeds.*?buildings in water (\d+)"),
+ ("wall rings in open water", "harbour_front_audit", r"all seeds.*?wall in water (\d+)"),
+ ("harbours over 23 m", "harbour_front_audit", r"all seeds.*?harbours over 23 m from their water (\d+ of \d+)"),
+ ("river-mouth not reaching", "harbour_front_audit", r"all seeds.*?river not reaching the water (\d+)"),
+ ("harbour-audit squares outside", "harbour_front_audit", r"all seeds.*?square outside (\d+)"),
+ ("plots depth/frontage median", "both_banks_audit", r"plots \(towns >= 1500.*?depth / frontage n \d+ min [\d.]+ p10 [\d.]+ median ([\d.]+)"),
+ ("plots over 40 m deep %", "both_banks_audit", r"over 40 m deep \d+ \(([\d.]+) %\)"),
+ ("plots depth p95 m", "both_banks_audit", r"p95 ([\d.]+) p99"),
+ ("plots depth max m", "both_banks_audit", r"depth m n \d+ min [\d.]+ p10 [\d.]+ median [\d.]+ p90 [\d.]+ max ([\d.]+)"),
+ ("settled / law median", "both_banks_audit", r"0\.714 ha \(towns >= 5000\) n \d+ min [\d.]+ p10 [\d.]+ median ([\d.]+)"),
+ ("housed median (both_banks)", "both_banks_audit", r"towns \(pop_target >= 1500\) housed % n \d+ min \d+ p10 \d+ median (\d+)"),
+ ("housing audit under 80 % (riverbank on)", "town_housing_audit", r"under 80 %[^\n]*?(\d+)"),
+]
+for gw in (384, 2048):
+    print(f"== {gw}")
+    for name, a, pat in rows:
+        print(f"  {name:42s} {g(pat, rd(B,a,gw)):>14s} -> {g(pat, rd(A,a,gw)):>14s}")
+    for a in ("stretch_water_audit", "riverbank_gap_audit", "town_housing_audit"):
+        tb, ta = rd(B,a,gw), rd(A,a,gw)
+        lb = [l for l in tb.splitlines() if l.startswith('all') or 'flagged' in l.lower() or l.startswith('  all')]
+        la = [l for l in ta.splitlines() if l.startswith('all') or 'flagged' in l.lower() or l.startswith('  all')]
+        for x, y in zip(lb, la):
+            if x != y: print(f"  {a}: {x[:200]}\n  {' '*len(a)}  -> {y[:200]}")

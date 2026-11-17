@@ -586,6 +586,11 @@ pub struct Town {
     /// Read by [`generate`], which keeps such a layout only where it houses
     /// at least as many as the reference's market does.
     pub road_bank_moved: bool,
+    /// **Not the reference** -- whether this layout was laid out with the
+    /// deep-plot prototype (`GenOpts::burgage` on the organic plan of a town
+    /// that is not a street village). Read by `crate::stretch::StretchMeasures::of`
+    /// for its unbuilt-ground reach. `false` with the switch off.
+    pub burgage: bool,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -638,6 +643,13 @@ fn or_str<'a>(s: Option<&'a str>, d: &'a str) -> &'a str {
 /// houses (a hamlet pressed against a river mouth running out of frontage, a
 /// river carried across the middle of a town) is not kept. With the switch
 /// off, the first layout: the reference.
+///
+/// **Not the reference, with `market_road_bank` on only** (the 483920 #4
+/// under-build, 2026-11-17): where a layout's market was moved to its roads'
+/// bank (`Town::road_bank_moved`), the town is laid out again with the
+/// reference's market and the move is kept only where it houses at least as
+/// many ([`keep_road_bank_move`]). The harbour-front choice above is
+/// [`generate_front`], which this calls once or twice.
 pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     let town = generate_front(seed, opts);
     // **Not the reference** (`GenOpts::market_road_bank`, 2026-11-17): a
@@ -1137,6 +1149,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             // A street village's lanes start by the roads only.
             road_reach: street_village.then_some(crate::village::ROAD_REACH_M),
             wide_spacing: burgage,
+            whole_budget: burgage,
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -1182,6 +1195,14 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // The deep-plot prototype (`crate::burgage`) splits only larger faces;
     // `None` is the reference's 12 000 m2.
     let lane_min = burgage.then_some(crate::burgage::LANE_MIN_AREA_M2);
+    // The second deep-plot prototype (owner Ruling FW item 4,
+    // `crate::burgage::back_lane_pass`): back lanes two plot depths behind
+    // each deep face's longest street, before the interior lanes, so where a
+    // face is deep enough the strip along that street is platted as a
+    // rectangular block. Nothing with `burgage` off.
+    if burgage {
+        crate::burgage::back_lane_pass(&site, anchors.market, &mut g, epochs, max_rf, wall_state.ring.as_deref(), plaza.as_ref().map(|z| z.poly.as_slice()));
+    }
     for _ in 0..3 {
         if lane_pass(seed, &site, &anchors, &mut g, epochs, lane_min) == 0 {
             break;
@@ -1672,6 +1693,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         embankment,
         pin,
         road_bank_moved,
+        burgage,
         pop,
         metrics,
         through: site.through,

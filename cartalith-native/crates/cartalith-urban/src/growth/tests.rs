@@ -352,6 +352,7 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
         let opts = GrowOpts {
             road_reach: None,
             wide_spacing: false,
+            whole_budget: false,
             target_len: c.target_len,
             max_rf: c.max_rf,
             walls: c.walls,
@@ -1019,4 +1020,56 @@ fn both_non_wall_generation_fallbacks_are_dead() {
     r.settlement.carrying_capacity_weight = 0.0;
     let with_cc = GrowOpts { rules: Some(r), ..base.clone() };
     assert_eq!(a, run(&with_cc), "carryingCapacityWeight moved a town with wallGenerations off");
+}
+
+/// Protects `GrowOpts::whole_budget` (owner Ruling FW item 4's second lever):
+/// over the captured scenarios with the deep-plot street rules (60 m spacing),
+/// each epoch aims at the budget so far less what is laid, so the town lays
+/// close to its whole budget: an early overshoot is taken off later epochs
+/// (measured 2026-11-17: `riverTown` 3 573 m on per-epoch shares, 3 216 m
+/// carried, of 3 200), a short epoch's remainder is tried again later
+/// (`tinyMaxRF`, whose small reach leaves it short: 1 703 -> 1 822 m of
+/// 2 000), never past the budget by more than a street (a street is laid
+/// whole once the loop starts it), and where every epoch already hits
+/// `grow`'s 2 600-try bound (`triesBound`, 200 km asked) nothing changes.
+#[test]
+fn the_whole_budget_carries_unlaid_street_into_later_epochs() {
+    let lay = |c: &golden::Case, whole: bool| {
+        let (site, anchors, mut g) = setup(c);
+        let mut ws = wall_state_from(c);
+        let opts = GrowOpts {
+            road_reach: None,
+            wide_spacing: true,
+            whole_budget: whole,
+            target_len: c.target_len,
+            max_rf: c.max_rf,
+            walls: c.walls,
+            wall_generations: c.wall_generations,
+            settlement_age: c.settlement_age,
+            harbour: None,
+            rules: Some(crate::burgage::rules(crate::rules::DEFAULT_RULES)),
+            wall_style: Some("stone".to_string()),
+            fortified: false,
+            wet_moat: false,
+            pop: 4000.0,
+        };
+        let mut rec = Recorder::default();
+        grow(c.grow_seed, &site, &anchors, &mut g, c.epochs, &mut ws, &opts, &mut rec)
+    };
+    for c in golden::GOLDEN {
+        let (share, whole) = (lay(c, false), lay(c, true));
+        // `emptyGraph` has no street to grow from, so it lays nothing either way.
+        if c.name == "triesBound" || c.name == "emptyGraph" {
+            assert_eq!(whole, share, "{}: the try bound, not the budget, ends every epoch", c.name);
+            continue;
+        }
+        assert!(whole < c.target_len + 400.0, "{}: no more than the budget and a street: {whole:.0}", c.name);
+        // Not monotone town by town: the carried budget changes which tries
+        // are made, so a run can end shorter (`genRingReversed`, 3 148 ->
+        // 2 943 m). The two literals below pin each half on one scenario.
+    }
+    let rt = golden::GOLDEN.iter().find(|c| c.name == "riverTown").expect("the riverTown scenario");
+    assert!((lay(rt, true) - 3216.0).abs() < 1.0 && (lay(rt, false) - 3573.0).abs() < 1.0, "riverTown's measured lengths");
+    let short = golden::GOLDEN.iter().find(|c| c.name == "tinyMaxRF").expect("the tinyMaxRF scenario");
+    assert!((lay(short, false) - 1703.0).abs() < 1.0 && (lay(short, true) - 1822.0).abs() < 1.0, "tinyMaxRF's measured lengths, short of 2 000");
 }

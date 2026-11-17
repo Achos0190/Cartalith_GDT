@@ -506,7 +506,9 @@ impl StretchMeasures {
             let ring_d = (0..ring.len()).map(|k| crate::geom::dist_pt_seg(sq, ring[k], ring[(k + 1) % ring.len()])).fold(f64::INFINITY, f64::min);
             let out = !crate::geom::point_in_poly(sq, ring) && ring_d > STRETCH_SQUARE_OUT_M;
             let plaza: &[Vec2] = t.plaza.as_ref().map_or(&[], |z| z.poly.as_slice());
-            (wall_hull, out, unbuilt_patch_m2(ring, &t.buildings, &t.site.river, t.site.river_w, &t.site.water_poly, plaza))
+            // The deep-plot prototype's yards run longer (`crate::burgage::UNBUILT_REACH_M`).
+            let reach = if t.burgage { crate::burgage::UNBUILT_REACH_M } else { UNBUILT_REACH_M };
+            (wall_hull, out, unbuilt_patch_m2_within(reach, ring, &t.buildings, &t.site.river, t.site.river_w, &t.site.water_poly, plaza))
         });
         Self { housed, wall }
     }
@@ -603,13 +605,22 @@ fn loop_len(ring: &[Vec2]) -> f64 {
 /// a measurement only; this copy is the generation side's own, read by
 /// [`stretch_holds`] alone.
 pub fn unbuilt_patch_m2(ring: &[Vec2], buildings: &[crate::districts::Building], river: &[Vec2], river_w: f64, water: &[Vec2], plaza: &[Vec2]) -> f64 {
+    unbuilt_patch_m2_within(UNBUILT_REACH_M, ring, buildings, river, river_w, water, plaza)
+}
+
+/// [`unbuilt_patch_m2`] with the reach `reach_m` in place of
+/// [`UNBUILT_REACH_M`]: the deep-plot prototype's longer yards
+/// (`crate::burgage::UNBUILT_REACH_M`, read by [`StretchMeasures::of`] for a
+/// town laid out with `GenOpts::burgage`). Must only differ from
+/// [`unbuilt_patch_m2`] by the reach.
+pub fn unbuilt_patch_m2_within(reach_m: f64, ring: &[Vec2], buildings: &[crate::districts::Building], river: &[Vec2], river_w: f64, water: &[Vec2], plaza: &[Vec2]) -> f64 {
     if ring.len() < 3 {
         return 0.0;
     }
-    let x0 = ring.iter().map(|p| p.x).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
-    let y0 = ring.iter().map(|p| p.y).fold(f64::INFINITY, f64::min) - UNBUILT_REACH_M;
-    let x1 = ring.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
-    let y1 = ring.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max) + UNBUILT_REACH_M;
+    let x0 = ring.iter().map(|p| p.x).fold(f64::INFINITY, f64::min) - reach_m;
+    let y0 = ring.iter().map(|p| p.y).fold(f64::INFINITY, f64::min) - reach_m;
+    let x1 = ring.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max) + reach_m;
+    let y1 = ring.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max) + reach_m;
     let nx = ((x1 - x0) / UNBUILT_CELL_M).ceil() as usize + 1;
     let ny = ((y1 - y0) / UNBUILT_CELL_M).ceil() as usize + 1;
     let ctr = |i: usize, j: usize| Vec2::new(x0 + (i as f64 + 0.5) * UNBUILT_CELL_M, y0 + (j as f64 + 0.5) * UNBUILT_CELL_M);
@@ -668,7 +679,7 @@ pub fn unbuilt_patch_m2(ring: &[Vec2], buildings: &[crate::districts::Building],
             d[j * nx + i] = v;
         }
     }
-    let reach = (UNBUILT_REACH_M / UNBUILT_CELL_M * 3.0) as u32;
+    let reach = (reach_m / UNBUILT_CELL_M * 3.0) as u32;
     let river_d = |q: Vec2| (0..river.len().saturating_sub(1)).map(|k| crate::geom::dist_pt_seg(q, river[k], river[k + 1])).fold(f64::INFINITY, f64::min);
     let open: Vec<bool> = (0..nx * ny)
         .map(|k| {

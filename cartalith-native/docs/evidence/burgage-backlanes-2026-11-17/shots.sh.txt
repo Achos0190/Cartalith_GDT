@@ -1,0 +1,13 @@
+#!/bin/bash
+# shots.sh <seed> <ids>: City Viewer opening frames, burgage off then on live in one session (--burgage 2), 384 x 288,
+# windowed, scratch APPDATA, under the shared window lock (released only by the run that made it).
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+seed=$1; ids=$2; O=C:/cw/plots2_scratch/shots/out
+mkdir -p $O
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 10; done
+echo "plots2 agent (deep plots back lanes frames, 2026-11-17), started $(date)" > C:/cw/.win_lock/owner.txt
+cd C:/cw/plots2/cartalith-native/godot-project
+APPDATA=C:/cw/plots2_scratch/appdata timeout 3000 "$GODOT" --path . --resolution 1600x1000 _viewerframe_probe.tscn -- --seed $seed --grid 384x288 --quick 1 --burgage 2 --shots $O --ids $ids > $O/${seed}.log 2>&1
+rc=$?
+grep -q "plots2 agent" C:/cw/.win_lock/owner.txt 2>/dev/null && rm -rf C:/cw/.win_lock
+echo "$seed exit $rc"

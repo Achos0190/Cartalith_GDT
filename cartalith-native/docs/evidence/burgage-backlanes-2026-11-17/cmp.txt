@@ -1,0 +1,74 @@
+== 384
+  towns housed p10 (both_banks)                          94 ->             86
+  towns under 80 %                                        1 ->              2
+  villages under 80 %                                    49 ->             49
+  wall/hull p90                                        1.11 ->           1.15
+  wall/hull max                                        1.14 ->           1.22
+  squares outside the wall                                5 ->              5
+  unbuilt patch over 1 ha                                 1 ->              1
+  unbuilt patch over 0.5 ha                               1 ->              1
+  riverside within 2 widths, >=1500 %                   4.3 ->            3.1
+  river-kind every house > 2 widths                       1 ->              1
+  stretched / refused                        20 (Ruling FQ: refused and laid out in the reference box 5 -> 20 (Ruling FQ: refused and laid out in the reference box 5
+  green within 60 m                              629 of 662 ->     629 of 662
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                0 ->              0
+  harbours over 23 m                                1 of 10 ->        2 of 10
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           3 ->              3
+  plots depth/frontage median                          1.42 ->           2.32
+  plots over 40 m deep %                                0.4 ->            3.9
+  plots depth p95 m                                    26.1 ->           38.6
+  plots depth max m                                   48.84 ->          75.30
+  settled / law median                                 0.64 ->           0.77
+  housed median (both_banks)                            105 ->            107
+  housing audit under 80 % (riverbank on)               141 ->            145
+  stretch_water_audit: seed 483920 at 384x288: planned stretched 9, laid out stretched 6, flagged 0
+                       ->   # 18 ( 246, 237) town    river STRETCHED box 2139x2139: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 2 -> 2), quay 135 -> -0 m FLAGGED (quay)
+  stretch_water_audit: seed 912345 at 384x288: planned stretched 8, laid out stretched 8, flagged 0
+                       -> seed 483920 at 384x288: planned stretched 9, laid out stretched 7, flagged 1
+  stretch_water_audit: seed 246371 at 384x288: planned stretched 8, laid out stretched 6, flagged 0
+                       -> seed 912345 at 384x288: planned stretched 8, laid out stretched 6, flagged 0
+  stretch_water_audit: all seeds at 384: planned stretched 25, laid out stretched 20, flagged 0
+                       -> seed 246371 at 384x288: planned stretched 8, laid out stretched 7, flagged 0
+  town_housing_audit: all seeds at 384, civ.river_front true, urban_riverbank off: 699 towns, buildings 177022, in water 1; housed % of pop_target n 699 min 0 p10 52 median 100 p90 100 max 779; under 80 %: 141; river-kind 
+                      -> all seeds at 384, civ.river_front true, urban_riverbank off: 699 towns, buildings 198876, in water 1; housed % of pop_target n 699 min 0 p10 52 median 100 p90 100 max 779; under 80 %: 145; river-kind 
+  town_housing_audit: all seeds at 384, civ.river_front true, urban_riverbank on: 699 towns, buildings 203311, in water 0; housed % of pop_target n 699 min 0 p10 83 median 100 p90 100 max 163; under 80 %: 50; river-kind n 
+                      -> all seeds at 384, civ.river_front true, urban_riverbank on: 699 towns, buildings 231387, in water 0; housed % of pop_target n 699 min 0 p10 83 median 100 p90 100 max 202; under 80 %: 51; river-kind n 
+== 2048
+  towns housed p10 (both_banks)                          85 ->             81
+  towns under 80 %                                        3 ->              3
+  villages under 80 %                                    21 ->             21
+  wall/hull p90                                        1.09 ->           1.28
+  wall/hull max                                        1.21 ->           1.31
+  squares outside the wall                                1 ->              0
+  unbuilt patch over 1 ha                                 0 ->              0
+  unbuilt patch over 0.5 ha                               1 ->              0
+  riverside within 2 widths, >=1500 %                   3.7 ->            2.6
+  river-kind every house > 2 widths                      10 ->             10
+  stretched / refused                        18 (Ruling FQ: refused and laid out in the reference box 6 -> 14 (Ruling FQ: refused and laid out in the reference box 10
+  green within 60 m                              676 of 684 ->     676 of 684
+  buildings in water (harbour audit)                      0 ->              0
+  wall rings in open water                                0 ->              0
+  harbours over 23 m                                 1 of 9 ->         0 of 9
+  river-mouth not reaching                                1 ->              1
+  harbour-audit squares outside                           1 ->              0
+  plots depth/frontage median                          1.43 ->           2.35
+  plots over 40 m deep %                                0.4 ->            3.7
+  plots depth p95 m                                    26.0 ->           38.2
+  plots depth max m                                   48.15 ->          73.92
+  settled / law median                                 0.65 ->           0.73
+  housed median (both_banks)                            102 ->            100
+  housing audit under 80 % (riverbank on)               112 ->            114
+  stretch_water_audit: seed 483920 at 2048x1311: planned stretched 9, laid out stretched 7, flagged 0
+                       -> seed 483920 at 2048x1311: planned stretched 9, laid out stretched 5, flagged 0
+  stretch_water_audit: seed 912345 at 2048x1311: planned stretched 6, laid out stretched 5, flagged 0
+                       ->   # 10 (  49, 631) town    river STRETCHED box 2735x2041: open water in the reference window 0 -> 0 m2, harbour true -> true (piers 3 -> 3), quay 1034 -> -0 m FLAGGED (quay)
+  stretch_water_audit: seed 246371 at 2048x1311: planned stretched 9, laid out stretched 6, flagged 0
+                       -> seed 912345 at 2048x1311: planned stretched 6, laid out stretched 4, flagged 1
+  stretch_water_audit: all seeds at 2048: planned stretched 24, laid out stretched 18, flagged 0
+                       -> seed 246371 at 2048x1311: planned stretched 9, laid out stretched 5, flagged 0
+  town_housing_audit: all seeds at 2048, civ.river_front true, urban_riverbank off: 720 towns, buildings 171043, in water 13; housed % of pop_target n 720 min 0 p10 64 median 100 p90 100 max 226; under 80 %: 112; river-kin
+                      -> all seeds at 2048, civ.river_front true, urban_riverbank off: 720 towns, buildings 189020, in water 14; housed % of pop_target n 720 min 0 p10 62 median 100 p90 100 max 260; under 80 %: 114; river-kin
+  town_housing_audit: all seeds at 2048, civ.river_front true, urban_riverbank on: 720 towns, buildings 196681, in water 0; housed % of pop_target n 720 min 9 p10 91 median 100 p90 100 max 166; under 80 %: 24; river-kind n
+                      -> all seeds at 2048, civ.river_front true, urban_riverbank on: 720 towns, buildings 222267, in water 0; housed % of pop_target n 720 min 9 p10 90 median 100 p90 100 max 175; under 80 %: 24; river-kind n

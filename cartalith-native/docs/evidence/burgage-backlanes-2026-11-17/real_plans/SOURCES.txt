@@ -1,0 +1,18 @@
+Real town plans beside the frames (TOWN_GENERATOR_JUDGEMENT.md section 6: "put two or three real plans beside the
+frames"). All three are sheets of the Bavarian cadastral survey (Bayerische Uraufnahme, "Ortsblatt", 1:2 500 town
+sheets drawn for the land tax), every plot boundary surveyed, so each burgage plot, back lane and yard can be read.
+All public domain (licence read from each file's Wikimedia Commons page through the Commons API on 2026-11-17:
+LicenseShortName "Public domain"; the survey office's 1813-1826 work, its authors dead well over 100 years).
+Downloaded unchanged (the Commons originals, 2500 px) into this folder only.
+
+wasserburg_1813_uraufnahme.jpg  Wasserburg am Inn, 1813: a river town on a loop of the Inn, one bridge, the plots
+  running from the main streets back to lanes and the riverside.
+  https://commons.wikimedia.org/wiki/File:Uraufnahme_Ortsblatt_St_Was_1813_w3_Landkreis_Rosenheim_Oberbayern.jpg
+  Artist: Landvermessungsamt Bayern; Credit: Steuervermessungskommission Bayern; 2500 x 2517.
+dinkelsbuehl_1825_uraufnahme.jpg  Dinkelsbuehl, 1825: a walled market town, long narrow plots behind the street
+  fronts, gardens inside the wall.
+  https://commons.wikimedia.org/wiki/File:Uraufnahme_Ortsblatt_St_Din_1826_d6_Landkreis_Ansbach_Mittelfranken.jpg
+  Artist: Landvermessungsamt Bayern; Credit: Steuervermessungskommission Bayern; 2500 x 2422.
+noerdlingen_1823_uraufnahme.jpg  Noerdlingen, 1823: a round walled town, radial streets, deep plots between them.
+  https://commons.wikimedia.org/wiki/File:Uraufnahme_Ortsblatt_St_Noe_1823_n10_Landkreis_Donau-Ries_Schwaben.jpg
+  Artist: Landvermessungsamt Bayern; Credit: Steuervermessungskommission Bayern; 2500 x 2453.

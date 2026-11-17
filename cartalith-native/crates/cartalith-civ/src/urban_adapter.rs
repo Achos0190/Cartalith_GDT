@@ -211,6 +211,9 @@ pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
 /// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
 /// re-exported so the census counts harbours against the line the layout itself uses.
 pub use cartalith_urban::generate::HARBOUR_REACH_M;
+/// The deep-plot prototype's unbuilt-ground reach (Ruling FW item 4), for the
+/// census's reaches of a town laid out with `GenOpts::burgage`.
+pub use cartalith_urban::burgage::UNBUILT_REACH_M as BURGAGE_UNBUILT_REACH_M;
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
 /// `military.rs` already takes them from `cartalith-jsmath` directly.
