@@ -7871,11 +7871,26 @@ func _present_credits(dlg: AcceptDialog = null) -> void:
 ## button bar had none. On a handset the same two lines are drawn as real
 ## content instead, under the header that replaces the title bar
 ## `phone_window()` takes away.
+## The build version, `v.YY.MM.DD-NNN` (owner, 2026-11-17), read from
+## `res://version.txt`, which `tools/bump_version.py` writes once per build.
+## Returns "unversioned" when the file is absent or empty -- never a guessed
+## version, so a stale or hand-run build cannot pass for a numbered one.
+static func app_version() -> String:
+	var f := FileAccess.open("res://version.txt", FileAccess.READ)
+	if f == null:
+		return "unversioned"
+	var v := f.get_as_text().strip_edges()
+	return v if not v.is_empty() else "unversioned"
+
 func open_about() -> void:
 	var d := AcceptDialog.new()
 	d.title = "About Cartalith"
-	var body := "Cartalith — native port of Cartalith Gen1 v2.10.\nGodot %s · %s" % [
-		Engine.get_version_info().string, OS.get_name()]
+	## Version first (owner, 2026-11-17: "keep it in the help about"): the
+	## `v.YY.MM.DD-NNN` string from `res://version.txt`, bumped once per build
+	## by `tools/bump_version.py`; the source hash after it tells two builds of
+	## one version apart. A missing file reads "unversioned", never a made-up number.
+	var body := "Cartalith %s (build %s)\nNative port of Cartalith Gen1 v2.10.\nGodot %s · %s" % [
+		app_version(), DccShell.build_id(), Engine.get_version_info().string, OS.get_name()]
 	var phone := DccWidgets.phone_window(d, self)
 	## This window declares no size at all -- on desktop it has only ever been
 	## as big as `wrap_controls` grew it around `dialog_text`, so turning that

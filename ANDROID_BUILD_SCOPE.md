@@ -769,6 +769,8 @@ STYLO2_PEN_PROPOSAL.md section 6.4/6.5 and section 11 are the design; this is th
    junction to the shared `target` before exporting (`cmd /c mklink /J <worktree>/cartalith-native/target <checkout>/cartalith-native/target`),
    remove the junction afterwards, and always check the `.so` size inside the APK.
 
+**Per APK, first:** run `python cartalith-native/tools/bump_version.py` (owner, 2026-11-17): it sets `godot-project/version.txt` to the next `v.YY.MM.DD-NNN` (NNN = that day's build number, from 001) and mirrors it into the preset's `version/name` and `version/code` (`YYMMDDNNN`, always growing, so `adb install -r` accepts it); commit both files with the build. Help > About shows it.
+
 **Per APK:** (the `CARGO_TARGET_DIR` of step 3 applies) the Rust steps of section 1.3 are unchanged (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, check the
 `.so` is fresh). Then export, supplying Godot's debug keystore through the environment (the Gradle route checks for a
 release keystore *before* it builds, so unlike the prebuilt route it leaves no unsigned APK behind):

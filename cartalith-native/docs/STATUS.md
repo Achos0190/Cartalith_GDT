@@ -197,6 +197,11 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Build versioning (owner, 2026-11-17)
+
+Owner: builds follow `v.YY.MM.DD-NNN`, NNN the number of that day's build; today's is `v.26.11.17-001`; keep it in Help > About. Built: `godot-project/version.txt` (exported through the presets' `include_filter`), `DccApp.app_version()` (reads it; "unversioned" if absent, never a guess), the About dialog shows `Cartalith <version> (build <source hash>)`, `tools/bump_version.py` (next number, restarts at 001 each day, mirrors `version/name` and `version/code` = YYMMDDNNN into `export_presets.cfg`, refuses an unparseable file), and a first step in `ANDROID_BUILD_SCOPE.md` §3.14. Verified: a headless read prints `v.26.11.17-001`; the About frame and an APK carrying it are not yet checked.
+
+### Ruling GD, the chronos timeline: DESIGN WRITTEN, nothing built (2026-11-17)
 ### Ruling GD / GE, the chronos timeline: BUILDING (2026-11-17, option (a), passive badge, every other default)
 
 `CHRONOS_TIMELINE_DESIGN.md` s.10 carries the build notes. **Built, Rust layer (CT-0, CT-1, CT-3, CT-6, CT-8 and the data halves of CT-4, CT-5, CT-7):** `cartalith_vault::timelines` (forms F1 chronos block, F2 closed-key frontmatter, F3 year list, F4 dated table; the read-budgeted `scan`; `TimelineDecision` in `LinkStore::timelines`; `EventsDoc` for `history/events.json` with import, dedup, private flag, re-sync and the founding comparison) and `cartalith_civ::timeline_items` (the `TimelineItem` read model, the three filters, `without_private`, `year_extent`, `export_chronos`). **Not yet wired to the shell**: no strip rows, badge, prompt or save slot until the bridge lands (see the next entry when it does). F5 (the Timelines plugin) is deferred (CT-9: its syntax was recalled, never read). No golden, `history/timeline.json` or generation output changed.
