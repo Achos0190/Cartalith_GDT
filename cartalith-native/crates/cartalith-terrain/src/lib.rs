@@ -21,6 +21,7 @@ pub mod orogen;
 pub mod infer;
 pub mod landform;
 pub mod region_edit;
+pub mod region_paint;
 pub mod sculpt;
 pub mod tile_render;
 pub mod vector;

@@ -32,7 +32,9 @@
 use godot::prelude::*;
 
 use cartalith_engine::staleness::PipelineStage;
+use cartalith_spatial::colour_paint::ColourBlend;
 use cartalith_terrain::region_edit::{self as re, EditOp, Op, RegionMask, RegionSpec};
+use cartalith_terrain::region_paint;
 use cartalith_terrain::sculpt::Falloff;
 
 use crate::undo_group_bridge::fnv1a;
@@ -108,6 +110,7 @@ fn ops_from(a: &VarArray) -> Result<Vec<EditOp>, String> {
                 }
                 Op::Smooth { strength: get("strength").ok_or("smooth needs strength")?, passes: p as u32 }
             }
+            "paint" => return Err("paint is not a height edit; it goes through region_paint_preview and region_paint_marks".into()),
             other => return Err(format!("unknown operation {other}")),
         };
         let fk = d.get("falloff").and_then(|x| x.try_to::<GString>().ok()).map(|g| g.to_string()).ok_or("an operation needs a falloff")?;
@@ -127,6 +130,24 @@ fn region_id(mask: &RegionMask) -> String {
     }
     bytes.extend(mask.cells.iter().map(|c| u8::from(*c)));
     format!("region_{:012x}", fnv1a(&bytes) & 0xffff_ffff_ffff)
+}
+
+/// A paint operation dictionary `{colour, blend, opacity}` into the marks' inputs.
+fn paint_from(d: &VarDictionary) -> Result<([u8; 3], ColourBlend, f64), String> {
+    let text = |k: &str| d.get(k).and_then(|x| x.try_to::<GString>().ok()).map(|g| g.to_string());
+    let name = text("colour").ok_or("a paint operation needs a colour")?;
+    let rgb = cartalith_llm::edit_actions::paint_rgb(&name).ok_or_else(|| format!("{name} is not an offered colour"))?;
+    let key = text("blend").ok_or("a paint operation needs a blend")?;
+    if !cartalith_llm::edit_actions::PAINT_BLENDS.contains(&key.as_str()) {
+        return Err(format!("{key} is not an offered blend"));
+    }
+    let blend = ColourBlend::from_key(&key).ok_or_else(|| format!("{key} is not a blend"))?;
+    let opacity = d.get("opacity").and_then(|x| num(&x)).ok_or("a paint operation needs an opacity")?;
+    let (lo, hi) = cartalith_llm::edit_actions::OPACITY_RANGE;
+    if !(lo..=hi).contains(&opacity) {
+        return Err(format!("the opacity must be from {lo} to {hi}"));
+    }
+    Ok((rgb, blend, opacity))
 }
 
 fn stats_dict(s: &re::RegionStats) -> VarDictionary {
@@ -302,6 +323,91 @@ impl WorldGen {
         let tiles = re::tiles_touched(&mask, gw);
         let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, tiles, "assistant_edit");
         vdict! { "ok" => true, "changed" => rep.changed as i64, "recomputed" => &recomputed, "still_stale" => &still_stale }
+    }
+
+    /// The colour-paint marks that paint exactly the region `spec` (Ruling FW item 2), as JSON strings the
+    /// shell hands to the colour-paint tool's `commit_marks` (the tool's own path, so undo and the saved
+    /// document are the tool's). `paint` is `{colour, blend, opacity}` as the validator produced it.
+    /// Answers `{ok: true, marks: PackedStringArray, pieces}` or `{ok: false, reason}` (no map width, a
+    /// hole, too many pieces, an outline over the point cap). Read-only.
+    #[func]
+    fn region_paint_marks(&self, spec: VarDictionary, paint: VarDictionary) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return fail("No generated world is open.") };
+        let (mask, rgb, blend, opacity) = match (|| -> Result<(RegionMask, [u8; 3], ColourBlend, f64), String> {
+            let mask = re::rasterise(&spec_from(&spec)?, f.gw, f.gh).map_err(|e| e.to_string())?;
+            let (rgb, blend, opacity) = paint_from(&paint)?;
+            Ok((mask, rgb, blend, opacity))
+        })() {
+            Ok(t) => t,
+            Err(w) => return fail(w),
+        };
+        let kpc = if f.map_width_km > 0.0 && f.gw > 0 { f.map_width_km / f.gw as f64 } else { 0.0 };
+        let marks = match region_paint::paint_marks(&mask, rgb, blend, opacity, kpc) {
+            Ok(m) => m,
+            Err(e) => return fail(e.to_string()),
+        };
+        let mut out = PackedStringArray::new();
+        for m in &marks {
+            match serde_json::to_string(m) {
+                Ok(s) => out.push(&GString::from(s.as_str())),
+                Err(e) => return fail(format!("a mark could not be written: {e}")),
+            }
+        }
+        vdict! { "ok" => true, "marks" => &out, "pieces" => marks.len() as i64 }
+    }
+
+    /// Preview the colour of region `spec` (read-only; nothing changes): the SAME marks
+    /// [`WorldGen::region_paint_marks`] returns are built into a layer and every cell of two thumbnails is
+    /// asked of the real compositor (`ColourPaint::apply`), over the same height-shaded backdrop the sculpt
+    /// preview uses (the lit map and any paint already there are not drawn). Answers `{ok: true, cells,
+    /// pieces, cells_recoloured, thumb_w, thumb_h, thumb_before, thumb_after}` where `cells_recoloured`
+    /// counts the region's land cells the blend changes (water keeps its colour), or `{ok: false, reason}`.
+    #[func]
+    fn region_paint_preview(&self, spec: VarDictionary, paint: VarDictionary) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return fail("No generated world is open.") };
+        let (mask, rgb, blend, opacity) = match (|| -> Result<(RegionMask, [u8; 3], ColourBlend, f64), String> {
+            let mask = re::rasterise(&spec_from(&spec)?, f.gw, f.gh).map_err(|e| e.to_string())?;
+            let (rgb, blend, opacity) = paint_from(&paint)?;
+            Ok((mask, rgb, blend, opacity))
+        })() {
+            Ok(t) => t,
+            Err(w) => return fail(w),
+        };
+        let kpc = if f.map_width_km > 0.0 && f.gw > 0 { f.map_width_km / f.gw as f64 } else { 0.0 };
+        let marks = match region_paint::paint_marks(&mask, rgb, blend, opacity, kpc) {
+            Ok(m) => m,
+            Err(e) => return fail(e.to_string()),
+        };
+        let pieces = marks.len();
+        let layer = match region_paint::paint_layer(marks, kpc) {
+            Ok(l) => l,
+            Err(e) => return fail(e.to_string()),
+        };
+        let win = re::window(&mask, f.field, f.gw, f.gh);
+        let (lo, hi) = win.data.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(l, h), v| (l.min(*v), h.max(*v)));
+        let (tw, th, tb) = re::thumbnail(&win, &mask, f.sea_level, lo, hi, THUMB_SIDE);
+        let (_, _, ta) = re::thumbnail_with(&win, &mask, f.sea_level, lo, hi, THUMB_SIDE, &mut |x, y, water, c| {
+            let o = region_paint::paint_cell(&layer, x, y, kpc, water, [c[0] as f64, c[1] as f64, c[2] as f64]);
+            [o[0].round().clamp(0.0, 255.0) as u8, o[1].round().clamp(0.0, 255.0) as u8, o[2].round().clamp(0.0, 255.0) as u8]
+        });
+        // The count over every region cell (not the thumbnail's samples), on a mid-grey backdrop so a
+        // colour that equals it is the only way a cell can read as unchanged.
+        let mut recoloured = 0usize;
+        for row in 0..mask.h {
+            for col in 0..mask.w {
+                if mask.cells[row * mask.w + col] {
+                    let (x, y) = (mask.x0 + col, mask.y0 + row);
+                    let v = f.field[y * f.gw + x];
+                    if (v as f64) >= f.sea_level && region_paint::paint_cell(&layer, x, y, kpc, false, [128.0, 128.0, 128.0]) != [128.0, 128.0, 128.0] {
+                        recoloured += 1;
+                    }
+                }
+            }
+        }
+        let mut d = vdict! { "ok" => true, "cells" => mask.count as i64, "pieces" => pieces as i64, "cells_recoloured" => recoloured as i64, "thumb_w" => tw as i64, "thumb_h" => th as i64 };
+        d.set("thumb_before", &PackedByteArray::from(tb.as_slice()));
+        d.set("thumb_after", &PackedByteArray::from(ta.as_slice()));
+        d
     }
 }
 

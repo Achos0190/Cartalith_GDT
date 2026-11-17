@@ -612,6 +612,16 @@ fn edit_verdict_dict(v: &EditVerdict) -> VarDictionary {
         if let Some(p) = c.passes {
             e.set("passes", p as i64);
         }
+        // Ruling FW item 2: a paint operation's own fields, omitted for every other operation.
+        if let Some(n) = c.colour {
+            e.set("colour", n);
+        }
+        if let Some(b) = c.blend {
+            e.set("blend", b);
+        }
+        if let Some(o) = c.opacity {
+            e.set("opacity", o);
+        }
         if let Some(r) = &c.reason {
             e.set("reason", r.as_str());
         }

@@ -562,6 +562,121 @@ pub fn apply_ops(win: &mut Window, mask: &RegionMask, ops: &[EditOp], sea: f64, 
     Ok(rep)
 }
 
+/// Most pieces (4-connected groups of cells) a colour paint may cover: one `Area` mark each, against
+/// `colour_paint::MAX_MARKS` 5 000. A labelled judgement (a painted region is one or two blobs; 64
+/// means a scatter of dabs is refused with a reason rather than flooding the document).
+pub const MAX_PAINT_PIECES: usize = 64;
+/// Most vertices of one traced ring, the colour-paint document's own `MAX_POINTS_PER_MARK`
+/// (`cartalith_spatial::colour_paint`), pinned equal by a test in the bridge crate.
+pub const MAX_RING_POINTS: usize = 4_096;
+
+/// The outline of each 4-connected piece of the mask, traced along cell EDGES, as closed rings in
+/// grid-edge coordinates (the corner of cell `(x, y)` is `(x, y)`; multiply by km per cell for the
+/// colour-paint document). Collinear vertices are dropped. This is what makes a colour mark exactly
+/// the region: a cell centre is half a cell from the ring, so it is inside (coverage 1) or outside
+/// (coverage 0) at every zoom, with the antialias the mark's own one pixel.
+///
+/// **Refuses, with the reason, what one exact ring per piece cannot express:** a piece with a hole (or
+/// pinched where two cells touch only at a corner, which the trace reads as a second loop), more than
+/// [`MAX_PAINT_PIECES`] pieces, or a ring over [`MAX_RING_POINTS`] vertices. Pieces come in row-major
+/// order of their first cell, so the result is deterministic.
+pub fn mask_rings(mask: &RegionMask) -> Result<Vec<Vec<[f64; 2]>>, EditError> {
+    use std::collections::{BTreeMap, VecDeque};
+    let bad = |w: String| Err(EditError::Ops(w));
+    let (w, h) = (mask.w, mask.h);
+    let mut label = vec![0usize; w * h];
+    let mut pieces = 0usize;
+    let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
+    for start in 0..w * h {
+        if !mask.cells[start] || label[start] != 0 {
+            continue;
+        }
+        pieces += 1;
+        if pieces > MAX_PAINT_PIECES {
+            return bad(format!("the region is more than {MAX_PAINT_PIECES} separate pieces; paint fewer, larger areas"));
+        }
+        // Flood the piece (4-connected).
+        let mut cells = Vec::new();
+        let mut q = VecDeque::from([start]);
+        label[start] = pieces;
+        while let Some(i) = q.pop_front() {
+            cells.push(i);
+            let (x, y) = (i % w, i / w);
+            let nb = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
+            for j in nb.into_iter().flatten() {
+                if mask.cells[j] && label[j] == 0 {
+                    label[j] = pieces;
+                    q.push_back(j);
+                }
+            }
+        }
+        // Directed boundary edges with the piece on the RIGHT (clockwise on a y-down grid), keyed by
+        // their start vertex; a vertex may start two edges where two cells touch at a corner.
+        let inside = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && label[y as usize * w + x as usize] == pieces;
+        let mut out: BTreeMap<(i64, i64), Vec<(i64, i64)>> = BTreeMap::new();
+        for &i in &cells {
+            let (x, y) = ((i % w) as i64, (i / w) as i64);
+            if !inside(x, y - 1) {
+                out.entry((x, y)).or_default().push((x + 1, y));
+            }
+            if !inside(x + 1, y) {
+                out.entry((x + 1, y)).or_default().push((x + 1, y + 1));
+            }
+            if !inside(x, y + 1) {
+                out.entry((x + 1, y + 1)).or_default().push((x, y + 1));
+            }
+            if !inside(x - 1, y) {
+                out.entry((x, y + 1)).or_default().push((x, y));
+            }
+        }
+        let total_edges: usize = out.values().map(Vec::len).sum();
+        // Trace the first loop from the smallest start vertex, turning RIGHT first at a corner contact
+        // (hugging the piece), so a second loop means a hole or a pinch.
+        let first = *out.keys().next().expect("a piece has boundary edges");
+        let mut ring: Vec<(i64, i64)> = vec![first];
+        let mut prev_dir = (0i64, 0i64);
+        let mut cur = first;
+        let mut used = 0usize;
+        loop {
+            let Some(cands) = out.get_mut(&cur) else { return bad("the region's outline could not be traced".into()) };
+            let pick = (0..cands.len())
+                .max_by_key(|&k| {
+                    let d = (cands[k].0 - cur.0, cands[k].1 - cur.1);
+                    prev_dir.0 * d.1 - prev_dir.1 * d.0
+                })
+                .expect("a vertex on the trace has an outgoing edge");
+            let next = cands.swap_remove(pick);
+            used += 1;
+            prev_dir = (next.0 - cur.0, next.1 - cur.1);
+            cur = next;
+            if cur == first {
+                break;
+            }
+            ring.push(cur);
+            if used > total_edges {
+                return bad("the region's outline could not be traced".into());
+            }
+        }
+        if used != total_edges {
+            return bad("the region has a hole, or two parts that touch only at a corner; one exact outline cannot express that, so paint a solid area".into());
+        }
+        // Drop collinear vertices.
+        let n = ring.len();
+        let mut pts: Vec<[f64; 2]> = Vec::new();
+        for k in 0..n {
+            let (a, b, c) = (ring[(k + n - 1) % n], ring[k], ring[(k + 1) % n]);
+            if (b.0 - a.0) * (c.1 - b.1) - (b.1 - a.1) * (c.0 - b.0) != 0 {
+                pts.push([(mask.x0 as i64 + b.0) as f64, (mask.y0 as i64 + b.1) as f64]);
+            }
+        }
+        if pts.len() > MAX_RING_POINTS {
+            return bad(format!("the region's outline has {} corners; at most {MAX_RING_POINTS} are accepted, so paint a simpler shape", pts.len()));
+        }
+        rings.push(pts);
+    }
+    Ok(rings)
+}
+
 /// Write the window's mask cells back into `field`. Only mask cells are written (the one-cell
 /// padding is never touched), so what changes outside the region is exactly nothing.
 pub fn write_back(win: &Window, mask: &RegionMask, field: &mut [f32], gw: usize) {
@@ -639,6 +754,22 @@ pub fn tiles_touched(mask: &RegionMask, gw: usize) -> Vec<usize> {
 /// the region dimmed. At most `max_side` pixels on the long side, nearest-sample. Returns
 /// `(width, height, rgb)`.
 pub fn thumbnail(win: &Window, mask: &RegionMask, sea: f64, lo: f32, hi: f32, max_side: usize) -> (usize, usize, Vec<u8>) {
+    thumbnail_with(win, mask, sea, lo, hi, max_side, &mut |_, _, _, c| c)
+}
+
+/// [`thumbnail`] with a hook that recolours each REGION cell's pixel before the outside is dimmed:
+/// `shade(world_x, world_y, is_water, [r, g, b]) -> [r, g, b]`. The colour-paint preview passes the
+/// real compositor here (Ruling FW item 2), so the "after" picture is what the blend does, not a
+/// second implementation of it. Outside cells are never passed to `shade`: nothing outside paints.
+pub fn thumbnail_with(
+    win: &Window,
+    mask: &RegionMask,
+    sea: f64,
+    lo: f32,
+    hi: f32,
+    max_side: usize,
+    shade: &mut dyn FnMut(usize, usize, bool, [u8; 3]) -> [u8; 3],
+) -> (usize, usize, Vec<u8>) {
     let (bw, bh) = (mask.w, mask.h);
     let scale = (bw.max(bh) as f64 / max_side.max(1) as f64).max(1.0);
     let (tw, th) = (((bw as f64 / scale).ceil() as usize).max(1), ((bh as f64 / scale).ceil() as usize).max(1));
@@ -651,8 +782,11 @@ pub fn thumbnail(win: &Window, mask: &RegionMask, sea: f64, lo: f32, hi: f32, ma
             let row = ((ty as f64 * scale) as usize).min(bh - 1);
             let v = win.data[(row + oy) * win.w + col + ox];
             let g = (((v - lo) / span).clamp(0.0, 1.0) * 200.0 + 40.0) as u8;
-            let (mut r, mut gr, mut b) = if (v as f64) < sea { (g / 3, g / 2, g) } else { (g, g, g) };
-            if !mask.cells[row * bw + col] {
+            let water = (v as f64) < sea;
+            let (mut r, mut gr, mut b) = if water { (g / 3, g / 2, g) } else { (g, g, g) };
+            if mask.cells[row * bw + col] {
+                [r, gr, b] = shade(mask.x0 + col, mask.y0 + row, water, [r, gr, b]);
+            } else {
                 r /= 2;
                 gr /= 2;
                 b /= 2;
@@ -1037,5 +1171,56 @@ mod tests {
         let (tw, th, rgb) = thumbnail(&w, &m, 0.0, 0.0, 1.0, 96);
         assert_eq!((tw, th), (96, 52));
         assert_eq!(rgb.len(), tw * th * 3);
+    }
+
+    /// A mask from ASCII art (`#` is in the region). Literal, so a test can state exactly which cells are inside.
+    fn art_mask(x0: usize, y0: usize, rows: &[&str]) -> RegionMask {
+        let w = rows[0].len();
+        let h = rows.len();
+        let cells: Vec<bool> = rows.iter().flat_map(|r| r.bytes().map(|b| b == b'#')).collect();
+        let count = cells.iter().filter(|c| **c).count();
+        RegionMask { x0, y0, w, h, cells, count, clipped: false }
+    }
+
+    // ---------------------------------------------------------------- Ruling FW item 2: the outline
+
+    /// Protects the trace with literal masks: a 3 x 2 block is one ring of its four corners, an L is six
+    /// corners, two blocks are two rings, in grid-edge coordinates offset by the mask's corner. MUTATION:
+    /// keep collinear vertices, or drop the `x0`/`y0` offset.
+    #[test]
+    fn rings_are_the_literal_cell_edge_outlines() {
+        let block = art_mask(5, 7, &["###", "###"]);
+        assert_eq!(mask_rings(&block).unwrap(), vec![vec![[5.0, 7.0], [8.0, 7.0], [8.0, 9.0], [5.0, 9.0]]]);
+        let ell = art_mask(0, 0, &["#..", "#..", "###"]);
+        let rings = mask_rings(&ell).unwrap();
+        assert_eq!(rings.len(), 1);
+        let mut got = rings[0].clone();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut want = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 2.0], [3.0, 2.0], [3.0, 3.0], [0.0, 3.0]];
+        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(got, want);
+        let two = art_mask(0, 0, &["##.##", "##.##"]);
+        assert_eq!(mask_rings(&two).unwrap().len(), 2);
+    }
+
+    /// Protects the refusals: a hole, and a piece pinched at a corner, are named and refused, never
+    /// traced into a ring that would paint the hole. MUTATION: skip the `used != total_edges` check.
+    #[test]
+    fn a_hole_is_refused_with_its_reason() {
+        let ring = art_mask(0, 0, &["###", "#.#", "###"]);
+        let e = mask_rings(&ring).unwrap_err().to_string();
+        assert!(e.contains("hole"), "{e}");
+    }
+
+    /// Protects the piece cap with a literal: 64 pieces trace, 65 are refused. MUTATION: change 64.
+    #[test]
+    fn the_piece_cap_is_sixty_four() {
+        let row = |n: usize| (0..n).map(|i| if i % 2 == 0 { '#' } else { '.' }).collect::<String>();
+        let ok = art_mask(0, 0, &[row(127).as_str()]);
+        assert_eq!(ok.cells.iter().filter(|c| **c).count(), 64);
+        assert_eq!(mask_rings(&ok).unwrap().len(), 64);
+        let over = art_mask(0, 0, &[row(129).as_str()]);
+        assert!(mask_rings(&over).unwrap_err().to_string().contains("64 separate pieces"));
+        assert_eq!(MAX_PAINT_PIECES, 64);
     }
 }

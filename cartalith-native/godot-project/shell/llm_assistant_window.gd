@@ -3314,7 +3314,10 @@ func _apply_edit_card(card: Dictionary) -> void:
 		_close_card(card, "failed", "Not applied: %s Nothing was changed." % String(r.get("reason", "")), "block")
 		return
 	card["group_id"] = int(r.get("group_id", 0))
-	card["applied_text"] = "Applied: %d cells changed, as one undo step (Edit \u25b8 Undo reverts all of it). Rivers and climate were re-run for the area; nothing else was regenerated." % int(r.get("changed", 0))
+	if bool(r.get("painted", false)) and int(r.get("changed", 0)) == 0:
+		card["applied_text"] = "Applied: the region was coloured (%d piece%s), as one undo step (Edit \u25b8 Undo reverts it). The ground was not changed; nothing was regenerated." % [int(r.get("paint_pieces", 0)), "" if int(r.get("paint_pieces", 0)) == 1 else "s"]
+	else:
+		card["applied_text"] = "Applied: %d cells changed%s, as one undo step (Edit \u25b8 Undo reverts all of it). Rivers and climate were re-run for the area; nothing else was regenerated." % [int(r.get("changed", 0)), " and the region coloured" if bool(r.get("painted", false)) else ""]
 	_close_card(card, "applied", String(card["applied_text"]), "good")
 	_edit_key = ""
 	if app.has_method("set_status"):

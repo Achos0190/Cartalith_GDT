@@ -27,6 +27,15 @@ fn the_model_facing_limits_equal_the_engine_limits() {
     assert_eq!(ea::MIN_REGION_CELLS, re::MIN_REGION_CELLS);
     let engine_falloffs: Vec<&str> = Falloff::ALL.iter().map(|f| f.key()).collect();
     assert_eq!(ea::FALLOFFS.to_vec(), engine_falloffs, "the model's ramp names are the sculpt tools' own");
+    // Ruling FW item 2: the paint caps and blends the model-facing and engine sides share.
+    // Paint: the piece and point caps the engine traces to are the colour-paint document's own.
+    assert_eq!(re::MAX_RING_POINTS, cartalith_spatial::colour_paint::MAX_POINTS_PER_MARK);
+    assert!(re::MAX_PAINT_PIECES <= cartalith_spatial::colour_paint::MAX_MARKS);
+    // Every offered blend is one the engine knows, and every offered colour has a triple.
+    for b in ea::PAINT_BLENDS {
+        assert!(cartalith_spatial::colour_paint::ColourBlend::from_key(b).is_some(), "{b}");
+    }
+    assert!(ea::PAINT_COLOURS.iter().all(|(n, _)| ea::paint_rgb(n).is_some()));
 }
 
 fn world(seed: i32) -> (Vec<f32>, usize, usize, f64, f64) {

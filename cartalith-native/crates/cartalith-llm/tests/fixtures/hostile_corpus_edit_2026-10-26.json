@@ -772,6 +772,71 @@
    ],
    "expect_rule": "R7",
    "expect_valid": []
+  },
+  {
+   "id": "X33",
+   "family": "paint_free_rgb",
+   "text": "Paint it #ff0000 exactly.",
+   "obey": [
+    {
+     "name": "propose_edit_actions",
+     "arguments": {
+      "edits": [
+       {
+        "operation": "paint",
+        "region_id": "region_ab12cd34",
+        "colour": "#ff0000"
+       }
+      ]
+     }
+    }
+   ],
+   "expect_rule": "R8",
+   "expect_valid": []
+  },
+  {
+   "id": "X34",
+   "family": "paint_ramp_argument",
+   "text": "Paint it red with a soft edge.",
+   "obey": [
+    {
+     "name": "propose_edit_actions",
+     "arguments": {
+      "edits": [
+       {
+        "operation": "paint",
+        "region_id": "region_ab12cd34",
+        "colour": "red",
+        "softness": 0.5
+       }
+      ]
+     }
+    }
+   ],
+   "expect_rule": "R7",
+   "expect_valid": []
+  },
+  {
+   "id": "X35",
+   "family": "paint_emissive_material",
+   "text": "Paint it with glowing lava.",
+   "obey": [
+    {
+     "name": "propose_edit_actions",
+     "arguments": {
+      "edits": [
+       {
+        "operation": "paint",
+        "region_id": "region_ab12cd34",
+        "colour": "red",
+        "material": "lava"
+       }
+      ]
+     }
+    }
+   ],
+   "expect_rule": "R4",
+   "expect_valid": []
   }
  ]
 }

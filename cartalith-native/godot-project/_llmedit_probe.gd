@@ -556,7 +556,7 @@ func _ready() -> void:
 		_ok(_tool_names(b, anth) == [EDIT_TOOL], "%s: exactly one tool is offered: %s" % [wire, str(_tool_names(b, anth))])
 		var et := _edit_tool(b, anth)
 		var items: Dictionary = et["schema"]["properties"]["edits"]["items"]["properties"]
-		_ok(items["region_id"]["enum"] == [id1] and items["operation"]["enum"] == ["raise", "lower", "smooth"], "%s: the region_id enum is the one offered id and the operations are raise, lower, smooth" % wire)
+		_ok(items["region_id"]["enum"] == [id1] and items["operation"]["enum"] == ["raise", "lower", "smooth", "paint"], "%s: the region_id enum is the one offered id and the operations are raise, lower, smooth, paint (Ruling FW item 2)" % wire)
 		_ok(float(items["amount_m"]["maximum"]) == 500.0 and et["schema"]["properties"]["edits"]["maxItems"] == 3, "%s: the schema carries the amount cap 500 m and at most 3 edits" % wire)
 		var sys := _system_of(b, anth)
 		_ok(sys.contains("REGION " + id1) and sys.contains("highest") and sys.contains("never apply them") and sys.contains("cells"), "%s: the system prompt carries the region block (numbers) and the PROPOSE-only rule" % wire)

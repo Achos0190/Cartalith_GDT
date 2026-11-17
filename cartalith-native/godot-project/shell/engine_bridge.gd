@@ -6899,6 +6899,25 @@ func region_edit_apply(spec: Dictionary, ops: Array, label: String) -> Dictionar
 		mark_world_dirty()
 	return r
 
+## Ruling FW item 2: the colour-paint marks (JSON strings) that paint exactly the region `spec` in the
+## paint operation `paint` (`{colour, blend, opacity}`), for the colour-paint tool's `commit_marks`.
+## `{ok: true, marks: PackedStringArray, pieces}` or `{ok: false, reason}`. Read-only.
+func region_paint_marks(spec: Dictionary, paint: Dictionary) -> Dictionary:
+	if generating:
+		return {"ok": false, "reason": "A world is generating; the colour cannot be prepared until it finishes."}
+	if not _has("region_paint_marks"):
+		return {"ok": false, "reason": "This build cannot paint a region. Update the Cartalith library."}
+	return world_gen.region_paint_marks(spec, paint)
+
+## Ruling FW item 2: previews the paint operation on the region (`WorldGen.region_paint_preview`,
+## read-only): the cells it recolours and two thumbnails through the real colour-paint compositor.
+func region_paint_preview(spec: Dictionary, paint: Dictionary) -> Dictionary:
+	if generating:
+		return {"ok": false, "reason": "A world is generating; the colour cannot be previewed until it finishes."}
+	if not _has("region_paint_preview"):
+		return {"ok": false, "reason": "This build cannot preview a colour. Update the Cartalith library."}
+	return world_gen.region_paint_preview(spec, paint)
+
 ## Clears the marquee (`WorldGen.region_clear`). Does not mark the world dirty.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): does nothing.
 func region_clear() -> void:

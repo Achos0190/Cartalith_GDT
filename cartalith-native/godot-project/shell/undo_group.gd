@@ -507,6 +507,11 @@ func _paint_tool():
 			return ws.colour_paint
 	return null
 
+## The colour-paint tool for a caller that applies paint inside an open group (the Assistant's `paint`
+## edit, Ruling FW item 2), or null. Its `commit_marks` is the one writer; the group collects its step.
+func paint_tool():
+	return _paint_tool()
+
 func _member_count(g: Dictionary) -> int:
 	return (g["engine"] as Array).size() + (g["look"] as Array).size() + (g["paint"] as Array).size() + (g["params"] as Array).size()
 

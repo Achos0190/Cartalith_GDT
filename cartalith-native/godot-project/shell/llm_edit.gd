@@ -40,6 +40,8 @@ static func ops_of(valid: Array) -> Array:
 	var ops: Array = []
 	for r in valid:
 		var d: Dictionary = r
+		if is_paint(d):
+			continue
 		var o := {"operation": String(d["operation"]), "falloff": String(d["falloff"]), "softness": float(d["softness"])}
 		for k in ["amount_m", "strength", "passes"]:
 			if d.has(k):
@@ -48,12 +50,39 @@ static func ops_of(valid: Array) -> Array:
 	return ops
 
 
+## True for the colour operation (Ruling FW item 2): it recolours, moves no ground and has no ramp.
+static func is_paint(d: Dictionary) -> bool:
+	return String(d.get("operation", "")) == "paint"
+
+
+## The paint row's `{colour, blend, opacity}` (the validator allows one), or {} when the proposal has none.
+static func paint_of(valid: Array) -> Dictionary:
+	for r in valid:
+		var d: Dictionary = r
+		if is_paint(d):
+			return {"colour": String(d["colour"]), "blend": String(d["blend"]), "opacity": float(d["opacity"])}
+	return {}
+
+
 ## The preview for a verdict's valid rows over the CURRENT region. `{ok: false, reason}` when there is
 ## nothing to preview or the engine refuses.
 static func preview(bridge, valid: Array) -> Dictionary:
 	if valid.is_empty():
 		return {"ok": false, "reason": "There is nothing to preview."}
-	return bridge.region_edit_preview(_REGION.spec(), ops_of(valid))
+	var hops := ops_of(valid)
+	var out: Dictionary = {"ok": true, "height_ops": 0}
+	if not hops.is_empty():
+		out = bridge.region_edit_preview(_REGION.spec(), hops)
+		out["height_ops"] = hops.size()
+	var pv := paint_of(valid)
+	if not pv.is_empty() and bool(out.get("ok", false)):
+		var pp: Dictionary = bridge.region_paint_preview(_REGION.spec(), pv)
+		if bool(pp.get("ok", false)):
+			out["paint"] = pp
+			out["paint_op"] = pv
+		else:
+			out = {"ok": false, "reason": String(pp.get("reason", "the colour could not be previewed")), "height_ops": hops.size()}
+	return out
 
 
 ## One figure in metres for the card ("-12 m" style signs are explicit), whole metres.
@@ -64,6 +93,8 @@ static func metres(v: float) -> String:
 ## The before/after lines of a preview, as plain text. Absent figures are not printed.
 static func preview_lines(p: Dictionary) -> PackedStringArray:
 	var lines := PackedStringArray()
+	if int(p.get("height_ops", 1)) == 0:
+		return lines
 	var b: Dictionary = p.get("before", {})
 	var a: Dictionary = p.get("after", {})
 	if not b.is_empty() and not a.is_empty():
@@ -96,6 +127,10 @@ static func blocked(bridge, card: Dictionary) -> String:
 		return "No preview could be made: %s" % String(p.get("reason", "unknown reason"))
 	if int(p.get("paint_cells", 0)) > 0:
 		return "%d painted cells lie under the region. An edit would clear them and Undo could not bring them back; clear the paint there first." % int(p["paint_cells"])
+	## Ruling FW item 2: the colour is written by the colour-paint tool. (E7 above is about the world's own
+	## paint layer under a HEIGHT edit; a colour mark never conflicts with it.)
+	if p.has("paint_op") and not bool(bridge.colour_paint_api):
+		return "This build has no colour-paint layer, so the colour cannot be applied."
 	return ""
 
 
@@ -112,6 +147,8 @@ static func thumb_texture(w: int, h: int, bytes: PackedByteArray) -> Texture2D:
 static func apply(app, bridge, ug, info: Dictionary, valid: Array) -> Dictionary:
 	if valid.is_empty():
 		return {"ok": false, "reason": "There is nothing to apply."}
+	var hops := ops_of(valid)
+	var pv := paint_of(valid)
 	## The region must still be the one the model was shown.
 	var now: Dictionary = _REGION.facts(bridge)
 	var rid := String(now.get("region", {}).get("id", ""))
@@ -120,13 +157,38 @@ static func apply(app, bridge, ug, info: Dictionary, valid: Array) -> Dictionary
 	var refused: String = ug.begin("Assistant: %s" % String(info.get("summary", "terrain edit")).left(60))
 	if refused != "":
 		return {"ok": false, "reason": refused}
-	if ug.height_room() < 1:
-		ug.abort("the undo history has no room for another terrain step")
-		return {"ok": false, "reason": "The undo history has no room for another terrain step."}
-	var r: Dictionary = bridge.region_edit_apply(_REGION.spec(), ops_of(valid), "Assistant edit")
-	if not bool(r.get("ok", false)):
-		ug.abort(String(r.get("reason", "the edit was refused")))
-		return {"ok": false, "reason": String(r.get("reason", "The edit was refused."))}
+	var r: Dictionary = {"ok": true, "changed": 0}
+	if not hops.is_empty():
+		if ug.height_room() < 1:
+			ug.abort("the undo history has no room for another terrain step")
+			return {"ok": false, "reason": "The undo history has no room for another terrain step."}
+		r = bridge.region_edit_apply(_REGION.spec(), hops, "Assistant edit")
+		if not bool(r.get("ok", false)):
+			ug.abort(String(r.get("reason", "the edit was refused")))
+			return {"ok": false, "reason": String(r.get("reason", "The edit was refused."))}
+	## Ruling FW item 2: the colour, as the colour-paint tool's own one step inside the group (a failure
+	## here rolls the height step back with the group).
+	var pieces := 0
+	if not pv.is_empty():
+		var tool = ug.paint_tool()
+		if tool == null:
+			ug.abort("the colour-paint tool is not available")
+			return {"ok": false, "reason": "The colour-paint tool is not available, so nothing was applied."}
+		var m: Dictionary = bridge.region_paint_marks(_REGION.spec(), pv)
+		if not bool(m.get("ok", false)):
+			ug.abort(String(m.get("reason", "the colour was refused")))
+			return {"ok": false, "reason": String(m.get("reason", "The colour was refused."))}
+		var marks: Array = []
+		for js in m["marks"]:
+			var mk: Dictionary = JSON.parse_string(String(js))
+			## Godot parses every JSON number as a float, and the document wants whole 0-255 channels.
+			var rgb: Array = mk["rgb"]
+			mk["rgb"] = [int(rgb[0]), int(rgb[1]), int(rgb[2])]
+			marks.append(mk)
+		if not bool(tool.commit_marks(marks, "Assistant paint")):
+			ug.abort("the colour-paint tool refused the marks")
+			return {"ok": false, "reason": "The colour-paint layer refused the colour (its limits), so nothing was applied."}
+		pieces = int(m.get("pieces", 0))
 	var c: Dictionary = ug.commit()
 	if not bool(c.get("ok", false)):
 		return {"ok": false, "reason": String(c.get("reason", "The undo step could not be made."))}
@@ -137,7 +199,33 @@ static func apply(app, bridge, ug, info: Dictionary, valid: Array) -> Dictionary
 		vp.map_view.texture = bridge.color_texture()
 		vp.invalidate_lod_tiles()
 		vp.set_preview_texture(null)
-	return {"ok": true, "group_id": int(c.get("id", 0)), "changed": int(r.get("changed", 0))}
+	return {"ok": true, "group_id": int(c.get("id", 0)), "changed": int(r.get("changed", 0)), "painted": not pv.is_empty(), "paint_pieces": pieces}
+
+
+## Two thumbnails side by side (Before, After) from a preview dictionary's `thumb_*` keys, named
+## `edit_thumb_<prefix>before` and `..after`. Returns whether they were drawn (the figures must fit).
+static func _draw_pair(col: Control, p: Dictionary, prefix: String) -> bool:
+	var tex_b := thumb_texture(int(p.get("thumb_w", 0)), int(p.get("thumb_h", 0)), p.get("thumb_before", PackedByteArray()))
+	var tex_a := thumb_texture(int(p.get("thumb_w", 0)), int(p.get("thumb_h", 0)), p.get("thumb_after", PackedByteArray()))
+	if tex_b == null or tex_a == null:
+		return false
+	var pics := HBoxContainer.new()
+	pics.add_theme_constant_override("separation", 10)
+	col.add_child(pics)
+	var sc := THUMB_SCALE_TOUCH if (DccTheme.is_phone() or DccTheme.is_tablet()) else THUMB_SCALE_DESKTOP
+	for pair in [["Before", tex_b], ["After", tex_a]]:
+		var cell := VBoxContainer.new()
+		pics.add_child(cell)
+		cell.add_child(DccTheme.label(String(pair[0]), "text_dim", DccTheme.FS_MICRO))
+		var tr := TextureRect.new()
+		tr.texture = pair[1]
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP
+		tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		tr.custom_minimum_size = Vector2(float(tex_b.get_width()) * sc, float(tex_b.get_height()) * sc)
+		tr.name = "edit_thumb_%s%s" % [prefix, String(pair[0]).to_lower()]
+		cell.add_child(tr)
+	return true
 
 
 ## Draws the EDIT card into the window's message list and registers it in `w.cards` (kind `edit`).
@@ -152,7 +240,7 @@ static func draw_card(w, v: Dictionary) -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 4)
 	box.add_child(col)
-	var chip := DccTheme.label("MODEL PROPOSAL · TERRAIN EDIT", "warn", DccTheme.FS_MICRO)
+	var chip := DccTheme.label("MODEL PROPOSAL · TERRAIN EDIT" if paint_of(valid).is_empty() else "MODEL PROPOSAL · REGION EDIT", "warn", DccTheme.FS_MICRO)
 	chip.tooltip_text = "Proposed by a language model. Nothing has changed; the preview below is computed by the app. Press Apply or Dismiss."
 	col.add_child(chip)
 	if v.has("summary"):
@@ -184,27 +272,22 @@ static func draw_card(w, v: Dictionary) -> void:
 		w._card_text(col, "Preview (worked out by the app on a copy of the region; nothing has changed):", "text_secondary")
 		for line in preview_lines(p):
 			w._card_text(col, "    " + String(line), "text")
-		var tex_b := thumb_texture(int(p.get("thumb_w", 0)), int(p.get("thumb_h", 0)), p.get("thumb_before", PackedByteArray()))
-		var tex_a := thumb_texture(int(p.get("thumb_w", 0)), int(p.get("thumb_h", 0)), p.get("thumb_after", PackedByteArray()))
-		if tex_b != null and tex_a != null:
-			var pics := HBoxContainer.new()
-			pics.add_theme_constant_override("separation", 10)
-			col.add_child(pics)
-			var sc := THUMB_SCALE_TOUCH if (DccTheme.is_phone() or DccTheme.is_tablet()) else THUMB_SCALE_DESKTOP
-			for pair in [["Before", tex_b], ["After", tex_a]]:
-				var cell := VBoxContainer.new()
-				pics.add_child(cell)
-				cell.add_child(DccTheme.label(String(pair[0]), "text_dim", DccTheme.FS_MICRO))
-				var tr := TextureRect.new()
-				tr.texture = pair[1]
-				tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-				tr.stretch_mode = TextureRect.STRETCH_KEEP
-				tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-				tr.custom_minimum_size = Vector2(float(tex_b.get_width()) * sc, float(tex_b.get_height()) * sc)
-				tr.name = "edit_thumb_%s" % String(pair[0]).to_lower()
-				cell.add_child(tr)
+		if _draw_pair(col, p, "") and int(p.get("height_ops", 1)) > 0:
 			w._card_text(col, "Both pictures use one height scale; cells outside the region are dimmed, blue is below sea level.", "text_ghost")
-		w._card_text(col, "Applying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit \u25b8 Undo). It does not regenerate, erode or change settings.", "text_secondary")
+		if p.has("paint"):
+			var pp: Dictionary = p["paint"]
+			var po: Dictionary = p["paint_op"]
+			w._card_text(col, "Colour: %s, %s blend, %d%% opacity over the region. %d land cell%s in %d piece%s change colour; water inside it keeps its colour, and nothing outside the region is touched." % [
+				String(po["colour"]), String(po["blend"]), int(roundf(float(po["opacity"]) * 100.0)), int(pp["cells_recoloured"]),
+				"" if int(pp["cells_recoloured"]) == 1 else "s", int(pp["pieces"]), "" if int(pp["pieces"]) == 1 else "s"], "text")
+			if _draw_pair(col, pp, "paint_"):
+				w._card_text(col, "The colour pictures show the blend on a grey height shading (the real map's lighting and any paint already there are not drawn); cells outside the region are dimmed.", "text_ghost")
+		var does: Array = []
+		if int(p.get("height_ops", 1)) > 0:
+			does.append("edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does")
+		if p.has("paint"):
+			does.append("adds the colour as a colour-paint layer mark inside this region only")
+		w._card_text(col, "Applying %s. It is one undo step (Edit \u25b8 Undo). It does not regenerate, erode or change settings." % " and ".join(does), "text_secondary")
 	else:
 		w._card_text(col, "No preview could be made: %s" % String(p.get("reason", "unknown reason")), "warn")
 	var reason_l: Label = w._note_label(col, "", "warn")
