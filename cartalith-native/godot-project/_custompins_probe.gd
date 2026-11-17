@@ -774,27 +774,32 @@ func _leg_i() -> void:
 	_ok("I0: the library holds pins to keep", kinds0.size() >= 2, str(kinds0.size()))
 	app.notify_pins_changed()
 	await _frames(4)
-	_ok("I1: the per-install store was written", FileAccess.file_exists("user://custom_pins.zip"))
-	var zr := ZIPReader.new()
-	_ok("I1: it is an asset-pack zip", zr.open(ProjectSettings.globalize_path("user://custom_pins.zip")) == OK)
-	var man: Variant = JSON.parse_string(zr.read_file("pack.json").get_string_from_utf8())
-	zr.close()
-	_ok("I1: with a pins section naming every pin and nothing else", man is Dictionary and (man.get("pins", {}) as Dictionary).size() == kinds0.size(), str((man.get("pins", {}) as Dictionary).size() if man is Dictionary else -1))
-	## A restart: the session library is empty again; the shell loads the store at start.
+	## Ruling FR: the per-device library store (`user://asset_library/`: an index and one picture file per distinct picture)
+	## replaced Ruling FP's pins-only zip.
+	_ok("I1: the per-device store was written", FileAccess.file_exists("user://asset_library/index.json"))
+	var pngs := 0
+	var da := DirAccess.open("user://asset_library/img")
+	if da != null:
+		for f in da.get_files():
+			if f.ends_with(".png"):
+				pngs += 1
+	_ok("I1: with one picture file per pin", pngs == kinds0.size(), str(pngs))
+	_ok("I1: and the old pins-only file is not written", not FileAccess.file_exists("user://custom_pins.zip"))
+	## A restart: the session library is empty again; the shell reads the store at start (`as_store_open` is what it calls).
 	_bridge.as_clear_library()
 	_ok("I2: a fresh session has no pins", _kinds_sorted().is_empty())
-	app._pin_store_sig = 0
-	app._load_pin_store()
+	var so: Dictionary = _bridge.as_store_open(ProjectSettings.globalize_path("user://asset_library"), "")
+	_ok("I2: the store reopens", bool(so.get("ok", false)), str(so))
 	await _frames(4)
 	_ok("I3: loading the store gives back the same kind ids (the same pictures, names and colours)", _kinds_sorted() == kinds0, str(_kinds_sorted()))
 	## A world opening: its archive carries a library record without pixels (the shell writes `library/assets.json` from
-	## `asset_library_document_json` at Save), and opening it replaces the session library with that record. The user's pins must
+	## `asset_library_document_json` at Save), and opening it MERGES that record into the library (Ruling FR). The user's pins must
 	## not be wiped by it.
 	var rec: String = _bridge.world_gen.asset_library_document_json()
 	_ok("I4: the library's own record names its pin slots (no pixels in it)", rec.contains("\"Pins\"") and not rec.contains("iVBOR"), rec.substr(0, 80))
 	var rr: Dictionary = _bridge.asset_library_restore_document(rec)
 	_ok("I5: restoring that record succeeds", bool(rr.get("ok", false)), str(rr))
-	_ok("I5: the user's pins are all still there, with pictures, after the world's record replaced the library", _kinds_sorted() == kinds0, str(_kinds_sorted()))
+	_ok("I5: the user's pins are all still there, with pictures, after the world's record was merged in", _kinds_sorted() == kinds0, str(_kinds_sorted()))
 	## Deleting the last pins empties the store (a deleted pin does not come back at the next start).
 	var uids := PackedStringArray()
 	for s in _lib()._family_slots("pins"):
@@ -802,7 +807,13 @@ func _leg_i() -> void:
 	_bridge.as_batch_delete(uids)
 	app.notify_pins_changed()
 	await _frames(4)
-	_ok("I6: with no pin left the store file is gone", not FileAccess.file_exists("user://custom_pins.zip"))
+	var left := 0
+	da = DirAccess.open("user://asset_library/img")
+	if da != null:
+		for f in da.get_files():
+			if f.ends_with(".png"):
+				left += 1
+	_ok("I6: with no pin left the store holds no picture (a deleted pin does not come back at the next start)", left == 0, str(left))
 
 
 func _leg_j() -> void:
@@ -812,7 +823,7 @@ func _leg_j() -> void:
 	_ok("J0: a pin is added", bool(r.get("ok", false)), str(r))
 	app.notify_pins_changed()
 	await _frames(4)
-	_ok("J1: the store holds it", FileAccess.file_exists("user://custom_pins.zip"))
+	_ok("J1: the store holds it", FileAccess.file_exists("user://asset_library/index.json"))
 	var holder := SubViewport.new()
 	holder.size = Vector2i(900, 600)
 	holder.gui_embed_subwindows = true

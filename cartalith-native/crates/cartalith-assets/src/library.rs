@@ -752,6 +752,14 @@ impl AssetDB {
         if self.total_items() == 0 {
             return None;
         }
+        Some(self.to_library_file())
+    }
+
+    /// [`AssetDB::to_library_json`] without its empty-library early return (Ruling FR): the per-device store must record a
+    /// library that holds custom slots, collections or pack info but no picture yet, and the **empty** library too (so a
+    /// cleared library is saved as cleared and does not come back). Same traversal, same `img` numbering, same lazy-rule side
+    /// effect as `to_library_json`, which now delegates here.
+    pub fn to_library_file(&mut self) -> LibraryFile {
         let mut slots = Vec::new();
         let mut img_idx = 0usize;
         for uid in self.uids_in_order() {
@@ -785,13 +793,69 @@ impl AssetDB {
                 rules,
             });
         }
-        Some(LibraryFile {
+        LibraryFile {
             version: 1,
             kind: "cartalith-assetlib".to_string(),
             pack: Some(self.pack.clone()),
             collections: self.collections.as_map().clone(),
             slots,
-        })
+        }
+    }
+
+    /// Ruling FR: opening a world **merges** its saved library record in; it never replaces or drops anything the device's
+    /// library holds (the library is the user's, per device; a world's record carries no pixels and so cannot be the richer
+    /// side). Rules, each chosen so that no entry can be lost or overwritten by a world:
+    ///
+    /// * a slot the record names that the library lacks is created (a custom slot through [`AssetDB::add_custom_slot`], which
+    ///   is idempotent by uid); a frozen slot always exists;
+    /// * an existing slot keeps its own metadata unless it is still the default (`SlotMeta::default()`), in which case the
+    ///   record's is adopted (a world made on another device brings its tags and licence for a slot this device has empty);
+    /// * a scatter rule is adopted only for a slot with none;
+    /// * collections are **unioned** (a name the library has gains the record's uids it lacks; a new name is added);
+    /// * pack name, author and licence are adopted only where the library's own are blank (name) or still the defaults
+    ///   (`""`, `"CC0"`) -- the library's non-default values win.
+    ///
+    /// Items are never touched. Returns how many slots were created.
+    pub fn merge_library_file(&mut self, file: &LibraryFile) -> usize {
+        let mut created = 0usize;
+        if let Some(pack) = &file.pack {
+            if self.pack.name.trim().is_empty() {
+                self.pack.name = pack.name.clone();
+            }
+            if self.pack.author.trim().is_empty() {
+                self.pack.author = pack.author.clone();
+            }
+            if self.pack.license.trim().is_empty() || self.pack.license == "CC0" {
+                self.pack.license = pack.license.clone();
+            }
+        }
+        for (name, uids) in file.collections.iter() {
+            self.collections.add(name, uids);
+        }
+        for rec in &file.slots {
+            let Some(family) = Family::from_key(&rec.fam) else { continue };
+            let uid = if family == Family::Custom {
+                let before = self.slots.len();
+                let uid = self.add_custom_slot(&rec.name, rec.set.as_deref()).uid.clone();
+                if self.slots.len() > before {
+                    created += 1;
+                }
+                uid
+            } else {
+                make_uid(family, None, &rec.id)
+            };
+            let Some(slot) = self.slots.get_mut(&uid) else { continue };
+            if slot.meta == SlotMeta::default() {
+                slot.meta = rec.meta.clone();
+            }
+            if fam_scatters(slot.family)
+                && slot.rules.is_none()
+                && let Some(r) = &rec.rules
+            {
+                slot.rules = Some(r.clone());
+            }
+        }
+        created
     }
 
     /// Restore a parsed `library.json`'s pack info, collections, and
@@ -879,8 +943,20 @@ impl AssetDB {
         file: &LibraryFile,
         img_bytes: &HashMap<usize, Vec<u8>>,
     ) -> usize {
+        self.apply_library_file_collecting(file, img_bytes).len()
+    }
+
+    /// [`AssetDB::apply_library_file_with_items`], but returning each restored item's `(uid, decoded pixels)` in the order the
+    /// items were added (so, per uid, in item-index order). Ruling FR: the per-device store needs the pixels back alongside the
+    /// registry, because the session keeps them in a store parallel to this one and the two must advance together; an
+    /// item whose bytes are missing or do not decode is skipped here exactly as there, and so is absent from the returned list.
+    pub fn apply_library_file_collecting(
+        &mut self,
+        file: &LibraryFile,
+        img_bytes: &HashMap<usize, Vec<u8>>,
+    ) -> Vec<(String, crate::raster::DecodedImage)> {
         self.apply_library_file(file);
-        let mut restored = 0usize;
+        let mut restored = Vec::new();
         for rec in &file.slots {
             let Some(uid) = self.resolve_or_create_record_uid(rec) else {
                 continue;
@@ -898,7 +974,7 @@ impl AssetDB {
                 let hash = crate::raster::item_hash(&decoded);
                 let library_item = LibraryItem::new(item.name.clone(), hash).with_transform(item.t.clone());
                 self.add_item(&uid, library_item);
-                restored += 1;
+                restored.push((uid.clone(), decoded));
             }
         }
         restored

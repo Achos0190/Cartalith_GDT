@@ -1908,11 +1908,21 @@ func _refresh_rail_counts() -> void:
 	if _status_pack != null:
 		var info: Dictionary = _bridge.as_pack_info()
 		var pack_name := String(info.get("name", ""))
-		_status_pack.text = "%s · %d / %d slots · %d item%s%s" % [
+		_status_pack.text = "%s · %d / %d slots · %d item%s%s%s" % [
 			pack_name if pack_name != "" else "unnamed pack",
 			total_filled, total_slots, int(info.get("total_items", 0)),
 			"" if int(info.get("total_items", 0)) == 1 else "s",
-			" · %d unassigned" % unassigned if unassigned > 0 else ""]
+			" · %d unassigned" % unassigned if unassigned > 0 else "",
+			_on_device_readout()]
+
+## Ruling FR: the library is kept on this device, so the status line says where and how big: `" · on this device, 12.4 MB"`,
+## or `""` while the store is not open (a session-only library) or has not written anything yet. The size is the store's bytes
+## on disk as of its last write (within a tick of the edit), formatted with one decimal.
+func _on_device_readout() -> String:
+	var n := _bridge.as_store_size()
+	if n <= 0:
+		return ""
+	return " · on this device, " + (("%.1f MB" % (n / 1048576.0)) if n >= 1048576 else ("%.0f KB" % maxf(1.0, n / 1024.0)))
 
 ## Rebuilds the Collections rail from `as_collections()` -- unlike `FAMILIES`
 ## (a fixed compile-time list), collections are created/emptied at runtime by
@@ -4248,12 +4258,16 @@ func _on_clear_library() -> void:
 		## Names the missing `as_collections()` binding.
 		DccWidgets.modal_stat_absent(stats, "collections",
 			"the collection count is not available in this version of Cartalith")
-	## Nothing in the asset library engine code tracks a byte size.
-	DccWidgets.modal_stat_absent(stats, "on disk",
-		"the library doesn't track a byte size for itself")
+	## Ruling FR: the library is kept on this device, so its size is a real figure when the store is open.
+	var on_disk := _bridge.as_store_size()
+	if on_disk > 0:
+		DccWidgets.modal_stat(stats, "on this device", _on_device_readout().trim_prefix(" · on this device, "))
+	else:
+		DccWidgets.modal_stat_absent(stats, "on this device",
+			"the library is not being kept on this device in this session")
 	DccWidgets.modal_foot(card["body"],
-		"the PNGs you imported from are not touched — this library is an index"
-		+ " and rebuilds by re-importing them")
+		"this also empties the copy kept on this device — the PNGs you imported from are not touched,"
+		+ " and importing them again rebuilds the library")
 	var count_text := "Clear %d item%s" % [int(totals["items"]),
 		"" if int(totals["items"]) == 1 else "s"] if totals.has("items") \
 		else "Clear the library"

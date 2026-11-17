@@ -687,47 +687,81 @@ func pin_pick_kind(kind: String) -> void:
 			return
 
 ## Ruling FP: the asset library's pins changed (added, edited, removed, imported, cleared): the CARTO workspace re-reads them into
-## the pin palette.
+## the pin palette. Ruling FR: the library store is brought in step first (a change the user just made is on disk within the
+## call, bounded by `LIBRARY_STORE_BUDGET_MS`, the rest on the following ticks).
 func notify_pins_changed() -> void:
-	_save_pin_store()
+	_library_store_tick()
 	for ws in _workspaces:
 		if ws.has_method("reload_pin_catalog"):
 			ws.reload_pin_catalog()
 			return
 
-## Ruling FP item 3: where the library's pins are kept per install, so they outlive the session (the library itself is a session
-## store whose images no world archive carries). An ordinary asset-pack zip holding only the pins.
-const PIN_STORE_PATH := "user://custom_pins.zip"
-## Change detection for `_save_pin_store`: the hash of the bytes last read from or written to the store.
-var _pin_store_sig := 0
+## Ruling FR: where the asset library is kept per device (`user://` is the app-private directory on Android), and the Ruling FP
+## file it replaces. The store is `index.json` plus one `img/<key>.png` per picture (`asset_store.rs`).
+const LIBRARY_STORE_DIR := "user://asset_library"
+const LEGACY_PIN_STORE_PATH := "user://custom_pins.zip"
+## How long one tick may spend encoding and writing pictures, so importing a few hundred cannot freeze the UI; the index is
+## written once every picture it names is on disk. The flush at exit has no bound.
+const LIBRARY_STORE_BUDGET_MS := 40
+const LIBRARY_STORE_PERIOD := 1.5
+## What the last `_open_library_store` found (`as_store_open`'s dictionary), for the library window and the probes.
+var library_store_report: Dictionary = {}
+var _library_store_open := false
+var _library_store_timer: Timer = null
+## The last write error warned about, so a persistent failure (a full disk) warns once rather than every tick.
+var _library_store_last_error := ""
 
-## Reads the store into the library at start. A missing or unreadable file is no pins, never an error dialog.
-func _load_pin_store() -> void:
-	if not FileAccess.file_exists(PIN_STORE_PATH):
+## Reads the per-device library into the engine at start (replacing Ruling FP's pin file, which a first start migrates in), and
+## starts the timer that keeps it in step. A damaged entry is skipped with a warning and never repaired; a store that cannot be
+## opened at all leaves the library session-only with a warning, never an error dialog.
+func _open_library_store() -> void:
+	var r: Dictionary = bridge.as_store_open(ProjectSettings.globalize_path(LIBRARY_STORE_DIR),
+		ProjectSettings.globalize_path(LEGACY_PIN_STORE_PATH) if FileAccess.file_exists(LEGACY_PIN_STORE_PATH) else "")
+	library_store_report = r
+	if not bool(r.get("ok", false)):
+		push_warning("Cartalith: the asset library store could not be opened (%s); the library is kept for this session only." % String(r.get("error", "unknown")))
 		return
-	var bytes := FileAccess.get_file_as_bytes(PIN_STORE_PATH)
-	if bridge.as_pins_store_load(bytes) < 0:
-		push_warning("Cartalith: the saved custom pins (%s) could not be read and were left alone." % PIN_STORE_PATH)
-		return
-	_pin_store_sig = hash(bytes)
+	for line in (r.get("skipped", PackedStringArray()) as PackedStringArray):
+		push_warning("Cartalith: asset library: " + line)
+	if int(r.get("migrated_pins", 0)) > 0:
+		print("Cartalith: migrated %d custom pin(s) from %s into the asset library store" % [int(r["migrated_pins"]), LEGACY_PIN_STORE_PATH])
+	_library_store_open = true
+	_library_store_timer = Timer.new()
+	_library_store_timer.name = "LibraryStoreTimer"
+	_library_store_timer.wait_time = LIBRARY_STORE_PERIOD
+	_library_store_timer.one_shot = false
+	_library_store_timer.timeout.connect(_library_store_tick)
+	add_child(_library_store_timer)
+	_library_store_timer.start()
 
-## Writes the library's pins to the store when they changed since the last read or write; removes the file when the library holds
-## none (a user who deleted their last pin does not get it back at the next start).
-func _save_pin_store() -> void:
-	var bytes: PackedByteArray = bridge.as_pins_store_bytes()
-	var sig := hash(bytes) if not bytes.is_empty() else 0
-	if sig == _pin_store_sig:
+## One incremental sync of the store (`as_store_sync` with a time budget). Cheap when nothing changed. Skipped while the engine
+## is generating (the worker holds it); the next tick catches up.
+func _library_store_tick() -> void:
+	if not _library_store_open or bridge.generating:
 		return
-	if bytes.is_empty():
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(PIN_STORE_PATH))
-	else:
-		var f := FileAccess.open(PIN_STORE_PATH, FileAccess.WRITE)
-		if f == null:
-			push_warning("Cartalith: the custom pins could not be saved to %s." % PIN_STORE_PATH)
-			return
-		f.store_buffer(bytes)
-		f.close()
-	_pin_store_sig = sig
+	_library_store_report_result(bridge.as_store_sync(LIBRARY_STORE_BUDGET_MS))
+
+## The unbounded flush: at exit, and when the app is paused or loses focus (Android may kill a backgrounded app without a
+## further notice).
+func flush_library_store() -> void:
+	if not _library_store_open or bridge.generating:
+		return
+	_library_store_report_result(bridge.as_store_sync(0))
+
+func _library_store_report_result(r: Dictionary) -> void:
+	if bool(r.get("ok", false)):
+		_library_store_last_error = ""
+		if bool(r.get("pending", false)) and _library_store_timer != null:
+			## More pictures to write: come back soon rather than after the full period.
+			_library_store_timer.start(0.25)
+		elif _library_store_timer != null and not is_equal_approx(_library_store_timer.wait_time, LIBRARY_STORE_PERIOD):
+			_library_store_timer.start(LIBRARY_STORE_PERIOD)
+		return
+	var e := String(r.get("error", ""))
+	if bool(r.get("busy", false)) or e == _library_store_last_error:
+		return
+	_library_store_last_error = e
+	push_warning("Cartalith: the asset library could not be saved to this device (%s); it is kept in memory and the next attempt is automatic." % e)
 
 ## The armed pin name the CARTO workspace holds, or `""` (nothing armed, or a free-text label).
 func pin_armed_kind() -> String:
@@ -1820,7 +1854,7 @@ func _ready() -> void:
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
 	add_child(bridge)
-	_load_pin_store()
+	_open_library_store()
 
 	## `GUI_GAP_REGISTER.md` **RF-04**, and it is a signal-ORDER bug rather than
 	## a missing connection -- the first of those this register has had.
@@ -5467,9 +5501,8 @@ func _restore_project_documents() -> PackedStringArray:
 		if not bool(ar.get("ok", false)):
 			notes.append("the asset library could not be restored (%s)"
 				% String(ar.get("error", "unknown")))
-		elif int(ar.get("slots", 0)) > 0 and int(ar.get("items", 0)) == 0:
-			notes.append("the asset library came back as %d slot definition(s) without their images — a project archive carries the records, not the pixels, so re-import the source files to place them"
-				% int(ar.get("slots", 0)))
+		## Ruling FR: no "came back without its images" note any more. The record is MERGED into the device's own library
+		## (which keeps its pictures across restarts and world openings), so nothing was lost and there is nothing to re-import.
 
 	## The two drafts, reported rather than restored: `project_open` applied
 	## them before this function ran. A slot the archive carried that is NOT in
@@ -6640,6 +6673,10 @@ func _vault_safe_to_exit() -> bool:
 ## close request, so the text is saved and, if refused, copied) and the window losing focus (a plain
 ## guarded save, no copy). Window notifications reach every node in the main window's tree.
 func _notification(what: int) -> void:
+	## Ruling FR: an Android app may be killed once it is backgrounded, so the library is flushed on pause and on focus loss,
+	## ahead of the vault's own flush below (which returns early when there is no vault window).
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		flush_library_store()
 	if vault_window == null or not is_instance_valid(vault_window):
 		return
 	if what == NOTIFICATION_APPLICATION_PAUSED:
@@ -6992,6 +7029,7 @@ func ask_about(subject: Dictionary = {}) -> bool:
 ## still running this library's code when Godot unmaps it dies with an access violation; the
 ## `lib.rs` unload rule). `LlmRun._exit_tree` does it for its own wire; this covers a stray one.
 func _exit_tree() -> void:
+	flush_library_store()   ## Ruling FR: an unbounded flush, before the library unloads
 	LlmWire.shutdown_all()
 
 ## Shows or hides the diagnostics HUD (`resource_overlay.gd`); the menu row's

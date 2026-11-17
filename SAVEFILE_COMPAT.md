@@ -2277,7 +2277,7 @@ any of them; none is required to display a world.
 
 | Slot | Carries | Notes |
 |---|---|---|
-| `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items, and a reader MUST report that rather than presenting an empty library as a complete one. |
+| `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items. **Since Ruling FR (2026-11-17) the shell MERGES this record into the device's library instead of replacing it** (`AssetDB::merge_library_file`: it creates slots the library lacks, fills only default metadata, unions collections, never removes or replaces an item), so an opening world no longer presents an empty library, and the old "reader MUST report zero items" duty is met by there being nothing to report: the library's pictures are the device's own (`ASSET_LIBRARY_SCOPE.md` §12). A reader that has no device library of its own still rebuilds slots with zero items and MUST say so. |
 | `library/travel.json` | every **custom** animal, vehicle, vessel and party preset | Stock entries are deliberately absent: they are read-only by construction and rebuilt identically on every launch, so storing them would store one build's constants. A restore replaces the custom half and leaves stock alone. |
 | `library/settlement_types.json` | the user's settlement types: `{"types": [{"id", "name", "kind", "specialisation", "traits": [...], "walls", "age_mode", "age_years", "name_pool", "usage_count"}], "faction_defaults": {"<faction index>": "<type id>"}}` | Written by the shell's `SettlementTypeStore.document()`, only when there is at least one type or faction default. An **absent** slot means "no types" and clears the outgoing project's on open; so does a document that does not parse. A type row with no `id` is skipped. |
 | `drafts/paint.json` | the three committed paint layers, each a sparse `[index, value, …]` pair list, plus `gw`/`gh` | An index means nothing without the grid: a reader MUST refuse a document whose `gw`/`gh` are not the world's, because a layer decoded against a different grid is a scrambled picture, not a smaller one. |
@@ -3137,6 +3137,12 @@ badly would put images somewhere the tree would later have to move them out
 of. A restored library therefore comes back as slot definitions with zero
 items, and a reader that does not say so is presenting an empty library as a
 complete one.
+
+**Ruling FR (2026-11-17) did not change the archive.** The per-device library (`user://asset_library/`: `index.json` plus
+`img/<key>.png`, `ASSET_LIBRARY_SCOPE.md` §12) is not a world file and is not in the archive; what changed is the *reader*: an
+opening world merges `library/assets.json` into that library rather than replacing it, so a restored library no longer has to be
+described as slot definitions with zero items. The store's `index.json` is the same record plus `store_version` and a per-item
+`h`, and is private to the app (no other reader is expected).
 
 The travel library has no binary payload and is stored in full.
 

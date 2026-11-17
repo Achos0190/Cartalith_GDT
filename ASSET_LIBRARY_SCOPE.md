@@ -824,3 +824,53 @@ without touching the golden-verified arithmetic.
   everything out and being **refused** rather than silently adding nothing;
   four malformed targets each returning an error; preview-after-clear erroring
   rather than crashing.
+
+## 12. The library is kept per device (Ruling FR, 2026-11-17)
+
+*Owner, 2026-11-16: the whole asset library persists per device.* Before this the library was a session store: everything
+imported was lost at exit, and opening a world replaced it with that world's pixel-less record. Ruling FP kept the **pins** alone
+through `user://custom_pins.zip`. This section defines the store that replaced that file; progress is `STATUS.md`'s.
+
+**One store.** `cartalith-godot/src/asset_store.rs` (`LibraryStore`), a child module of `asset_bridge.rs`, holds every family and
+set, every custom slot, every picture (imports, slices, refined variants, pins), tags and slot metadata, scatter rules,
+collections and the pack fields. The Ruling FP file is not a second store: a first start with no index and a
+`custom_pins.zip` imports it (`KeepExisting`), writes the store at once, and renames the zip to `custom_pins.zip.migrated`
+only after that write succeeded. Favourites and Recent were already per install (`DccSettings` `asset_favourites` /
+`asset_recent`) and are untouched.
+
+**Layout, in `user://asset_library/`** (app-private on Android): `index.json`, which is the `library/assets.json` record
+(`AssetDB::to_library_file`, the same field order) plus `store_version` and an `h` per item naming its file; and
+`img/<hash>-<w>x<h>.png`, one file per distinct picture (a 64-bit content hash of the decoded pixels; the width and height are in
+the name, so equal bytes of another shape never share a file). A picture is named by a hash of its pixels rather than by
+`AssetDB`'s `item_hash`, which is a 32 x 32 downsample and collides on real art.
+
+**Incremental and atomic.** `sync` writes only the pictures the disk lacks, then the index when its text changed, then removes
+pictures no longer named. Every file goes to `<name>.tmp`, is `sync_all`ed, and is renamed over its name, so a crash leaves the old
+file or the new one; stale `.tmp` files are swept at open. The pictures are written **before** the index that names them, so a
+crash between the steps leaves a store that loads (with orphans the next sync removes). The shell calls `as_store_sync` on a 1.5 s
+timer with a 40 ms budget (importing hundreds of pictures spreads over ticks and the UI never freezes; the index waits until every
+picture it names is on disk), immediately from `notify_pins_changed`, and without a budget at exit, on Android pause and on focus
+loss. Change detection is a fingerprint (the serialised record plus a strided sample of every picture's bytes), so no mutator has
+to remember to raise a flag; a few-pixel in-place edit that changes no sampled byte would wait for the exit flush, and no
+library operation edits pixels in place.
+
+**Damage is reported, never repaired.** A picture that is missing, will not decode, or hashes to something other than its name is
+skipped (its slot and every other picture still load), reported by item name and file, and moved aside as `<key>.png.corrupt`,
+which no later sync deletes. An index that is not JSON or has another `store_version` is moved aside as
+`index.json.corrupt-<unix time>`, the library starts empty and garbage collection stays off for that session, so the pictures it
+named are not deleted. An index entry's key is validated against the exact shape the store writes before it becomes part of a path.
+
+**A world opening merges.** `asset_library_restore_document` calls `AssetDB::merge_library_file`: a slot the record names that the
+library lacks is created empty; an existing slot keeps its own metadata unless that is still the default; a scatter rule is
+adopted only for a slot with none; collections are unioned; pack name, author and licence are taken only where the library's are
+blank (the licence only if blank or the default `CC0`). It never clears, replaces or drops an entry and adds no item, because a
+world's record carries no pixels (`SAVEFILE_COMPAT.md` §16.5 is unchanged). The "came back as N slot definitions without their
+images" note is gone: nothing came back lacking anything. Worlds still save what they use: custom pins in
+`annotations/pois.json` (Ruling FP), and the record in `library/assets.json`.
+
+**What is not kept.** The import colour reports (`AssetLibrarySession::colour`, session-only by design) and the slicer's loaded
+sheet. A library with no picture and no custom slot is saved as empty (an emptied library stays emptied).
+
+**Readout.** The library window's status line ends with `on this device, <size>` (the store's bytes on disk) and the
+Clear-library card shows the same figure and says that clearing also empties the saved copy.
+

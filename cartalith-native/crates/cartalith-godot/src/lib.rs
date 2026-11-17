@@ -7330,6 +7330,8 @@ struct WorldGen {
     /// the *setting*, not one generation's output, so it survives a
     /// re-generate and is real even before the first `generate()` call.
     asset_library: asset_bridge::AssetLibrarySession,
+    /// Ruling FR: the per-device library store, `None` until the shell opens it at start (`as_store_open`).
+    asset_store: Option<asset_bridge::store::LibraryStore>,
     /// `state.viz.territoryOpacity` — the territory wash's own alpha, `0..1`
     /// (`GUI_GAP_REGISTER.md` **CA-17**, the reference's `#territoryOpacityR`).
     ///
@@ -7922,6 +7924,7 @@ impl IRefCounted for WorldGen {
             infra: None,
             travel_library: travel_bridge::TravelLibrary::new(),
             asset_library: asset_bridge::AssetLibrarySession::new(),
+            asset_store: None,
             territory_opacity: TERRITORY_ALPHA_DEFAULT,
             undo: undo::HeightUndo::new(),
             redo: RedoTail::new(),
@@ -25426,21 +25429,54 @@ impl WorldGen {
             .collect()
     }
 
-    /// The per-install store of the library's pins (Ruling FP item 3): an asset-pack zip holding only the pins, or an **empty**
-    /// array when the library has none. The shell writes it to the user directory when the pins change.
+    /// Ruling FR: opens the per-device library store in directory `dir` (an absolute path; the shell passes
+    /// `ProjectSettings.globalize_path("user://asset_library")`) and reads it into the library, once, at start. `legacy_pins` is
+    /// the absolute path of Ruling FP's `custom_pins.zip` (`""` for none), migrated into the store on a first start. Returns
+    /// `{ok, slots, items, skipped: PackedStringArray, index_corrupt, migrated_pins, fresh}` or `{ok: false, error}`.
     #[func]
-    fn as_pins_store_bytes(&self) -> PackedByteArray {
-        self.asset_library.pins_store_bytes().map(|b| PackedByteArray::from(b.as_slice())).unwrap_or_default()
+    fn as_store_open(&mut self, dir: GString, legacy_pins: GString) -> VarDictionary {
+        let legacy = legacy_pins.to_string();
+        let legacy = if legacy.is_empty() { None } else { Some(std::path::PathBuf::from(legacy)) };
+        match asset_bridge::store::LibraryStore::open(&mut self.asset_library, std::path::Path::new(&dir.to_string()), legacy.as_deref()) {
+            Ok((store, r)) => {
+                self.asset_store = Some(store);
+                let mut skipped = PackedStringArray::new();
+                for s in &r.skipped {
+                    skipped.push(s.as_str());
+                }
+                let mut d = vdict! {
+                    "ok" => true, "slots" => r.slots as i64, "items" => r.items as i64,
+                    "index_corrupt" => r.index_corrupt, "migrated_pins" => r.migrated_pins as i64, "fresh" => r.fresh,
+                };
+                d.set("skipped", &skipped);
+                d
+            }
+            Err(e) => vdict! { "ok" => false, "error" => e.as_str() },
+        }
     }
 
-    /// Reads a store written by `as_pins_store_bytes` into the library (a pin already there is kept): the pins the library holds
-    /// afterwards. `-1` for bytes that are not a readable pack. Does not touch the world (the shell calls it at start).
+    /// Ruling FR: brings the store on disk in step with the library, incrementally (pictures not yet on disk, then the index
+    /// when it changed, then pictures no longer named). `budget_ms` bounds the encoding and writing (`0` = unbounded, for the
+    /// flush at exit). Returns `{ok, written, removed, index_written, pending, unchanged}`, plus `error` when a write failed;
+    /// `{ok: false}` before `as_store_open`. Not a world edit: it never marks the world dirty.
     #[func]
-    fn as_pins_store_load(&mut self, bytes: PackedByteArray) -> i64 {
-        match self.asset_library.import_pack(bytes.as_slice(), "custom pins", asset_bridge::PackImportMode::KeepExisting) {
-            Ok(_) => self.asset_library.pin_catalog().len() as i64,
-            Err(_) => -1,
+    fn as_store_sync(&mut self, budget_ms: i64) -> VarDictionary {
+        let Some(store) = self.asset_store.as_mut() else { return vdict! { "ok" => false, "error" => "the library store is not open" } };
+        let r = store.sync(&mut self.asset_library, budget_ms.max(0) as u64);
+        let mut d = vdict! {
+            "ok" => r.error.is_none(), "written" => r.written as i64, "removed" => r.removed as i64,
+            "index_written" => r.index_written, "pending" => r.pending, "unchanged" => r.unchanged,
+        };
+        if let Some(e) = &r.error {
+            d.set("error", e.as_str());
         }
+        d
+    }
+
+    /// Ruling FR: the bytes the library store occupies on disk (`0` before it is open), for the library window's readout.
+    #[func]
+    fn as_store_size(&self) -> i64 {
+        self.asset_store.as_ref().map_or(0, |s| s.size_bytes() as i64)
     }
 
     /// Adds a pin to the library: `{ok: true, uid}` or `{ok: false, error}` (a bad name, colour or picture, or a name already

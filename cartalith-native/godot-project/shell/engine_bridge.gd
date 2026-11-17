@@ -4979,19 +4979,31 @@ func as_pin_catalog() -> Array:
 		return []
 	return world_gen.as_pin_catalog()
 
-## Ruling FP item 3: the library's pins as one asset-pack zip for the per-install store (`user://custom_pins.zip`), empty when the
-## library holds none. Not a world edit: it never marks the world dirty.
-func as_pins_store_bytes() -> PackedByteArray:
-	if generating or not _has("as_pins_store_bytes"):
-		return PackedByteArray()
-	return world_gen.as_pins_store_bytes()
+## Ruling FR: opens the per-device library store (`dir` an absolute path, `legacy_pins` the absolute path of Ruling FP's
+## `custom_pins.zip` or `""`) and reads it into the library, once, at start: `{ok, slots, items, skipped, index_corrupt,
+## migrated_pins, fresh}` or `{ok: false, error}`. Not a world edit.
+func as_store_open(dir: String, legacy_pins: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("as_store_open"):
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
+	return world_gen.as_store_open(dir, legacy_pins)
 
-## Ruling FP item 3: reads a store written by `as_pins_store_bytes` into the library; the pins the library holds afterwards, `-1` for
-## unreadable bytes or without the binding. Not a world edit.
-func as_pins_store_load(bytes: PackedByteArray) -> int:
-	if generating or not _has("as_pins_store_load"):
-		return -1
-	return world_gen.as_pins_store_load(bytes)
+## Ruling FR: brings the store on disk in step with the library, incrementally; `budget_ms` bounds the work (`0` = unbounded, the
+## flush at exit). `{ok, written, removed, index_written, pending, unchanged}` (+ `error`). Not a world edit; refused (`ok: false`
+## with `busy`) while generating, because the worker holds `WorldGen`.
+func as_store_sync(budget_ms: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "busy": true, "error": _BUSY_TEXT}
+	if not _has("as_store_sync"):
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
+	return world_gen.as_store_sync(budget_ms)
+
+## Ruling FR: the bytes the library store occupies on disk; `0` while generating, before it is open, or without the binding.
+func as_store_size() -> int:
+	if generating or not _has("as_store_size"):
+		return 0
+	return world_gen.as_store_size()
 
 ## Ruling FP: adds a pin to the library from a PNG's bytes: `{ok, uid}` or `{ok: false, error}`.
 func as_pin_add(pin_name: String, color: String, bytes: PackedByteArray) -> Dictionary:
@@ -9463,10 +9475,8 @@ func paint_restore_document(text: String) -> Dictionary:
 		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.paint_restore_document(text)
 
-## Puts a `library/assets.json` back. Returns `{ok, error, slots, items}`.
-## `items` is `0` on this build by design -- the record comes back, the
-## decoded pixels do not (`project_bridge.rs`'s own note on
-## `asset_library_document_json`).
+## Merges a `library/assets.json` into the device's library (Ruling FR): returns `{ok, error, slots, created, items}`. It never
+## replaces or drops an entry; `items` is `0` (a record carries no pixels and no item is added or removed).
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func asset_library_restore_document(text: String) -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.

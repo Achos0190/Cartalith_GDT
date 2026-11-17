@@ -5346,17 +5346,14 @@ impl WorldGen {
         }
     }
 
-    /// Restores a `library/assets.json`. Returns `{ok, error, slots, items}`.
+    /// Merges a `library/assets.json` into the device's library (Ruling FR; before it, this cleared the library and
+    /// applied the record). Returns `{ok, error, slots, created, items}`: `slots` the record's slot count, `created` how many
+    /// of them the library did not yet have, `items` always `0` (a record carries no pixels and this call never adds or
+    /// removes an item, so the library's own pictures are untouched).
     ///
-    /// `items` is the count `apply_library_file_with_items` actually restored
-    /// and is `0` today for the reason [`Self::asset_library_document_json`]
-    /// gives at length -- reported rather than omitted, so a caller can see
-    /// that a library came back without its pixels instead of inferring it.
-    ///
-    /// Goes through `parse_library_json`, so an unresolvable record (an
-    /// unknown family, or an id outside a frozen family's vocabulary) is
-    /// dropped exactly as the reference's own `if(!uid) continue` drops it,
-    /// and a scatter rule is normalised on load the same way.
+    /// Goes through `parse_library_json`, so an unresolvable record (an unknown family, or an id outside a frozen family's
+    /// vocabulary) is dropped as the reference's own `if(!uid) continue` drops it, and a scatter rule is normalised on load
+    /// the same way. The merge rules (nothing the library holds is replaced) are `AssetDB::merge_library_file`'s.
     #[func]
     fn asset_library_restore_document(&mut self, text: GString) -> VarDictionary {
         let raw = text.to_string();
@@ -5364,23 +5361,15 @@ impl WorldGen {
             Ok(f) => f,
             Err(e) => return err(e),
         };
-        // Drops the decoded pixels along with the items `apply_library_file`
-        // is about to clear. `AssetDB::clear` alone would leave the session's
-        // parallel image store holding variants for items that no longer
-        // exist.
-        // Ruling FP: the user's pins are the library's one part that is the *user's*, not the world's, so they outlive a world
-        // opening: snapshotted before the clear and put back after (a pin's slot the record names empty is filled, one it does not
-        // name is added). Everything else is restored exactly as before.
-        let keep_pins = self.asset_library.pin_snapshot();
-        self.asset_library.clear();
-        let items = self
-            .asset_library
-            .db
-            .apply_library_file_with_items(&file, &std::collections::HashMap::new());
-        self.asset_library.pin_restore(&keep_pins);
+        // Ruling FR (supersedes Ruling FP's snapshot-and-restore of the pins alone): the library is the device's, so a world
+        // opening MERGES its record in (`AssetDB::merge_library_file`) and never clears, replaces or drops an entry. The record
+        // carries no pixels, so it can add slots and fill blank metadata but cannot be the richer side of any item.
+        let created = self.asset_library.db.merge_library_file(&file);
         let mut out = vdict! { "ok" => true, "error" => "" };
         out.set("slots", file.slots.len() as i64);
-        out.set("items", items as i64);
+        out.set("created", created as i64);
+        // Always 0 since Ruling FR: a world's record restores no pixels and no item (the library's own items are untouched).
+        out.set("items", 0_i64);
         out
     }
 

@@ -1772,56 +1772,6 @@ impl AssetLibrarySession {
         Ok(nuid)
     }
 
-    /// The library's pins as `(name, colour, normalised PNG)`, in add order: what survives a world opening (which replaces the
-    /// library with the archive's pixel-less record, `asset_library_restore_document`) and what the per-install store keeps.
-    pub fn pin_snapshot(&self) -> Vec<(String, String, Vec<u8>)> {
-        self.pin_catalog().into_iter().map(|e| (e.name, e.color, e.png)).collect()
-    }
-
-    /// Puts `pins` (a [`pin_snapshot`](Self::pin_snapshot)) back: a pin whose slot is missing is added; one whose slot exists
-    /// **empty** (a world's record names the slot but carries no pixels) is filled and given the snapshot's colour; one whose
-    /// slot already holds a picture is left as it is. Never renames or removes anything. Returns how many pins the library
-    /// holds afterwards.
-    pub fn pin_restore(&mut self, pins: &[(String, String, Vec<u8>)]) -> usize {
-        for (name, color, png) in pins {
-            let slug = cartalith_assets::slug_id(name);
-            let uid = self
-                .db
-                .slots_in_family(Family::Custom)
-                .iter()
-                .find(|s| s.set.as_deref() == Some(PINS_SET) && s.id == slug)
-                .map(|s| s.uid.clone());
-            match uid {
-                Some(uid) if self.db.items(&uid).is_empty() => {
-                    if let Ok((decoded, _)) = decode_png_managed(png)
-                        && self.insert_decoded(&uid, format!("{slug}.png"), decoded).is_ok()
-                        && let Some(m) = self.db.slot_meta_mut(&uid)
-                    {
-                        m.color = color.clone();
-                    }
-                }
-                Some(_) => {}
-                None => {
-                    let _ = self.pin_add(name, color, png);
-                }
-            }
-        }
-        self.pin_catalog().len()
-    }
-
-    /// The per-install store: the pins alone, as an ordinary asset-pack zip (so the file is shareable), or `None` when the
-    /// library holds no pin. Built through a scratch library so nothing else in this one can leak into it.
-    pub fn pins_store_bytes(&self) -> Option<Vec<u8>> {
-        let snap = self.pin_snapshot();
-        if snap.is_empty() {
-            return None;
-        }
-        let mut tmp = AssetLibrarySession::new();
-        tmp.pin_restore(&snap);
-        tmp.db.pack.name = "Cartalith custom pins".to_string();
-        tmp.export_pack_bytes().ok().map(|(_, b)| b)
-    }
-
     // -- Export / apply ------------------------------------------------------
 
     /// `PackManifestBuilder.build()` + `zipStore`: bake every stored item at
@@ -3213,3 +3163,7 @@ mod ap89_tests;
 #[cfg(test)]
 #[path = "asset_bridge_pins_tests.rs"]
 mod pins_tests;
+
+/// Ruling FR: the per-device library store (`user://asset_library/`), a child module so it reads the session's private stores.
+#[path = "asset_store.rs"]
+pub mod store;

@@ -141,42 +141,33 @@ fn a_pack_with_bad_pin_entries_is_refused_per_entry_not_repaired() {
     assert!(cat.iter().all(|e| e.slot_id != "ghost" && e.slot_id != "g"));
 }
 
-/// Protects Ruling FP item 3 at the session level: a snapshot of the pins is put back after the library is replaced by a world's
-/// pixel-less record (`asset_library_restore_document`'s sequence: snapshot, clear, apply the record, restore). A slot the record
-/// names EMPTY is filled and recoloured, a pin the record does not name is added, a slot that already holds a picture is left
-/// alone, and the same ids come back. The per-install store is the pins alone and loads into an empty library to the same ids.
+/// Protects Ruling FR at the session level: opening a world MERGES its pixel-less record into the library (superseding Ruling FP's
+/// snapshot, clear, apply, restore of the pins). Nothing the library holds is replaced or dropped: both pins and the Naval
+/// picture keep their ids, colours and pixels even where the record names the same pin slot with another colour; a slot only the
+/// record names is created empty; the record's collection is unioned in.
 #[test]
-fn pins_survive_the_replacement_of_the_library_by_a_worlds_record_and_the_store_round_trips() {
+fn a_worlds_record_merges_into_the_library_and_drops_nothing() {
     let mut s = AssetLibrarySession::new();
     s.pin_add("Beehive", "#c0a040", &red()).unwrap();
     s.pin_add("Forge", "#aa3322", &art(30, 30, 2, 2, 26, 26, [10, 120, 200, 255])).unwrap();
     let u = s.add_custom_slot("Lighthouse", Some("Naval"));
     s.import_item(&u, "l.png".into(), &red()).unwrap();
     let want: Vec<_> = s.pin_catalog().into_iter().map(|e| (e.kind, e.name, e.color)).collect();
-    // The record a world carries: slots and metadata, no pixels, and only ONE of the two pins (the other was made later).
+    let items_before = s.db.total_items();
+    // The record a world carries: no pixels; ONE pin slot under another colour, a slot this library lacks, a collection.
     let mut record_lib = AssetLibrarySession::new();
     record_lib.pin_add("Beehive", "#000001", &red()).unwrap();
+    let other = record_lib.add_custom_slot("Windmill", Some("Rural"));
+    record_lib.import_item(&other, "w.png".into(), &red()).unwrap();
+    record_lib.db.collections.add("Favourites of that world", &[other.clone()]);
     let record = record_lib.db.to_library_json().expect("a library with a picture has a record");
-    // The replacement sequence.
-    let keep = s.pin_snapshot();
-    assert_eq!(keep.len(), 2);
-    s.clear();
-    s.db.apply_library_file_with_items(&record, &std::collections::HashMap::new());
-    assert!(s.pin_catalog().is_empty(), "the record alone carries no picture, so no pin is offered");
-    assert_eq!(s.pin_restore(&keep), 2);
+    let created = s.db.merge_library_file(&record);
+    assert_eq!(created, 1, "only the Windmill slot was new");
+    assert!(s.db.get(&other).is_some(), "the record's own slot exists, empty");
+    assert!(s.db.items(&other).is_empty());
+    assert_eq!(s.db.total_items(), items_before, "no item was added or dropped");
     let got: Vec<_> = s.pin_catalog().into_iter().map(|e| (e.kind, e.name, e.color)).collect();
-    assert_eq!(got, want, "an empty record slot was filled with the session's colour and picture, the missing pin was added");
-    // A slot that already holds a picture is never overwritten by a restore.
-    let again = s.pin_restore(&[("Beehive".into(), "#ffffff".into(), art(8, 8, 0, 0, 8, 8, [9, 9, 9, 255]))]);
-    assert_eq!(again, 2);
-    assert_eq!(s.pin_catalog().into_iter().map(|e| (e.kind, e.name, e.color)).collect::<Vec<_>>(), want);
-    // The per-install store: only the pins, loadable into a fresh library to the same ids, nothing for an empty library.
-    let bytes = s.pins_store_bytes().expect("two pins make a store");
-    let entries = archive::read_pack_entries(std::io::Cursor::new(&bytes)).unwrap();
-    let man = String::from_utf8(entries["pack.json"].clone()).unwrap();
-    assert!(!man.contains("Naval") && man.contains("\"pins\""), "the Naval icon is not in the pins store: {man}");
-    let mut fresh = AssetLibrarySession::new();
-    fresh.import_pack(&bytes, "custom pins", PackImportMode::KeepExisting).unwrap();
-    assert_eq!(fresh.pin_catalog().into_iter().map(|e| (e.kind, e.name, e.color)).collect::<Vec<_>>(), want);
-    assert!(AssetLibrarySession::new().pins_store_bytes().is_none(), "no pin, no store");
+    assert_eq!(got, want, "ids, names and colours survive, the record's #000001 did not recolour Beehive");
+    assert!(s.image(&u, 0).is_some(), "the Naval picture's pixels are still there");
+    assert!(s.db.collections.as_map().get("Favourites of that world").is_some(), "collections are unioned in");
 }
