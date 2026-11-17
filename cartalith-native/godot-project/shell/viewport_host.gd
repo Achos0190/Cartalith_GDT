@@ -746,6 +746,11 @@ func setup(bridge: EngineBridge) -> void:
 		else:
 			_resume_after_engine_busy())
 	bridge.world_loaded.connect(refresh)
+	## Ruling FS (2026-11-17): an `urban_*` switch changes how every town is laid out, so the map's cached town
+	## layouts and planned boxes are dropped and re-laid on the next draw (`EngineBridge.urban_params_changed`).
+	## Guarded for a bridge script from before the signal.
+	if bridge.has_signal("urban_params_changed"):
+		bridge.urban_params_changed.connect(forget_all_urban_layouts)
 	## The landmark pass and the viewshed refine set `bridge.generating` too but change no tiles'
 	## world, so the same replay is all they owe the viewport.
 	bridge.landmark_refine_finished.connect(func(_r: Dictionary): _resume_after_engine_busy())

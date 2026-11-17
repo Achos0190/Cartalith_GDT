@@ -448,7 +448,9 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	## Smoothed for drawing only when it is the traced mask staircase (`urban_shore.gd`); the stored polygon is untouched.
 	var water_poly: PackedVector2Array = SHORE.smooth_water_poly(layout)
 	if draw_water and water_poly.size() >= 3:
-		ci.draw_colored_polygon(project.call(water_poly), tint.call(WATER))
+		## Through `_fill_ground_polygon` (Ruling FS, 2026-11-17): a river band that crosses itself at a tight bend
+		## is rejected by the triangulator, and a bare `draw_colored_polygon` then drew no river at all.
+		_fill_ground_polygon(ci, project.call(water_poly), tint.call(WATER))
 
 	# The river centreline. `_umDrawLayout` does not stroke this separately --
 	# it relies on `waterPoly` covering it. A coastal site has no closed water
@@ -641,17 +643,102 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 ## could still find one; this is a measurement of Sevjuniana at z64, not a
 ## proof for every settlement.
 
-## Fills `pts` on `ci`: `draw_colored_polygon` when `Geometry2D.triangulate_polygon` accepts it, else a triangle fan from `pts[0]` through `draw_primitive`. Does nothing below three points. The fan is the fallback for polygons the triangulator rejects.
+## **A self-intersecting outline is resolved first, 2026-11-17 (Ruling FS).** The fan is exact only for a convex
+## polygon, and a river town's `water_poly` (the centreline offset half the river's width each side, `site.rs`) crosses
+## itself wherever the river turns tighter than that half-width: the inner offsets cross. The triangulator rejects it,
+## and the fan from vertex 0 then painted the whole inside of the bend as water. Measured on the app's world, seed
+## 246371 at 384 x 288, town #11 (Kragandward) unstretched: a 568-point band of about 22 ha drew 877 ha of open water
+## the engine's own mask does not have (its `water_mask_runs` are empty), which read as the town "losing its water"
+## once the river stretch laid it out in a box whose band does not cross itself (`OUTSTANDING_WORK.md`, "Stretched
+## town loses its water"; evidence `cartalith-native/docs/evidence/river-stretch-2026-11-16/fs/`). So a rejected
+## outline is first split into simple pieces (`_simple_pieces`) and each piece filled; only when that yields nothing
+## drawable (the sub-pixel case above, where Clipper's integer grid collapses the shape) does the fan run.
+
+## Fills `pts` on `ci`: `draw_colored_polygon` when `Geometry2D.triangulate_polygon` accepts it; else the outline's
+## simple pieces (`_simple_pieces`), each filled; else, when no piece is drawable, a triangle fan from `pts[0]` through
+## `draw_primitive`. Does nothing below three points. Must never fill ground outside the outline's nonzero interior
+## except on that last, sub-pixel branch.
 static func _fill_ground_polygon(ci: CanvasItem, pts: PackedVector2Array, color: Color) -> void:
-	if pts.size() < 3:
-		return
-	if not Geometry2D.triangulate_polygon(pts).is_empty():
-		ci.draw_colored_polygon(pts, color)
-		return
+	var fill := _fill_parts(pts)
 	var tri_colors := PackedColorArray([color, color, color])
 	var uvs := PackedVector2Array()
+	for q in fill["polygons"]:
+		ci.draw_colored_polygon(q, color)
+	for t in fill["fan"]:
+		ci.draw_primitive(t, tri_colors, uvs)
+
+
+## What `_fill_ground_polygon` draws for `pts`, split out (Ruling FS, 2026-11-17) so `_bandfill_probe.gd` can test the
+## branches without a canvas: `{"polygons": [...], "fan": [...]}`, the polygons drawn with `draw_colored_polygon`
+## and the fan triangles with `draw_primitive`. `pts` itself when it triangulates; else its drawable simple pieces;
+## else the fan from vertex 0. Both empty below three points.
+static func _fill_parts(pts: PackedVector2Array) -> Dictionary:
+	var out := {"polygons": [], "fan": []}
+	if pts.size() < 3:
+		return out
+	if not Geometry2D.triangulate_polygon(pts).is_empty():
+		out["polygons"] = [pts]
+		return out
+	for piece in _simple_pieces(pts):
+		var q: PackedVector2Array = piece
+		if q.size() >= 3 and not Geometry2D.triangulate_polygon(q).is_empty():
+			out["polygons"].append(q)
+	if not out["polygons"].is_empty():
+		return out
 	for i in range(1, pts.size() - 1):
-		ci.draw_primitive(PackedVector2Array([pts[0], pts[i], pts[i + 1]]), tri_colors, uvs)
+		out["fan"].append(PackedVector2Array([pts[0], pts[i], pts[i + 1]]))
+	return out
+
+
+## A self-intersecting outline `pts` as simple polygons covering its interior (Ruling FS, 2026-11-17; see
+## `_fill_ground_polygon`): `Geometry2D.merge_polygons` with nothing resolves the crossings into outer rings and holes
+## (told apart by winding: an outer ring winds as the largest piece does). A hole cannot be filled around by
+## `draw_colored_polygon`, so every outer ring is cut at a vertical line through the hole's middle and the hole clipped
+## out of each half, where it now touches the boundary and leaves simple pieces. A piece that still winds as a hole
+## (a hole the line missed, possible only for a non-convex hole) is dropped, so the answer may leave a hole uncovered
+## but never fills one. Empty when the merge yields nothing (an outline collapsed below Clipper's grid).
+static func _simple_pieces(pts: PackedVector2Array) -> Array:
+	var pieces: Array = Geometry2D.merge_polygons(pts, PackedVector2Array())
+	if pieces.is_empty():
+		return []
+	var largest: PackedVector2Array = pieces[0]
+	for p in pieces:
+		if absf(_area(p)) > absf(_area(largest)):
+			largest = p
+	var outer_cw := Geometry2D.is_polygon_clockwise(largest)
+	var outers: Array = []
+	var holes: Array = []
+	for p in pieces:
+		(outers if Geometry2D.is_polygon_clockwise(p) == outer_cw else holes).append(p)
+	for h in holes:
+		var hole: PackedVector2Array = h
+		var r := Rect2(hole[0], Vector2.ZERO)
+		for v in pts:
+			r = r.expand(v)
+		r = r.grow(1.0)
+		var mid := 0.0
+		for v in hole:
+			mid += v.x
+		mid /= hole.size()
+		var halves := [
+			PackedVector2Array([r.position, Vector2(mid, r.position.y), Vector2(mid, r.end.y), Vector2(r.position.x, r.end.y)]),
+			PackedVector2Array([Vector2(mid, r.position.y), Vector2(r.end.x, r.position.y), r.end, Vector2(mid, r.end.y)])]
+		var cut: Array = []
+		for o in outers:
+			for half in halves:
+				for part in Geometry2D.intersect_polygons(o, half):
+					for q in Geometry2D.clip_polygons(part, hole):
+						cut.append(q)
+		outers = cut.filter(func(q: PackedVector2Array) -> bool: return Geometry2D.is_polygon_clockwise(q) == outer_cw)
+	return outers
+
+
+## The signed shoelace area of `p` (its sign is the winding), for `_simple_pieces`.
+static func _area(p: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in p.size():
+		a += p[i].cross(p[(i + 1) % p.size()])
+	return a * 0.5
 
 
 ## v2.71's water clip (`RC_ENGINE_CHANGES.md` §8.2) — the settlement's real

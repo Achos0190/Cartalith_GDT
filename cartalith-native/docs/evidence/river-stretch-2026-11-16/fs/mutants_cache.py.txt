@@ -1,0 +1,34 @@
+"""Mutants of the urban_* cache fix (Ruling FS), judged by _urbancache_probe.tscn. Exact literal replace,
+occurs-exactly-once assert, BUILD_ERROR apart from SURVIVED, restore in finally. Run 0 is the unmutated control."""
+import subprocess, hashlib, os
+P = r'C:/cw/fs/cartalith-native/godot-project'
+G = r'C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe'
+EB = P + '/shell/engine_bridge.gd'
+VH = P + '/shell/viewport_host.gd'
+M = [
+    ("C1 param_write emits nothing", EB, "\t\tif key.begins_with(\"urban_\"):\n\t\t\turban_params_changed.emit()", "\t\tpass"),
+    ("C2 emit only on the latching first write (inside mark_dirty's gate)", EB, "\t\tif key.begins_with(\"urban_\"):\n\t\t\turban_params_changed.emit()", "\t\tif key.begins_with(\"urban_\") and not params_dirty:\n\t\t\turban_params_changed.emit()"),
+    ("C3 every write emits", EB, "\t\tif key.begins_with(\"urban_\"):\n\t\t\turban_params_changed.emit()", "\t\tif true:\n\t\t\turban_params_changed.emit()"),
+    ("C4 keyed reset emits nothing", EB, "\tif keys.is_empty() or keys.any(func(k) -> bool: return String(k).begins_with(\"urban_\")):\n\t\turban_params_changed.emit()", "\tpass"),
+    ("C5 listener not connected", VH, "\t\tbridge.urban_params_changed.connect(forget_all_urban_layouts)", "\t\tpass"),
+]
+env = dict(os.environ, APPDATA=r'C:/cw/fs_scratch/appdata_cache')
+for name, f, a, b in M:
+    orig = open(f, 'rb').read()
+    h0 = hashlib.sha256(orig).hexdigest()
+    try:
+        s = orig.decode('utf-8')
+        if chr(13) + chr(10) in s:
+            a, b = a.replace(chr(10), chr(13) + chr(10)), b.replace(chr(10), chr(13) + chr(10))
+        assert s.count(a) == 1, name
+        open(f, 'wb').write(s.replace(a, b).encode('utf-8'))
+        r = subprocess.run([G, '--headless', '--path', P, '_urbancache_probe.tscn'], capture_output=True, text=True, env=env, timeout=900)
+        out = r.stdout + r.stderr
+        res = [l for l in out.splitlines() if 'RESULT' in l]
+        verdict = 'BUILD_ERROR' if not res else ('KILLED' if 'FAIL' in res[0] else 'SURVIVED')
+        fails = [l.strip() for l in out.splitlines() if l.strip().startswith('FAIL')]
+        print(name, verdict, res[0] if res else out[-300:], fails[:2], flush=True)
+    finally:
+        open(f, 'wb').write(orig)
+        assert hashlib.sha256(open(f, 'rb').read()).hexdigest() == h0
+print('restored')

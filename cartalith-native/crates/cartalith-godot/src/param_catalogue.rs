@@ -133,7 +133,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("urban_street_village", "On: villages are rows of houses along their roads, the green at the landing or crossroads (current). Off: villages grow as small towns. Read when drawn."),
     ("urban_market_scale", "On: a town's market square, or a village green, is sized with its population (current). Off: one square size for every place. Read when drawn."),
     ("urban_harbour_front", "On: harbour towns are built to their water and their river runs on to the sea (current). Off: centred on the map pin. Read when drawn."),
-    ("urban_river_stretch", "On: river towns of about 5 000 and up stretch along their river where the banks allow and the town still lays out as well. Off: one square-ish box (current)."),
+    ("urban_river_stretch", "On: river towns of about 5 000 and up stretch along their river where the banks allow (current). Off: one square-ish box. Read when drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),

@@ -1,0 +1,34 @@
+  483920 384x288 #  0 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 760->1560 m, housed 2943->19822 of 20000
+  483920 384x288 #  2 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 263->564 m, housed 18840->18418 of 20000
+  483920 384x288 #  6 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 751->1488 m, housed 19776->21419 of 20000
+  483920 384x288 # 17 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 1075->1005 m, housed 19063->19001 of 18188
+483920 384x288: towns >= 1500 14, laid out stretched 4, flagged 0; water_poly crossing itself unstretched 0, stretch on 0
+  912345 384x288 #  3 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 306->746 m, housed 18195->20686 of 17903
+  912345 384x288 #  4 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 949->1368 m, housed 17935->18964 of 20000
+  912345 384x288 #  7 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 939->1119 m, housed 18200->19318 of 20000
+  912345 384x288 #  8 STRETCHED 2126x2126 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 670->1027 m, housed 8086->11300 of 7495
+  912345 384x288 # 15 STRETCHED 2324x2324 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 224->844 m, housed 9734->12626 of 8939
+  912345 384x288 # 17 STRETCHED 1700x1980 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 368->553 m, housed 10213->10509 of 7561
+912345 384x288: towns >= 1500 12, laid out stretched 6, flagged 0; water_poly crossing itself unstretched 0, stretch on 0
+  246371 384x288 #  0 STRETCHED 2250x2250 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 135->774 m, housed 10052->12652 of 8488
+  246371 384x288 #  1 STRETCHED 2276x2276 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 572->500 m, housed 13156->15470 of 8653
+  246371 384x288 #  4 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 431->438 m, housed 19001->19599 of 20000
+  246371 384x288 #11 unstretched water_poly crosses itself (river, 568 pts)
+  246371 384x288 # 11 STRETCHED 2096x2096 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 515->420 m, housed 10416->11118 of 7274
+  246371 384x288 # 13 STRETCHED 1700x1980 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 382->191 m, housed 7904->10410 of 7650
+246371 384x288: towns >= 1500 13, laid out stretched 5, flagged 0; water_poly crossing itself unstretched 1, stretch on 0
+  483920 2048x1311 #  1 STRETCHED 1954x2964 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 560->1085 m, housed 18907->18044 of 20000
+  483920 2048x1311 #  3 STRETCHED 2305x1994 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 555->283 m, housed 8086->9162 of 7179
+  483920 2048x1311 # 22 STRETCHED 2366x2138 river->river: water 0->0 m2, harbour False->False, piers 0->0, quay 142->483 m, housed 7732->8939 of 7653
+483920 2048x1311: towns >= 1500 12, laid out stretched 3, flagged 0; water_poly crossing itself unstretched 0, stretch on 0
+  912345 2048x1311 #  3 STRETCHED 2310x2001 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 380->650 m, housed 8081->7337 of 7241
+  912345 2048x1311 #  5 STRETCHED 1749x2964 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 223->1382 m, housed 17644->21034 of 20000
+  912345 2048x1311 # 11 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 789->1014 m, housed 18923->18892 of 18883
+  912345 2048x1311 # 13 STRETCHED 2184x2184 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 391->918 m, housed 9168->11466 of 7928
+912345 2048x1311: towns >= 1500 10, laid out stretched 4, flagged 0; water_poly crossing itself unstretched 0, stretch on 0
+  246371 2048x1311 #  2 STRETCHED 2735x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 915->883 m, housed 18808->20576 of 20000
+  246371 2048x1311 #  8 STRETCHED 2735x2041 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 931->1423 m, housed 16593->19230 of 18670
+  246371 2048x1311 # 10 STRETCHED 2506x2537 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 621->1310 m, housed 18252->20363 of 20000
+  246371 2048x1311 # 12 STRETCHED 2506x2506 river->river: water 0->0 m2, harbour True->True, piers 3->3, quay 168->687 m, housed 18257->18112 of 20000
+  246371 2048x1311 # 23 STRETCHED 1989x2330 river->river: water 0->0 m2, harbour True->True, piers 2->2, quay 80->509 m, housed 7790->9194 of 7338
+246371 2048x1311: towns >= 1500 10, laid out stretched 5, flagged 0; water_poly crossing itself unstretched 0, stretch on 0

@@ -1,0 +1,93 @@
+Ruling FS (owner, 2026-11-17): accept the river stretch at the measured 4.1 / 3.7 % riverside share and turn
+urban_river_stretch on in params::defaults once the blocking defect (OUTSTANDING_WORK.md, "Stretched town loses its
+water: 246371 #11 at 384") is fixed. Measured 2026-11-17. OUTCOME: the defect is not a stretch defect; it is a drawing
+fault of the UNSTRETCHED town, fixed in the renderer. The switch is ON in the app.
+
+ROOT CAUSE (dump_11/, the app's world, seed 246371 at 384 x 288, town #11 Kragandward, both layouts dumped by
+_viewerframe_probe.gd --dump, release DLL):
+ - The engine's open-water raster (water_mask_runs, the sea and lakes the town is laid out against) is EMPTY in both
+   layouts: unstretched 1700 x 1250 box 0 runs, stretched 2096 x 2096 box 0 runs. There was never open water in the box.
+ - Both keep their harbour: 2 piers each, quay streets 515 m -> 420 m.
+ - The "lake" in Ruling FQ's before frame (fq/frames/pair_viewer_246371_11.png) is the river's own band. The unstretched
+   layout's river turns back on itself just outside the box, so its water_poly (the centreline offset half the river's
+   31 m each side, cartalith_urban::site::build_site) crosses itself at the bend. Geometry2D.triangulate_polygon
+   rejects it (dump_11/tri.gd.txt: "triangulates false"), and urban_layout_draw.gd::_fill_ground_polygon's fallback,
+   a triangle fan from vertex 0 (written 2026-09 for sub-pixel blocks), painted the inside of the bend: 877 ha of
+   "water" from a 22 ha band. The quays "beside the water" are the piers on the river and the far-bank houses.
+ - The stretched layout's band does not cross itself (it triangulates), so it drew only the river. The stretch did not
+   lose water; the unstretched frame invented it.
+
+FIX (urban_layout_draw.gd): a rejected outline is resolved by Geometry2D.merge_polygons into simple pieces
+(_simple_pieces; a hole is cut out by splitting its ring at a line through it), each filled (_fill_parts); the fan
+stays only for an outline that yields nothing drawable. The ink look's water fill, which drew nothing at all for such
+a band (a bare draw_colored_polygon), goes through the same helper. For #11 the pieces cover 222 662 m2, the band.
+_bandfill_probe.gd (probes/bandfill_probe.log, 16/16): a U-shaped river with a hairpin (rejected by the triangulator;
+the old fan covers 4 of 4 dry points in the U - the positive control) is drawn without the fan, covers no dry point,
+every centreline sample, and nothing beyond half the width; a self-crossing loop leaves its dry middle; a keyhole
+outline (a ring with a hole) leaves its hole; a gentle river's band is drawn as it is; a sub-pixel quad still draws.
+
+CLASS AUDIT, every stretched town against its unstretched layout, three seeds at both sizes:
+ - App worlds (class_audit/app/: appaudit.sh, compare.py, compare.txt; _viewerframe_probe.gd --dump <dir> --ids -1,
+   every town of 1 500 and up, stretch 0 and 1): 384: 4 + 6 + 5 = 15 towns laid out stretched, 2048: 3 + 4 + 5 = 12.
+   FLAGGED 0: no stretched town has less open water in the reference window, loses its harbour, a pier, or all of
+   its quay streets. No stretched town has open water in its box at all (the gate refuses a box with sea). Quay
+   length drops in four (246371 #11 515 -> 420 m, #13 382 -> 191, #1 572 -> 500 at 384; 483920 #3 555 -> 283 at
+   2048), each keeping its harbour and piers; frames below. Bands crossing themselves: ONE layout of the 71 x 2,
+   246371 #11 unstretched (the defect frame); none with the stretch on.
+ - Census worlds (class_audit/census/: the new ignored audit town_river_census::stretch_water_audit, the four
+   audits' world and parameters): 384 planned 25, laid out stretched 17, flagged 0; 2048 planned 24, laid out
+   stretched 18, flagged 0. Every stretched town keeps its harbour and piers.
+
+NUMBERS: the four census audits (census/: both_banks, town_housing, riverbank_gap, harbour_front, 384 and 2048,
+TOWN_RIVER_STRETCH=1, this tree's release binary) re-run: byte-identical to Ruling FQ's after/ outputs (diff of every
+line bar the timing: 0 lines in all eight). So every must-hold bar of 872fe397's table holds, unchanged: housed p10
+89 / 85, under 80 % 2 / 3, wall / hull p90 1.11 / 1.09, squares outside 5 / 2, patches over 1 ha 1 / 0, buildings in
+water 0, town overlaps 0; riverside share (houses within 2 street widths of the bank, river towns >= 1 500) 4.1 %
+(384) and 3.7 % (2 048), now the judgement's recorded floor. The layout engine is untouched by this change (the fix
+is a renderer one; the switch flip changes a default the census overrides), which is why they match.
+
+FRAMES (frames/pair_viewer_<seed>_<id>.png: the City Viewer's opening frame, stretch off | on, the same DLL with the
+fixed renderer, windowed under the window lock; shots.sh.txt). Halved. All 10 looked at:
+ 246371 #11 (the defect): before, the town walled on its river's east bank with far-bank houses and piers at the
+   bend, NO lake (the old frame's lake was the fan); after, a long walled town along the river. Both read as towns.
+ 246371 #13: before, a round walled town across the river; after, a narrow walled town on the east bank with a few
+   far-bank houses and fields west. Thinner, a quay drop (382 -> 191 m); reads as a riverside town, not silly.
+ 246371 #0: a round town -> a crescent along the river bend, walled. Better.
+ 246371 #1: a big walled block -> an L along both reaches of the river. Better.
+ 912345 #15: a round town on the bend -> an L along both arms. Better.
+ 912345 #4: round on both banks -> along the river, a small far-bank suburb. Neutral to better.
+ 912345 #8: a lobed town -> a long walled town along the river. Better.
+ 483920 #0: before, a sparse unwalled scatter (2 943 of 20 000 housed); after, a full walled city on both banks
+   (19 822). Better.
+ 483920 #6: both banks either way, somewhat longer along the river after. Neutral.
+ 483920 #3 at 2048 (a quay drop 555 -> 283 m): a walled town in the river's bend -> a longer town along it. Fine.
+ None looks silly; none loses water. (The old #11 frame, Ruling FQ's, is fq/frames/pair_viewer_246371_11.png.)
+
+MAP: _stretchmap_probe.gd with the new default, seed 912345 at 384 x 288 (probes/stretchmap_probe.log): 11 / 11.
+_viewerframe_probe.gd's own bars at the default (probes/viewerframe_probe_default.log): 10 / 10, 0 river towns
+open without water on 483920.
+
+CACHE (the routed row "Toggling an urban_* switch live does not drop cached town layouts"): EngineBridge.
+urban_params_changed, emitted by param_write after the engine took an urban_* key and by reset_params when it can
+move one; viewport_host.gd::setup connects it to forget_all_urban_layouts (the map's cached layouts and planned
+boxes). _urbancache_probe.tscn (probes/urbancache_probe.log, 11 / 11): a write empties the cache, the second toggle
+too (params_changed latches until a generate, so it alone would miss it), a non-urban write keeps it, a keyed reset
+of an urban key empties it, and the re-laid town has the new switch's box (2506 x 2506 -> 1700 x 1250). Not covered:
+an already-open City Viewer or place editor keeps showing its town until reopened (they lay out on open).
+
+MUTANTS (mutants_*.py.txt): fill 8, 5 killed (M1 fan only, M2 holes not cut, M4 winding inverted, M5 cut line off the
+hole, M6 first branch dropped); survivors: M3 (keep hole-wound pieces after the cut: none arise for a hole the line
+crosses, equivalent on every tested shape), M7 (fan never drawn: no constructed input reaches the fan on Godot 4.7.2;
+quads to 1e-5 px and a collinear outline all triangulate or merge), M8 (keep undrawable pieces: none arise). Cache 5,
+5 killed. Switch 2, 2 killed (the app default back off; a save without the key loading it on).
+
+TESTS: cargo test --workspace --no-fail-fast: 4 failures on the first run, all mine and fixed (param_catalogue's
+160-character description bar x 3, and the New World restore's expected list now naming urban_river_stretch);
+cartalith-godot re-run 4 171 passed, 0 failed. fh_r2_baseline::fh_r2_m1_moves_zero_bytes_against_m0 and
+g1_baseline::g1_0_baseline_columns pass unchanged (they lay towns out with PlaceOverrides::default, river_stretch
+None). No JS golden moves (urban goldens pass site_box / river_stretch None).
+
+NOT DONE (coordinator's question, OUTSTANDING_WORK.md row from b5a29917): urban_layout_boxes reports the PLANNED box,
+so a town stretch_holds refuses (483920 #4, #11, #15, #23 at 384) is claimed and culled by a box larger than it is
+drawn. Reporting the box actually used means running run_layout (up to three generate() calls) for every stretched
+town on each call, seconds per refresh, so it needs a cached result first; left open.

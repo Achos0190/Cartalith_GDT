@@ -1,0 +1,26 @@
+"""Rust mutants for Ruling FS's switch flip. Exact literal, once, restore in finally; BUILD_ERROR apart."""
+import subprocess, hashlib, os
+R = r'C:/cw/fs/cartalith-native'
+F = R + '/crates/cartalith-godot/src/params.rs'
+M = [
+    ("R1 app default back off", "    p.urban_river_stretch = true;\n", "    p.urban_river_stretch = false;\n"),
+    ("R2 a save without the key loads it on", '    ("urban_river_stretch", Value::Bool(false)),\n', '    ("urban_river_stretch", Value::Bool(true)),\n'),
+]
+env = dict(os.environ, CARGO_TARGET_DIR=r'C:/cw/fs_target')
+orig = open(F, 'rb').read(); h0 = hashlib.sha256(orig).hexdigest()
+try:
+    for name, a, b in M:
+        s = orig.decode('utf-8')
+        if '\r\n' in s:
+            a, b = a.replace('\n', '\r\n'), b.replace('\n', '\r\n')
+        assert s.count(a) == 1, name
+        open(F, 'wb').write(s.replace(a, b).encode('utf-8'))
+        r = subprocess.run(['cargo', 'test', '-p', 'cartalith-godot', '--no-fail-fast', '--', 'urban', 'new_world', 'ruled_divergences', 'reference_export', 'old_archive', 'archive'], cwd=R, capture_output=True, text=True, env=env, timeout=3000)
+        out = r.stdout + r.stderr
+        if 'error[' in out or 'could not compile' in out:
+            print(name, 'BUILD_ERROR'); continue
+        fails = [l for l in out.splitlines() if l.endswith('FAILED') and l.startswith('test ')]
+        print(name, 'KILLED' if fails else 'SURVIVED', fails[:4], flush=True)
+finally:
+    open(F, 'wb').write(orig)
+print('restored', hashlib.sha256(open(F, 'rb').read()).hexdigest() == h0)

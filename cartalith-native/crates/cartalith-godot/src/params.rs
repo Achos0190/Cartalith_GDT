@@ -210,15 +210,17 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::urban_harbour_front`.
     p.urban_harbour_front = true;
     // Ruling FN (owner 2026-11-16): river towns stretch along their river.
-    // **OFF here too, pending the owner** (Ruling FQ, 2026-11-16): the worse
-    // rows are fixed (a stretched layout that misses the ruling's bars is
-    // laid out milder or unstretched, `cartalith_urban::stretch::stretch_holds`)
-    // and every must-hold bar holds, but the riverside share reached 4.1 %
-    // (384) and 3.7 % (2 048) against the ruling's "about 5 %", so the brief's
-    // rule leaves it off (`STATUS.md`, "River towns stretched along their
-    // river, fixed"; `DECISIONS.md` section 7p). Turn it on in the parameters
-    // to see it. See `WorldParams::urban_river_stretch`.
-    p.urban_river_stretch = false;
+    // On since Ruling FS (owner 2026-11-17), which accepted the riverside
+    // share Ruling FQ's fix reached (4.1 % at 384, 3.7 % at 2 048, against
+    // its "about 5 %") once the 246371 #11 "lost water" frame was diagnosed:
+    // a drawing fault of the unstretched town, fixed in
+    // `urban_layout_draw.gd::_fill_parts`, not a stretch defect. A stretched
+    // layout that misses Ruling FQ's bars is laid out milder or unstretched
+    // (`cartalith_urban::stretch::stretch_holds`). Off in
+    // `WorldParams::defaults`, the reference's box every urban golden pins,
+    // and off on load for a save without the key (`DECISIONS.md` section 7p).
+    // See `WorldParams::urban_river_stretch`.
+    p.urban_river_stretch = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in

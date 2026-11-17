@@ -7745,7 +7745,7 @@ mod tests {
         assert!(p.civ.map_rivers && p.civ.harbour_box, "a new world sites on the map's rivers and badges harbours by the box (Ruling FF)");
         assert!(p.civ.port_shore && p.civ.map_crossings, "a new world nudges ports to the shore and charges every drawn crossing (Ruling FI)");
         assert!(p.urban_harbour_front && p.civ.port_reach, "a new world builds harbour towns to their water and badges ports within about 4 km (Ruling FK)");
-        assert!(!p.urban_river_stretch, "Ruling FN's river stretch is off in a new world until the owner rules on Ruling FQ's riverside shortfall");
+        assert!(p.urban_river_stretch, "a new world stretches its river towns along their river (Ruling FS)");
         assert!(p.civ.founding_year, "a new world gives its settlements founding years (Ruling FO item 1)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
@@ -7768,7 +7768,7 @@ mod tests {
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
             "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
-            "urban_harbour_front", "civ.port_reach", "civ.founding_year",
+            "urban_harbour_front", "civ.port_reach", "civ.founding_year", "urban_river_stretch",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

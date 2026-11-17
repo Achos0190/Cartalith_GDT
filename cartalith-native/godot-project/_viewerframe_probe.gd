@@ -9,7 +9,7 @@ extends Node
 ## `water_mask_runs` (map-water row quads) and `bridges`/`ford` (crossing points). A river-kind town is any layout whose
 ## `site_kind` is `river` or `riverthrough`. Run under `APPDATA=<empty dir>`. With `--shots` it is windowed (no
 ## `--headless`) and saves the viewer canvas of each id to `<dir>/viewer_<seed>_<id>.png`.
-## `--dump <dir>` (with `--ids`) also writes each id's layout as `<dir>/<seed>_<gw>_<id>.json` for the both-banks
+## `--dump <dir> --ids -1` dumps every town of 1 500 and up (Ruling FS). `--dump <dir>` (with `--ids`) also writes each id's layout as `<dir>/<seed>_<gw>_<id>.json` for the both-banks
 ## evidence's `plot.py` (2026-11-15): the app's own layout, since the census's CPU world is not the shell's.
 ## `--riverbank 0|1` sets `urban_riverbank` (a river town builds to its bank, 2026-11-15) after the world is made and
 ## before any layout is read (the switch is read live), for before/after shots of one world; absent, the app's default.
@@ -122,6 +122,28 @@ func _dump_layout(lay: Dictionary, path: String) -> void:
 		"plaza": _pts(lay.get("plaza", PackedVector2Array())), "buildings": blds, "edges": edges, "parcels": parcels,
 		"pop": lay.get("pop", 0.0), "target": lay.get("pop_target", 0.0), "stages": lay.get("stages", PackedStringArray()),
 		"wm": lay.get("wm", 1700.0), "hm": lay.get("hm", 1250.0), "site_kind": lay.get("site_kind", "")}
+	## Ruling FS (2026-11-17): the town's water and harbour, so a stretched town can be checked against its
+	## unstretched layout (the 246371 #11 defect): the open-water runs as `[x0, y0, x1, y1]` boxes (box metres),
+	## the harbour point, the pier count and the quay streets' length.
+	var runs := []
+	for run in lay.get("water_mask_runs", []):
+		var q := PackedVector2Array(run)
+		if q.size() >= 4:
+			runs.append([q[0].x, q[0].y, q[2].x, q[2].y])
+	d["water_runs"] = runs
+	d["harbour_pt"] = _pts(PackedVector2Array([lay["harbour_pt"]])) if lay.has("harbour_pt") else []
+	var hd: Dictionary = lay.get("harbour", {})
+	d["piers"] = PackedVector2Array(hd.get("piers", PackedVector2Array())).size() / 2
+	var quay := 0.0
+	var qs := PackedVector2Array(streets.get("quay", PackedVector2Array()))
+	for k in range(0, qs.size() - 1, 2):
+		quay += qs[k].distance_to(qs[k + 1])
+	d["quay_m"] = quay
+	## Whether the water body triangulates as it is: a river band that crosses itself at a tight bend does not, and
+	## the map look's fill then resolved it (`urban_layout_draw.gd::_fill_parts`; before 2026-11-17 a fan painted the
+	## inside of the bend as water).
+	var wp := PackedVector2Array(lay.get("water_poly", PackedVector2Array()))
+	d["water_poly_simple"] = wp.size() < 3 or not Geometry2D.triangulate_polygon(wp).is_empty()
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify(d))
 	f.close()
@@ -273,6 +295,12 @@ func _ready() -> void:
 		for k in places.size():
 			if int(places[k].get("population", 0)) >= 1500:
 				print("  TOWN #%d at (%d,%d) pop %d" % [k, places[k]["x"], places[k]["y"], places[k]["population"]])
+		## `--ids -1` (Ruling FS, 2026-11-17): every town of 1 500 and up, for the stretch class audit.
+		if ids == [-1]:
+			ids.clear()
+			for k in places.size():
+				if int(places[k].get("population", 0)) >= 1500:
+					ids.append(k)
 		for id in ids:
 			print("  DUMP #%d %s" % [id, str(places[id])])
 			_dump_layout(bridge.urban_layouts(PackedInt32Array([id]))[0], dump.path_join("%d_%d_%d.json" % [seed_n, gw, id]))

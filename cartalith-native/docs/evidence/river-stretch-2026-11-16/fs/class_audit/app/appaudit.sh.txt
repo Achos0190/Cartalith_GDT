@@ -1,0 +1,14 @@
+#!/bin/bash
+# appaudit.sh: Ruling FS class audit on the app's own worlds. Every town of 1 500 and up dumped by _viewerframe_probe.gd
+# (headless, --quick 1, --dump <dir> --ids -1), seeds 483920 912345 246371 at 384x288 and 2048x1311, stretch 0 | 1.
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+S=C:/cw/fs_scratch/app
+cd C:/cw/fs/cartalith-native/godot-project
+run() { mkdir -p $S/$1_$2_s$3 $S/appdata_$1_$2_$3; APPDATA=$S/appdata_$1_$2_$3 timeout 5400 "$GODOT" --headless --path . _viewerframe_probe.tscn -- --seed $1 --grid $2 --stretch $3 --quick 1 --dump $S/$1_$2_s$3 --ids -1 > $S/$1_$2_s$3.log 2>&1; echo "$1 $2 s$3 exit $?"; }
+for g in 384x288 2048x1311; do
+  for st in 0 1; do
+    for seed in 483920 912345 246371; do run $seed $g $st & done
+    wait
+  done
+done
+echo ALLDONE

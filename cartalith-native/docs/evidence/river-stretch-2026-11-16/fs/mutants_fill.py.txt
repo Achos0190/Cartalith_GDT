@@ -1,0 +1,32 @@
+"""Mutants of urban_layout_draw.gd's fill fix (Ruling FS), judged by _bandfill_probe.gd. Exact literal replace,
+occurs-exactly-once assert, BUILD_ERROR apart from SURVIVED, restore in finally."""
+import subprocess, hashlib, os
+F = r'C:/cw/fs/cartalith-native/godot-project/shell/urban_layout_draw.gd'
+G = r'C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe'
+M = [
+    ("M1 pieces branch skipped (fan only)", "\tfor piece in _simple_pieces(pts):\n", "\tfor piece in []:\n"),
+    ("M2 holes not cut", "\tfor h in holes:\n", "\tfor h in []:\n"),
+    ("M3 hole-wound pieces kept", "return Geometry2D.is_polygon_clockwise(q) == outer_cw)", "return true)"),
+    ("M4 winding of outers inverted", "var outer_cw := Geometry2D.is_polygon_clockwise(largest)", "var outer_cw := not Geometry2D.is_polygon_clockwise(largest)"),
+    ("M5 hole cut line off the hole", "\t\tmid /= hole.size()\n", "\t\tmid = r.position.x - 10.0\n"),
+    ("M6 first branch dropped", 'out["polygons"] = [pts]\n\t\treturn out', 'pass'),
+    ("M7 fan never drawn", 'if not out["polygons"].is_empty():\n\t\treturn out', 'if true:\n\t\treturn out'),
+    ("M8 undrawable pieces kept", 'if q.size() >= 3 and not Geometry2D.triangulate_polygon(q).is_empty():\n\t\t\tout["polygons"].append(q)', 'out["polygons"].append(q)'),
+]
+orig = open(F, 'rb').read()
+h0 = hashlib.sha256(orig).hexdigest()
+env = dict(os.environ, APPDATA=r'C:/cw/fs_scratch/appdata')
+try:
+    for name, a, b in M:
+        s = orig.decode('utf-8')
+        assert s.count(a) == 1, name
+        open(F, 'wb').write(s.replace(a, b).encode('utf-8'))
+        r = subprocess.run([G, '--headless', '--path', r'C:/cw/fs/cartalith-native/godot-project', '-s', '_bandfill_probe.gd'], capture_output=True, text=True, env=env, timeout=300)
+        out = r.stdout + r.stderr
+        res = [l for l in out.splitlines() if 'RESULT' in l]
+        verdict = 'BUILD_ERROR' if not res else ('KILLED' if 'FAIL' in res[0] else 'SURVIVED')
+        fails = [l.strip() for l in out.splitlines() if l.strip().startswith('FAIL')]
+        print(name, verdict, res[0] if res else '', fails[:2])
+finally:
+    open(F, 'wb').write(orig)
+print('restored', hashlib.sha256(open(F, 'rb').read()).hexdigest() == h0)

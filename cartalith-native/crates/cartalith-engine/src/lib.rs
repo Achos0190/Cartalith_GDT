@@ -1328,12 +1328,10 @@ pub struct WorldParams {
     /// `cartalith_civ::urban_adapter::run_layout`). Rides `urban_riverbank`
     /// (read only with it on); villages and harbour towns are untouched.
     ///
-    /// **`false` here and, for now, in the shipped app too** (`DECISIONS.md`
-    /// §7p): Ruling FQ (owner 2026-11-16) asked for it on once the
-    /// prototype's worse rows were fixed with a riverside share of about 5 %;
-    /// the rows are fixed but the share measured 4.1 % (384) and 3.7 %
-    /// (2 048), so it waits on the owner. The urban goldens pin the
-    /// reference's box. Read
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p;
+    /// Ruling FS, owner 2026-11-17, accepted the 4.1 % (384) and 3.7 %
+    /// (2 048) riverside share Ruling FQ's fix reached against its "about
+    /// 5 %"). The urban goldens pin the reference's box. Read
     /// fresh each time a layout is asked for (never stored), so it moves no
     /// generated field and needs no regeneration. A save without the key
     /// loads it off (`params::LOADS_WHEN_ABSENT`), so a reopened world draws

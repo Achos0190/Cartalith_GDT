@@ -1,0 +1,38 @@
+"""Ruling FS class audit on the app's worlds: every town of 1 500 and up laid out with urban_river_stretch off (s0)
+and on (s1), from _viewerframe_probe.gd --dump <dir> --ids -1. A town is STRETCHED when its s1 box is not the
+reference's 1700 x 1250. Water compared inside the reference window (centred in the stretched box). FLAGGED when the
+stretched layout has under half the unstretched open water there (with at least 5 cells of 22 m unstretched), or
+loses a harbour, a pier count, or all of its quay streets. Also lists every layout whose water_poly does not
+triangulate (a river band crossing itself), stretched or not: the drawing fault behind 246371 #11."""
+import json, os, sys, glob
+root = sys.argv[1]
+def area(runs, x0, y0, w, h):
+    a = 0.0
+    for r in runs:
+        dx = max(0.0, min(r[2], x0 + w) - max(r[0], x0)); dy = max(0.0, min(r[3], y0 + h) - max(r[1], y0)); a += dx * dy
+    return a
+tot = {}
+for g in ('384x288', '2048x1311'):
+    for seed in ('483920', '912345', '246371'):
+        d0 = os.path.join(root, f'{seed}_{g}_s0'); d1 = os.path.join(root, f'{seed}_{g}_s1')
+        n = st = fl = bad0 = bad1 = 0
+        for f in sorted(glob.glob(os.path.join(d0, '*.json')), key=lambda p: int(p.rsplit('_', 1)[1][:-5])):
+            name = os.path.basename(f); i = int(name.rsplit('_', 1)[1][:-5])
+            f1 = os.path.join(d1, name)
+            if not os.path.exists(f1): print('  missing', f1); continue
+            a = json.load(open(f)); b = json.load(open(f1)); n += 1
+            if not a['water_poly_simple']: bad0 += 1; print(f'  {seed} {g} #{i} unstretched water_poly crosses itself ({a["site_kind"]}, {len(a["water_poly"])} pts)')
+            if not b['water_poly_simple']: bad1 += 1; print(f'  {seed} {g} #{i} stretched-run water_poly crosses itself ({b["site_kind"]}, {len(b["water_poly"])} pts)')
+            stretched = abs(b['wm'] - 1700) > 0.5 or abs(b['hm'] - 1250) > 0.5
+            if not stretched: continue
+            st += 1
+            ox, oy = (b['wm'] - a['wm']) / 2, (b['hm'] - a['hm']) / 2
+            wa = area(a['water_runs'], 0, 0, a['wm'], a['hm']); wb = area(b['water_runs'], ox, oy, a['wm'], a['hm'])
+            lw = wa >= 5 * 484 and wb < 0.5 * wa
+            lh = bool(a['harbour_pt']) and not b['harbour_pt']
+            lp = b['piers'] < a['piers']
+            lq = a['quay_m'] > 0 and b['quay_m'] == 0
+            flag = lw or lh or lp or lq
+            fl += flag
+            print(f'  {seed} {g} #{i:3} STRETCHED {b["wm"]:.0f}x{b["hm"]:.0f} {a["site_kind"]}->{b["site_kind"]}: water {wa:.0f}->{wb:.0f} m2, harbour {bool(a["harbour_pt"])}->{bool(b["harbour_pt"])}, piers {a["piers"]}->{b["piers"]}, quay {a["quay_m"]:.0f}->{b["quay_m"]:.0f} m, housed {a["pop"]:.0f}->{b["pop"]:.0f} of {a["target"]:.0f}' + (' FLAGGED' + (' water' if lw else '') + (' harbour' if lh else '') + (' piers' if lp else '') + (' quay' if lq else '') if flag else ''))
+        print(f'{seed} {g}: towns >= 1500 {n}, laid out stretched {st}, flagged {fl}; water_poly crossing itself unstretched {bad0}, stretch on {bad1}')

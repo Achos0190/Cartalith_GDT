@@ -1,0 +1,12 @@
+  PASS  the world generated (233 settlements)
+  PASS  a new world plans at least one stretched town (8 boxes; town #0)
+  PASS  the map caches the 3 towns it was handed (3)
+  PASS  urban_river_stretch set off
+  PASS  an urban_* write empties the map's town cache (0 left)
+  PASS  town #0 is re-laid with the new switch: box (2506.173, 2506.173) -> (1700.0, 1250.0)
+  PASS  urban_river_stretch set back on
+  PASS  the second toggle empties it again (0 left)
+  PASS  a non-urban parameter written
+  PASS  a non-urban write keeps the cache (3)
+  PASS  a keyed reset naming an urban_* key empties it (0 left)
+RESULT: PASS (0 failed) checks=11

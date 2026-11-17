@@ -1,0 +1,13 @@
+#!/bin/bash
+# shots.sh: Ruling FS frames. City Viewer opening frames, stretch 0 (before) and 1 (after, the new default), the same
+# DLL and the fixed renderer, app worlds; windowed, run under the window lock (withlock.sh).
+GODOT="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+S=C:/cw/fs_scratch
+cd C:/cw/fs/cartalith-native/godot-project
+for run in 246371:384x288:11,13,1,0 912345:384x288:15,8,4 483920:384x288:0,6 483920:2048x1311:3; do
+  IFS=: read seed grid ids <<< "$run"
+  for st in 0 1; do
+    APPDATA=$S/appdata timeout 3600 "$GODOT" --path . --resolution 1600x1000 _viewerframe_probe.tscn -- --seed $seed --grid $grid --stretch $st --quick 1 --shots $S/shots/s$st --ids $ids > $S/shots/${seed}_${grid}_s$st.log 2>&1
+    echo "$seed $grid stretch $st exit $?"
+  done
+done

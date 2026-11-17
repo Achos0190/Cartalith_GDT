@@ -31,6 +31,13 @@ signal generation_finished(ok: bool)
 signal generation_stage(index: int, name: String, total: int)
 signal params_changed()            ## A dial moved; downstream is stale.
 signal params_applied()            ## A generate landed; nothing is stale.
+## An `urban_*` parameter landed (`param_write`, `reset_params`), emitted after the engine took it. Town layouts read
+## those switches at layout time, not at generate time, so every cached layout is now stale (OUTSTANDING_WORK.md
+## "Toggling an `urban_*` switch live does not drop cached town layouts"; Ruling FS, 2026-11-17).
+## `viewport_host.gd::setup` drops the map's town cache on it. Unlike `params_changed`, it fires on every landed
+## write, not only the first one after a generate: `mark_dirty()` latches, and a second A/B toggle must drop the
+## cache too.
+signal urban_params_changed()
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## Edit-from-context: items were REMOVED from a hand-placed store, so the indices of the ones after them shifted.
@@ -865,6 +872,10 @@ func param_write(key: String, value) -> Dictionary:
 	var clamped: bool = (result.get("clamped", []) as Array).has(key)
 	if not rejected:
 		mark_dirty()
+		## After the engine took the value (MISTAKES.md: emit after the engine call), so a listener's
+		## re-layout reads the new switch.
+		if key.begins_with("urban_"):
+			urban_params_changed.emit()
 	return {"ok": not rejected, "clamped": clamped, "rejected": rejected}
 
 ## Restores the whole table (`WorldGen.reset_params`) or just `keys` from the
@@ -888,6 +899,9 @@ func reset_params(keys: Array = []) -> void:
 				restore[k] = _param_defaults[k]
 		world_gen.set_params(restore)
 	mark_dirty()
+	## A whole-table reset may move any `urban_*` switch; a keyed one only when it names one.
+	if keys.is_empty() or keys.any(func(k) -> bool: return String(k).begins_with("urban_")):
+		urban_params_changed.emit()
 
 ## Forwards to `WorldGen.apply_archetype`, which writes the archetype's World
 ## Structure knobs into the persistent parameters. `false` for an unknown name or a

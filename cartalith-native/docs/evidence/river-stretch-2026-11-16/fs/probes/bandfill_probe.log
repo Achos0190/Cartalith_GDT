@@ -1,0 +1,23 @@
+  PASS  the U band with a hairpin crosses itself: the triangulator rejects it (230 points)
+  PASS  positive control: the old fan covers 4 of 4 dry points in the U's middle
+  PASS  the U band is drawn without the fan
+    piece 16 points, area 16057, triangulates true
+    piece 14 points, area 4702, triangulates true
+    piece 10 points, area 11355, triangulates true
+    piece 3 points, area 2, triangulates true
+    piece 3 points, area 2, triangulates true
+    piece 10 points, area 1007, triangulates true
+  PASS  the U band resolves into 6 pieces, each triangulates
+  PASS  no dry point in the U's middle is covered
+  PASS  every one of 21 centreline samples is covered
+  PASS  no grid point farther than half the width from the river is covered (0)
+  PASS  the dry middle of the loop is not covered
+  PASS  the band round the loop is covered
+  PASS  every loop piece triangulates (5)
+  PASS  the keyhole's union is a ring with a hole (2 rings), so the hole branch is reached
+  PASS  the keyhole's middle is not covered
+  PASS  the keyhole's ring is covered on all four sides
+  PASS  every keyhole piece triangulates (2)
+  PASS  a gentle river's band is drawn as it is, one polygon
+  PASS  a sub-pixel quad still draws (1 polygons, 0 fan triangles)
+RESULT: PASS (0 failed) checks=16

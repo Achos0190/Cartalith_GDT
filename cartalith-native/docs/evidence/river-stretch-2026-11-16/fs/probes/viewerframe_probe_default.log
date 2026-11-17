@@ -1,0 +1,39 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+Cartalith shell build 60a5109a6370
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1329)
+   GDScript backtrace (most recent call first):
+       [0] _build_preview (res://shell/new_world_dialog.gd:1232)
+       [1] _build (res://shell/new_world_dialog.gd:732)
+       [2] setup (res://shell/new_world_dialog.gd:618)
+       [3] _make_window (res://shell/app.gd:2563)
+       [4] _ready (res://shell/app.gd:1970)
+       [5] _ready (res://_viewerframe_probe.gd:219)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  the world generated (233 settlements)
+canvas (1296.0, 888.0)
+  NONRIVER #14 coast pop 1957
+  #70 river vis [P: (563.6015, 502.5274), S: (585.9406, 401.4778)] gap_m 0 fitbox [P: (679.1948, 509.7612), S: (354.754, 387.0102)] water-in-frame { "poly": true, "river": true, "mask": false, "cross": false } has_geom true river_pts 283 runs 0 poly 566
+  NONRIVER #157 landlocked pop 0
+  NONRIVER #197 landlocked pop 0
+  NONRIVER #219 landlocked pop 0
+  NONRIVER #220 landlocked pop 0
+  NONRIVER #229 landlocked pop 0
+MEASURE seed 483920 grid 384x288: 233 settlements, 227 river-kind, 227 with water geometry, 227 with water in the opening frame, 0 MISS: []
+  PASS  settlement #70 shows water in its opening frame (seed 483920 at 384 x 288 only)
+  PASS  at most 8 river-kind towns open without water (0)
+  PASS  a river 30 m off pulls the frame to it plus one river width, 140 m ([P: (0.0, -10.0), S: (140.0, 110.0)])
+  PASS  a river 100 m off (over 0.6 of 100 m) leaves the frame alone
+  PASS  a river through the built mass leaves the frame alone
+  PASS  no water leaves the frame alone
+  PASS  a 20 m hamlet reaches a river 25 m off (the 30 m floor, [P: (0.0, -3.375), S: (49.0, 23.375)])
+  PASS  a water body 20 m off pulls the frame to it
+  PASS  a map-water mask run 15 m off pulls the frame to it
+RESULT: PASS (0 failed) checks=10
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

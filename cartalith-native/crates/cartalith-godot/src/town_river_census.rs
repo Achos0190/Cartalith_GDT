@@ -2578,3 +2578,111 @@ fn harbour_front_audit() {
     println!("  wall/hull, walled towns of PLAZA_MARKET_POP and up: {}; of them with sea in the box: {}", spread2(&mut hull), spread2(&mut hull_h));
     println!("  market moved, m: {}", spread(&mut moved));
 }
+
+/// **Ruling FS** (owner, 2026-11-17): the class audit behind the river
+/// stretch's blocking defect (the app world's 246371 #11 at 384 x 288 losing
+/// its open water and harbour quays once stretched). For every town the plan
+/// stretches (`UrbanContext::site_box` set), it compares the layout the app
+/// draws ([`run_layout`] of the stretched context, which may fall back to the
+/// reference box) with the same town laid out unstretched (`ctx.plain`):
+///
+/// - open water: the area of `UrbanLayout::water_mask_runs` (the raster the
+///   City Viewer draws as the town's sea and lakes) inside the reference box's
+///   window, which sits centred in the stretched box, in m²;
+/// - the harbour: `UrbanLayout::harbour` present, its pier count, and the
+///   `quay` streets' length.
+///
+/// A town is FLAGGED when the drawn layout has under half the unstretched
+/// open water in that window (with at least 5 cells of it unstretched), or
+/// loses a harbour or all of its quay streets the unstretched layout had.
+/// `TOWN_RIVER_LIST=1` prints a row per stretched town. A measurement, not a
+/// gate: the gate is `cartalith-civ`'s own test of the fix. Numbers are in
+/// `docs/evidence/river-stretch-2026-11-16/fs/`.
+#[test]
+#[ignore = "measurement; see the doc comment"]
+fn stretch_water_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    // Area of the runs inside the window `[x0, x0 + w] x [y0, y0 + h]`, m².
+    let window_area = |runs: &[(Vec2, Vec2)], x0: f64, y0: f64, w: f64, h: f64| -> f64 {
+        runs.iter()
+            .map(|(a, b)| {
+                let dx = (b.x.min(x0 + w) - a.x.max(x0)).max(0.0);
+                let dy = (b.y.min(y0 + h) - a.y.max(y0)).max(0.0);
+                dx * dy
+            })
+            .sum()
+    };
+    let quay_m = |l: &cartalith_civ::urban_adapter::UrbanLayout| -> f64 { l.edges.iter().filter(|e| e.cls == "quay").map(|e| e.a.dist(e.b)).sum() };
+    let (mut planned, mut laid, mut flagged) = (0usize, 0usize, 0usize);
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, true);
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
+        };
+        let others = stretch_others(&civ);
+        let mut c = [0usize; 3];
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let o = PlaceOverrides {
+                faith: civ.town_faith(s),
+                wall_hug: p.urban_wall_hug,
+                riverbank: p.urban_riverbank,
+                street_village: street_village(&p),
+                market_scale: market_scale(&p),
+                harbour_front: p.urban_harbour_front,
+                river_stretch: Some(others.as_slice()),
+                ..Default::default()
+            };
+            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+            let (Some((bw, bh)), Some(plain)) = (ctx.site_box, ctx.plain.as_deref()) else { continue };
+            c[0] += 1;
+            let (Some(l), Some(lp)) = (run_layout(&ctx, None), run_layout(plain, None)) else { continue };
+            let stretched = (l.wm - bw).abs() < 0.5 && (l.hm - bh).abs() < 0.5;
+            c[1] += usize::from(stretched);
+            let (rw, rh) = (lp.wm, lp.hm);
+            let (ox, oy) = if stretched { ((l.wm - rw) / 2.0, (l.hm - rh) / 2.0) } else { (0.0, 0.0) };
+            let a_plain = window_area(&lp.water_mask_runs, 0.0, 0.0, rw, rh);
+            let a_laid = window_area(&l.water_mask_runs, ox, oy, rw, rh);
+            let cell2 = 22.0 * 22.0;
+            let lost_water = a_plain >= 5.0 * cell2 && a_laid < 0.5 * a_plain;
+            let lost_harbour = lp.harbour.is_some() && l.harbour.is_none();
+            let lost_quay = quay_m(&lp) > 0.0 && quay_m(&l) == 0.0;
+            let flag = lost_water || lost_harbour || lost_quay;
+            c[2] += usize::from(flag);
+            if list || flag {
+                println!(
+                    "  #{i:3} ({:4},{:4}) {} {} {} box {:.0}x{:.0}: open water in the reference window {:.0} -> {:.0} m2, harbour {} -> {} (piers {} -> {}), quay {:.0} -> {:.0} m{}",
+                    s.placement.x, s.placement.y, if civ.village_tids.contains(&s.tid) { "village" } else { "town   " }, l.site_kind,
+                    if stretched { "STRETCHED" } else { "refused  " }, bw, bh, a_plain.abs(), a_laid.abs(),
+                    lp.harbour.is_some(), l.harbour.is_some(), lp.harbour.as_ref().map_or(0, |h| h.piers.len()), l.harbour.as_ref().map_or(0, |h| h.piers.len()),
+                    quay_m(&lp), quay_m(&l),
+                    if flag { format!(" FLAGGED{}{}{}", if lost_water { " (water)" } else { "" }, if lost_harbour { " (harbour)" } else { "" }, if lost_quay { " (quay)" } else { "" }) } else { String::new() }
+                );
+            }
+        }
+        println!("seed {seed} at {gw}x{gh}: planned stretched {}, laid out stretched {}, flagged {}", c[0], c[1], c[2]);
+        planned += c[0];
+        laid += c[1];
+        flagged += c[2];
+    }
+    println!("all seeds at {gw}: planned stretched {planned}, laid out stretched {laid}, flagged {flagged}");
+}

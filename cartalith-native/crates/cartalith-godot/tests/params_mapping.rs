@@ -1465,8 +1465,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// item 2's `urban_street_village` and the town judgement's change 6,
 /// `urban_market_scale`; Ruling FF's and FI's four civ switches; and, 2026-11-16,
 /// Ruling FK's `urban_harbour_front` and `civ.port_reach`, and Ruling FN's
-/// `urban_river_stretch`, off at both boundaries: a prototype, then fixed
-/// under Ruling FQ the same day and still off pending the owner.)
+/// `urban_river_stretch`, a prototype fixed under Ruling FQ the same day and
+/// switched on in the app by Ruling FS, 2026-11-17.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1511,7 +1511,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.urban_harbour_front && !parity.urban_harbour_front, "harbour towns are built to their water, Ruling FK item 1");
     assert!(app.civ.port_reach && !parity.civ.port_reach, "ports only within about 4 km of the ocean, Ruling FK item 2");
     assert!(app.civ.founding_year && !parity.civ.founding_year, "settlements carry a founding year in the app only, Ruling FO item 1");
-    assert!(!app.urban_river_stretch && !parity.urban_river_stretch, "Ruling FN's river stretch is off in the app too, pending the owner (Ruling FQ's riverside shortfall)");
+    assert!(app.urban_river_stretch && !parity.urban_river_stretch, "river towns stretch along their river for new worlds, Ruling FS");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
