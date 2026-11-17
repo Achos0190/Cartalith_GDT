@@ -2269,6 +2269,14 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::market_road_bank`], carried to
     /// `GenOpts::market_road_bank` (the 483920 #4 under-build, 2026-11-17).
     pub market_road_bank: bool,
+    /// Ruling GB cause A (2026-11-17), carried to `GenOpts::water_widen`:
+    /// the growth radius scaled up where the disc is mostly water. **Not a
+    /// `_umPlaceContext` field**; `false` is the reference's radius.
+    pub water_widen: bool,
+    /// Ruling GB cause B (2026-11-17), carried to
+    /// `GenOpts::town_bridge_search`: a both-banks town tries other crossings
+    /// when the site's own bridge point fails. `false` is the reference.
+    pub town_bridge_search: bool,
     /// [`PlaceOverrides::harbour_front`] where the town's box holds sea
     /// ([`UmWater::sea_frac`] above [`BOX_SEA_FRAC`], the harbour badge's own
     /// test, `um_box_has_sea`), carried to `GenOpts::harbour_front` (Ruling FK
@@ -2407,6 +2415,14 @@ pub struct PlaceOverrides<'a> {
     /// unmoved by control flow. The app sets it from
     /// `WorldParams::urban_market_road_bank` (`DECISIONS.md` section 7p).
     pub market_road_bank: bool,
+    /// Ruling GB cause A (2026-11-17), carried to `GenOpts::water_widen`:
+    /// the growth radius scaled up where the disc is mostly water. **Not a
+    /// `_umPlaceContext` field**; `false` is the reference's radius.
+    pub water_widen: bool,
+    /// Ruling GB cause B (2026-11-17), carried to
+    /// `GenOpts::town_bridge_search`: a both-banks town tries other crossings
+    /// when the site's own bridge point fails. `false` is the reference.
+    pub town_bridge_search: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2513,6 +2529,8 @@ pub fn um_place_context_with(
             market_scale: o.market_scale,
             burgage: o.burgage,
             market_road_bank: o.market_road_bank,
+            water_widen: o.water_widen,
+            town_bridge_search: o.town_bridge_search,
             harbour_front,
             site_box,
             river_stretch,
@@ -3103,6 +3121,8 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         market_scale: ctx.market_scale,
         burgage: ctx.burgage,
         market_road_bank: ctx.market_road_bank,
+        water_widen: ctx.water_widen,
+        town_bridge_search: ctx.town_bridge_search,
         harbour_front: ctx.harbour_front,
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.

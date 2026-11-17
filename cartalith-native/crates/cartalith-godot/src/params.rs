@@ -214,6 +214,12 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's market every urban golden pins
     // (`DECISIONS.md` section 7p). See `WorldParams::urban_market_road_bank`.
     p.urban_market_road_bank = true;
+    // Ruling GB (2026-11-17), the under-built towns: the water-clipped growth
+    // disc is widened and a both-banks town searches for a crossing. Both off
+    // in `WorldParams::defaults` (every golden pins the reference); see
+    // `WorldParams::urban_growth_water_widen` / `urban_town_bridge_search`.
+    p.urban_growth_water_widen = true;
+    p.urban_town_bridge_search = true;
     // Ruling FZ item 5 (2026-11-17): rivers and the landmark kinds that were unnamed get names from the
     // world's name style. Off in `WorldParams::defaults` (nothing named, as every golden had it).
     // See `WorldParams::name_unnamed_kinds`.
@@ -519,6 +525,18 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_market_road_bank", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River town markets on their roads' bank", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_market_road_bank), set_fn: |p, v| p.urban_market_road_bank = v != 0.0 },
+    // Ruling GB cause A (2026-11-17): the growth disc of a town whose ground is mostly water is
+    // widened (`cartalith_urban::GenOpts::water_widen`). ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control. A save without the key loads OFF
+    // (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for (`param_catalogue::regen` live).
+    ParamSpec { key: "urban_growth_water_widen", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Widen the growth of water-clipped towns", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_growth_water_widen), set_fn: |p, v| p.urban_growth_water_widen = v != 0.0 },
+    // Ruling GB cause B: a both-banks town searches the river for a crossing when the site's bridge
+    // point fails (`GenOpts::town_bridge_search`). Same defaults, load rule and regen as the row above.
+    ParamSpec { key: "urban_town_bridge_search", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River towns search for a crossing", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_town_bridge_search), set_fn: |p, v| p.urban_town_bridge_search = v != 0.0 },
     // Ruling FZ item 5 (2026-11-17): names for rivers and the landmark kinds the engine did not name
     // (`cartalith_civ::name_style`). ON at the app boundary, OFF in `WorldParams::defaults`; no reference
     // control. A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read when the names are asked
@@ -1240,6 +1258,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_burgage", ""),
     // Port-only (the 483920 #4 row); the reference takes the first dry ring point.
     ("urban_market_road_bank", ""),
+    // Port-only (Ruling GB); the reference's growth radius and single bridge point.
+    ("urban_growth_water_widen", ""),
+    ("urban_town_bridge_search", ""),
     // Port-only (Ruling FZ item 5); the reference names none of these kinds.
     ("name_unnamed_kinds", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
@@ -1604,6 +1625,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // A river town's market on its roads' bank (2026-11-17): every save
     // without the key drew the reference's first dry ring point.
     ("urban_market_road_bank", Value::Bool(false)),
+    // Ruling GB (2026-11-17): every save without the keys drew the reference's radius and bridge point.
+    ("urban_growth_water_widen", Value::Bool(false)),
+    ("urban_town_bridge_search", Value::Bool(false)),
     // Names for rivers and the other unnamed kinds (Ruling FZ, 2026-11-17): every save without the key
     // had none.
     ("name_unnamed_kinds", Value::Bool(false)),

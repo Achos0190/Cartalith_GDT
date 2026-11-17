@@ -1167,11 +1167,61 @@ fn dry_line(site: &Site, a: Vec2, b: Vec2) -> bool {
 /// edge rule), or more than `max_r` from the market; lay any street through
 /// the water but the span itself; or remove anything.
 pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64) -> TownBridge {
+    lay_town_bridge_search(site, anchors, g, max_r, false).0
+}
+
+/// How many centreline vertices [`lay_town_bridge_search`] may try for a
+/// crossing. **A labelled judgement** (Ruling GB, 2026-11-17): enough to walk
+/// a V-bend's two limbs and both approaches (24 vertices 25 m apart span
+/// 600 m of river), few enough that the search, which runs only in a
+/// both-banks town's second layout, stays cheap.
+pub const BRIDGE_SEARCH_MAX_TRIES: usize = 24;
+
+/// The least spacing between two vertices [`lay_town_bridge_search`] tries,
+/// metres. **A labelled judgement** (Ruling GB): the resampled centreline is a
+/// vertex every 8 m (`fine_river_path`), so without a spacing the 24 tries
+/// would all be neighbours of one bend and test the same crossing 24 times.
+pub const BRIDGE_SEARCH_SPACING_M: f64 = 25.0;
+
+/// [`lay_town_bridge`] with Ruling GB's search (`GenOpts::town_bridge_search`):
+/// the bridge's outcome, its far end (the far bank's centre for
+/// `crate::growth::grow_far_bank`, [`far_bridge_end`] at the site's own bridge
+/// point) and, when the search laid it, the point it crossed at.
+///
+/// **Why.** The site's bridge point is one fixed place, `build_site`'s flattest
+/// approach in the middle of the river. Where the river bends in a V round the
+/// market that point's span can have both ends on one bank or one in the
+/// channel, `lay_town_bridge` gave up (seed 912345 #10 at 2 048 x 1 311: bridge
+/// point 50 m from the market, refused at the ends' test), `grow_far_bank` never
+/// ran and the far bank, 42 % of the growth disc, held 55 buildings against
+/// about 1 000 in the healthy controls.
+///
+/// **What it does.** With `search` off, exactly [`lay_town_bridge`]'s result
+/// (the second field is [`far_bridge_end`]'s, the third `None`). With it on, and
+/// only where the site's own point failed, the centreline's vertices within
+/// `max_r` of the market, nearest first and at least
+/// [`BRIDGE_SEARCH_SPACING_M`] apart, [`BRIDGE_SEARCH_MAX_TRIES`] at most, are
+/// tried with the same span, ends test, buildability test and join as the
+/// site's point; the first that holds is laid.
+///
+/// **What it must never do.** Change a town whose own point lays or already
+/// holds a crossing, lay a span whose ends fail any test the site's point must
+/// pass, or touch the graph for a vertex that fails. The sweep
+/// (`crate::cleanup::remove_water_crossings`) removes a span over open water
+/// away from `Site::bridge_pt`, so the caller must hand the returned point to
+/// `Site::alt_bridge_pt`.
+pub fn lay_town_bridge_search(
+    site: &Site,
+    anchors: &Anchors,
+    g: &mut Graph,
+    max_r: f64,
+    search: bool,
+) -> (TownBridge, Option<Vec2>, Option<Vec2>) {
     let r = &site.river;
     if !site.riverbank() || r.len() < 2 {
-        return TownBridge::None;
+        return (TownBridge::None, None, None);
     }
-    let (Some(bp), Some(dir)) = (site.bridge_pt, site.bridge_dir) else { return TownBridge::None };
+    let (Some(bp), Some(dir)) = (site.bridge_pt, site.bridge_dir) else { return (TownBridge::None, None, None) };
     // A road that already crosses counts only where it is this bridge: a
     // `primary` (the base sweep culls any other street through the channel)
     // crossing within the span's own half-length (`riverW/2 + 16`) of the
@@ -1198,13 +1248,47 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
                 && h.pt.dist(bp) <= js_or(site.river_w, 20.0) / 2.0 + 16.0
                 && h.pt.dist(anchors.market) <= max_r
             {
-                return TownBridge::Existing;
+                return (TownBridge::Existing, far_bridge_end(site, anchors.market), None);
             }
         }
     }
-    if bp.dist(anchors.market) > max_r {
-        return TownBridge::None;
+    if bp.dist(anchors.market) <= max_r
+        && let Some(far) = lay_span(site, anchors, g, bp, dir)
+    {
+        return (TownBridge::Laid, Some(far), None);
     }
+    if search {
+        let mut cands: Vec<(f64, usize)> =
+            r.iter().enumerate().map(|(i, p)| (p.dist(anchors.market), i)).filter(|&(d, _)| d <= max_r).collect();
+        cands.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let mut tried: Vec<Vec2> = Vec::new();
+        for (_, i) in cands {
+            if tried.len() >= BRIDGE_SEARCH_MAX_TRIES {
+                break;
+            }
+            let p = r[i];
+            if tried.iter().any(|q| q.dist(p) < BRIDGE_SEARCH_SPACING_M) {
+                continue;
+            }
+            tried.push(p);
+            let (a, b) = (r[i.saturating_sub(1)], r[(i + 1).min(r.len() - 1)]);
+            if a.dist(b) < 1e-6 {
+                continue;
+            }
+            if let Some(far) = lay_span(site, anchors, g, p, (b - a).norm()) {
+                return (TownBridge::Laid, Some(far), Some(p));
+            }
+        }
+    }
+    (TownBridge::None, None, None)
+}
+
+/// One crossing of [`lay_town_bridge_search`]: a 6 m `primary` span at `bp`
+/// across a river running along `dir`, joined to the market's bank, with the
+/// far stub. Returns the span's far end, and touches `g` only when it lays.
+/// The tests are the ones `lay_town_bridge`'s doc names (ends dry, in the box,
+/// on opposite banks, the far end buildable, a join within [`BRIDGE_JOIN_M`]).
+fn lay_span(site: &Site, anchors: &Anchors, g: &mut Graph, bp: Vec2, dir: Vec2) -> Option<Vec2> {
     let nl = dir.rot90();
     let half = site.river_w / 2.0 + 16.0;
     let mkt_side = site.bank_side(anchors.market);
@@ -1219,10 +1303,10 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
             && site.river_dist(p) >= site.river_w / 2.0 + 0.5
     };
     if !ok_end(near) || !ok_end(far) || site.bank_side(near) == site.bank_side(far) {
-        return TownBridge::None;
+        return None;
     }
     if !far_bank_buildable(site, far) {
-        return TownBridge::None;
+        return None;
     }
     // The near end's join: the nearest live street, lane or primary node on
     // the market's bank, joined by a dry straight street.
@@ -1236,7 +1320,7 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
             }
         }
     }
-    let Some((jp, _)) = join else { return TownBridge::None };
+    let Some((jp, _)) = join else { return None };
     g.add_street(near.x, near.y, far.x, far.y, "primary", 6.0, 0, TOWN_BRIDGE_PROV);
     if jp.dist(near) > 1.0 {
         g.add_street(near.x, near.y, jp.x, jp.y, "street", 4.0, 0, TOWN_BRIDGE_APPROACH_PROV);
@@ -1245,7 +1329,7 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
     if ok_end(stub) && dry_line(site, far, stub) {
         g.add_street(far.x, far.y, stub.x, stub.y, "street", 4.0, 0, TOWN_BRIDGE_APPROACH_PROV);
     }
-    TownBridge::Laid
+    Some(far)
 }
 
 #[cfg(test)]

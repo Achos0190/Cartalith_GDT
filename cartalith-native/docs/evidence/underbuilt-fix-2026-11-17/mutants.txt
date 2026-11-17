@@ -1,0 +1,15 @@
+KILLED       riverbank.rs   search guard forced on
+KILLED       riverbank.rs   spacing 0
+KILLED       riverbank.rs   tries 1
+KILLED       riverbank.rs   alt point not returned
+KILLED       riverbank.rs   site point's max_r dropped
+KILLED       cleanup.rs     alt exemption removed
+KILLED       generate.rs    gate < to <=
+KILLED       generate.rs    cap 2.5
+KILLED       generate.rs    no sqrt
+KILLED       generate.rs    box margin 40 -> 0 (low sides)
+KILLED       generate.rs    water test dropped
+KILLED       generate.rs    water_widen gate forced
+SURVIVED     generate.rs    town_bridge_search forced on
+SURVIVED     generate.rs    alt point not given to site
+KILLED       riverbank.rs   max_r filter dropped (re-run after the test gained a max_r 100 m assertion)

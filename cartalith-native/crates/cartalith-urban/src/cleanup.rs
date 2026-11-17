@@ -270,7 +270,7 @@ pub fn remove_water_crossings_keeping(site: &Site, g: &mut Graph, keep: Option<V
             let mut open_wet = 0;
             for i in 1..10 {
                 let p = a.lerp(b, i as f64 / 10.0);
-                if site.is_water(p) && bp.is_none_or(|bp| p.dist(bp) > bridge_r) {
+                if site.is_water(p) && bp.is_none_or(|bp| p.dist(bp) > bridge_r) && site.alt_bridge_pt.is_none_or(|ap| p.dist(ap) > bridge_r) {
                     open_wet += 1;
                 }
             }

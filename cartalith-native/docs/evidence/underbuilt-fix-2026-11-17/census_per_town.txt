@@ -1,0 +1,36 @@
+== census (CPU world) 384, both switches: off -> on (towns that change)
+483920 13 river tgt 18869 bld 4212 -> 4032 housed% 101.8 -> 99.9 WORSE
+912345 2 river tgt 2458 bld 446 -> 848 housed% 85.9 -> 163.8 
+246371 7 coast tgt 20000 bld 1847 -> 2749 housed% 44.9 -> 65.6 
+246371 11 river tgt 18568 bld 3803 -> 3811 housed% 95.2 -> 97.8 
+-- GWW only
+246371 7 coast tgt 20000 bld 1847 -> 2749 housed% 44.9 -> 65.6 
+-- TBS only
+483920 13 river tgt 18869 bld 4212 -> 4032 housed% 101.8 -> 99.9 WORSE
+912345 2 river tgt 2458 bld 446 -> 848 housed% 85.9 -> 163.8 
+246371 11 river tgt 18568 bld 3803 -> 3811 housed% 95.2 -> 97.8 
+== census (CPU world) 2048, both: off -> on
+483920 4 river tgt 20000 bld 4058 -> 3745 housed% 94.5 -> 90.4 WORSE
+483920 10 riverthrough tgt 20000 bld 2259 -> 3027 housed% 54.8 -> 72.6 
+483920 38 river tgt 1584 bld 262 -> 309 housed% 84.7 -> 98.2 
+912345 10 river tgt 20000 bld 2744 -> 3254 housed% 62.1 -> 72.4 
+246371 0 riverthrough tgt 20000 bld 1188 -> 2108 housed% 28.9 -> 49.5 
+246371 2 river tgt 20000 bld 3508 -> 4080 housed% 82.1 -> 96.4 
+246371 24 river tgt 20000 bld 4292 -> 4097 housed% 93.6 -> 91.2 WORSE
+-- GWW only (TOWN_RIVER_TBS=0), earlier binary, same code path
+483920 10 riverthrough tgt 20000 bld 2259 -> 3027 housed% 54.8 -> 72.6 
+246371 0 riverthrough tgt 20000 bld 1188 -> 2108 housed% 28.9 -> 49.5 
+-- TBS only
+483920 4 river tgt 20000 bld 4058 -> 3745 housed% 94.5 -> 90.4 WORSE
+483920 38 river tgt 1584 bld 262 -> 309 housed% 84.7 -> 98.2 
+912345 10 river tgt 20000 bld 2744 -> 3254 housed% 62.1 -> 72.4 
+246371 0 riverthrough tgt 20000 bld 1188 -> 1180 housed% 28.9 -> 28.7 WORSE
+246371 2 river tgt 20000 bld 3508 -> 4080 housed% 82.1 -> 96.4 
+246371 24 river tgt 20000 bld 4292 -> 4097 housed% 93.6 -> 91.2 WORSE
+== cap sweep, 246371 #0 at 2048 (GWW only; the ruled cap is 1.6)
+cap 1.5 246371 0 riverthrough tgt 20000 bld 1188 -> 2421 housed% 28.9 -> 58.2
+cap 1.55 246371 0 riverthrough tgt 20000 bld 1188 -> 1959 housed% 28.9 -> 45.5
+cap 1.65 246371 0 riverthrough tgt 20000 bld 1188 -> 2187 housed% 28.9 -> 49.5
+cap 1.7 246371 0 riverthrough tgt 20000 bld 1188 -> 2390 housed% 28.9 -> 58.1
+cap 1.8 246371 0 riverthrough tgt 20000 bld 1188 -> 2545 housed% 28.9 -> 59.1
+cap 2.0 246371 0 riverthrough tgt 20000 bld 1188 -> 2545 housed% 28.9 -> 59.1

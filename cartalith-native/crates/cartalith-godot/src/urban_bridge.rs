@@ -749,6 +749,9 @@ impl WorldGen {
             // The 483920 #4 row: a river town's market on its roads' bank.
             // Read live, like the seven above.
             market_road_bank: self.params.urban_market_road_bank,
+            // Ruling GB (2026-11-17): the water-clipped front and the bridge search.
+            water_widen: self.params.urban_growth_water_widen,
+            town_bridge_search: self.params.urban_town_bridge_search,
         }
     }
 

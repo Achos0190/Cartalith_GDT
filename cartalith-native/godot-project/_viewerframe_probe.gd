@@ -18,6 +18,9 @@ extends Node
 ## the frames are named `viewer_<seed>_<id>_burgage<0|1>.png`. `--burgage 2` shoots every id with the switch off, then
 ## turns it on in the same session and shoots them again, and checks that the layouts fetched after the live toggle
 ## differ from those before it for at least one id (the switch is read live, not from a stale cache).
+## `--gb 0|1` (Ruling GB, 2026-11-17) sets both `urban_growth_water_widen` and `urban_town_bridge_search` (the water-clipped
+## growth disc and the bridge search) off or on after the world is made, for the under-built towns' before/after dumps and
+## frames; with `--shots` the frames are named `viewer_<seed>_<id>_gb<0|1>.png`.
 ## `--quick 1` (Ruling FQ) skips the water-in-frame measure and its two bars and lists every town of 1 500 and up with its cell.
 ## Result line: `RESULT: PASS|FAIL`. Exit 0 pass, 1 fail, 2 bad argument.
 
@@ -183,6 +186,7 @@ func _ready() -> void:
 	var riverbank := -1
 	var stretch := -1
 	var burgage := -1
+	var gb := -1
 	## `--villages 0` makes the world without villages, as the FH-R2 harness
 	## (`fh_r2_baseline.rs`) does, so its settlement indices match; default on,
 	## as the shell's probes ask.
@@ -206,6 +210,7 @@ func _ready() -> void:
 			"--riverbank": riverbank = int(args[i + 1])
 			"--stretch": stretch = int(args[i + 1])
 			"--burgage": burgage = int(args[i + 1])
+			"--gb": gb = int(args[i + 1])
 			"--villages": villages = int(args[i + 1]) != 0
 			"--quick": quick = int(args[i + 1]) != 0
 			"--ids":
@@ -237,6 +242,8 @@ func _ready() -> void:
 		_ok(bridge.param_set("urban_river_stretch", stretch == 1), "urban_river_stretch set to %d" % stretch)
 	if burgage >= 0:
 		_ok(bridge.param_set("urban_burgage", burgage == 1), "urban_burgage set to %d" % burgage)
+	if gb >= 0:
+		_ok(bridge.param_set("urban_growth_water_widen", gb == 1) and bridge.param_set("urban_town_bridge_search", gb == 1), "Ruling GB switches set to %d" % gb)
 	var places: Array = bridge.settlements()
 	_ok(places.size() > 70 or gw != 384, "the world generated (%d settlements)" % places.size())
 	app.open_city_viewer(0)
@@ -355,7 +362,7 @@ func _ready() -> void:
 				var img: Image = vp.get_texture().get_image()
 				var rect := Rect2(cv._canvas.get_global_transform_with_canvas().origin + Vector2(cv.position), cv._canvas.size)
 				var tag: int = phase if burgage == 2 else burgage
-				img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d_burgage%d.png" % [seed_n, id, tag]) if burgage >= 0 else ("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
+				img.get_region(Rect2i(rect).intersection(Rect2i(Vector2i.ZERO, img.get_size()))).save_png(shots.path_join(("viewer_%d_%d_burgage%d.png" % [seed_n, id, tag]) if burgage >= 0 else ("viewer_%d_%d_gb%d.png" % [seed_n, id, gb]) if gb >= 0 else ("viewer_%d_%d.png" % [seed_n, id]) if riverbank < 0 else ("viewer_%d_%d_riverbank%d.png" % [seed_n, id, riverbank])))
 				cv.hide()
 	print("RESULT: %s (%d failed) checks=%d" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)

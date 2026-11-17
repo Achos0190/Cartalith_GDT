@@ -1403,3 +1403,103 @@ fn a_riverbank_square_is_fitted_at_its_scaled_size() {
     assert!((ratio - third * third).abs() < 1e-6, "square {ratio} of the reference's, the third try {} (full scale {})", third * third, k * k);
     assert!(fitted.poly[0].dist(fitted.poly[1]) <= len + 1e-6, "the square overhangs its {len} m street");
 }
+
+/// The fixture's river site (resampled the way `generate` does) and a street
+/// on the north bank along `y = RIVER_Y - 80` from `x0` to `x1`; the market
+/// 120 m north of the river at `market_x`.
+fn search_fixture(x0: f64, x1: f64, market_x: f64) -> (crate::site::Site, crate::routes::Anchors, crate::graph::Graph) {
+    let mut w = water(true);
+    w.river_path = crate::riverbank::fine_river_path(w.river_path.as_deref().unwrap(), 1700.0, 1250.0);
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+    assert!(site.use_riverbank());
+    let anchors = crate::routes::Anchors { market: Vec2::new(market_x, RIVER_Y - 120.0), ..crate::routes::place_anchors(7, &site) };
+    let mut g = crate::graph::Graph::new();
+    g.add_street(x0, RIVER_Y - 80.0, x1, RIVER_Y - 80.0, "street", 4.0, 0, "test");
+    (site, anchors, g)
+}
+
+/// Protects Ruling GB cause B's search: the site's bridge point is 277 m from
+/// a market at `bp.x + 250` (beyond `max_r` 200 m), so with the search off
+/// the bridge is refused and the graph untouched; with it on, the nearest
+/// centreline vertex (the one under the market) takes a span, the far end is
+/// returned on the south bank 28 m (`riverW/2 + 16`) from the centreline, and
+/// the vertex is returned for the water sweep. Mutating the `search` guard,
+/// the `max_r` filter or the returned point turns it red.
+#[test]
+fn the_bridge_search_crosses_where_the_sites_point_is_out_of_reach() {
+    let probe = search_fixture(0.0, 1.0, 0.0);
+    let bp = probe.0.bridge_pt.expect("a river site has a bridge point");
+    let mx = bp.x + 250.0;
+    let (site, anchors, mut g) = search_fixture(mx - 100.0, mx + 100.0, mx);
+    let edges = g.edges.len();
+    let off = super::lay_town_bridge_search(&site, &anchors, &mut g, 200.0, false);
+    assert_eq!(off, (super::TownBridge::None, None, None));
+    assert_eq!(g.edges.len(), edges, "a refusal touches nothing");
+    // No vertex stands within 100 m of a market 120 m from the river: nothing is laid, even searching.
+    assert_eq!(super::lay_town_bridge_search(&site, &anchors, &mut g, 100.0, true), (super::TownBridge::None, None, None));
+    assert_eq!(g.edges.len(), edges);
+    let (tb, far, alt) = super::lay_town_bridge_search(&site, &anchors, &mut g, 200.0, true);
+    assert_eq!(tb, super::TownBridge::Laid);
+    let (far, alt) = (far.expect("a far end"), alt.expect("the crossing's vertex"));
+    // Within `max_r` of the market, and not the site's own point (which is 277 m away). The
+    // nearest vertex under the market is skipped by the fixture's relief (its far end is not
+    // buildable), so the search walks on to one that is: that is the search working.
+    assert!((alt.y - RIVER_Y).abs() < 1e-6 && alt.dist(anchors.market) <= 200.0 && alt.dist(bp) > 1.0, "{alt:?}");
+    assert!((far.y - (RIVER_Y + 28.0)).abs() < 1e-6 && (far.x - alt.x).abs() < 1e-6, "{far:?}");
+    let span = g.edges.iter().find(|e| e.cls == "primary").expect("a span");
+    let (a, b) = (g.nodes[span.a].pt(), g.nodes[span.b].pt());
+    assert!(north(a) != north(b) && (a.x - alt.x).abs() < 1e-6);
+    // Off the same call is `lay_town_bridge`'s.
+    let (site2, anchors2, mut g2) = search_fixture(mx - 100.0, mx + 100.0, mx);
+    assert_eq!(super::lay_town_bridge(&site2, &anchors2, &mut g2, 200.0), super::TownBridge::None);
+}
+
+/// Protects the search's two restraints: a town whose own bridge point lays
+/// is identical on or off (same far end, no alternative point, same graph),
+/// and where no vertex within `max_r` has a street to join, nothing is laid
+/// and the graph is untouched even with the search on.
+#[test]
+fn the_bridge_search_leaves_a_working_point_alone_and_a_joinless_town_unbridged() {
+    let probe = search_fixture(0.0, 1.0, 0.0);
+    let bp = probe.0.bridge_pt.unwrap();
+    let (site, anchors, mut g) = search_fixture(bp.x - 100.0, bp.x + 100.0, bp.x);
+    let mut g_off = g.clone();
+    let on = super::lay_town_bridge_search(&site, &anchors, &mut g, 400.0, true);
+    let off = super::lay_town_bridge_search(&site, &anchors, &mut g_off, 400.0, false);
+    assert_eq!(on, off);
+    assert_eq!(on.0, super::TownBridge::Laid);
+    assert_eq!(on.2, None, "the site's own point laid it");
+    assert_eq!(g.edges.len(), g_off.edges.len());
+    // A street 300 m from the river-side ends, beyond BRIDGE_JOIN_M (240 m).
+    let (site, anchors, _) = search_fixture(bp.x + 600.0, bp.x + 700.0, bp.x + 650.0);
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x + 600.0, RIVER_Y - 400.0, bp.x + 700.0, RIVER_Y - 400.0, "street", 4.0, 0, "test");
+    let edges = g.edges.len();
+    assert_eq!(super::lay_town_bridge_search(&site, &anchors, &mut g, 300.0, true), (super::TownBridge::None, None, None));
+    assert_eq!(g.edges.len(), edges);
+}
+
+/// Protects `Site::alt_bridge_pt` in the real-water sweep: a `primary` span
+/// across the channel 300 m from the site's bridge point is removed (open
+/// water beyond the bridge radius) when no alternative point is set, and kept
+/// when the span stands at `alt_bridge_pt`.
+#[test]
+fn the_water_sweep_keeps_a_span_at_the_alternative_bridge_point() {
+    let probe = search_fixture(0.0, 1.0, 0.0);
+    let x = probe.0.bridge_pt.unwrap().x + 300.0;
+    let build = || {
+        let (site, _, _) = search_fixture(0.0, 1.0, 0.0);
+        let mut g = crate::graph::Graph::new();
+        g.add_street(x, RIVER_Y - 28.0, x, RIVER_Y + 28.0, "primary", 6.0, 0, "test");
+        g.add_street(x, RIVER_Y - 28.0, x + 100.0, RIVER_Y - 28.0, "street", 4.0, 0, "test");
+        g.add_street(x, RIVER_Y + 28.0, x + 100.0, RIVER_Y + 28.0, "street", 4.0, 0, "test");
+        (site, g)
+    };
+    let (site, mut g) = build();
+    crate::cleanup::remove_water_crossings(&site, &mut g);
+    assert!(g.edges.iter().all(|e| !(e.alive && e.cls == "primary")), "the span is swept without an alternative point");
+    let (mut site, mut g) = build();
+    site.alt_bridge_pt = Some(Vec2::new(x, RIVER_Y));
+    crate::cleanup::remove_water_crossings(&site, &mut g);
+    assert!(g.edges.iter().any(|e| e.alive && e.cls == "primary"), "the span at the alternative point is kept");
+}

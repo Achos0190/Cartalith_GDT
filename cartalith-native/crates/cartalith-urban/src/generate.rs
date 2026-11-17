@@ -91,7 +91,7 @@ use crate::hinterland::{
 };
 use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
-use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, fine_river_path, lay_town_bridge};
+use crate::riverbank::{BOTH_BANKS_MIN_POP, RiverbankPass, TownBridge, fine_river_path, lay_town_bridge_search};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, build_primaries_from_paths_at, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
@@ -278,6 +278,21 @@ pub struct GenOpts {
     /// market, by control flow. The host sets it from
     /// `WorldParams::urban_market_road_bank`.
     pub market_road_bank: bool,
+    /// **Not the reference** -- Ruling GB (owner, 2026-11-17), cause A of the
+    /// under-built towns: a town whose growth disc is mostly water (a market
+    /// on a coast or a lake shore) grows over a radius scaled by
+    /// 1 / sqrt(its land share), capped at [`WATER_WIDEN_CAP`], and only
+    /// where the share is under [`WATER_WIDEN_BELOW`]
+    /// ([`widened_reach`]). `false` is the reference's radius, by control
+    /// flow. The host sets it from `WorldParams::urban_growth_water_widen`.
+    pub water_widen: bool,
+    /// **Not the reference** -- Ruling GB, cause B: when the site's own bridge
+    /// point cannot hold a crossing, a both-banks town's second layout tries
+    /// the centreline vertices near the market
+    /// ([`crate::riverbank::lay_town_bridge_search`]), so the far bank is
+    /// grown. `false` is the reference's single point, by control flow. The
+    /// host sets it from `WorldParams::urban_town_bridge_search`.
+    pub town_bridge_search: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -287,6 +302,51 @@ pub struct GenOpts {
 /// expression is the reference's, term for term.
 pub fn town_reach_m(pop_target: f64) -> f64 {
     js_min(720.0, (pop_target * 21.0).sqrt() * 1.35 + 80.0)
+}
+
+/// The tightest land share at which [`widened_reach`] leaves the radius
+/// alone. **A labelled judgement** (Ruling GB): the owner's 0.8, so a town
+/// whose disc is a fifth water or less is untouched.
+pub const WATER_WIDEN_BELOW: f64 = 0.8;
+
+/// The most [`widened_reach`] scales the radius by. **A labelled judgement**
+/// (Ruling GB): the owner's 1.6; the ablation of
+/// `docs/evidence/underbuilt-towns-2026-11-17/summary.txt` gained most up to
+/// 1.5 (246371 #0: 29 -> 58 %) and little beyond (63 % at 2).
+pub const WATER_WIDEN_CAP: f64 = 1.6;
+
+/// Samples [`disc_land_share`] takes: a Fibonacci spiral, equal area per
+/// sample, so the share is read to about a point (1 / sqrt(512) of the
+/// radius). A labelled judgement.
+const LAND_SHARE_SAMPLES: usize = 512;
+
+/// The share of the disc of radius `r` round `c` that is land the town can
+/// build streets on: inside the box less `grow`'s 40 m edge rule and not
+/// water (`Site::is_water`: the channel or open-water cells). Equal-area
+/// spiral samples, deterministic. For [`widened_reach`].
+pub fn disc_land_share(site: &Site, c: Vec2, r: f64) -> f64 {
+    let golden = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
+    let land = (0..LAND_SHARE_SAMPLES)
+        .filter(|&k| {
+            let rr = r * ((k as f64 + 0.5) / LAND_SHARE_SAMPLES as f64).sqrt();
+            let a = k as f64 * golden;
+            let p = Vec2::new(c.x + rr * a.cos(), c.y + rr * a.sin());
+            p.x >= 40.0 && p.y >= 40.0 && p.x <= site.wm - 40.0 && p.y <= site.hm - 40.0 && !site.is_water(p)
+        })
+        .count();
+    land as f64 / LAND_SHARE_SAMPLES as f64
+}
+
+/// Ruling GB's growth radius: `max_rf` divided by the square root of the
+/// disc's `land_share`, capped at [`WATER_WIDEN_CAP`] times, and only where
+/// the share is under [`WATER_WIDEN_BELOW`]; `max_rf` otherwise. The square
+/// root because the town needs about the same area of land, and area goes as
+/// the radius squared. A NaN share leaves the radius alone.
+pub fn widened_reach(max_rf: f64, land_share: f64) -> f64 {
+    if !(land_share < WATER_WIDEN_BELOW) {
+        return max_rf;
+    }
+    max_rf * (1.0 / land_share.max(1e-9).sqrt()).min(WATER_WIDEN_CAP)
 }
 
 /// The reference's market-to-harbour distance on a sea site, metres:
@@ -1042,6 +1102,21 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         site.set_stretch(f);
     }
 
+    // **Not the reference** (Ruling GB cause A, `GenOpts::water_widen`): the
+    // town's reach, scaled up where its disc is mostly water ([`widened_reach`]),
+    // from here on: the growth front, the bridge's reach, the back lanes, the
+    // district bands that decide what is built, and the `Town::max_rf` reported.
+    // (The ablation behind the ruling scaled `town_reach_m` itself.) Only the
+    // organic plan (the radial plan lays fixed rings), never a street village
+    // (its tofts and lanes have their own reach) and never a stretched town
+    // (its frame is not a disc). Every use above this line, the market
+    // placement and the stretch frame, keeps the reference's reach.
+    let max_rf = if opts.water_widen && !street_village && profile.planning != "radial" && site.stretch().is_none() {
+        widened_reach(max_rf, disc_land_share(&site, anchors.market, max_rf))
+    } else {
+        max_rf
+    };
+
     let mut g = Graph::new();
     let mut wall_state = WallState::default();
 
@@ -1171,9 +1246,14 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         if let RiverbankPass::FarBank { share } = pass
             && both_banks
         {
-            let tb = lay_town_bridge(&site, &anchors, &mut g, max_rf);
+            // Ruling GB cause B: with `town_bridge_search` the nearest
+            // centreline vertices are tried when the site's own point fails;
+            // `alt` (the vertex a bridge was laid at) is handed to the water
+            // sweep so it keeps the span.
+            let (tb, far_end, alt) = lay_town_bridge_search(&site, &anchors, &mut g, max_rf, opts.town_bridge_search);
+            site.alt_bridge_pt = alt;
             if tb != TownBridge::None
-                && let Some(far_centre) = crate::riverbank::far_bridge_end(&site, anchors.market)
+                && let Some(far_centre) = far_end
             {
                 crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre);
             }

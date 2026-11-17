@@ -1366,6 +1366,24 @@ pub struct WorldParams {
     /// time a layout is asked for (never stored), so it moves no generated
     /// field and needs no regeneration.
     pub urban_market_road_bank: bool,
+    /// **Under-built towns, cause A** (Ruling GB, owner 2026-11-17): a town
+    /// whose growth disc is mostly water (a market on a coast or lake shore)
+    /// grows over a radius scaled by 1 / sqrt(land share), at most 1.6 times,
+    /// only where the share is under 0.8 (`cartalith_urban::GenOpts::water_widen`,
+    /// `widened_reach`). Seed 246371 #0 at 2 048 x 1 311 housed 29 % of its
+    /// target, 483920 #10 55 %. **`false` here** (the reference's radius, which
+    /// every urban golden pins); **`true` in the app** (`params::defaults`);
+    /// off on load for a save without the key (`DECISIONS.md` section 7p).
+    /// Read fresh each time a layout is asked for, so it needs no regeneration.
+    pub urban_growth_water_widen: bool,
+    /// **Under-built towns, cause B** (Ruling GB): when the site's own bridge
+    /// point cannot hold a crossing, a both-banks town tries the centreline
+    /// vertices near its market so the far bank is grown
+    /// (`cartalith_urban::riverbank::lay_town_bridge_search`). Seed 912345 #10
+    /// at 2 048 x 1 311 had 55 far-bank buildings against about 1 000 in
+    /// healthy towns. Same defaults and load rule as
+    /// [`WorldParams::urban_growth_water_widen`].
+    pub urban_town_bridge_search: bool,
     /// **Names for the kinds the engine did not name** (Ruling FZ item 5, owner 2026-11-17): rivers get a
     /// proper name and every landmark of a kind that has a name-style section (mounts, cliffs, holy sites,
     /// waterfalls, passes ...) gets a `style_name`, drawn from the world's name style (the world default
@@ -1615,6 +1633,9 @@ impl WorldParams {
             urban_burgage: false,
             // The reference's first dry ring point (the 483920 #4 row).
             urban_market_road_bank: false,
+            // Ruling GB: the reference's radius and single bridge point.
+            urban_growth_water_widen: false,
+            urban_town_bridge_search: false,
             // Ruling FZ: no names for the unnamed kinds, as every golden and every old save had.
             name_unnamed_kinds: false,
             // Off: the reference's per-cell rain test. On at the app boundary

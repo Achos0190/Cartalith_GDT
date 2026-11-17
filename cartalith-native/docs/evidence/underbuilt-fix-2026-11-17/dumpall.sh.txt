@@ -1,0 +1,13 @@
+#!/bin/bash
+cd /c/cw/gb/cartalith-native/godot-project
+G="C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+run() { seed=$1; grid=$2; g=$3; gw=${grid%%x*}
+  APPDATA=C:/cw/gb_appdata/d_${seed}_${gw}_$g timeout 3000 "$G" --headless --path . _viewerframe_probe.tscn -- --seed $seed --grid $grid --quick 1 --gb $g --dump C:/cw/gb_ev/dumpall/${gw}_gb$g --ids -1 > /c/cw/gb_ev/dumpall/p_${seed}_${gw}_gb$g.txt 2>&1; }
+mkdir -p /c/cw/gb_ev/dumpall
+for grid in 2048x1311 384x288; do
+ for seed in 483920 912345 246371; do
+  run $seed $grid 0 & run $seed $grid 1 &
+ done
+ wait
+done
+echo ALLDONE

@@ -1,0 +1,18 @@
+import json,glob,os,re
+rows=[]
+for gw in (384,2048):
+  for seed in (483920,912345,246371):
+    names={}
+    for l in open(f'dumpall/p_{seed}_{gw}_gb1.txt',errors='replace'):
+        m=re.search(r'DUMP #(\d+) (\{.*\})',l)
+        if m: names[int(m.group(1))]=m.group(2)
+    for f in sorted(glob.glob(f'dumpall/{gw}_gb0/{seed}_{gw}_*.json'),key=lambda p:int(p.split('_')[-1][:-5])):
+        i=int(f.split('_')[-1][:-5]); g=f.replace('_gb0','_gb1')
+        a=json.load(open(f)); b=json.load(open(g))
+        t=a['target']
+        pa=100*a['pop']/t if t else 0; pb=100*b['pop']/b['target'] if b['target'] else 0
+        rows.append((gw,seed,i,t,len(a['buildings']),len(b['buildings']),pa,pb,a['site_kind']))
+print("gw seed # target kind bld0 bld1 housed0 housed1")
+for r in rows:
+    flag='' if abs(r[6]-r[7])<0.05 else ('UP' if r[7]>r[6] else 'DOWN')
+    print(r[0],r[1],r[2],int(r[3]),r[8],r[4],r[5],'%.1f'%r[6],'%.1f'%r[7],flag)

@@ -1,0 +1,12 @@
+"""sheet.py: before|after City Viewer frames of the Ruling GB towns, one row per town, into contact_sheet.png (run in the frames dir)."""
+from PIL import Image, ImageDraw
+towns=[("912345",30,"912345 #30 @384: 65.2 -> 141.8 %"),("483920",8,"483920 #8 @2048: 47.1 -> 59.0 %"),("483920",0,"483920 #0 @2048: 47.5 -> 71.0 %"),("483920",11,"483920 #11 @2048: 63.4 -> 65.4 %"),("246371",3,"246371 #3 @2048: 52.1 -> 90.5 %"),("246371",0,"246371 #0 @2048: 102.8 -> 89.0 % (worse)"),("912345",0,"912345 #0 @2048: 60.1 -> 67.8 %"),("912345",10,"912345 #10 @2048: 75.7 -> 107.2 %")]
+W=640; rows=[]
+for s,i,lab in towns:
+    a=Image.open(f"viewer_{s}_{i}_gb0.png").convert("RGB"); b=Image.open(f"viewer_{s}_{i}_gb1.png").convert("RGB")
+    h=int(a.height*W/a.width); a=a.resize((W,h)); b=b.resize((W,h))
+    im=Image.new("RGB",(2*W+6,h+22),(20,20,20)); im.paste(a,(0,22)); im.paste(b,(W+6,22))
+    ImageDraw.Draw(im).text((6,5),f"{lab}   |   left: before (both switches off)   right: after (on)",fill=(255,255,255)); rows.append(im)
+H=sum(r.height+4 for r in rows); sheet=Image.new("RGB",(rows[0].width,H),(10,10,10)); y=0
+for r in rows: sheet.paste(r,(0,y)); y+=r.height+4
+sheet.save("contact_sheet.png",optimize=True); print(sheet.size)

@@ -302,6 +302,9 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         burgage: false,
         // Nor the market on its roads' bank (the 483920 #4 under-build).
         market_road_bank: false,
+        // Nor Ruling GB's two (the water-clipped front; the bridge search).
+        water_widen: false,
+        town_bridge_search: false,
     }
 }
 
@@ -989,4 +992,73 @@ fn the_faubourg_is_ragged_and_better_off_beside_its_gate() {
     assert!(near_b > far_b * 1.15, "more built beside the gate: {near_b} vs {far_b}");
     assert!(inversions > 0, "not 100% a rule: a farther lot sometimes outranks a nearer one");
     assert!(wobbling * 3 > pairs, "back lines wobble: {wobbling} of {pairs} neighbouring pairs");
+}
+
+/// Protects Ruling GB cause A's arithmetic on literals: the radius is left
+/// alone at a land share of 0.8 or more (and for NaN), is divided by the
+/// square root of the share below that (720 / sqrt(0.64) = 900), and is
+/// capped at 1.6 times (a share of 0.25 would be 2x; zero is finite).
+#[test]
+fn widened_reach_is_the_square_root_rule_capped_and_gated() {
+    use super::widened_reach;
+    assert_eq!(widened_reach(720.0, 0.8), 720.0);
+    assert_eq!(widened_reach(720.0, 1.0), 720.0);
+    assert_eq!(widened_reach(720.0, f64::NAN), 720.0);
+    assert!((widened_reach(720.0, 0.64) - 900.0).abs() < 1e-9);
+    assert!((widened_reach(720.0, 0.79) - 720.0 / 0.79_f64.sqrt()).abs() < 1e-9);
+    assert!((widened_reach(720.0, 0.25) - 1152.0).abs() < 1e-9, "capped at 1.6x");
+    assert!((widened_reach(720.0, 0.0) - 1152.0).abs() < 1e-9);
+}
+
+/// Protects `disc_land_share` against hand geometry: a 300 m disc on a straight
+/// 24 m river is about 5 % water (0.95 land); the same disc centred 100 m from
+/// the box's top edge loses the part above `y = 40` (the 40 m edge rule of
+/// `grow`): a circular segment 260 m ... 60 m from the centre, 0.374 of the
+/// area, so 0.626 is land.
+#[test]
+fn disc_land_share_reads_water_and_the_box_edge() {
+    let mut w = crate::site::WaterCtx {
+        mask: vec![0u8; 77 * 57],
+        dt: vec![0.0; 77 * 57],
+        mw: 77,
+        mh: 57,
+        cell_m: 22.0,
+        river_path: Some((0..=17).map(|k| Vec2::new(k as f64 * 100.0, 726.0)).collect()),
+        river_width_m: Some(24.0),
+        river_order: 2.0,
+        sea_lake_cells: 0.0,
+        open_water: Some(vec![0u8; 77 * 57]),
+    };
+    for j in 0..57 {
+        if ((j as f64 + 0.5) * 22.0 - 726.0).abs() <= 23.0 {
+            for i in 0..77 {
+                w.mask[j * 77 + i] = 1;
+            }
+        }
+    }
+    let mut site = crate::site::build_site(7, 1700.0, 1250.0, "river", crate::site::SiteOpts { water: Some(w), ..Default::default() });
+    assert!(site.use_riverbank());
+    let on_river = super::disc_land_share(&site, Vec2::new(850.0, 726.0), 300.0);
+    assert!((0.93..0.97).contains(&on_river), "{on_river}");
+    let at_edge = super::disc_land_share(&site, Vec2::new(850.0, 100.0), 300.0);
+    assert!((0.60..0.65).contains(&at_edge), "{at_edge}");
+}
+/// Protects `GenOpts::water_widen`'s wiring (Ruling GB cause A) through
+/// `generate`: on a synthetic coastal site of 20 000 (seed 7) the reported
+/// `max_rf` is widened to between 900 and 1 100 m (measured 971.9; the cap is
+/// 1.6 x 720 = 1 152) and the town houses more buildings (3 733 against 2 681);
+/// with the switch off it is the reference's 720; and a landlocked site, whose
+/// disc is all land, stays 720 with the switch on and its layout identical
+/// (same building count). Mutating the gate (`opts.water_widen`, the radial /
+/// street-village / stretch exclusions' siblings) or the reach turns it red.
+#[test]
+fn water_widen_widens_a_coastal_town_and_leaves_land_alone() {
+    let mk = |site: &str, widen: bool| generate(7, &GenOpts { site: Some(site.into()), pop: Some(20000.0), water_widen: widen, ..GenOpts::default() });
+    let (on, off) = (mk("coastal", true), mk("coastal", false));
+    assert_eq!(off.max_rf, 720.0);
+    assert!((900.0..1100.0).contains(&on.max_rf), "{}", on.max_rf);
+    assert!(on.buildings.len() > off.buildings.len(), "{} vs {}", on.buildings.len(), off.buildings.len());
+    let (land_on, land_off) = (mk("landlocked", true), mk("landlocked", false));
+    assert_eq!(land_on.max_rf, 720.0);
+    assert_eq!(land_on.buildings.len(), land_off.buildings.len());
 }

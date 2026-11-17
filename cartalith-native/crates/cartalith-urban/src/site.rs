@@ -267,6 +267,12 @@ pub struct Site {
     pub water_poly: Vec<Vec2>,
     pub bridge_pt: Option<Vec2>,
     pub bridge_dir: Option<Vec2>,
+    /// **Not the reference** (Ruling GB, 2026-11-17): the second place a road
+    /// may cross the open water, where `crate::riverbank::lay_town_bridge_search`
+    /// laid a town bridge away from [`Site::bridge_pt`]. `None` (the
+    /// reference, and every town the search did not move) leaves
+    /// `remove_water_crossings` exactly as it was.
+    pub alt_bridge_pt: Option<Vec2>,
     /// `routeEnds` — the external route endpoints on the box edge. Four on a
     /// river-like or landlocked site, three on a sea one (it trades seaward).
     pub route_ends: Vec<Vec2>,
@@ -962,6 +968,7 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
         water_poly,
         bridge_pt: None,
         bridge_dir: None,
+        alt_bridge_pt: None,
         route_ends: Vec::new(),
         uses_real_water,
         real_river,

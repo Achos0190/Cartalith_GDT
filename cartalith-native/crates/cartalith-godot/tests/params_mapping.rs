@@ -1359,6 +1359,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.urban_market_scale = false;
     // And the market on its roads' bank (the 483920 #4 row): a save without the key took the first dry ring point.
     expect.urban_market_road_bank = false;
+    // And Ruling GB's two (the water-clipped growth disc, the bridge search): a save without the keys drew the reference's.
+    expect.urban_growth_water_widen = false;
+    expect.urban_town_bridge_search = false;
     // And Ruling FZ's names for the unnamed kinds: a save without the key named none.
     expect.name_unnamed_kinds = false;
     // And Ruling FF items 5 and 6: a save without the keys sited on the rebuilt
@@ -1520,6 +1523,10 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // the owner rules (not the usual on-in-the-app split).
     assert!(!app.urban_burgage && !parity.urban_burgage, "deep burgage plots are a prototype, off in the app too");
     assert!(app.urban_market_road_bank && !parity.urban_market_road_bank, "a river town's market on its roads' bank, the 483920 #4 row (2026-11-17)");
+    assert!(
+        app.urban_growth_water_widen && !parity.urban_growth_water_widen && app.urban_town_bridge_search && !parity.urban_town_bridge_search,
+        "Ruling GB (2026-11-17): the widened growth disc and the bridge search are on in the app, off at the parity boundary"
+    );
     assert!(app.name_unnamed_kinds && !parity.name_unnamed_kinds, "names for rivers and the other unnamed kinds, Ruling FZ item 5 (2026-11-17)");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
@@ -1553,6 +1560,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_street_village = false;
     neutral.urban_market_scale = false;
     neutral.urban_market_road_bank = false;
+    neutral.urban_growth_water_widen = false;
+    neutral.urban_town_bridge_search = false;
     neutral.name_unnamed_kinds = false;
     neutral.civ.map_rivers = false;
     neutral.civ.harbour_box = false;

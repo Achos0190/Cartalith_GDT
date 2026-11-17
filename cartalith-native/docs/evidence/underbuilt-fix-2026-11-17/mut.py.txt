@@ -1,0 +1,42 @@
+import subprocess,os,hashlib,sys
+env=dict(os.environ,CARGO_TARGET_DIR="C:/cw/gb_target")
+R="C:/cw/gb/cartalith-native/crates/cartalith-urban/src/"
+M=[
+("riverbank.rs","    if search {\n        let mut cands","    if true {\n        let mut cands","search guard forced on"),
+("riverbank.rs","filter(|&(d, _)| d <= max_r)","filter(|&(d, _)| d <= max_r * 100.0)","max_r filter dropped"),
+("riverbank.rs","BRIDGE_SEARCH_SPACING_M: f64 = 25.0","BRIDGE_SEARCH_SPACING_M: f64 = 0.0","spacing 0"),
+("riverbank.rs","BRIDGE_SEARCH_MAX_TRIES: usize = 24","BRIDGE_SEARCH_MAX_TRIES: usize = 1","tries 1"),
+("riverbank.rs","return (TownBridge::Laid, Some(far), Some(p));","return (TownBridge::Laid, Some(far), None);","alt point not returned"),
+("riverbank.rs","if bp.dist(anchors.market) <= max_r\n        && let Some(far)","if bp.dist(anchors.market) <= max_r * 100.0\n        && let Some(far)","site point's max_r dropped"),
+("cleanup.rs","&& site.alt_bridge_pt.is_none_or(|ap| p.dist(ap) > bridge_r)","","alt exemption removed"),
+("generate.rs","if !(land_share < WATER_WIDEN_BELOW) {","if !(land_share <= WATER_WIDEN_BELOW) {","gate < to <="),
+("generate.rs","WATER_WIDEN_CAP: f64 = 1.6","WATER_WIDEN_CAP: f64 = 2.5","cap 2.5"),
+("generate.rs","max_rf * (1.0 / land_share.max(1e-9).sqrt())","max_rf * (1.0 / land_share.max(1e-9))","no sqrt"),
+("generate.rs","p.x >= 40.0 && p.y >= 40.0 && p.x <= site.wm - 40.0","p.x >= 0.0 && p.y >= 0.0 && p.x <= site.wm - 40.0","box margin 40 -> 0 (low sides)"),
+("generate.rs","&& !site.is_water(p)\n        })","\n        })","water test dropped"),
+("generate.rs","let max_rf = if opts.water_widen && !street_village","let max_rf = if true && !street_village","water_widen gate forced"),
+("generate.rs","&mut g, max_rf, opts.town_bridge_search)","&mut g, max_rf, true)","town_bridge_search forced on"),
+("generate.rs","    site.alt_bridge_pt = alt;\n","","alt point not given to site"),
+]
+base={f:open(R+f,encoding='utf-8').read() for f in set(m[0] for m in M)}
+hashes={f:hashlib.md5(v.encode()).hexdigest() for f,v in base.items()}
+out=[]
+try:
+    for f,a,b,name in M:
+        s=base[f]
+        assert s.count(a)==1,(name,s.count(a))
+        open(R+f,'w',encoding='utf-8').write(s.replace(a,b))
+        try:
+            r=subprocess.run(["cargo","test","-p","cartalith-urban","--lib","--","water_widen","bridge_search","water_sweep","widened_reach","disc_land","a_town_bridge","big_river_town","far_bank"],capture_output=True,text=True,env=env,cwd="C:/cw/gb/cartalith-native")
+            txt=r.stdout+r.stderr
+            if "could not compile" in txt: st="BUILD_ERROR"
+            elif r.returncode!=0: st="KILLED"
+            else: st="SURVIVED"
+        finally:
+            open(R+f,'w',encoding='utf-8').write(s)
+        out.append(f"{st:12} {f:14} {name}")
+        print(out[-1],flush=True)
+finally:
+    for f,v in base.items(): open(R+f,'w',encoding='utf-8').write(v)
+    for f,v in base.items(): assert hashlib.md5(open(R+f,encoding='utf-8').read().encode()).hexdigest()==hashes[f]
+open("C:/cw/gb_ev/mutants.txt","w").write("\n".join(out)+"\n")

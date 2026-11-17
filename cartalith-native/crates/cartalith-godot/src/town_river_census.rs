@@ -213,6 +213,20 @@ fn market_road_bank(p: &cartalith_engine::WorldParams) -> bool {
     std::env::var("TOWN_RIVER_MRB").map_or(p.urban_market_road_bank, |v| v != "0")
 }
 
+/// Whether the census widens a water-clipped town's growth disc (Ruling GB
+/// cause A, `WorldParams::urban_growth_water_widen` from `params::defaults`,
+/// on) unless `TOWN_RIVER_GWW=0` asks for the reference's radius, the "before".
+fn water_widen(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_GWW").map_or(p.urban_growth_water_widen, |v| v != "0")
+}
+
+/// Whether the census lets a both-banks town search for another crossing
+/// (Ruling GB cause B, `WorldParams::urban_town_bridge_search`, on) unless
+/// `TOWN_RIVER_TBS=0`, the "before".
+fn town_bridge_search(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_TBS").map_or(p.urban_town_bridge_search, |v| v != "0")
+}
+
 /// The river-town test the census lays towns out with: the app's
 /// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
 /// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
@@ -1648,7 +1662,7 @@ fn riverbank_gap_audit() {
         let mut seed_gap = Vec::new();
         let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             if !(ctx.site_kind == "river" || ctx.site_kind == "riverthrough") {
                 continue;
@@ -1892,7 +1906,7 @@ fn town_housing_audit() {
         for (i, s) in civ.settlements.iter().enumerate() {
             let mut row = Vec::new();
             for (k, bank) in [false, true].into_iter().enumerate() {
-                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
                 let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
                 let Some(l) = run_layout(&ctx, None) else { continue };
                 let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
@@ -2091,7 +2105,7 @@ fn both_banks_audit() {
             if only.as_ref().is_some_and(|o| !o.contains(&i)) {
                 continue;
             }
-            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
             let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
             let Some(l) = run_layout(&ctx, None) else { continue };
             // Ruling FN: a stretched town (its box larger than the reference's).
@@ -2603,7 +2617,7 @@ fn harbour_front_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p),
                 harbour_front: hf,
                 river_stretch: river_stretch(&p).then_some(others.as_slice()),
                 ..Default::default()
@@ -2818,7 +2832,7 @@ fn stretch_water_audit() {
                 wall_hug: p.urban_wall_hug,
                 riverbank: p.urban_riverbank,
                 street_village: street_village(&p),
-                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p),
+                market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p),
                 harbour_front: p.urban_harbour_front,
                 river_stretch: Some(others.as_slice()),
                 ..Default::default()

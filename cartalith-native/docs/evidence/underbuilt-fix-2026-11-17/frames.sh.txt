@@ -1,0 +1,16 @@
+#!/bin/bash
+mkdir /c/cw/.win_lock || { echo LOCKED; exit 1; }
+echo "owner: gb-1117 Ruling GB frames agent $(date +%T)" > /c/cw/.win_lock/owner.txt
+cd /c/cw/gb/cartalith-native/godot-project
+G="C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+mkdir -p /c/cw/gb_ev/frames
+shoot() { seed=$1; grid=$2; ids=$3
+  for g in 0 1; do
+    APPDATA=C:/cw/gb_appdata/f_${seed}_${g} timeout 2400 "$G" --path . _viewerframe_probe.tscn -- --seed $seed --grid $grid --quick 1 --gb $g --shots C:/cw/gb_ev/frames --ids $ids > /c/cw/gb_ev/frames/p_${seed}_${grid}_gb$g.txt 2>&1
+  done; }
+shoot 912345 384x288 30
+shoot 483920 2048x1311 0,8,11
+shoot 246371 2048x1311 0,3
+shoot 912345 2048x1311 0,10
+rm -rf /c/cw/.win_lock
+echo ALLDONE
