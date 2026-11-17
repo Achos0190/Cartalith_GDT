@@ -1,0 +1,23 @@
+control: chain 1 reconstructs the model's standing on 1740 readings
+industrial sweep: 290 live, below 168; median E of below 0.250; E<1 on 168; E at the floor 0.25 on 117
+below by government: {'chiefdom': 22, 'city_state': 9, 'empire': 18, 'monarchy': 26, 'oligarchy': 25, 'republic': 28, 'theocracy': 26, 'tribal_confederacy': 14}
+attribution: g=1 clears all 168
+
+candidate        improvedAgrarian        earlyIndustrial         industrial            
+baseline g=E     148/7/135 un0           131/7/152 un0           121/1/168 un0         
+A floor 0.5      248/7/35 un0            247/7/36 un0            121/1/168 un0         
+A' floor 0.67    262/7/21 un0            247/7/36 un0            253/1/36 un0          
+A'' floor 0.8    283/7/0 un0             243/25/22 un0           289/1/0 un0           
+B sqrt           252/7/31 un0            250/7/33 un0            151/1/138 un0         
+B' E^0.75        191/7/92 un0            154/7/129 un0           129/1/160 un0         
+flat g=1         265/25/0 un0            265/25/0 un0            289/1/0 un0           
+
+rows moved by a candidate that is NOT bracket-gated (E < 1 readings), per row of 290 live:
+  subsistence: E<1 on 184 of 290
+  traditionalAgrarian: E<1 on 184 of 290
+  advancedAgrarian: E<1 on 184 of 290
+  improvedAgrarian: E<1 on 184 of 290
+  earlyIndustrial: E<1 on 184 of 290
+  industrial: E<1 on 184 of 290
+
+below-band counts per row (baseline): {'subsistence': 0, 'traditionalAgrarian': 161, 'advancedAgrarian': 141, 'improvedAgrarian': 135, 'earlyIndustrial': 152, 'industrial': 168}

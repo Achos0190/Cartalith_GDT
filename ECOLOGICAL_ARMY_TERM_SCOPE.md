@@ -810,6 +810,44 @@ Not covered by any candidate: the one `Modern mechanized` reading on the sweep (
 
 **Mutants (Python, exact literal, restored in a `finally`), all killed:** exponent 0.5 -> 0.25 and 1.0; reference fee 0.09056 -> 0.0906 and 0.09; gate 5 -> 4 and 5 -> 6; `>=` -> `>`; fee source replaced by `state_capacity`, by `EXTRACTION_FLOOR` and by `EXTRACTION_CEILING`.
 
+### 10.12 Ruling FU item 2: the industrial below-band majority, measured first, nothing built (2026-11-17)
+
+**Rule.** Measure, build nothing. Tree `b32b9116` (C3 built, §10.11), worktree `C:/cw/fu`. Opened at the symbols first: `manpower.rs` `manpower_with_levy_bonus` (`budget_ecology = if e > 1.0 { e.powf(BUDGET_ECOLOGY_EXPONENT) } else { e }`, `standing = non_agricultural * budget_ecology * fee / upkeep`), `ECOLOGICAL_FLOOR` (0.25), `era_for`, `ERA_BANDS`. Scratch only, `#[ignore]`d, pins nothing: `g1_baseline.rs` `ia_dump_industrial_rows` (now all six ag-tech rows), `cartalith-civ/tests/industrial_below_band_ablation.rs`, `evidence/industrial-army-2026-11-17/below_band.py`. Controls: chain 1 reconstructed from the printed drivers equals the model's standing on all 1 740 sweep readings and all 284 240 grid readings, so a re-price that touches only `g(E) = min(E, 1)` is exact.
+
+**The number moved.** The row's "164 of 290" was read at `7d7cead5`, before C3. At `b32b9116` the industrial sweep reads **121 within / 1 above / 168 below** (C3 lowers the standing army of low-fee factions by `(fee/0.09056)^0.5`, four more fall under the 5 % edge).
+
+**Attribution (measured).**
+- **All 168 are on the ecological factor and nothing else.** Every one has `E < 1`; 117 sit at `E = 0.25`, the clamp (`ECOLOGICAL_FLOOR`); median `E` 0.250. With `g = 1` (ecology out of chain 1) **168 of 168 clear the band's lower edge, none overshoots it** (289 / 1 / 0). On the driver grid the same: 34 400 below-band readings, all `E < 1` (median 0.450), 34 400 of 34 400 clear at `g = 1`.
+- **Not the field army, the levy or the other chain-1 factors.** Standing reads chain 1 only; the field army and the levy read `E` only above 1 (the forage term), so they cannot put a faction below a standing band. The fee and upkeep do not explain it: no government stands out (below-band by government: monarchy 26, republic 28, oligarchy 25, theocracy 26, chiefdom 22, empire 18, tribal confederacy 14, city state 9).
+- **The band's definition is the reason it reads so.** `SOLDIER_UPKEEP_BY_BRACKET` is derived at `E = 1` (§10.9.2), so the band's centre (7.5 %) is the share at `E = 1`; chain 1 is linear in `E` below 1 (Ruling DE C1 kept the linear arm), so `E = 0.25` gives a quarter of it, 1.9 %, below the 5 % edge, and a share of 5 % needs `g >= 0.667`.
+- **It is not specific to the industrial row.** The same readings fall below on every pre-industrial row with a standing band that has any `E < 1` factions: traditionalAgrarian 161, advancedAgrarian 141, improvedAgrarian 135, earlyIndustrial 152 (subsistence 0), because 184 of every 290 sweep factions have `E < 1` whatever the row. So this is Ruling DE C1 working as designed (a faction whose land feeds fewer than its people captures less revenue), met by a band that was calibrated at `E = 1`. What is industrial-specific is the argument: an industrial state is not bounded by its own land (it imports food and sells manufactures; for scale, Britain imported more than half of its calories by 1914, recalled, not verified this session), so a local-land factor on its budget has the weakest support there. That is a modelling judgement for the owner, not a measurement.
+
+**Candidates** (analytic re-price from the model's own drivers; "gated" = brackets 5 and 6 only, so nothing else moves by control flow, as C3 did; the three floors and the exponent are fitted to the bar and say so, §9 applies):
+
+| | within / above / below, industrial sweep (290) | grid, era 13 within / above / below | grid unordered | what else moves |
+|---|---|---|---|---|
+| baseline (C3) | 121 / 1 / 168 | 248 624 / 0 / 34 400 | 0 | |
+| **A** gated floor on the budget factor, `g = max(E, 0.67)` (0.667 is the share of 5 % at the band's centre, rounded) | **253 / 1 / 36** (`0.67`) | 262 740 / 0 / 20 284 | 0 | the industrial hash and verdict triple in `ea0_`; the era-13 grid triple; nothing at `E >= 1`, so Kingdom A and B, `a_median_polity...` and the 71 178 pin hold; no generated world is on bracket 5 or 6, so `G1_0` and `fh_r2` hold |
+| A, floor 0.8 | 289 / 1 / 0 | 276 336 / 0 / 6 688 | 0 | as A |
+| **B** gated sub-linear arm, `g = E^0.5` | 151 / 1 / 138 | 264 032 / 0 / 18 992 | 0 | as A. Weak on the sweep because 117 factions sit on the clamp where `E^0.5` is 0.5 |
+| **C** no model change: the verdict reads **below, land-limited** when the share at `g = 1` is inside the band | counts unchanged; 168 reclassified | unchanged | 0 | a verdict string (`era_standing_verdict`) and the shell's tooltip; no number moves, no hash, no pin |
+| flat (`g = 1`, gated) | 289 / 1 / 0 | 283 024 / 0 / 0 | 0 | rejected: the industrial standing army would not read land at all |
+| *not gated*: any of A or B on every bracket | | | | `G1_0` (the default worlds have `E < 1` factions on 184 of 290) and every pre-industrial hash and the `improvedAgrarian` class of 853 unordered grid readings (its grid was not run here); Ruling DE's question, not this row's |
+
+The ordering holds on all candidates because the floor is at most 1 and the `E = 1` reading is ordered (field does not read `E` below 1); that is arithmetic, and the grid column confirms it for the industrial row.
+
+**What cannot be told from this data.** Whether `E = 0.25` factions on this row should read below the band (the model as designed) or within (the imports argument). The measurement shows only that the whole majority is that one factor.
+
+### 10.13 Owner questions from §10.12, each with a recommended default
+
+| # | Question | Recommended default |
+|---|---|---|
+| **Q16** | Is an industrial faction whose own land feeds a quarter of its people supposed to read below the standing band (Ruling DE C1 as it stands), or should an industrial economy be less bound by its land than an agrarian one? | **The second**, as a gated model change, not an edit of Ruling DE. The same reading is below band on every pre-industrial row, where it is the design; the argument for lifting it exists only for brackets 5 and 6 |
+| **Q17** | If yes, which shape: A (a floor on the budget factor), B (a sub-linear arm), or C (change only the verdict's wording)? | **A**, gated, because 117 of the 168 sit on the clamp and B barely helps them. If the owner does not want a number fitted to the bar (§9: the floor's value is the band edge), **C**, which moves no number |
+| **Q18** | A's floor value: 0.67 (the band's lower edge at its centre, rounded: 36 below) or 0.8 (0 below, 6 688 grid readings)? | **0.67**, the smaller change; 0.8 would make the band's lower edge unreachable by construction. Labelled a judgement, fitted to the bar |
+| **Q19** | Gate: brackets 5 and 6 only (as C3), or bracket 4 (`earlyIndustrial`, 152 below, 36 with the same floor) as well? | **5 and 6 only**, for continuity with C3; bracket 4's argument is weaker (early railways, not yet an importer) and it would move a row that is bit-identical today |
+| **Q20** | Should the same question be put for the pre-industrial rows (161, 141, 135, 152 below)? | **No.** Ruling DE C1 chose the linear arm there for a measured reason (59 standing armies above the field army their levy could concentrate); lifting it would reopen that ordering. Its own row if the owner wants it |
+
 #### Evidence
 
 `cartalith-native/docs/evidence/industrial-army-2026-11-17/`: `ea0_run.log` (the existing `ea0_` diagnostic, passing), `ia_dump_run.log` (300 `IA row` and 300 `IA default` lines), `driver_space_run.log` (the grid), `analyse.py` and `analyse_out.txt` (the re-pricing, with its control). Code, ignored and pinning nothing: `g1_baseline.rs` `ia_dump_industrial_rows`; `cartalith-civ/tests/industrial_army_driver_space.rs`. Commands, each run alone:
@@ -819,4 +857,6 @@ Not covered by any candidate: the one `Modern mechanized` reading on the sweep (
 - `cargo test -p cartalith-civ --test industrial_army_driver_space -- --ignored --nocapture`
 - `python -I analyse.py ia_dump_run.log`
 
-Not done: no `cargo test --workspace` (no product code changed; the two scratch tests are `#[ignore]`d); no probe; no mutation test (nothing is pinned).
+Not done (of §10.9 only; §10.11 ran the workspace): no `cargo test --workspace` (no product code changed; the two scratch tests are `#[ignore]`d); no probe; no mutation test (nothing is pinned).
+
+**Evidence for §10.12** (`evidence/industrial-army-2026-11-17/`): `ia6_dump_run.log` (1 800 `IA row tech` lines, six rows, 20 worlds, the model with C3), `below_band.py` and `below_band_out.txt` (the sweep attribution and candidates, with its control), `below_band_grid_out.txt` (the grid, from `industrial_below_band_ablation.rs`). Commands, each run alone: `cargo test -p cartalith-godot --lib ia_dump -j 4 -- --ignored --nocapture --test-threads 1`; `cargo test -p cartalith-civ --test industrial_below_band_ablation -- --ignored --nocapture`; `python -I below_band.py ia6_dump_run.log`. Not done: no product code changed (nothing to mutation-test or probe); the unordered column on `improvedAgrarian`'s grid was not run for the ungated variants.

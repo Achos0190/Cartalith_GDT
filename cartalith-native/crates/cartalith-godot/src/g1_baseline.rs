@@ -1055,14 +1055,15 @@ fn ia_dump_industrial_rows() {
             );
         }
         let saved: Vec<String> = civ.faction_roster.0.iter().map(|e| e.ag_tech.clone()).collect();
-        let row = AG_TECH_LEVELS.iter().find(|r| r.key == "industrial").unwrap();
+        for row in AG_TECH_LEVELS.iter() {
         for e in civ.faction_roster.0.iter_mut().skip(1) {
             e.ag_tech = row.key.to_string();
         }
         for (i, m) in read(&civ, &ws, gh, p.map_width_km, seed, true).rows.iter().enumerate() {
             let d = &m.drivers;
             println!(
-                "IA row {seed} {width} {factions} f{} gov {} pop {:.3} E {:.6} s {:.6} L {:.6} a {:.6} cf {:.6} fee {:.6} u {:.6} standing {:.6} field {:.6} levy {:.6} band {:.3} {:.3} era {} order {:?}",
+                "IA row tech {} {seed} {width} {factions} f{} gov {} pop {:.3} E {:.6} s {:.6} L {:.6} a {:.6} cf {:.6} fee {:.6} u {:.6} standing {:.6} field {:.6} levy {:.6} band {:.3} {:.3} era {} order {:?}",
+                row.key,
                 i + 1,
                 civ.faction_roster.0[i + 1].government,
                 m.total_population,
@@ -1082,6 +1083,7 @@ fn ia_dump_industrial_rows() {
                 order_of(m)
             );
             printed += 1;
+        }
         }
         for (e, t) in civ.faction_roster.0.iter_mut().zip(saved) {
             e.ag_tech = t;

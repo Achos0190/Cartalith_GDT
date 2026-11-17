@@ -1,0 +1,9 @@
+DS below-band (era 13) readings 34400; with E < 1: 34400; median E 0.450
+DS attribution: of the below-band readings, 34400 clear with the ecological factor alone (g = 1), 0 stay below at g = 1 (of which state capacity < 0.35: 0)
+DS baseline g = E: era-13 within 248624 above 0 below 34400; unordered 0; readings moved 0 of 284240; median standing 7.18 %, max 9.63 %
+DS A  floor 0.5: g = max(E, 0.5): era-13 within 248624 above 0 below 34400; unordered 0; readings moved 18700 of 284240; median standing 7.18 %, max 9.63 %
+DS A' floor 0.67: g = max(E, 0.67): era-13 within 262740 above 0 below 20284; unordered 0; readings moved 33660 of 284240; median standing 7.18 %, max 9.63 %
+DS A'' floor 0.8: g = max(E, 0.8): era-13 within 276336 above 0 below 6688; unordered 0; readings moved 41140 of 284240; median standing 7.18 %, max 9.63 %
+DS B  sqrt arm: g = E^0.5: era-13 within 264032 above 0 below 18992; unordered 0; readings moved 56100 of 284240; median standing 7.18 %, max 9.63 %
+DS B' E^0.75: era-13 within 254576 above 0 below 28448; unordered 0; readings moved 56100 of 284240; median standing 7.18 %, max 9.63 %
+DS flat: g = 1 (ecology out of the budget): era-13 within 283024 above 0 below 0; unordered 0; readings moved 56100 of 284240; median standing 7.41 %, max 9.63 %
