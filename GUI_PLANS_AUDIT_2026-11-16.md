@@ -163,13 +163,13 @@ claim is false (S); Android folder import on glass (S, device).
 
 | Plan | Done / partly / open / superseded | Open items (size) |
 |---|---|---|
-| PC shell | 11 / 0 / 0 / 0 (2026-11-16) | the world-file slot's Rust registration (**S**); the founding year (Ruling FO item 1, a Rust change). Built 2026-11-16 by Ruling FO: the one route name (M2) and the tablet's collapsed slider; the planner window floor was accepted |
-| Mobile shell | 8 / 2 / 1 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run); MS-3 node chips + tool palette atop the domain sheet and MAP's own tool domain (**S-M**, NOT built 2026-11-16: the proposal gives only a sentence, "the node's chips, the domain's tool palette, then every category", and the dock's accordion headers already are the chips; what is undecided is whether a second chip strip duplicates them, and which tools the palette holds per domain, the rail having tools on desktop only; an owner design call); MS-1 B7/B9/B10 device and probe rows (**S**); delete the unreachable `QuickBarPhoneList` sheet (**S**); MS-5 card `param` rows, only if the owner wants them (**S**) |
-| Vault editor | 8 / 2 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF) and VE-8 (**S**, owner-run); the 6T pass for VE-7's Android picture read (built 2026-11-16, untested on a device; **S**), drawn chronos track (**M**, no specification); 17-function probes (**S**). Built 2026-11-16: VE-5's end-of-Preview copy and the browse preview's embeds |
-| Custom quick bar | 7 / 1 / 0 / 1 | CQ-5 Pad pass (**S**, owner-run); CQ-6 long-press reorder and 6T bars (**S**); CQ-8's three deferrals, each needing an owner answer (**M**); ring parts overhanging a dock panel not clickable, phone tool cell 3.5-5 px high (**S**) |
+| PC shell | 11 / 0 / 0 / 0 (2026-11-16) | none open. *(Refreshed by the coordinator 2026-11-17: the world-file slot's registration `01ad6669` and the founding year `3b4ddcd5` are built.)* |
+| Mobile shell | 9 / 1 / 0 / 0 | **MS-10 device passes** on the 6T, a tablet and a 4K window (**M**, owner-run). *(Refreshed 2026-11-17: MS-3 built as a tool palette only by Ruling FL, `f7f99c94`.)* |
+| Vault editor | 9 / 1 / 0 / 0 | the 6T rows for VE-0, VE-4 (SAF), VE-8 and VE-7's Android picture read (**S**, owner-run); drawn chronos track (**M**, no specification). *(Refreshed 2026-11-17: the 17-function probes were already built, `1fe113e9`; GIFs `43c10a5c`.)* |
+| Custom quick bar | 9 / 0 / 0 / 0 | CQ-5 Pad pass and CQ-6 6T bars (**S**, owner-run); **ring parts overhanging a dock panel not clickable; phone tool cell 3.5-5 px high (S, open)**. *(Refreshed 2026-11-17: CQ-6 reorder `3f7ea940`, CQ-8's three extras `f7f99c94`.)* |
 | Story menus | 7 / 0 / 0 / 0 | nothing scheduled; §8 later rows unscheduled by Ruling EA item 7 (each **M**, blocked on a ruling) |
 | Map context | 6 / 1 / 0 / 0 | CM-4 device check of the pen barrel button and haptics (**S**, owner-run); F5's tablet edge sliders and further ring customisation (**M**, unscheduled) |
-| Asset pack tools | 10 / 0 / 0 / 0 | the five small leftovers above (**S** each), Android folder import on glass (**S**, device) |
+| Asset pack tools | 10 / 0 / 0 / 0 | **four small leftovers above, open (S each)**: ground candidates matching no slot wait in a custom set with no move-to-slot verb; `.wonderdraft_symbols` unparsed; `pack_report`/`near_dupes`/`lineart::working_image` bake straight; `tests/pack_compositing.rs`'s "forces `shrub`" claim false. Android folder import on glass (**S**, device) |
 
 **By size.** Genuinely unbuilt design work: about **3 M** items (VE-7's remaining edges,
 CQ-8 deferrals, F5 sliders) plus MS-3's S-M. **Device-bound work** (owner on the 6T or Pad, no code): MS-10, CQ-5, CM-4,
