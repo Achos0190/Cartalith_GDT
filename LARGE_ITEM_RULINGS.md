@@ -3883,4 +3883,4 @@ After `872fe397` (every worse row fixed; riverside 4.1 % at 384 and 3.7 % at 2 0
 
 ## Ruling FT: no map rotation (owner, 2026-11-17)
 
-Owner: *"I don't think map rotation is a necessity."* The map does not rotate; the phone MAP sheet's North-up toggle is dropped (it waited on rotation). The scale-bar toggle is unaffected.
+Owner: *"I don't think map rotation is a necessity."* The map does not rotate; the phone MAP sheet's North-up toggle is dropped (it waited on rotation). Follow-up the same day: *"Keep the scale bar, in fact there is one already"* -- the scale bar stays always drawn (as it is on PC and tablet); the phone MAP sheet's scale-bar toggle is dropped too.
