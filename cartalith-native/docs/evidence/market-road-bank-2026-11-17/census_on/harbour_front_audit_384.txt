@@ -1,0 +1,34 @@
+
+running 1 test
+test town_river_census::harbour_front_audit ...   #  1 ( 337, 234) town    riverthrough pop_target 20000 buildings 4779 harbour: nearest building 6 m from its water (town body 8 m), housed 21622 of 20000 wall/hull 1.144
+  #  5 ( 380, 209) town    riverthrough pop_target 400 buildings 136 market moved 60 m harbour: nearest building 83 m from its water (town body 83 m), housed 400 of 400 river-mouth: end 0 m from open water
+  #  6 ( 360, 194) town    riverthrough pop_target 400 buildings 122 market moved 730 m harbour: nearest building 6 m from its water (town body 6 m), housed 400 of 400 river-mouth: end 0 m from open water
+  # 27 ( 314, 199) town    coast pop_target 400 buildings 165 market moved 518 m harbour: nearest building 4 m from its water (town body 4 m), housed 400 of 400
+  # 31 ( 346, 267) town    coast pop_target 400 buildings 173 harbour: nearest building 3 m from its water (town body 3 m), housed 400 of 400
+  # 77 ( 346, 177) village riverthrough pop_target 400 buildings 170 river-mouth: end 0 m from open water
+  #168 ( 342, 169) village riverthrough pop_target 400 buildings 123 market moved 199 m river-mouth: end 0 m from open water
+  #200 ( 265, 263) village riverthrough pop_target 400 buildings 129 market moved 610 m river-mouth: end 0 m from open water
+seed 483920 at 384x288, urban_harbour_front true, civ.port_reach true: ports 5, sea lanes 3; harbours over 23 m from their water 1 of 5; river-mouth towns 5, river not reaching the water 0 (+0 at a junction); river towns off their river 2 of 227; buildings in water 0; walled 11, square outside 0, wall in water 0; markets moved 66
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 1 of 5
+  # 22 ( 228, 124) town    riverthrough pop_target 7904 buildings 2558 market moved 297 m harbour: nearest building 4 m from its water (town body 4 m), housed 11419 of 7904 river-mouth: end 0 m from open water wall/hull 1.042
+  # 29 ( 344, 144) town    riverthrough pop_target 400 buildings 116 market moved 219 m harbour: nearest building 2 m from its water (town body 2 m), housed 400 of 400 river-mouth: end 0 m from open water
+  # 32 ( 144, 154) town    coast pop_target 1843 buildings 343 market moved 436 m harbour: nearest building 10 m from its water (town body 10 m), housed 1674 of 1843 wall/hull 1.067
+  #144 ( 152, 172) village riverthrough pop_target 400 buildings 131 river-mouth: end 179 m from open water (FAILS)
+  #158 ( 209, 106) village riverthrough pop_target 400 buildings 150 market moved 416 m river-mouth: end 0 m from open water
+seed 912345 at 384x288, urban_harbour_front true, civ.port_reach true: ports 3, sea lanes 1; harbours over 23 m from their water 0 of 3; river-mouth towns 4, river not reaching the water 1 (+0 at a junction); river towns off their river 1 of 232; buildings in water 0; walled 13, square outside 0, wall in water 0; markets moved 54
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 0 of 3
+  #  7 (  88,  99) town    coast pop_target 20000 buildings 1847 harbour: nearest building 1 m from its water (town body 1 m), housed 8970 of 20000 wall/hull 1.071
+  # 12 ( 157, 127) town    coast pop_target 2062 buildings 406 market moved 304 m harbour: nearest building 22 m from its water (town body 22 m), housed 1997 of 2062 wall/hull 1.049
+  # 82 ( 306, 142) village riverthrough pop_target 400 buildings 129 river-mouth: end 0 m from open water
+  # 92 ( 313,  96) village riverthrough pop_target 400 buildings 146 market moved 393 m river-mouth: end 0 m from open water
+seed 246371 at 384x288, urban_harbour_front true, civ.port_reach true: ports 2, sea lanes 1; harbours over 23 m from their water 0 of 2; river-mouth towns 2, river not reaching the water 0 (+0 at a junction); river towns off their river 2 of 233; buildings in water 0; walled 15, square outside 3, wall in water 0; markets moved 60
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 0 of 2
+all seeds at 384, (urban_harbour_front, civ.port_reach) Some((true, true)): ports 10, sea lanes 5; harbours over 23 m from their water 1 of 10; river-mouth towns 11, river not reaching the water 1 (+0 at a junction); river towns off their river 5 of 692; buildings in water 0; walled 39, square outside 3, wall in water 0; markets moved 180
+  harbour gap to its water, m: n 10 min 1 p10 2 median 6 p90 22 max 83
+  harbours whose town body stands over 23 m from its water: 1 of 10; body gap, m: n 10 min 1 p10 2 median 6 p90 22 max 83
+  wall/hull, walled towns of PLAZA_MARKET_POP and up: n 35 min 1.00 p10 1.01 median 1.05 p90 1.11 max 1.14; of them with sea in the box: n 5 min 1.04 p10 1.04 median 1.07 p90 1.14 max 1.14
+  market moved, m: n 180 min 30 p10 30 median 60 p90 60 max 730
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 193.87s
+

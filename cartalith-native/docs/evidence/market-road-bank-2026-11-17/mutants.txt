@@ -1,0 +1,19 @@
+ 0 KILLED      generate.rs: 'if opts.market_road_bank\n            && centre_wet' -> 'if true\n            && centre_wet'
+ 1 KILLED      generate.rs: '&& centre_wet\n            && !street_village' -> '&& !street_village'
+ 2 SURVIVED    generate.rs: '&& centre_wet\n            && !street_village\n            && pin.is_non' -> '&& centre_wet\n            && pin.is_none()'
+ 3 SURVIVED    generate.rs: '&& !street_village\n            && pin.is_none()\n            && site.ri' -> '&& !street_village\n            && site.riverbank()'
+ 4 SURVIVED    generate.rs: '&& pin.is_none()\n            && site.riverbank()\n            && (site.' -> '&& pin.is_none()\n            && (site.kind == "riv'
+ 5 KILLED      generate.rs: '&& let Some(q) = crate::village::road_bank_market(&site, mc, mc, &opts' -> '&& let Some(q) = crate::village::road_bank_market('
+ 6 KILLED      generate.rs: 'let centre_wet = site.is_water(mc);' -> 'let centre_wet = true;'
+ 0 SURVIVED    generate.rs: '&& centre_wet\n            && pin.is_none()\n            && site.riverba' -> '&& centre_wet\n            && site.riverbank()'
+ 1 KILLED      generate.rs: '&& pin.is_none()\n            && site.riverbank()\n            && (site.' -> '&& pin.is_none()\n            && (site.kind == "riv'
+ 0 KILLED      generate.rs: 'moved.0.min(moved.1) >= reference.0.min(reference.1)' -> 'moved.0.min(moved.1) > reference.0.min(reference.1'
+ 1 KILLED      generate.rs: 'moved.0.min(moved.1) >= reference.0.min(reference.1)' -> 'moved.0 >= reference.0'
+ 2 SURVIVED    generate.rs: 'if !town.road_bank_moved {\n        return town;\n    }' -> 'if true {\n        return town;\n    }'
+ 3 SURVIVED    generate.rs: 'road_bank_moved = true;' -> ''
+ 0 KILLED      generate.rs: 'road_bank_moved = true;' -> ''
+
+Read in order: run 1 (7), run 1b after removing the street-village gate (redundant: the village's own
+road_bank_market call is the same call on the same market) and adding the riverbank test, run 1c on the keep
+test, run 1d after asserting Town::road_bank_moved. Final: 11 distinct, 8 killed, 2 survive with reasons
+(STATUS.md), 1 removed.

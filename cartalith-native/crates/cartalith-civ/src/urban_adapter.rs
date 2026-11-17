@@ -2263,6 +2263,9 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::burgage`], carried to `GenOpts::burgage` (owner
     /// Ruling FE item 3's deep-plot prototype).
     pub burgage: bool,
+    /// [`PlaceOverrides::market_road_bank`], carried to
+    /// `GenOpts::market_road_bank` (the 483920 #4 under-build, 2026-11-17).
+    pub market_road_bank: bool,
     /// [`PlaceOverrides::harbour_front`] where the town's box holds sea
     /// ([`UmWater::sea_frac`] above [`BOX_SEA_FRAC`], the harbour badge's own
     /// test, `um_box_has_sea`), carried to `GenOpts::harbour_front` (Ruling FK
@@ -2393,6 +2396,14 @@ pub struct PlaceOverrides<'a> {
     /// `WorldParams::urban_burgage`, off in the app until the owner rules
     /// (`DECISIONS.md` section 7p).
     pub burgage: bool,
+    /// The 483920 #4 under-build (2026-11-17): a river town whose box centre
+    /// is in the channel takes its market on a bank the host's roads reach
+    /// (`cartalith_urban::GenOpts::market_road_bank`). **Not a
+    /// `_umPlaceContext` field** and not in the reference, so `false` (the
+    /// `Default`) is the reference layout and every JS-captured golden is
+    /// unmoved by control flow. The app sets it from
+    /// `WorldParams::urban_market_road_bank` (`DECISIONS.md` section 7p).
+    pub market_road_bank: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2498,6 +2509,7 @@ pub fn um_place_context_with(
             street_village: o.street_village,
             market_scale: o.market_scale,
             burgage: o.burgage,
+            market_road_bank: o.market_road_bank,
             harbour_front,
             site_box,
             river_stretch,
@@ -3087,6 +3099,7 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         street_village: ctx.street_village,
         market_scale: ctx.market_scale,
         burgage: ctx.burgage,
+        market_road_bank: ctx.market_road_bank,
         harbour_front: ctx.harbour_front,
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.

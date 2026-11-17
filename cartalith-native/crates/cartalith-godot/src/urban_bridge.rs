@@ -746,6 +746,9 @@ impl WorldGen {
             // Ruling FE item 3's deep-plot prototype, off in the app until
             // the owner rules. Read live, like the six above.
             burgage: self.params.urban_burgage,
+            // The 483920 #4 row: a river town's market on its roads' bank.
+            // Read live, like the seven above.
+            market_road_bank: self.params.urban_market_road_bank,
         }
     }
 

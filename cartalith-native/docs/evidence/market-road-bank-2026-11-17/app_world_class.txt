@@ -1,0 +1,29 @@
+39 towns >= 1500 at 384: buildings per 1 000 of target median 237
+  seed 912345 #30  river        target   1690 bld   222 housed  65.2 %  131/1000 (0.55)  <-- under 0.6
+  seed 246371 #27  riverthrough target   1790 bld   336 housed  97.9 %  188/1000 (0.79)
+  seed 912345 #2   river        target  20000 bld  3805 housed  87.0 %  190/1000 (0.80)
+  seed 912345 #0   river        target  20000 bld  3836 housed  89.9 %  192/1000 (0.81)
+  seed 483920 #2   river        target  20000 bld  3997 housed  92.1 %  200/1000 (0.84)
+  seed 246371 #6   riverthrough target  20000 bld  4022 housed  92.8 %  201/1000 (0.85)
+32 towns >= 1500 at 2048: buildings per 1 000 of target median 218
+  seed 483920 #8   riverthrough target  18917 bld  1794 housed  47.1 %   95/1000 (0.43)  <-- under 0.6
+  seed 483920 #0   riverthrough target  20000 bld  2005 housed  47.5 %  100/1000 (0.46)  <-- under 0.6
+  seed 246371 #3   riverthrough target   7140 bld   782 housed  52.1 %  110/1000 (0.50)  <-- under 0.6
+  seed 912345 #0   river        target  20000 bld  2491 housed  60.1 %  125/1000 (0.57)  <-- under 0.6
+  seed 483920 #11  riverthrough target  18655 bld  2429 housed  63.4 %  130/1000 (0.60)  <-- under 0.6
+  seed 912345 #10  river        target   2445 bld   372 housed  75.7 %  152/1000 (0.70)
+app world (GPU), towns >= 1500, before -> after (only those that changed):
+  246371_2048_23   river        target   7338 bld  1958 ->  2406 housed 125.3 -> 156.7 %
+  246371_384_13    river        target   7650 bld  2189 ->  1887 housed 136.1 -> 118.4 %
+  483920_2048_12   river        target   8280 bld   176 ->  3189 housed  11.6 -> 173.8 %
+  483920_2048_22   river        target   7653 bld  1916 ->  1827 housed 116.8 -> 121.9 %
+  483920_2048_3    river        target   7179 bld  1904 ->  2716 housed 127.6 -> 164.8 %
+  483920_384_0     river        target  20000 bld  4218 ->  4107 housed  99.1 ->  93.2 %
+  483920_384_4     river        target  20000 bld   670 ->  4382 housed  16.2 -> 102.8 %
+  483920_384_6     river        target  20000 bld  4702 ->  4601 housed 107.1 -> 104.6 %
+  912345_2048_1    river        target  20000 bld  4015 ->  4930 housed  91.7 -> 111.4 %
+  912345_2048_36   river        target   1728 bld   629 ->   429 housed 169.4 -> 119.4 %
+  912345_2048_6    river        target  20000 bld  1326 ->  4689 housed  31.1 -> 105.3 %
+  912345_384_10    river        target   2401 bld   430 ->   825 housed  85.8 -> 157.4 %
+
+[exited with code 0]

@@ -135,6 +135,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("urban_harbour_front", "On: harbour towns are built to their water and their river runs on to the sea (current). Off: centred on the map pin. Read when drawn."),
     ("urban_river_stretch", "On: river towns of about 5 000 and up stretch along their river where the banks allow (current). Off: one square-ish box. Read when drawn."),
     ("urban_burgage", "On: a prototype; streets further apart, deep narrow plots, the house on the street and a yard behind. Off: house-deep lots (current). Read when drawn."),
+    ("urban_market_road_bank", "On: a river town whose map point falls in the river puts its market on the bank its roads reach (current). Off: the first dry point found. Read when drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
@@ -296,7 +297,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" || key == "urban_market_road_bank" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }

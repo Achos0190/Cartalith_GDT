@@ -1351,6 +1351,21 @@ pub struct WorldParams {
     /// layout is asked for (never stored), so it moves no generated field and
     /// needs no regeneration. A save without the key loads it off.
     pub urban_burgage: bool,
+    /// **A river town's market on its roads' bank** (2026-11-17, the 483920
+    /// #4 under-build of `OUTSTANDING_WORK.md`): a river town (not a street
+    /// village) whose layout box centre stands in the channel takes its
+    /// market across to the bank holding more of the host's road, by the
+    /// street village's rule, where the reference's first dry point round the
+    /// centre fell on the bank across the river from the roads
+    /// (`cartalith_urban::GenOpts::market_road_bank`). On that bank the town barely grew: seed 483920 #4
+    /// at 384 x 288 in the app's world housed 3 245 of 20 000.
+    ///
+    /// **`false` here** (the reference's market, which every urban golden
+    /// pins); **`true` in the shipped app** (`params::defaults`), and off on
+    /// load for a save without the key (`DECISIONS.md` §7p). Read fresh each
+    /// time a layout is asked for (never stored), so it moves no generated
+    /// field and needs no regeneration.
+    pub urban_market_road_bank: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1588,6 +1603,8 @@ impl WorldParams {
             // Ruling FN: the reference's square-ish box round the market.
             urban_river_stretch: false,
             urban_burgage: false,
+            // The reference's first dry ring point (the 483920 #4 row).
+            urban_market_road_bank: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

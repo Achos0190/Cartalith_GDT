@@ -1,0 +1,14 @@
+== census (CPU world) 384
+  seed 246371 #2 river target 20000: housed 78.0 -> 102.7 %, bld 3401 -> 4499
+  seed 246371 #4 river target 2559: housed 89.2 -> 156.9 %, bld 465 -> 824
+  seed 483920 #9 river target 1955: housed 121.5 -> 118.9 %, bld 466 -> 510
+  seed 483920 #12 riverthrough target 8006: housed 111.9 -> 117.4 %, bld 1990 -> 1967
+  seed 912345 #4 river target 2566: housed 100.1 -> 108.4 %, bld 529 -> 583
+  seed 912345 #9 river target 20000: housed 95.8 -> 101.9 %, bld 4140 -> 4335
+== census (CPU world) 2048
+  seed 483920 #4 river target 20000: housed 90.7 -> 94.5 %, bld 4065 -> 4058
+  seed 483920 #21 river target 20000: housed 94.0 -> 118.0 %, bld 3972 -> 5350
+  seed 483920 #25 river target 1945: housed 90.9 -> 132.1 %, bld 298 -> 562
+  seed 483920 #36 river target 1709: housed 121.4 -> 115.0 %, bld 437 -> 492
+  seed 912345 #2 river target 2448: housed 104.1 -> 119.8 %, bld 504 -> 635
+  seed 912345 #10 river target 20000: housed 66.3 -> 62.1 %, bld 2909 -> 2744

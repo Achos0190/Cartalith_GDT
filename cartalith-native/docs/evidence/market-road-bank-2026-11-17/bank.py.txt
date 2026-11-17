@@ -1,0 +1,27 @@
+"""bank.py <dir> <gw>: for each dumped town, the share of its primary-road length (within 700 m of the market) on the
+market's bank of the river centreline, against housed %."""
+import json, glob, sys, re, math
+def side(p, river):
+    best=None
+    for a,b in zip(river, river[1:]):
+        ax,ay=a; bx,by=b; dx,dy=bx-ax,by-ay; l2=dx*dx+dy*dy or 1
+        t=max(0,min(1,((p[0]-ax)*dx+(p[1]-ay)*dy)/l2)); qx,qy=ax+t*dx,ay+t*dy
+        d=math.hypot(p[0]-qx,p[1]-qy)
+        if best is None or d<best[0]: best=(d, 1 if dx*(p[1]-ay)-dy*(p[0]-ax)>0 else -1)
+    return best
+for f in sorted(glob.glob(f"{sys.argv[1]}/*_{sys.argv[2]}_*.json")):
+    d=json.load(open(f)); m=d['market']; r=d['river']
+    if len(r)<2: continue
+    ms=side(m,r)
+    on=off=0.0
+    for e in d['edges']:
+        if e[0]!='primary': continue
+        a,b=e[2:4],e[4:6]; mid=((a[0]+b[0])/2,(a[1]+b[1])/2)
+        if math.hypot(mid[0]-m[0],mid[1]-m[1])>700: continue
+        L=math.hypot(a[0]-b[0],a[1]-b[1]); s=side(mid,r)
+        if s[1]==ms[1]: on+=L
+        else: off+=L
+    pl=d.get('plaza') or []
+    ps = side((sum(p[0] for p in pl)/len(pl), sum(p[1] for p in pl)/len(pl)), r)[1]==ms[1] if pl else None
+    h=100*d['pop']/d['target']
+    print(f"{f.split(chr(92))[-1].split('/')[-1]:22s} {d['site_kind']:12s} housed {h:5.1f} %  market-river {ms[0]:5.1f} m  primary on market bank {on:5.0f} m, other bank {off:5.0f} m  plaza on market bank {ps}")

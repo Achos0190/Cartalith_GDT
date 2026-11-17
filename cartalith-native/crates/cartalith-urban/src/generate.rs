@@ -110,6 +110,9 @@ mod tests;
 /// Ruling FK item 1's gate: the harbour front (`GenOpts::harbour_front`).
 #[cfg(test)]
 mod harbour_front_tests;
+/// The gate of `GenOpts::market_road_bank` (the 483920 #4 under-build).
+#[cfg(test)]
+mod market_bank_tests;
 
 /// `UME.SITE_WM` — the site box width in metres (`const Wm=1700` at line 30969).
 pub const SITE_WM: f64 = 1700.0;
@@ -264,6 +267,17 @@ pub struct GenOpts {
     /// flow. The host sets it from `WorldParams::urban_burgage`, off in the
     /// app until the owner rules.
     pub burgage: bool,
+    /// **Not the reference** -- the 483920 #4 under-build (2026-11-17,
+    /// `OUTSTANDING_WORK.md`): a river town (not a street village) whose box
+    /// centre stands in the channel, and whose market the reference's nudge
+    /// put on the bank holding less of the host's road, takes its market
+    /// across to the roads' bank by the street village's rule
+    /// ([`crate::village::road_bank_market`]); the reference's first dry ring
+    /// point can be the bank across the river from every road, where `grow`'s
+    /// bridgehead rule then starves the town. `false` is the reference's
+    /// market, by control flow. The host sets it from
+    /// `WorldParams::urban_market_road_bank`.
+    pub market_road_bank: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -567,6 +581,11 @@ pub struct Town {
     /// then the market the reference placed, so the village is anchored on
     /// the map exactly as before.
     pub pin: Vec2,
+    /// **Not the reference** -- whether `GenOpts::market_road_bank` moved this
+    /// layout's market across to its roads' bank. `false` with the switch off.
+    /// Read by [`generate`], which keeps such a layout only where it houses
+    /// at least as many as the reference's market does.
+    pub road_bank_moved: bool,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -620,6 +639,34 @@ fn or_str<'a>(s: Option<&'a str>, d: &'a str) -> &'a str {
 /// river carried across the middle of a town) is not kept. With the switch
 /// off, the first layout: the reference.
 pub fn generate(seed: u32, opts: &GenOpts) -> Town {
+    let town = generate_front(seed, opts);
+    // **Not the reference** (`GenOpts::market_road_bank`, 2026-11-17): a
+    // market moved to its roads' bank is kept only where the town then houses
+    // at least as many people, each counted up to its target, as with the
+    // reference's market. At a hairpin bend "the other bank" can be the
+    // inside of the bend: the census's seed 912345 #10 at 2 048 x 1 311 housed
+    // 66 % with the reference's market and 31 % with the moved one (the
+    // town then lost its stretch as well). Ties keep the move. With the switch
+    // off, or nothing moved, the one layout as before.
+    if !town.road_bank_moved {
+        return town;
+    }
+    let reference = generate_front(seed, &GenOpts { market_road_bank: false, ..opts.clone() });
+    if keep_road_bank_move((town.pop, town.pop_target), (reference.pop, reference.pop_target)) { town } else { reference }
+}
+
+/// [`generate`]'s test for a market `GenOpts::market_road_bank` moved: keep
+/// the moved layout (housed, target) over the reference's when it houses at
+/// least as many, each counted up to its own target (so housing past the
+/// target buys nothing); a tie keeps the move.
+fn keep_road_bank_move(moved: (f64, f64), reference: (f64, f64)) -> bool {
+    moved.0.min(moved.1) >= reference.0.min(reference.1)
+}
+
+/// [`generate`] before its `GenOpts::market_road_bank` comparison: the
+/// harbour-front choice (Ruling FK item 1) over [`generate_laid`]'s layouts,
+/// as `generate` was until 2026-11-17.
+fn generate_front(seed: u32, opts: &GenOpts) -> Town {
     let town = generate_laid(seed, opts, false);
     let Some(w) = opts.water.as_ref().filter(|_| opts.harbour_front) else {
         return town;
@@ -850,6 +897,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // centre, the map position, for the renderer and the host's roads. `None`
     // with the switch off: the reference, by control flow.
     let mut pin: Option<Vec2> = None;
+    // Set where `GenOpts::market_road_bank` moves the market (`Town::road_bank_moved`).
+    let mut road_bank_moved = false;
     // The water point the market was moved toward, for `harbour_street`.
     let mut front_water: Option<Vec2> = None;
     if opts.water.is_some() {
@@ -885,6 +934,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         // one takes the reference's first dry point. Off (`pin` `None`): the
         // reference's test and search, by control flow.
         let joined = |q: Vec2| pin.is_none_or(|origin| harbour_market_reaches_a_road(&site, q, origin, &opts.primary_paths));
+        // Whether the reference's channel nudge below moves this market (read
+        // by `GenOpts::market_road_bank` after it).
+        let centre_wet = site.is_water(mc);
         if site.is_water(mc) || !joined(mc) {
             let ring = |accept: &dyn Fn(Vec2) -> bool| {
                 let mut best: Option<Vec2> = None;
@@ -929,6 +981,36 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         {
             pin.get_or_insert(mc);
             mc = q;
+        }
+        // **Not the reference** (`GenOpts::market_road_bank`, the 483920 #4
+        // under-build, 2026-11-17): a town whose box centre stood in the
+        // channel was moved by the reference's nudge above to the first dry
+        // ring point, bearing 0 first, whichever bank that is. Where it is the
+        // bank holding less of the host's road than the other, the market
+        // goes across to the roads' bank by the street village's own rule
+        // (`crate::village::road_bank_market`, its reach and its dry-join
+        // test). `pin` keeps the reference's market, so the town's map
+        // anchor and its roads are where the reference lays them. On seed
+        // 483920 #4 at 384 x 288 in the app's world the nudge chose the bank
+        // with 13 m of road against 629 m across the river; `grow` then drew
+        // most of its origins on the roads' bank and refused them by the
+        // bridgehead rule (431, 349, 335 and 300 such refusals in the first
+        // four epochs), and the town housed 3 245 of 20 000. Only a market the
+        // nudge moved (a dry centre is the reference's own choice), and not
+        // one the harbour front or a village landing moved (`pin` set). A
+        // street village needs no gate here: its own call above is this same
+        // call on the same market, so where it moved nothing this moves
+        // nothing either.
+        if opts.market_road_bank
+            && centre_wet
+            && pin.is_none()
+            && site.riverbank()
+            && (site.kind == "river" || site.kind == "riverthrough")
+            && let Some(q) = crate::village::road_bank_market(&site, mc, mc, &opts.primary_paths, max_rf)
+        {
+            pin = Some(mc);
+            mc = q;
+            road_bank_moved = true;
         }
         anchors.market = mc;
     }
@@ -1589,6 +1671,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         street_village,
         embankment,
         pin,
+        road_bank_moved,
         pop,
         metrics,
         through: site.through,

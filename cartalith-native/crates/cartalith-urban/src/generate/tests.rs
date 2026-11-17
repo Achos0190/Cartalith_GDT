@@ -300,6 +300,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         river_stretch: None,
         // Nor deep burgage plots (Ruling FE item 3's prototype).
         burgage: false,
+        // Nor the market on its roads' bank (the 483920 #4 under-build).
+        market_road_bank: false,
     }
 }
 

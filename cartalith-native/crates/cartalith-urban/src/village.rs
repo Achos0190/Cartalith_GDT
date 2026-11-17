@@ -447,9 +447,11 @@ pub const ROAD_BANK_REACH_RF: f64 = 1.0;
 /// where the market's bank holds as much road as the other, or where no such
 /// point is found within the reach. Draws nothing.
 ///
-/// **Must never** move a market onto the water or into the channel, onto the
-/// bank holding less road, or for a town (`generate_pass` calls it only for a
-/// street village on a real-water river site).
+/// **Must never** move a market onto the water or into the channel, or onto
+/// the bank holding less road. `generate_pass` calls it for a street village
+/// on a real-water river site, and (since 2026-11-17, behind
+/// `GenOpts::market_road_bank`) for a river town whose box centre stood in
+/// the channel; never for any other town.
 pub fn road_bank_market(site: &Site, m: Vec2, origin: Vec2, paths: &[Vec<Vec2>], max_rf: f64) -> Option<Vec2> {
     if site.river.len() < 2 {
         return None;

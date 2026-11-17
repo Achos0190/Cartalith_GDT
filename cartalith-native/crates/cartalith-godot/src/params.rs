@@ -209,6 +209,11 @@ pub fn defaults() -> WorldParams {
     // every urban golden pins (`DECISIONS.md` section 7p). See
     // `WorldParams::urban_harbour_front`.
     p.urban_harbour_front = true;
+    // The 483920 #4 under-build (2026-11-17): a river town whose box centre
+    // is in the channel takes its market on its roads' bank. Off in
+    // `WorldParams::defaults`, the reference's market every urban golden pins
+    // (`DECISIONS.md` section 7p). See `WorldParams::urban_market_road_bank`.
+    p.urban_market_road_bank = true;
     // Ruling FN (owner 2026-11-16): river towns stretch along their river.
     // On since Ruling FS (owner 2026-11-17), which accepted the riverside
     // share Ruling FQ's fix reached (4.1 % at 384, 3.7 % at 2 048, against
@@ -502,6 +507,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_burgage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Deep burgage plots (prototype)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_burgage), set_fn: |p, v| p.urban_burgage = v != 0.0 },
+    // The 483920 #4 under-build (2026-11-17): a river town's market on its
+    // roads' bank (`cartalith_urban::GenOpts::market_road_bank`). ON at the
+    // app boundary, OFF in `WorldParams::defaults`; no reference control. A
+    // save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read fresh
+    // whenever a layout is asked for, so `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_market_road_bank", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River town markets on their roads' bank", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_market_road_bank), set_fn: |p, v| p.urban_market_road_bank = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1214,6 +1227,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("urban_river_stretch", ""),
     // Port-only (Ruling FE item 3's prototype); the reference plats house-deep lots.
     ("urban_burgage", ""),
+    // Port-only (the 483920 #4 row); the reference takes the first dry ring point.
+    ("urban_market_road_bank", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1573,6 +1588,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Deep burgage plots (Ruling FE item 3's prototype, 2026-11-17): every
     // save without the key drew the reference's house-deep lots.
     ("urban_burgage", Value::Bool(false)),
+    // A river town's market on its roads' bank (2026-11-17): every save
+    // without the key drew the reference's first dry ring point.
+    ("urban_market_road_bank", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

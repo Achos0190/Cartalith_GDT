@@ -1357,6 +1357,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.urban_street_village = false;
     // And the market square (judgement change 6): a save without the key drew the one-size square.
     expect.urban_market_scale = false;
+    // And the market on its roads' bank (the 483920 #4 row): a save without the key took the first dry ring point.
+    expect.urban_market_road_bank = false;
     // And Ruling FF items 5 and 6: a save without the keys sited on the rebuilt
     // river network and badged harbours on the radius alone.
     expect.civ.map_rivers = false;
@@ -1515,6 +1517,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // Protects Ruling FE item 3's prototype being OFF at BOTH boundaries until
     // the owner rules (not the usual on-in-the-app split).
     assert!(!app.urban_burgage && !parity.urban_burgage, "deep burgage plots are a prototype, off in the app too");
+    assert!(app.urban_market_road_bank && !parity.urban_market_road_bank, "a river town's market on its roads' bank, the 483920 #4 row (2026-11-17)");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1546,6 +1549,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_riverbank = false;
     neutral.urban_street_village = false;
     neutral.urban_market_scale = false;
+    neutral.urban_market_road_bank = false;
     neutral.civ.map_rivers = false;
     neutral.civ.harbour_box = false;
     neutral.civ.port_shore = false;
