@@ -403,6 +403,19 @@ edge nearest the non-dominant hand give radius and strength, always visible
 and thumb-reachable. This is the touch equivalent of §6's Ctrl+RMB HUD. It
 does not replace the options bar. Fork **F5b**.
 
+**Build note (2026-11-17, owner asked for it that day).** Built as `shell/edge_sliders.gd`, a child of
+`viewport_host.gd`'s map host, tablet only (`DccTheme.is_tablet()`), shown only while sculpt, paint, colour paint or the
+assistant region brush is armed. Sculpt and colour paint get two rails (radius, strength: sculpt's `intensity`, colour
+paint's `opacity`); paint and the region brush expose a radius only, so they get one (no rail for a value the tool does
+not have). The rails sit on the edge opposite `DccSettings.dominant_hand()` (right-handed: left edge), centred in the band
+left between the chrome already on that edge, 44 px wide hit areas, hidden rather than overlapping when the band is under
+150 px. They own no value: each reads and writes the options bar's own state (sculpt globals, the world workspace's
+`_paint_brush`, `ColourPaintTool.radius_km`/`opacity` via the new `set_opacity`, `LlmRegion.brush`), re-read ten times a
+second, and the bar repaints while a drag is in progress. A press must begin on a rail to move it, so a pen or finger
+stroke begun on the map never does; a pen tapping a rail does. A readout shows the value while dragging.
+`Preferences > Brush edge sliders (tablet)` hides them (`DccSettings.edge_sliders_enabled()`, default on). Probe
+`_edgesliders_probe.gd`.
+
 ---
 
 ## 8 · Phone (shortest width < 900 dp)

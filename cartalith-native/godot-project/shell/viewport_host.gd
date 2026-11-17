@@ -1202,6 +1202,10 @@ func _build_chrome() -> void:
 	add_child(_vp_context)
 
 	_build_navpad()
+	## `MAP_CONTEXT_SCOPE.md` s.7.3 (fork F5b): the tablet's brush edge sliders. Built on every class and hidden by
+	## itself off the tablet or with no brush armed (`edge_sliders.gd`'s header); added last, so it draws above the map's
+	## other chrome and its rails take their own touches (`MAP_CHROME_META`).
+	add_child(EDGE_SLIDERS.new())
 
 ## MS-1 S4.4 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` section 17): refreshes the chrome for the
 ## class the shell has just swapped to. This node is a SURVIVOR of a swap (the map, its tiles and its overlays are
@@ -1596,6 +1600,9 @@ func _on_map(pos: Vector2) -> bool:
 
 ## Meta key a control sets (to true) to say a finger on it is its own and never the map's (see `_on_map`).
 const MAP_CHROME_META := "map_chrome"
+
+## The tablet's brush edge sliders (`edge_sliders.gd`), preloaded rather than a `class_name`.
+const EDGE_SLIDERS := preload("res://shell/edge_sliders.gd")
 
 ## Whether `ctl` takes a finger away from the map: every STOP control, and a PASS one only when it does something with
 ## a touch (a button, slider, text box, list, tree, scroller, or a `gui_input` listener). A PASS control with none of

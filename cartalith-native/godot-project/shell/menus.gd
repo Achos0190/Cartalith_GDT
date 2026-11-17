@@ -384,6 +384,8 @@ const ID_PREF_QUICK_BAR := 902
 ## PW-1: `Preferences ▸ Open panels in their own window` (`POPOUT_WINDOWS_SCOPE.md` s.4, Ruling DK).
 ## 903 was unused (`grep -rn "903" shell/*.gd`, 2026-10-26).
 const ID_PREF_POPOUT := 903
+## `Preferences ▸ Brush edge sliders` (tablet; `MAP_CONTEXT_SCOPE.md` s.7.3). 904 was unused (`grep -rn -E "\b904\b" shell/*.gd`, 2026-11-17).
+const ID_PREF_EDGE_SLIDERS := 904
 ## PC-9's rows (`PC_SHELL_PROPOSAL.md` §3.8, §3.9; mockup `design/mobile-shell-2026-10-31/Shell.dc.html`'s
 ## desktop menus). 910-918 were unused, measured 2026-11-01 at `a38e0ac`: no `ID_` constant in this
 ## file is above 903 (`grep -n -E '^const ID_[A-Z_0-9]+ := 9[0-9]{2}' shell/menus.gd` lists 900-903
@@ -590,6 +592,7 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
+var _edge_sliders_pref_row := -1   ## `Preferences ▸ Brush edge sliders (tablet)` row index, -1 until built
 var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
 var _ui_scale_popup: PopupMenu  ## MS-1 S5: `Preferences ▸ UI scale` (touch builds only).
 var _stylus_popup: PopupMenu   ## `Preferences ▸ Stylus` (SH-3): the stylus input preferences, per install.
@@ -2685,6 +2688,8 @@ func state_source(id: int) -> Callable:
 			return func() -> bool: return DccSettings.theme_mode() == "system"
 		ID_PREF_POPOUT:
 			return func() -> bool: return DccSettings.popout_enabled()
+		ID_PREF_EDGE_SLIDERS:
+			return func() -> bool: return DccSettings.edge_sliders_enabled()
 		ID_WIN_SESSION_MODE:
 			return func() -> bool: return _shell != null and _shell.is_session_mode()
 		ID_WIN_DIAG_OVERLAY:
@@ -4822,6 +4827,11 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## CM-4 residual: unconditional, unlike the two rows above -- see this
 	## function's own header comment for why.
 	_build_handedness_submenu(p)
+	p.add_check_item("Brush edge sliders (tablet)", ID_PREF_EDGE_SLIDERS)
+	p.set_item_checked(p.item_count - 1, DccSettings.edge_sliders_enabled())
+	p.set_item_tooltip(p.item_count - 1,
+		"On a tablet, while a brush is armed, two thin sliders (radius and strength) sit on the screen edge nearest your non-dominant hand (Preferences > Handedness). They change the same settings as the tool options bar. A pen stroke never moves them. Stored on this device. No effect on desktop or phone.")
+	_edge_sliders_pref_row = p.item_count - 1
 	_build_stylus_submenu(p)
 	_build_ui_scale_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
@@ -6533,6 +6543,12 @@ func _clear_caches() -> void:
 ## matches the tick). `p` is the popup whose GPU row is rewritten. The GPU-retry status
 ## reports what the call returned, since the row's gating can be one popup stale.
 func _on_preferences(id: int, p: PopupMenu) -> void:
+	if id == ID_PREF_EDGE_SLIDERS:
+		var es_on := not DccSettings.edge_sliders_enabled()
+		DccSettings.set_edge_sliders_enabled(es_on)
+		if _edge_sliders_pref_row >= 0 and _edge_sliders_pref_row < p.item_count:
+			p.set_item_checked(_edge_sliders_pref_row, es_on)
+		return
 	if id == ID_PREF_POPOUT:
 		var on := not DccSettings.popout_enabled()
 		DccSettings.set_popout_enabled(on)

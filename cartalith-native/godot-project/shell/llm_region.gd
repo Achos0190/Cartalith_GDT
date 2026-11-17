@@ -276,6 +276,19 @@ static func _refresh_bar() -> void:
 	if capped:
 		t += "  (the most a region may hold is %d dabs)" % MAX_DABS
 	_status.text = t
+	## The tablet edge slider (`edge_sliders.gd`) can set a size that is not one of `BRUSH_SIZES`; the dropdown then
+	## names it as one extra trailing item instead of lying with a preset, and drops that item again when a preset
+	## size is set. A preset size just selects its own item.
+	var sizes := _bar.find_child("assist_brush", true, false) as OptionButton
+	if sizes != null:
+		var pi := BRUSH_SIZES.find(int(brush))
+		while sizes.item_count > BRUSH_SIZES.size():
+			sizes.remove_item(sizes.item_count - 1)
+		if pi >= 0:
+			sizes.select(pi)
+		else:
+			sizes.add_item("Brush %d cells" % int(brush))
+			sizes.select(sizes.item_count - 1)
 	var undo_b := _bar.find_child("assist_undo_stroke", true, false) as Button
 	if undo_b != null:
 		undo_b.disabled = strokes.is_empty()

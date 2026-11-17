@@ -649,6 +649,19 @@ static func set_dominant_hand(hand: String) -> void:
 		else:
 			_hand_listeners.erase(cb)
 
+## Whether the tablet's brush edge sliders (radius and strength on the edge nearest the non-dominant hand, while a
+## brush is armed; `MAP_CONTEXT_SCOPE.md` s.7.3, fork F5b) are shown. Default TRUE: an unset key reads as on, which is
+## "on by default for tablets" (owner, 2026-11-17). Never read on the phone or desktop, which never show them.
+static func edge_sliders_enabled() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_HANDEDNESS, "edge_sliders", true))
+
+## Stores the edge-sliders switch and saves. Lives beside the dominant hand because it is a tablet ergonomics choice.
+static func set_edge_sliders_enabled(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_HANDEDNESS, "edge_sliders", on)
+	_save()
+
 # -- SH-3 (and SH-4/5 below it): the stylus input preferences ------------------------------------------------------
 
 ## Whether, once a pen has been seen, the finger only navigates and the pen draws (SH-3, Ruling EC,

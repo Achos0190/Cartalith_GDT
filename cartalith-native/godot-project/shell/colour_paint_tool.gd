@@ -168,6 +168,9 @@ var _blend_ob: OptionButton
 ## The Radius slider's parts (`DccWidgets.slider`'s dictionary), so the phone strip's Size stepper can move the
 ## slider's thumb and readout with it (`set_radius`), the one brush radius in two places.
 var _radius_slider: Dictionary = {}
+## The Opacity row's parts (`DccWidgets.slider()`), kept so `set_opacity` (the tablet edge slider, `edge_sliders.gd`)
+## moves the dock's thumb and readout with the value: one opacity in two places, as `_radius_slider` is for the radius.
+var _opacity_slider: Dictionary = {}
 
 ## The active paint layer, as the engine's index (0 = bottom): where strokes
 ## go and what Rename / Clear layer / Delete layer act on. Clamped on every
@@ -267,7 +270,7 @@ func build_into(parent: Control) -> void:
 		"Brush radius in map kilometres: the same ground at every zoom and in the export.")
 	DccWidgets.slider(body, "Hardness", 0.0, 1.0, 0.05, hardness, "", func(v: float): hardness = v,
 		"1 is a crisp edge; 0 fades from the centre line out.")
-	DccWidgets.slider(body, "Opacity", 0.0, 1.0, 0.05, opacity, "", func(v: float): opacity = v)
+	_opacity_slider = DccWidgets.slider(body, "Opacity", 0.0, 1.0, 0.05, opacity, "", func(v: float): opacity = v)
 	DccWidgets.toggle(body, "Land only", land_only, func(v: bool): land_only = v,
 		"On: sea and lakes under the stroke keep their colour. Off: water is painted too (a crater lake inside a painted crater).")
 	## Ruling EQ item 1 (after EM item 3): the colour row offers strength / off, strength by default. Strength is stored
@@ -563,6 +566,15 @@ func commit_marks(marks: Array, label: String) -> bool:
 		notice.accept()
 	_after_edit()
 	return true
+
+## The mark opacity, set from outside the dock slider (the tablet edge slider, `MAP_CONTEXT_SCOPE.md` s.7.3): clamped
+## to the dock slider's own 0..1 range and snapped to its 0.05 step, the dock's thumb and readout moved with it. It is
+## the colour tool's "strength": the per-point pen strength (`ColourMark::strength`) scales this same opacity.
+func set_opacity(v: float) -> void:
+	opacity = clampf(snappedf(v, 0.05), 0.0, 1.0)
+	if not _opacity_slider.is_empty() and is_instance_valid(_opacity_slider["slider"]):
+		(_opacity_slider["slider"] as HSlider).set_value_no_signal(opacity)
+		(_opacity_slider["readout"] as Label).text = (_opacity_slider["format"] as Callable).call(opacity)
 
 ## The brush radius, set from outside the slider (the phone strip's Size stepper): clamped to the slider's own range,
 ## the slider's thumb and readout moved with it, and the status line (the readout in cells and pixels) redrawn.
