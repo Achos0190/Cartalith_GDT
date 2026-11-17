@@ -1,0 +1,351 @@
+// ------------------------------------------------------------------------
+// PARALLEL_STREETS_SCOPE.md PS-pre: block shapes (scratch measurement, 2026-11-17).
+// Pins nothing; `#[ignore]`d. Ruling BK: each helper says what it measures.
+// ------------------------------------------------------------------------
+
+/// A block outline with its near-duplicate vertices (closer than 6 m) merged and its
+/// near-straight vertices (turn under 20 degrees) dropped: the corners a reader of
+/// the plan would count. A labelled judgement on both thresholds; 6 m is under the
+/// narrowest street, 20 degrees under the branch jitter's two sigma (2 x 15).
+fn ps_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
+    let mut p: Vec<(f64, f64)> = Vec::new();
+    for v in poly {
+        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
+            p.push((v.x, v.y));
+        }
+    }
+    while p.len() > 2 && { let (a, b) = (p[0], p[p.len() - 1]); (a.0 - b.0).hypot(a.1 - b.1) < 6.0 } {
+        p.pop();
+    }
+    loop {
+        let n = p.len();
+        if n <= 3 {
+            return p;
+        }
+        let mut drop = None;
+        let mut least = f64::INFINITY;
+        for i in 0..n {
+            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
+            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
+            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
+            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
+            if d > std::f64::consts::PI {
+                d = 2.0 * std::f64::consts::PI - d;
+            }
+            if d < least {
+                least = d;
+                drop = Some(i);
+            }
+        }
+        if least.to_degrees() < turn_deg {
+            p.remove(drop.unwrap());
+        } else {
+            return p;
+        }
+    }
+}
+
+/// Interior angles (degrees, 0..180) at each corner of a simplified outline.
+fn ps_interior(p: &[(f64, f64)]) -> Vec<f64> {
+    let n = p.len();
+    (0..n)
+        .map(|i| {
+            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
+            let (u, v) = ((a.0 - b.0, a.1 - b.1), (c.0 - b.0, c.1 - b.1));
+            let cos = (u.0 * v.0 + u.1 * v.1) / (u.0.hypot(u.1) * v.0.hypot(v.1)).max(1e-9);
+            cos.clamp(-1.0, 1.0).acos().to_degrees()
+        })
+        .collect()
+}
+
+/// Minimum-area bounding rectangle over the outline's edge directions: (long side, short side).
+/// The short side is the block's depth across: a lot of depth d needs a block about 2 d / 0.96
+/// across with lots from both long sides (`build_parcels_with`'s WAIST 0.48).
+fn ps_mabr(poly: &[Vec2]) -> (f64, f64) {
+    let mut best = (f64::INFINITY, 0.0, 0.0);
+    let n = poly.len();
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        let th = (b.y - a.y).atan2(b.x - a.x);
+        let (c, s) = (th.cos(), th.sin());
+        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for v in poly {
+            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
+            x0 = x0.min(x);
+            x1 = x1.max(x);
+            y0 = y0.min(y);
+            y1 = y1.max(y);
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        if w * h < best.0 {
+            best = (w * h, w.max(h), w.min(h));
+        }
+    }
+    (best.1, best.2)
+}
+
+/// Block shapes, street angles and parallelism per town of `PLAZA_MARKET_POP` and up
+/// (`PARALLEL_STREETS_SCOPE.md` section 1). `PS_VARIANT`: unset = the app's rules;
+/// `nojitter` = branch and continuation jitter 0; `nojitter_nopierce` = and pierce 0;
+/// `market_town` = `MARKET_TOWN_RULES`; `spacing60`, `seg80`, `spacing60_seg80` = the
+/// app's rules with only `parallel_street_spacing` 60 m and / or `segment_length_median` 80 m. Same world and switches as `both_banks_audit`.
+#[test]
+#[ignore = "measurement; PARALLEL_STREETS_SCOPE.md section 1"]
+fn block_shape_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    let variant = std::env::var("PS_VARIANT").unwrap_or_default();
+    let rules: Option<cartalith_civ::urban_adapter::Rules> = match variant.as_str() {
+        "nojitter" => {
+            let mut r = cartalith_civ::urban_adapter::DEFAULT_RULES;
+            r.street.branch_angle_jitter = 0.0;
+            r.street.continuation_jitter = 0.0;
+            Some(r)
+        }
+        "nojitter_nopierce" => {
+            let mut r = cartalith_civ::urban_adapter::DEFAULT_RULES;
+            r.street.branch_angle_jitter = 0.0;
+            r.street.continuation_jitter = 0.0;
+            r.street.pierce_chance = 0.0;
+            Some(r)
+        }
+        "market_town" => cartalith_civ::urban_adapter::rules_preset("market_town"),
+        // Isolating the spacing from the segment length (the advisor's check of section 1.3 item 2).
+        "spacing60" => {
+            let mut r = cartalith_civ::urban_adapter::DEFAULT_RULES;
+            r.street.parallel_street_spacing = 60.0;
+            Some(r)
+        }
+        "seg80" => {
+            let mut r = cartalith_civ::urban_adapter::DEFAULT_RULES;
+            r.street.segment_length_median = 80.0;
+            Some(r)
+        }
+        "spacing60_seg80" => {
+            let mut r = cartalith_civ::urban_adapter::DEFAULT_RULES;
+            r.street.parallel_street_spacing = 60.0;
+            r.street.segment_length_median = 80.0;
+            Some(r)
+        }
+        _ => None,
+    };
+    let big_only = std::env::var("PS_MIN_POP").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(cartalith_civ::urban_adapter::PLAZA_MARKET_POP);
+    let (mut n_blk, mut c3, mut c4, mut c5) = (0usize, 0usize, 0usize, 0usize);
+    let (mut a_all, mut a3, mut a4, mut a5) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    let (mut aspect, mut rect, mut short, mut area_v): (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut deep83 = 0usize;
+    let mut ang_hist = [0usize; 12]; // interior angles, 15-degree bins 0..180
+    let mut junc_hist = [0usize; 6]; // junction angles folded to 0..90, 15-degree bins
+    let mut bearing = [0.0f64; 36]; // length-weighted bearings, 10-degree bins over 0..360 (both directions)
+    let (mut par_len, mut tot_len) = (0.0f64, 0.0f64);
+    let mut seg_len: Vec<f64> = Vec::new();
+    let mut deg = [0usize; 5]; // node degree 1, 2, 3, 4, 5+
+    let mut towns = 0usize;
+    let mut per_town: Vec<String> = Vec::new();
+    // Per town: bearing entropy / max and orientation order phi (pooling towns of
+    // different orientation would flatten the histogram).
+    let (mut town_h, mut town_phi, mut town_par, mut town_tri): (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    // Triangle share at three corner thresholds (10, 20, 30 degrees).
+    let mut tri_at = [(0usize, 0usize); 3];
+    // Split: [touches a primary][within 300 m of the market] -> (blocks, triangles, quads, deep83).
+    let mut split = [[(0usize, 0usize, 0usize, 0usize); 2]; 2];
+    // Compact triangles: three corners and aspect under 2 (real plans' gate wedges are long and thin).
+    let mut compact_tri = 0usize;
+    for seed in &seeds {
+        let (ws, civ, gh, p) = generate_world(*seed, gw, true);
+        let bank = p.urban_riverbank;
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: *seed,
+            river_kind_from_map: river_kind_map(&p),
+        };
+        let others = stretch_others(&civ);
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
+            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+            let Some(l) = run_layout(&ctx, rules.as_ref()) else { continue };
+            if l.pop_target < big_only || l.buildings.is_empty() {
+                continue;
+            }
+            towns += 1;
+            let (mut t3, mut tn) = (0usize, 0usize);
+            for (bi, b) in l.blocks.iter().enumerate() {
+                if l.block_plaza.get(bi).copied().unwrap_or(false) {
+                    continue;
+                }
+                let area = poly_area_xy(&b.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>()).abs();
+                if area < 200.0 {
+                    continue; // slivers: under a single 11 x 18 m lot
+                }
+                let c = ps_corners(b, 20.0);
+                if c.len() < 3 {
+                    continue;
+                }
+                for (k, t) in [10.0, 20.0, 30.0].iter().enumerate() {
+                    let ck = ps_corners(b, *t);
+                    tri_at[k].0 += 1;
+                    tri_at[k].1 += usize::from(ck.len() == 3);
+                }
+                let prim: Vec<&cartalith_civ::urban_adapter::LayoutEdge> = l.edges.iter().filter(|e| e.cls == "primary").collect();
+                let touches = b.iter().any(|v| prim.iter().any(|e| seg_dist((v.x, v.y), (e.a.x, e.a.y), (e.b.x, e.b.y)) <= e.w / 2.0 + 3.0));
+                let cen = cartalith_civ::urban_adapter::poly_centroid(b);
+                let near = cen.dist(l.market) < 300.0;
+                let sp = &mut split[usize::from(touches)][usize::from(near)];
+                n_blk += 1;
+                tn += 1;
+                a_all += area;
+                match c.len() {
+                    3 => { c3 += 1; a3 += area; t3 += 1; sp.1 += 1; }
+                    4 => { c4 += 1; a4 += area; sp.2 += 1; }
+                    _ => { c5 += 1; a5 += area; }
+                }
+                sp.0 += 1;
+                for a in ps_interior(&c) {
+                    ang_hist[((a / 15.0) as usize).min(11)] += 1;
+                }
+                let (lg, sh) = ps_mabr(b);
+                aspect.push(lg / sh.max(1e-6));
+                rect.push(area / (lg * sh).max(1e-6));
+                short.push(sh);
+                area_v.push(area);
+                if sh >= 83.0 {
+                    deep83 += 1;
+                    sp.3 += 1;
+                }
+                if c.len() == 3 && lg / sh.max(1e-6) < 2.0 {
+                    compact_tri += 1;
+                }
+            }
+            per_town.push(format!("{seed} #{i} pop {:.0} blocks {tn} triangles {:.0} %", l.pop_target, 100.0 * t3 as f64 / tn.max(1) as f64));
+            // Street network: node degree, junction angles, bearings, parallel neighbours.
+            let key = |v: Vec2| ((v.x * 2.0).round() as i64, (v.y * 2.0).round() as i64);
+            let mut adj: std::collections::HashMap<(i64, i64), Vec<f64>> = std::collections::HashMap::new();
+            let mut tb = [0.0f64; 36];
+            let (mut t_par, mut t_tot) = (0.0f64, 0.0f64);
+            town_tri.push(100.0 * t3 as f64 / tn.max(1) as f64);
+            let es: Vec<&cartalith_civ::urban_adapter::LayoutEdge> = l.edges.iter().filter(|e| matches!(e.cls, "street" | "lane" | "primary" | "ringroad")).collect();
+            for e in &es {
+                let th = (e.b.y - e.a.y).atan2(e.b.x - e.a.x);
+                adj.entry(key(e.a)).or_default().push(th);
+                adj.entry(key(e.b)).or_default().push(th + std::f64::consts::PI);
+                let len = e.a.dist(e.b);
+                seg_len.push(len);
+                let bd = th.to_degrees().rem_euclid(360.0);
+                bearing[(bd / 10.0) as usize % 36] += len;
+                bearing[((bd + 180.0) / 10.0) as usize % 36] += len;
+                tb[(bd / 10.0) as usize % 36] += len;
+                tb[((bd + 180.0) / 10.0) as usize % 36] += len;
+                t_tot += len;
+                tot_len += len;
+                // A parallel neighbour: another edge, 25-120 m away from this one's midpoint,
+                // within 10 degrees of its bearing, whose foot falls inside it (it runs alongside).
+                if len >= 30.0 {
+                    let m = Vec2::new((e.a.x + e.b.x) / 2.0, (e.a.y + e.b.y) / 2.0);
+                    let has = es.iter().any(|f| {
+                        if std::ptr::eq(*f, *e) {
+                            return false;
+                        }
+                        let tf = (f.b.y - f.a.y).atan2(f.b.x - f.a.x);
+                        let mut dd = (th - tf).rem_euclid(std::f64::consts::PI);
+                        dd = dd.min(std::f64::consts::PI - dd);
+                        if dd.to_degrees() > 10.0 {
+                            return false;
+                        }
+                        let (dx, dy) = (f.b.x - f.a.x, f.b.y - f.a.y);
+                        let ll = dx * dx + dy * dy;
+                        if ll < 1.0 {
+                            return false;
+                        }
+                        let t = ((m.x - f.a.x) * dx + (m.y - f.a.y) * dy) / ll;
+                        if !(0.0..=1.0).contains(&t) {
+                            return false;
+                        }
+                        let d = ((m.x - f.a.x - t * dx).powi(2) + (m.y - f.a.y - t * dy).powi(2)).sqrt();
+                        (25.0..=120.0).contains(&d)
+                    });
+                    if has {
+                        par_len += len;
+                        t_par += len;
+                    }
+                }
+            }
+            {
+                let bt: f64 = tb.iter().sum();
+                let h: f64 = tb.iter().filter(|&&w| w > 0.0).map(|&w| { let q = w / bt; -q * q.ln() }).sum();
+                let hmax = 36f64.ln();
+                town_h.push(h / hmax);
+                town_phi.push(1.0 - ((h - 1.386) / (hmax - 1.386)).powi(2));
+                town_par.push(100.0 * t_par / t_tot.max(1.0));
+            }
+            for v in adj.values() {
+                deg[(v.len().max(1) - 1).min(4)] += 1;
+                if v.len() >= 3 {
+                    let mut a: Vec<f64> = v.iter().map(|t| t.rem_euclid(2.0 * std::f64::consts::PI)).collect();
+                    a.sort_by(|x, y| x.total_cmp(y));
+                    for k in 0..a.len() {
+                        let gap = if k + 1 < a.len() { a[k + 1] - a[k] } else { a[0] + 2.0 * std::f64::consts::PI - a[k] };
+                        let mut g = gap.to_degrees() % 180.0;
+                        if g > 90.0 {
+                            g = 180.0 - g;
+                        }
+                        junc_hist[((g / 15.0) as usize).min(5)] += 1;
+                    }
+                }
+            }
+        }
+    }
+    let pct = |a: usize, b: usize| 100.0 * a as f64 / b.max(1) as f64;
+    println!("block_shape_audit gw {gw} variant '{}' towns >= {big_only}: {towns}", variant);
+    println!("  blocks {n_blk}: triangles {:.1} % quads {:.1} % pentagon+ {:.1} % (by count); by area {:.1} / {:.1} / {:.1} %", pct(c3, n_blk), pct(c4, n_blk), pct(c5, n_blk), 100.0 * a3 / a_all, 100.0 * a4 / a_all, 100.0 * a5 / a_all);
+    println!("  block aspect (min-area rectangle long/short): {}", spread2(&mut aspect));
+    println!("  rectangularity (area / that rectangle): {}", spread2(&mut rect));
+    println!("  block depth across (rectangle short side, m): {}; >= 83 m (two 40 m lots): {:.1} %", spread2(&mut short), pct(deep83, n_blk));
+    println!("  block area m2: {}", spread2(&mut area_v));
+    let ah: usize = ang_hist.iter().sum();
+    println!("  interior angles, 15-degree bins 0..180 (%): {}", ang_hist.iter().map(|&k| format!("{:.1}", pct(k, ah))).collect::<Vec<_>>().join(" "));
+    let jh: usize = junc_hist.iter().sum();
+    println!("  junction angles folded 0..90, 15-degree bins (%): {}", junc_hist.iter().map(|&k| format!("{:.1}", pct(k, jh))).collect::<Vec<_>>().join(" "));
+    let bt: f64 = bearing.iter().sum();
+    let h: f64 = bearing.iter().filter(|&&w| w > 0.0).map(|&w| { let q = w / bt; -q * q.ln() }).sum();
+    let hmax = 36f64.ln();
+    let phi = 1.0 - ((h - 1.386) / (hmax - 1.386)).powi(2);
+    println!("  triangles at corner turn 10 / 20 / 30 degrees: {:.1} / {:.1} / {:.1} %", pct(tri_at[0].1, tri_at[0].0), pct(tri_at[1].1, tri_at[1].0), pct(tri_at[2].1, tri_at[2].0));
+    println!("  compact triangles (aspect < 2): {:.1} % of blocks", pct(compact_tri, n_blk));
+    for (tp, nm) in [(1usize, "touching a primary"), (0, "not touching a primary")] {
+        for (nr, dn) in [(1usize, "< 300 m from market"), (0, ">= 300 m")] {
+            let sp = split[tp][nr];
+            println!("  {nm}, {dn}: blocks {} triangles {:.1} % quads {:.1} % depth >= 83 m {:.1} %", sp.0, pct(sp.1, sp.0), pct(sp.2, sp.0), pct(sp.3, sp.0));
+        }
+    }
+    println!("  per town: bearing entropy / max {}", spread2(&mut town_h));
+    println!("  per town: orientation order phi {}", spread2(&mut town_phi));
+    println!("  per town: parallel-neighbour street share % {}", spread2(&mut town_par));
+    println!("  per town: triangle share % {}", spread2(&mut town_tri));
+    println!("  pooled bearing entropy {:.3} of max {:.3} ({:.3}); orientation order phi (Boeing 2019, 36 bins) {:.3}", h, hmax, h / hmax, phi);
+    println!("  street length with a parallel neighbour 25-120 m away (edges >= 30 m): {:.1} %", 100.0 * par_len / tot_len.max(1.0));
+    let mut sl = seg_len.clone();
+    println!("  segment length m: {}", spread2(&mut sl));
+    let dn: usize = deg.iter().sum();
+    println!("  node degree 1/2/3/4/5+ (%): {}", deg.iter().map(|&k| format!("{:.1}", pct(k, dn))).collect::<Vec<_>>().join(" / "));
+    if std::env::var("PS_LIST").is_ok() {
+        for r in per_town {
+            println!("    {r}");
+        }
+    }
+}

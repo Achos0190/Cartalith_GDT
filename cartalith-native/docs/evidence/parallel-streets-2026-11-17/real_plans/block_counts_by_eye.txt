@@ -1,0 +1,54 @@
+Block shapes on six real plans, counted by eye (PARALLEL_STREETS_SCOPE.md section 2), 2026-11-17.
+
+METHOD. One reader (the scope's author), from crops of the full-resolution scans (crops not kept; regenerate with
+PIL from the coordinates below). A "block" is a piece of ground closed by streets, lanes, a market place or the wall
+street; corners are counted as a reader would (a bend under about 20 degrees is not a corner). Aspect is the long
+side over the short side of the block as seen, rounded. Counts are +/- 2 blocks a class: these are provisional
+targets, and milestone PS-0 replaces them by tracing the street centrelines of each plan into polylines and running
+the same code as the generated towns (block_shape_audit.rs.txt). Metre figures use about 0.47 m per scan pixel
+(SOURCES.txt) and are [inference, +/- 15 %].
+
+Dinkelsbuehl 1825 (../../burgage-backlanes-2026-11-17/real_plans/; crop x 640-2000, y 900-2240), market town, walled,
+  about 30 blocks inside the wall:
+  - north of the market: four streets (Obere, Mittlere, Untere Schmiedgasse and the one below) run parallel, about 33-38 m
+    centre to centre [inference], between the west wall street and the Weinmarkt; blocks are strips of two house
+    plots back to back, aspect 3-5.
+  - south of the market: streets fan from the market toward two south gates, nearly parallel, blocks long and
+    tapering; several taper to a point near a gate (long thin three-cornered wedges, aspect 4+).
+  - count: three-cornered about 4 (all long wedges, none compact), four-cornered about 18, five or more about 8.
+    Share: triangles about 13 %, quads about 60 %, pentagon+ about 27 %; compact triangles (aspect under 2) 0-1.
+Neumarkt i.d.OPf. 1830 (this folder; crop x 500-1900, y 450-1450), planted market-street town, oval wall:
+  - one straight market street, Unterer und Oberer Markt, gate to gate, about 35-40 m wide [inference]; a parallel
+    street each side (Kirchengasse, Kastengasse) about 110-120 m from the spine's centre [inference], so the blocks
+    on the market are about 70-85 m deep [inference] with plots back to back; cross lanes (Klostergasse,
+    Gruenbaumwirthsgasse, Badgasse and others) roughly at right angles to the spine.
+  - the oval wall street cuts the outer tier into five-cornered and three-cornered pieces.
+  - count: about 28 blocks: three-cornered about 4 (at the wall), four-cornered about 17, five or more about 7.
+    Share: triangles about 14 %, quads about 60 %, pentagon+ about 25 %; the blocks along the spine have aspect 3-6.
+Straubing 1827 (this folder; crop x 700-2300, y 1050-2050), planted street market (Neustadt, 1218) parallel to the
+  Danube:
+  - the market place (Theresienplatz / Ludwigsplatz) is a long straight spine; north of it about eight lanes run at
+    right angles to it toward the river (ribs), about 30-45 m apart [inference], so the north blocks are long narrow
+    strips, aspect 4-6; south of it a back street parallel to the spine about 65-70 m away [inference], with short
+    cross lanes.
+  - count: about 26 blocks: three-cornered about 2, four-cornered about 19, five or more about 5.
+    Share: triangles about 8 %, quads about 73 %, pentagon+ about 19 %.
+Wasserburg am Inn 1813 (burgage folder): river-front town on a loop of the Inn:
+  - three or four main streets run along the peninsula, roughly parallel to each other and to the river's axis; on
+    the outer side of the loop, garden and house plots run from a curving street straight down to the river bank.
+  - not counted block by block (the sheet's scale is smaller); recorded as the pattern of the river-front type.
+Noerdlingen 1823 (burgage folder): organic core inside a round wall, radial streets to the gates, an inner ring
+  (the old wall line):
+  - irregular blocks of four, five and more corners, some three-cornered, many plots deep between radials.
+  - count (rough, central half): triangles about 15-20 %, quads about 45 %, pentagon+ about 35-40 %.
+  - the organic-core case: the generator's organic plan should stay closest to this one.
+Monpazier (bastide, 1284; this folder, a modern drawing, CC BY-SA 2.0 de):
+  - five long streets one way, four or five cross streets the other, a square of one block; about 20-25 blocks, all
+    four-cornered except where the circuit cuts the south-east corner; blocks long rectangles, aspect about 2-4;
+    plots strips across the block, back to back.
+  - Share: quads about 90-95 %, triangles about 0-5 %.
+
+READING ACROSS THEM (inference): planned and market-street towns run 60-75 % four-cornered blocks with aspect around 3
+or more; their three-cornered blocks are long wedges at a gate or cut by an oval wall, not compact triangles. The
+organic core (Noerdlingen) is the one with many five-and-more-cornered blocks. No plan here shows compact triangles
+as a large share of its blocks.

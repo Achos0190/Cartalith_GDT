@@ -191,6 +191,12 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Parallel streets: scoped, not built (2026-11-17, owner Ruling FY)
+
+`PARALLEL_STREETS_SCOPE.md` (root); evidence `cartalith-native/docs/evidence/parallel-streets-2026-11-17/`. Nothing in the engine changed; `urban_burgage` stays in and off. Measured with a scratch `#[ignore]` test (kept as `block_shape_audit.rs.txt`, not committed as code) on the census world, towns of 1 500 and up: app at 384, triangles 10.7 %, quads 50.3 %, pentagon+ 39.1 % (64 % of block area), aspect median 1.57, rectangularity 0.70, depth across median 28.6 m, 3.6 % of blocks 83 m or more across, per-town orientation order 0.08 (2 048 within a point); no jitter, quads 71 % but orientation order 0.60 (every town one grid); `urban_burgage` on, triangles 24.1 %, depth 83 m+ 14.6 %. `both_banks_audit` at 384 reproduced byte-identical to the deep-plot census's off run. Recommendation: field-guided parallel growth inside `grow` behind `urban_parallel_streets` (off at both boundaries until the owner rules at PS-7), milestones PS-0 to PS-7, owner questions Q1-Q10 open.
+
+---
+
 ### Deep plots, second prototype: back lanes and the whole street budget (2026-11-17, owner Ruling FW item 4): BUILT behind `urban_burgage`, still OFF at both boundaries; measured on 3 seeds at 384 and 2 048 against the post-`urban_market_road_bank` tree; the depth bars are still missed and four must-hold bars fail, for a reason the arithmetic shows: an owner call (questions in `TOWN_GENERATOR_JUDGEMENT.md` change 4)
 
 *Re-opened at the symbols* (`cartalith-urban` `burgage`, `build_parcels_with`'s edge and corner caps, `grow`'s budget, `cleanup::lane_pass`, `stretch::StretchMeasures::of`). Evidence: `cartalith-native/docs/evidence/burgage-backlanes-2026-11-17/` (`summary.txt`).

@@ -1,0 +1,37 @@
+#!/bin/bash
+# run.sh <exe> <outdir>: PARALLEL_STREETS_SCOPE.md section 1's measurements. The census world of
+# burgage-backlanes-2026-11-17/audit.sh.txt (seeds 483920 912345 246371, 800 km, villages on, app defaults),
+# block_shape_audit (block_shape_audit.rs.txt, a scratch #[ignore] test appended to town_river_census.rs, not
+# committed) per rules variant, and both_banks_audit unchanged at 384 to reproduce that folder's census_off.
+set -u
+EXE=$1; OUT=$2; mkdir -p $OUT
+cd C:/cw/pstreets/cartalith-native/crates/cartalith-godot
+run() { # name gw gh extra-env...
+  local n=$1 gw=$2 gh=$3; shift 3
+  env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 PS_LIST=1 "$@" \
+    $EXE ${TEST:-block_shape_audit} --ignored --nocapture --test-threads 1 > $OUT/$n.txt 2>&1
+}
+[ "${PASS2:-0}" = 1 ] || {
+run blocks_384_app 384 288 &
+run blocks_384_nojitter 384 288 PS_VARIANT=nojitter &
+run blocks_384_nojitter_nopierce 384 288 PS_VARIANT=nojitter_nopierce &
+run blocks_384_market_town 384 288 PS_VARIANT=market_town &
+run blocks_384_burgage 384 288 TOWN_RIVER_BURGAGE=1 &
+wait
+TEST=both_banks_audit run both_banks_audit_384 384 288 &
+run blocks_2048_app 2048 1311 &
+wait
+}
+echo ALLDONE
+# Second pass (same day, after review): isolate spacing from segment length, and reproduce the rest of the baseline.
+if [ "${PASS2:-0}" = 1 ]; then
+  run blocks_384_spacing60 384 288 PS_VARIANT=spacing60 &
+  run blocks_384_seg80 384 288 PS_VARIANT=seg80 &
+  run blocks_384_spacing60_seg80 384 288 PS_VARIANT=spacing60_seg80 &
+  TEST=harbour_front_audit run harbour_front_audit_384 384 288 &
+  wait
+  TEST=both_banks_audit run both_banks_audit_2048 2048 1311 &
+  TEST=harbour_front_audit run harbour_front_audit_2048 2048 1311 &
+  wait
+  echo PASS2DONE
+fi

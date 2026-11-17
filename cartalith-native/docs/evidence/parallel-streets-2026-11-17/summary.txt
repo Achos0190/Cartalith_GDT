@@ -1,0 +1,22 @@
+PARALLEL_STREETS_SCOPE.md's evidence (owner Ruling FY, 2026-11-17). Nothing built.
+
+census/        block_shape_audit at 384 x 288 (app rules; no jitter; no jitter and no pierce; MARKET_TOWN_RULES;
+               urban_burgage on) and 2048 x 1311 (app rules), plus both_banks_audit at 384, the census world of
+               ../burgage-backlanes-2026-11-17/audit.sh.txt. Release test binary from origin/main e01972ad plus the
+               scratch test, built 16:04. both_banks_audit_384.txt is byte-identical to
+               ../burgage-backlanes-2026-11-17/census_off/both_banks_audit_384.txt except the timing line (diff empty):
+               the baseline is reproduced at 384. Second pass: spacing 60 m only, segment median 80 m only, and both
+               (blocks_384_spacing60 / _seg80 / _spacing60_seg80), and both_banks_audit at 2048 plus
+               harbour_front_audit at both sizes, all byte-identical to that census_off but for timing.
+run.sh.txt     the command that made census/.
+block_shape_audit.rs.txt  the scratch #[ignore] test (appended to cartalith-godot/src/town_river_census.rs in the
+               worktree, then reverted; never committed as code). Pins nothing.
+real_plans/    three further plans (Straubing 1827, Neumarkt i.d.OPf. 1830, Monpazier), their licences
+               (SOURCES.txt) and the by-eye block counts of all six plans (block_counts_by_eye.txt).
+
+Headline (towns of 1 500 and up, 384; section 1.2 of the scope has the table): app triangles 10.7 %, quads 50.3 %,
+pentagon+ 39.1 % (64 % of block area), aspect median 1.57, rectangularity 0.70, depth across median 28.6 m, 3.6 % of
+blocks 83 m or more across; per-town orientation order phi median 0.08. No jitter: quads 71 %, rectangularity 0.89,
+phi 0.60. urban_burgage on: triangles 24.1 %, depth 83 m+ 14.6 %. MARKET_TOWN_RULES: triangles 21.1 %, depth 83 m+
+12.6 %. Spacing 60 m alone: triangles 23.2 %, depth 83 m+ 17.2 %; segment 80 m alone: 11.8 %, 2.1 %.
+2048 matches 384 within a point.

@@ -1,0 +1,28 @@
+Further real town plans for PARALLEL_STREETS_SCOPE.md section 2 (2026-11-17), beside the three already in
+../../burgage-backlanes-2026-11-17/real_plans/ (Dinkelsbuehl 1825, Wasserburg am Inn 1813, Noerdlingen 1823).
+Licences read from each file's Wikimedia Commons page through the Commons API (extmetadata LicenseShortName) on
+2026-11-17. Downloaded unchanged (the Commons originals) into this folder only.
+
+straubing_1827_uraufnahme.jpg  Straubing, 1827: Bavarian cadastral survey town sheet (Bayerische Uraufnahme, Ortsblatt).
+  The Neustadt's long street market (Theresienplatz / Ludwigsplatz) parallel to the Danube, parallel streets behind
+  it and short cross lanes toward the river.
+  https://commons.wikimedia.org/wiki/File:Uraufnahme_Ortsblatt_St_Str_1827_s14_Landkreis_Straubing_St_Niederbayern.jpg
+  Licence: Public domain. Artist: Landvermessungsamt Bayern. 2500 x 2463.
+
+neumarkt_opf_1830_uraufnahme.jpg  Neumarkt in der Oberpfalz, 1830: the same survey's town sheet. One straight, broad
+  market street (Unterer und Oberer Markt) gate to gate, parallel streets either side, an oval wall round it.
+  https://commons.wikimedia.org/wiki/File:Uraufnahme_Ortsblatt_St_Neu_1830_n3_Landkreis_Neumarkt_i.d.OPf._Oberpfalz.jpg
+  Licence: Public domain. Artist: Landvermessungsamt Bayern. 2500 x 2603.
+
+monpazier_plan_schaefer.jpg  Monpazier (bastide, founded 1284): a modern figure-ground of the buildings, the plot
+  pattern and an idealised plot grid, with a photograph of the arcaded square. Not a survey; a drawing.
+  https://commons.wikimedia.org/wiki/File:Beispiel_Monpazier.jpg
+  Licence: CC BY-SA 2.0 de. Author: Klaus Schaefer (2003). Attribution required if reproduced; kept here as
+  evidence only, unchanged. 1523 x 1310.
+
+Scale of the Bavarian sheets: town sheets (Ortsblaetter) were drawn at 1:2 500 and the field sheets at 1:5 000
+covering 800 Ruten = 2 334.87 m a side (de.wikipedia.org/wiki/Bayerische_Uraufnahme, read 2026-11-17). A 1:2 500 sheet
+of the same paper size covers about 1 167 m, so about 0.47 m per pixel of a 2 500 px scan if the scan is the whole
+sheet [inference: the scans include margins, so treat any metre figure taken from them as +/- 15 %]. Some Franconian
+town sheets were drawn at 1:1 250 (same page); Dinkelsbuehl's church (St. Georg) at about 140 px rules that out
+for its sheet [inference].

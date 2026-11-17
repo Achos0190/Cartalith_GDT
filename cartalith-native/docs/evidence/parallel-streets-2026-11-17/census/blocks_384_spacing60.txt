@@ -1,0 +1,63 @@
+
+running 1 test
+test town_river_census::block_shape_audit ... block_shape_audit gw 384 variant 'spacing60' towns >= 1500: 35
+  blocks 3124: triangles 23.2 % quads 33.3 % pentagon+ 43.5 % (by count); by area 5.2 / 22.2 / 72.6 %
+  block aspect (min-area rectangle long/short): n 3124 min 1.00 p10 1.10 median 1.69 p90 3.48 max 31.40
+  rectangularity (area / that rectangle): n 3124 min 0.22 p10 0.50 median 0.63 p90 0.81 max 1.00
+  block depth across (rectangle short side, m): n 3124 min 5.21 p10 18.38 median 47.74 p90 97.67 max 411.56; >= 83 m (two 40 m lots): 17.2 %
+  block area m2: n 3124 min 200.22 p10 375.80 median 2637.25 p90 9557.06 max 72721.16
+  interior angles, 15-degree bins 0..180 (%): 0.9 1.8 6.0 7.5 11.2 16.7 18.6 12.7 9.5 8.7 6.4 0.0
+  junction angles folded 0..90, 15-degree bins (%): 27.2 3.9 10.3 13.3 19.1 26.3
+  triangles at corner turn 10 / 20 / 30 degrees: 16.7 / 23.2 / 27.6 %
+  compact triangles (aspect < 2): 12.6 % of blocks
+  touching a primary, < 300 m from market: blocks 517 triangles 20.1 % quads 34.0 % depth >= 83 m 16.1 %
+  touching a primary, >= 300 m: blocks 681 triangles 15.9 % quads 35.1 % depth >= 83 m 21.6 %
+  not touching a primary, < 300 m from market: blocks 535 triangles 28.8 % quads 31.8 % depth >= 83 m 11.4 %
+  not touching a primary, >= 300 m: blocks 1391 triangles 25.7 % quads 32.7 % depth >= 83 m 17.8 %
+  per town: bearing entropy / max n 35 min 0.88 p10 0.92 median 0.97 p90 0.99 max 0.99
+  per town: orientation order phi n 35 min 0.02 p10 0.04 median 0.10 p90 0.24 max 0.35
+  per town: parallel-neighbour street share % n 35 min 15.05 p10 17.24 median 24.67 p90 28.14 max 31.06
+  per town: triangle share % n 35 min 11.54 p10 16.67 median 23.64 p90 28.72 max 50.00
+  pooled bearing entropy 3.557 of max 3.584 (0.993); orientation order phi (Boeing 2019, 36 bins) 0.024
+  street length with a parallel neighbour 25-120 m away (edges >= 30 m): 24.7 %
+  segment length m: n 22261 min 3.53 p10 15.18 median 26.75 p90 53.52 max 1650.00
+  node degree 1/2/3/4/5+ (%): 12.4 / 42.6 / 37.1 / 7.3 / 0.6
+    483920 #0 pop 8373 blocks 85 triangles 19 %
+    483920 #1 pop 20000 blocks 156 triangles 26 %
+    483920 #2 pop 9636 blocks 97 triangles 23 %
+    483920 #3 pop 7054 blocks 78 triangles 21 %
+    483920 #4 pop 20000 blocks 90 triangles 19 %
+    483920 #8 pop 18313 blocks 111 triangles 22 %
+    483920 #9 pop 1955 blocks 31 triangles 32 %
+    483920 #10 pop 20000 blocks 107 triangles 22 %
+    483920 #12 pop 8006 blocks 94 triangles 26 %
+    483920 #13 pop 18869 blocks 112 triangles 27 %
+    483920 #18 pop 7667 blocks 78 triangles 21 %
+    912345 #0 pop 20000 blocks 125 triangles 27 %
+    912345 #1 pop 20000 blocks 128 triangles 20 %
+    912345 #2 pop 2458 blocks 26 triangles 12 %
+    912345 #3 pop 7200 blocks 76 triangles 12 %
+    912345 #4 pop 2566 blocks 30 triangles 13 %
+    912345 #5 pop 20000 blocks 117 triangles 22 %
+    912345 #6 pop 20000 blocks 131 triangles 24 %
+    912345 #7 pop 20000 blocks 94 triangles 29 %
+    912345 #9 pop 20000 blocks 129 triangles 21 %
+    912345 #14 pop 8152 blocks 92 triangles 22 %
+    912345 #22 pop 7904 blocks 59 triangles 25 %
+    912345 #32 pop 1843 blocks 14 triangles 43 %
+    246371 #0 pop 20000 blocks 125 triangles 18 %
+    246371 #2 pop 20000 blocks 131 triangles 24 %
+    246371 #3 pop 7188 blocks 79 triangles 24 %
+    246371 #4 pop 2559 blocks 37 triangles 24 %
+    246371 #5 pop 20000 blocks 134 triangles 28 %
+    246371 #6 pop 20000 blocks 138 triangles 25 %
+    246371 #7 pop 20000 blocks 44 triangles 27 %
+    246371 #9 pop 2006 blocks 30 triangles 17 %
+    246371 #11 pop 18568 blocks 121 triangles 21 %
+    246371 #12 pop 2062 blocks 14 triangles 50 %
+    246371 #13 pop 19492 blocks 110 triangles 24 %
+    246371 #15 pop 20000 blocks 101 triangles 25 %
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1427 filtered out; finished in 168.94s
+
