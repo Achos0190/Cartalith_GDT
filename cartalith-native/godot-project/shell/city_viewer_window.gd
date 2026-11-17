@@ -302,6 +302,11 @@ func setup(b: EngineBridge, host = null) -> void:
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _reload())
 	bridge.world_loaded.connect(func(): if visible: _reload())
+	## An `urban_*` switch moved (`EngineBridge.urban_params_changed`, 2026-11-17, `990cf7fd`'s follow-up): the town on
+	## screen was laid out under the old switches, so an open viewer re-asks the engine (`urban_layouts` keeps no cache)
+	## and keeps the user's zoom and pan, as a year move does. `forget_all_urban_layouts` does the same for the map.
+	if bridge.has_signal("urban_params_changed"):
+		bridge.urban_params_changed.connect(func(): if visible and not bool(bridge.generating): _reload(true))
 	## PC-7 (finding: no window listened to the year). The town is the engine's at the year shown
 	## (its class and population come from the snapshot `civ_goto_year` loaded), so a move of the year
 	## re-reads it while the window is open, keeping the user's zoom and pan (`_reload(true)`).

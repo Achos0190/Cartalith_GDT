@@ -361,6 +361,13 @@ func setup(a, b: EngineBridge) -> void:
 	## `_rebuilding` guard drops it instead.
 	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
+	## An `urban_*` switch moved (`EngineBridge.urban_params_changed`, 2026-11-17): the Layout section's fact chips read a
+	## town laid out under the old switches, so an open editor rebuilds (never `open_for`, as above; a focused field is
+	## deferred until it gives up the focus, `ContextWindow.defer_while_typing`).
+	if bridge.has_signal("urban_params_changed"):
+		bridge.urban_params_changed.connect(func():
+			if visible and _index >= 0 and not bool(bridge.generating):
+				ContextWindow.defer_while_typing(self, func() -> void: if _index >= 0: _rebuild()))
 	## PC-2 (`PC_SHELL_PROPOSAL.md` §3.2, finding T2): the Timeline tab shows the cursor year and
 	## the Economy and Overview tabs read engine state keyed to it, so any move of the year --
 	## the strip's, CIVIL's, or this window's own chips -- redraws it while it is open. Like the

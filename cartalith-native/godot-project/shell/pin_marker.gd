@@ -334,7 +334,9 @@ static func hit(tip: Vector2, r: float, p: Vector2, pad: float, angle: float = 0
 ## `ink_col` (Ruling FF item 1, the map's settlement pins) override the fill and pictogram ink of a DRAWN pin; an icon set's
 ## texture carries its own colours and ignores both. `min_line` is the stroke floor in `ci`'s units (1.0 = one unit, right
 ## where a unit is a pixel); the map's settlement pins pass one SCREEN pixel (`1 / camera zoom`), since their head is small in
-## local units at deep zoom and a one-unit floor would eat the head at x4.
+## local units at deep zoom and a one-unit floor would eat the head at x4. **So do the landmark and placed-point-of-interest pins
+## (2026-11-17, the town layer's "dark teardrop smudge"):** their callers used the default 1.0, one LOCAL unit, which is 38
+## screen px at x38, a black outline wider than the pin's own head. `draw_styled` and `draw_ring` take the same `min_line`.
 static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
 		alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "",
 		fill_col: Color = Color(0, 0, 0, 0), ink_col: Color = Color(0, 0, 0, 0), min_line: float = 1.0, lift: float = 0.0) -> void:
@@ -345,7 +347,7 @@ static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note:
 	tip = lifted_tip(tip, angle, lift)
 	## An icon set draws the owner's texture when `kind` has one and the file loads; otherwise it falls through to the
 	## drawn pin below (the stated fallback, and exactly what `shape()` reports for the footprint).
-	if (icon_set != "" or is_custom(kind)) and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set):
+	if (icon_set != "" or is_custom(kind)) and draw_icon(ci, tip, r, kind, has_note, alpha, angle, icon_set, min_line):
 		return
 	var g := geometry(tip, r, angle)
 	var head: Vector2 = g["head"]
@@ -632,7 +634,7 @@ static func shape(r: float, kind: String, icon_set: String = "") -> Dictionary:
 ## rim (the icons carry their own colours, so the drawn pin's orange/white fill cannot show it): `COL_NOTE` with an `INK`
 ## ring, a labelled judgement.
 static func draw_icon(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, alpha: float, angle: float,
-		icon_set: String) -> bool:
+		icon_set: String, min_line: float = 1.0) -> bool:
 	if is_custom(kind):
 		icon_set = "custom"
 	var sh := shape(r, kind, icon_set)
@@ -652,12 +654,14 @@ static func draw_icon(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_
 		var rh: float = sh["r"]
 		var head := tip + (Vector2(0.0, -float(sh["stem"]) * rh)).rotated(angle)
 		var at := head + (Vector2(BADGE_OFFSET, -BADGE_OFFSET) * rh).rotated(angle)
-		var br := maxf(2.0, 0.26 * rh)
+		## The note badge's floors are `min_line` units too (one screen pixel on the map), not local ones: 2.0 local was a
+		## 76 px disc at x38 (2026-11-17, with the outline floor above).
+		var br := maxf(2.0 * min_line, 0.26 * rh)
 		var ink := INK
 		ink.a *= alpha
 		var fill := COL_NOTE
 		fill.a *= alpha
-		ci.draw_circle(at, br + maxf(1.0, 0.07 * rh), ink, true, -1.0, true)
+		ci.draw_circle(at, br + maxf(min_line, 0.07 * rh), ink, true, -1.0, true)
 		ci.draw_circle(at, br, fill, true, -1.0, true)
 	return true
 
@@ -680,7 +684,7 @@ static func _xf(pts: PackedVector2Array, head: Vector2, s: float) -> PackedVecto
 ## Draws a circle marker centred on `centre`: a disc of radius `r` in the note-state colour, its outline and the pictogram
 ## for `kind` inside. Same arguments as `draw()` (`w` stroke scale, `alpha` fade, `outline` ink). Nothing for `r <= 0`.
 static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
-		alpha: float = 1.0, outline: Color = INK) -> void:
+		alpha: float = 1.0, outline: Color = INK, min_line: float = 1.0) -> void:
 	if r <= 0.0:
 		return
 	var fill := COL_NOTE if has_note else COL_NONE
@@ -692,7 +696,7 @@ static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, h
 	var edge := outline
 	edge.a *= alpha
 	ci.draw_circle(centre, r, fill, true, -1.0, true)
-	ci.draw_arc(centre, r, 0.0, TAU, 28, edge, maxf(1.0, 1.3 * w * r / 9.0), true)
+	ci.draw_arc(centre, r, 0.0, TAU, 28, edge, maxf(min_line, 1.3 * w * r / 9.0), true)
 	if is_custom(kind):
 		## The picture, centred in the disc (the entry's own aspect, its longer side 1.3 r). Missing marker when unregistered.
 		var e: Dictionary = _custom_entry(kind)
@@ -704,7 +708,7 @@ static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, h
 		return
 	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
 	var s := r * 0.62
-	var lw := maxf(1.0, 1.4 * w * r / 9.0)
+	var lw := maxf(min_line, 1.4 * w * r / 9.0)
 	for f in pic.get("fills", []):
 		ci.draw_colored_polygon(_xf(f, centre, s), ink)
 	for c in pic.get("cuts", []):
@@ -724,11 +728,12 @@ static func hit_ring(centre: Vector2, r: float, p: Vector2, pad: float) -> bool:
 ## marker goes through, so no caller picks a shape on its own and then picks a footprint for another.
 ## `angle` is the pin's tilt (ignored by a circle: a disc has no stem to rotate).
 static func draw_styled(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, circles: bool,
-		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "", lift: float = 0.0) -> void:
+		w: float = 1.0, alpha: float = 1.0, outline: Color = INK, angle: float = 0.0, icon_set: String = "", lift: float = 0.0,
+		min_line: float = 1.0) -> void:
 	if circles:
-		draw_ring(ci, tip, r, kind, has_note, w, alpha, outline)
+		draw_ring(ci, tip, r, kind, has_note, w, alpha, outline, min_line)
 	else:
-		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle, icon_set, Color(0, 0, 0, 0), Color(0, 0, 0, 0), 1.0, lift)
+		draw(ci, tip, r, kind, has_note, w, alpha, outline, angle, icon_set, Color(0, 0, 0, 0), Color(0, 0, 0, 0), min_line, lift)
 
 
 ## `hit()` or `hit_ring()` by style: the footprint that goes with `draw_styled()`'s shape, read by every pick.

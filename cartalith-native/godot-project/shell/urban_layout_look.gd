@@ -617,7 +617,11 @@ static func _draw_curtain(ci: CanvasItem, layout: Dictionary, project: Callable,
 			gs + ts_n * hl + ns * hd, gs - ts_n * hl + ns * hd])
 		BASE._fill_ground_polygon(ci, quad, Color(PAVING.r, PAVING.g, PAVING.b, alpha))
 		quad.append(quad[0])
-		ci.draw_polyline(quad, Color(STONE_DARK.r, STONE_DARK.g, STONE_DARK.b, alpha), maxf(px_floor, 1.2), true)
+		## 1.2 SCREEN pixels, as `px_floor * 1.2`: the literal `maxf(px_floor, 1.2)` was 1.2 LOCAL units, which the map's
+		## camera scales to 1.2 x zoom pixels (45 at the town layer's first zoom, 180 at x4), so every gate drew a dark
+		## band the size of the town (2026-11-17, the town layer's "dark teardrop smudge"). The City Viewer passes
+		## `px_floor` 1.0, where this is the old 1.2.
+		ci.draw_polyline(quad, Color(STONE_DARK.r, STONE_DARK.g, STONE_DARK.b, alpha), px_floor * 1.2, true)
 
 
 ## Direction (unit, model space) of the ring edge nearest `p`, for orienting a gate across its wall. Falls back

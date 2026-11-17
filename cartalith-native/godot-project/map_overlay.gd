@@ -6593,7 +6593,7 @@ func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int, angle: float =
 	var inks := landmark_inks(String(lm.get("class", "local")).to_lower())
 	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), landmark_display_kind(lm), landmark_has_note(index),
 		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], angle, DccSettings.marker_icon_set(),
-		Color(0, 0, 0, 0), Color(0, 0, 0, 0), 1.0, lift)
+		Color(0, 0, 0, 0), Color(0, 0, 0, 0), _pin_line_floor(), lift)
 
 
 ## **The circle style's landmark mark** (owner request 2026-11-14, *"Can you keep the old circle markers as an option"*;
@@ -6616,7 +6616,7 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 	if glyph == "" and lm.has("kind_override"):
 		## Ruling FD item 3: a user-chosen kind with no landmark glyph of its own (most pin names) draws as the pin's
 		## own pictogram in a disc, the circle style's mark for every pin, never the bare ring of an unmapped kind.
-		PinMarker.draw_ring(_cv, pos, r, landmark_display_kind(lm), false, _sym_gain * _landmark_zoom_k(), 1.0, inks["outline"])
+		PinMarker.draw_ring(_cv, pos, r, landmark_display_kind(lm), false, _sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], _pin_line_floor())
 		return
 	if glyph != "":
 		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
@@ -6666,6 +6666,15 @@ func _landmark_pin_r(lm: Dictionary) -> float:
 	if _export_mode:
 		return r
 	return maxf(r, PIN_HEAD_MIN_PX * _pin_unit() / maxf(_camera_zoom, 0.001))
+
+
+## The stroke floor, in this control's local units, that a landmark or placed-POI pin passes to `PinMarker` (`min_line`): one
+## SCREEN pixel. This control is scaled by the camera, so the default floor of 1.0 is `_camera_zoom` pixels; at the town layer's
+## first zoom (x38) a pin's black outline was 38 px wide, wider than its head, and a placed pin or a town's landmark drew as a
+## dark teardrop smudge (2026-11-17; the settlement pins already passed this). An export has no camera (`_camera_zoom` is 1), so
+## its strokes are unchanged by construction. Never below 1 screen px.
+func _pin_line_floor() -> float:
+	return 1.0 / maxf(_camera_zoom, 0.001)
 
 
 ## Pixels per dp for this form: the phone's density-based scale, 1.0 on desktop and tablet (the same unit the element
@@ -7064,7 +7073,7 @@ func _draw_poi_marks(rect: Rect2, interior: Rect2) -> void:
 			continue   ## Ruling FC
 		pos = _nudged_poi(pi, pos, rect)
 		PinMarker.draw_styled(_cv, pos, r, String(pd.get("kind", "")), poi_has_note(pd), circles, _sym_gain * _landmark_zoom_k(),
-			1.0, PinMarker.INK, _tilt_poi(pi, rect), iset, _lift_poi(pi, rect))
+			1.0, PinMarker.INK, _tilt_poi(pi, rect), iset, _lift_poi(pi, rect), _pin_line_floor())
 
 ## Nearest user-placed POI whose footprint holds `mouse`, as `[index, anchor_distance]` (`-1`, `INF` on a miss). Same
 ## shape and the same two distances as `_hit_test_landmark` (ranked by `PinMarker.rank_distance`, returned as the anchor
