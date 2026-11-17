@@ -15,6 +15,10 @@ become a second changelog and mis-stamped itself 2026-08-25.
 
 ---
 
+**`ac1_static_sources` red closed (2026-11-17).** Opened at the symbols first: `tests/ac1_static_sources.rs` `scan`, `actions.rs` `TOOL_REVIEW` and the tool `home` match, `ac2_actions.rs` pins.
+- **Drift:** one item, the CARTO `poi` tool (`arm_tool("poi")` in `cartography_workspace.gd`; dynamic arms in `dcc_widgets.gd` are not seen by the scanner). Regenerated with the committed `regenerate_static_sources` test (deterministic, no model). Classification read in the shell: it is a CARTO pin-placing tool, so `carto/tools`, curated description, title "Pins tool". `ac2_actions` tool counts 13 to 14 (three literals, reasons in the comments); params 131, windows 10, context 26 unchanged.
+- **Verified.** `cargo test --workspace --no-fail-fast`: the one failure is gone; `ac2_actions` 26/26 and `cartalith-llm` green after the pin update.
+
 **Ruling FV: industrial budget factor floored at 0.67 on brackets 5 and 6, built (2026-11-17; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.14).** Opened at the symbols first: `manpower_with_levy_bonus`'s `budget_ecology`, `INDUSTRIAL_UPKEEP_FIRST_BRACKET`.
 - **Built.** `INDUSTRIAL_BUDGET_ECOLOGY_FLOOR` 0.67 (fitted to the bar, labelled): chain 1 reads `max(E, 0.67)` on brackets 5-6 only. No §7p switch.
 - **Reproduced.** Industrial sweep 253 / 1 / 36 (was 121 / 1 / 168); grid era-13 262 740 / 0 / 20 284; 0 unordered; industrial hash `0xb982324cf21769af` -> `0x023027c8b7699f14`, the other five bit-identical; `G1_0`, `fh_r2`, Kingdom A/B unmoved. 6 mutants killed (floor x2, gate x3, max -> min).

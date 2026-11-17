@@ -726,6 +726,8 @@ pub const TOOL_REVIEW: &[(&str, &str)] = &[
     ("conflict", "Arm Conflict: draw a conflict on the map."),
     ("label", "Arm Label: click the map to place a text label."),
     ("icon", "Arm Icon: click the map to stamp the chosen icon."),
+    // CL-11 / Ruling EW item 4, read at `cartography_workspace.gd` (`register_tool_click_handler("poi", ...)`): a click places a point of interest of the kind the Pins palette holds.
+    ("poi", "Arm Pins: click the map to place a pin of the chosen kind."),
 ];
 
 /// Extra search words for entries whose own wording misses how people ask: `(id, words)`. The
@@ -1143,7 +1145,7 @@ impl Builder {
                 "measure" | "inspect" => "map/tools",
                 "settlement" | "way" | "route" | "territory" | "journey" => "civil/tools",
                 "conflict" => "story/tools",
-                "label" | "icon" => "carto/tools",
+                "label" | "icon" | "poi" => "carto/tools",
                 _ => "map/tools",
             };
             let (desc, src) = match TOOL_REVIEW.iter().find(|(i, _)| *i == t) {
@@ -1152,7 +1154,7 @@ impl Builder {
             };
             self.push(ActionEntry {
                 id: format!("tool.{t}"),
-                title: format!("{} tool", capitalise(t)),
+                title: if t == "poi" { "Pins tool".to_owned() } else { format!("{} tool", capitalise(t)) },
                 desc,
                 desc_source: src,
                 detail: None,
