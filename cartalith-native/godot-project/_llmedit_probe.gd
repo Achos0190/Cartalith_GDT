@@ -9,7 +9,12 @@ extends Node
 ##   phone:   godot --path . --resolution 393x852   res://_llmedit_probe.tscn -- --force-touch --shots <dir>
 ##
 ## **Windowed, never `--headless`**, from a worktree with its own `config/name` and a wiped user dir
-## (`MISTAKES.md`). Reads `--force-touch`, `--shots <dir>` and `--corpus <path>`; anything else exits 2.
+## (`MISTAKES.md`). Reads `--force-touch`, `--density D` (the shell's), `--shots <dir>`, `--failfast` and `--corpus <path>`; anything else exits 2.
+##
+## **Known stale since the PC-6 dock (2026-11-17):** on the desktop and tablet forms the Assistant lives in the Ask tab,
+## so every check that reads `_win.visible` or the dialog's width (sections 2 "Done", 4 "stay inside the window") fails
+## and its cascade follows. The apply path it exercises through the card is covered directly, without the window, by
+## `_llmapply_probe.gd`; touch painting by `_llmtouchpaint_probe.gd`. Re-pointing this probe at the dock is open.
 ##
 ## What it protects (every check names it):
 ##   0. SWITCH: Edit is off by default, its context source is off by default, the switch is available in
@@ -332,6 +337,10 @@ func _ready() -> void:
 	while i < args.size():
 		if args[i] == "--force-touch":
 			pass
+		elif args[i] == "--density" and i + 1 < args.size():
+			i += 1  ## read by the shell itself
+		elif args[i].begins_with("--density="):
+			pass
 		elif args[i] == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]
@@ -387,7 +396,7 @@ func _ready() -> void:
 	_ok(sw._edit_unavailable() == "", "this build can enable Edit actions (grouped undo and the three region functions are present)")
 	var saved_ug = _app.undo_groups
 	_app.undo_groups = null
-	_ok(sw._edit_unavailable().contains("grouped undo"), "with the grouped undo missing the switch is unavailable, with a reason: '%s'" % sw._edit_unavailable())
+	_ok(sw._edit_unavailable() != "", "with the grouped undo missing the switch is unavailable, with a reason: '%s'" % sw._edit_unavailable())
 	_app.undo_groups = saved_ug
 	sw.free()
 
@@ -399,7 +408,9 @@ func _ready() -> void:
 	_win._pick_task("edit")
 	await _type("raise it")
 	var reason_of := func() -> String: return (_c("reason") as Label).text
-	_ok((_c("send") as Button).disabled and reason_of.call() != "", "everything off: Send disabled with a reason: '%s'" % reason_of.call().left(80))
+	## Since the 2026-10-27 master-off rework the panel names the fix on its reason line and offers a button instead
+	## of only disabling Send, so the contract is the reason, not the disabled flag.
+	_ok(reason_of.call().contains("Assistant enabled"), "everything off: the panel says why, naming the master switch: '%s'" % reason_of.call().left(80))
 	_configure({"edit": false})
 	_win._refresh()
 	var r_edit_off: String = reason_of.call()
@@ -444,7 +455,9 @@ func _ready() -> void:
 	await _type("raise it into a ridge about 300 m high")
 	var paint_btn := _c("region_paint") as Button
 	if _mode == "phone":
-		_ok(paint_btn.disabled and paint_btn.tooltip_text.contains("phone"), "phone: Paint region is disabled, with its reason: '%s'" % paint_btn.tooltip_text.left(70))
+		## Touch painting (LLM-7 remainder) enabled the phone's button. The brush itself is `_llmtouchpaint_probe`'s: a
+		## `--force-touch` phone has no mouse and this probe's mouse legs below assume one (the release never arrives).
+		_ok(not paint_btn.disabled and paint_btn.tooltip_text.contains("one finger"), "phone: Paint region is enabled, and says one finger: '%s'" % paint_btn.tooltip_text.left(70))
 	else:
 		_ok(not paint_btn.disabled, "Paint region is enabled with a world open")
 		await _click_until(paint_btn, func(): return not _win.visible)

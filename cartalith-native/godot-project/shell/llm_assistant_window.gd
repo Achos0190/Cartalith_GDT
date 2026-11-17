@@ -2713,6 +2713,7 @@ func _apply_card(card: Dictionary) -> void:
 		app.set_status("hint", "Assistant: %d setting%s changed.%s" % [n, "" if n == 1 else "s",
 			" Rebuilding the world with them." if rebuild else " The world was not rebuilt."])
 	if rebuild:
+		_regen_is_undo = false
 		_regenerate_after_apply(plan)
 
 
@@ -2764,6 +2765,7 @@ func _undo_regen_card(card: Dictionary) -> void:
 		_refresh_cards()
 		return
 	_close_card(card, "undone", "Undone: the previous settings are back. Rebuilding the world with them now (you are asked first if you have hand edits; declining leaves the world on screen as it is). Hand edits dropped by the earlier rebuild are not restored. Edit ▸ Redo re-applies the settings only.", "text_dim")
+	_regen_is_undo = true
 	_regenerate_after_apply(_regen_plan(card["info"]))
 
 
@@ -2828,9 +2830,18 @@ func _regenerate_after_apply(plan: String) -> void:
 	ww._regenerate_live()
 
 
-## A failed rebuild leaves the new settings applied and says so.
+## True while the rebuild in flight was started by Undo and regenerate (the settings on screen are the OLD ones),
+## false when Apply started it (they are the NEW ones). Read only by `_on_regen_finished`.
+var _regen_is_undo := false
+
+
+## A failed rebuild leaves the settings it was started with applied and says which they are.
 func _on_regen_finished(ok: bool) -> void:
-	if not ok and app.has_method("set_status"):
+	if ok or not app.has_method("set_status"):
+		return
+	if _regen_is_undo:
+		app.set_status("hint", "The world could not be rebuilt. The previous settings are back; press Generate to try again.")
+	else:
 		app.set_status("hint", "The world could not be rebuilt. The new settings are still applied; press Generate to try again, or Edit ▸ Undo to restore the old settings.")
 
 
@@ -3214,8 +3225,10 @@ func _refresh_region(busy: bool) -> void:
 	(controls["region_status"] as Label).text = t
 	var can := bridge.has_world and not bridge.generating and not busy
 	var paint := controls["region_paint"] as Button
-	paint.disabled = not can or _phone
-	paint.tooltip_text = "Painting a region needs a pointer or the tablet layout for now; on a phone use a box." if _phone else (("Hide this window and paint on the map; press Done to come back." if visible else "Paint the region on the map; press Done in the tool bar when it is right.") if can else "Open a world first (and wait for a generation to finish).")
+	paint.disabled = not can
+	## Touch painting (LLM-7 remainder): the brush is a drawing tool, so on a touch form ONE finger paints and
+	## two fingers move the map (`llm_region.gd`); the phone no longer needs "use a box".
+	paint.tooltip_text = ("Hide this window and paint on the map%s; press Done to come back." if visible else "Paint the region on the map%s; press Done in the tool bar when it is right.") % (" with one finger" if DccTheme.is_touch() else "") if can else "Open a world first (and wait for a generation to finish)."
 	var use_box := controls["region_box"] as Button
 	use_box.disabled = not can
 	use_box.tooltip_text = "Use the box you drew with Region select (R) as the region." if can else "Open a world first."
@@ -3227,7 +3240,7 @@ func _refresh_region(busy: bool) -> void:
 ## and the bar's Done brings the panel back on the Edit task. The prompt stays as the user left it,
 ## because nothing rebuilds the content any more (PC-6).
 func _on_region_paint() -> void:
-	if run.busy() or _phone:
+	if run.busy():
 		return
 	_REGION.begin_paint(app, func(): _after_paint())
 	if visible:

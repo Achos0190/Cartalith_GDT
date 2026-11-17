@@ -13,7 +13,10 @@ extends RefCounted
 ##   cell is legal: `app.gd` documents that clicks on an unregistered id stay inert, and this file
 ##   registers its own handlers) and shows a bar on the map (brush size, Undo stroke, Clear, Done).
 ##   Dragging adds round dabs spaced at half the brush radius; a click adds one. Done re-opens the
-##   Assistant on the Edit task.
+##   Assistant on the Edit task. **On a touch form (tablet, phone) the same handlers take a finger:**
+##   the tool is `ViewportHost.TOOL_DRAWING`, so one finger paints, a second finger ends the stroke
+##   and pans or pinches the map (the stray-stroke guard, Ruling EC item 3), and the phone's Paint
+##   button is no longer disabled.
 ## * **Use the box** copies the export marquee (`bridge.region_get()`) as the region, so a box the user
 ##   already drew costs one click.
 ## * The region is the UNION of the box (if any) and the dabs. It is a request input only: it lives in
@@ -63,6 +66,14 @@ static var painting := false
 ## Set when the cap stopped a dab this gesture (so the bar can say so once).
 static var capped := false
 
+## An open stroke with no activity for this long is over. The next drag or click then starts a fresh stroke, so a
+## lost release cannot glue the next gesture on, and a click within it is the touch overlay's late press (see
+## `_click`). A labelled judgement, not a measurement: the late press was seen 40 ms after the drag, a two-finger
+## gesture lasts longer than this, and a finger resting longer mid-stroke only splits one stroke in two (an extra
+## Undo stroke, never a wrong region).
+const STROKE_GAP_MS := 400
+## The time of the last stroke activity (a dab, or a drag sample the spacing rule skipped): what `STROKE_GAP_MS` measures from.
+static var _sample_ms := -1000000
 static var _last := Vector2(-1, -1)
 static var _stroke_open := false
 static var _installed := false
@@ -198,6 +209,7 @@ static func _add_dab(app, gx: float, gy: float) -> void:
 		_stroke_open = true
 		strokes.append(dabs.size())
 	dabs.append(Vector3(gx, gy, brush))
+	_sample_ms = Time.get_ticks_msec()
 	_last = Vector2(gx, gy)
 	_sync(app)
 	_refresh_bar()
@@ -209,6 +221,15 @@ static func _add_dab(app, gx: float, gy: float) -> void:
 static func _click(app, gx: float, gy: float) -> void:
 	if not painting:
 		return
+	## **A finger's press is delivered in either order against its first drag** (measured 2026-11-17: on the tablet
+	## form the first drag arrives and the press follows it 40 ms later; on the phone form at density 1.09 the press
+	## comes first). Treating the late press as a new stroke split one finger stroke in two, so Undo stroke took back
+	## only the half. A click within `STROKE_GAP_MS` of the last stroke activity while a stroke is open therefore
+	## belongs to that stroke and is ignored; a mouse press never meets this (its stroke was closed by `_release`).
+	## A click after a longer silence starts a fresh stroke, so a lost release cannot leave the brush stuck.
+	var now := Time.get_ticks_msec()
+	if _stroke_open and now - _sample_ms < STROKE_GAP_MS:
+		return
 	_stroke_open = false
 	_add_dab(app, gx, gy)
 
@@ -216,6 +237,14 @@ static func _click(app, gx: float, gy: float) -> void:
 static func _drag(app, gx: float, gy: float) -> void:
 	if not painting:
 		return
+	var now := Time.get_ticks_msec()
+	## A stroke with no activity for `STROKE_GAP_MS` is over, whether or not its release arrived. It does NOT always
+	## arrive: when a second finger lands after the first has already painted, the host's stray-stroke guard discards
+	## the held press and emits no release (measured 2026-11-17, `cancel_touch_gesture`'s armed branch), so the stroke
+	## stayed open and the next gesture was glued onto it, leaving that stroke out of `strokes`.
+	if _stroke_open and now - _sample_ms >= STROKE_GAP_MS:
+		_stroke_open = false
+	_sample_ms = now
 	var p := Vector2(gx, gy)
 	if _stroke_open and _last.x >= 0.0 and p.distance_to(_last) < brush * SPACING:
 		return
@@ -283,7 +312,9 @@ static func _build_bar(app) -> void:
 	panel.add_child(row)
 	var title := DccTheme.label("ASSISTANT REGION", "warn", DccTheme.FS_MICRO)
 	row.add_child(title)
-	var hint := DccTheme.label("Drag on the map to paint.", "text_secondary", DccTheme.FS_SMALL)
+	## Touch (LLM-7 remainder): the brush is a drawing tool (`DccApp.tool_kind`), so a finger paints and the
+	## map-row latch or two fingers move the map; the words say which, because nothing else on screen does.
+	var hint := DccTheme.label("One finger paints; two fingers move the map." if DccTheme.is_touch() else "Drag on the map to paint.", "text_secondary", DccTheme.FS_SMALL)
 	row.add_child(hint)
 	_status = DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
 	_status.name = "assist_status"
@@ -301,12 +332,21 @@ static func _build_bar(app) -> void:
 	clear_b.name = "assist_clear"
 	var done_b := DccWidgets.action(row, "Done", func(): end_paint(app), true)
 	done_b.name = "assist_done"
-	## Touch floors for the tablet/phone density (the shell's own sizing helper), both axes.
+	## Touch floors for the tablet/phone density (the shell's own sizing helper), both axes. `PHONE_TAP_MIN` is in dp and
+	## this node lives in the main viewport, which has no content scale, so on the phone it is multiplied by the phone
+	## scale the shell hands the host (`HD-03`: a raw 44 px is 17 dp on a 1080 px panel at scale 2.6).
+	var phone_scale := float(vp.safe_insets().get("scale", 1.0)) if vp.has_method("safe_insets") else 1.0
+	var floor_px: int = int(ceil(float(DccTheme.PHONE_TAP_MIN) * phone_scale)) if DccTheme.is_phone() else (DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 26)
 	for b in [sizes, undo_b, clear_b, done_b]:
 		var c := b as Control
-		c.custom_minimum_size.y = maxi(int(c.custom_minimum_size.y), DccTheme.PHONE_TAP_MIN if DccTheme.is_phone() else (DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 26))
+		c.custom_minimum_size.y = maxi(int(c.custom_minimum_size.y), floor_px)
 	vp.add_child(panel)
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 8)
+	## On the phone the app bar floats over the top of the map, and the bar sat BEHIND it (first phone frame,
+	## 2026-11-17: only Done showed). Its top margin is the shell's own top inset plus the usual 8 px.
+	var top_margin := 8
+	if DccTheme.is_phone() and vp.has_method("safe_insets"):
+		top_margin += int(float(vp.safe_insets().get("top", 0.0)))
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, top_margin)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_bar = panel
 

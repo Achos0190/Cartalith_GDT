@@ -2352,6 +2352,13 @@ func border_style() -> Dictionary:
 ## coordinate/scale-bar labels would land under the app bar, the rail or the
 ## tool sheet instead of in the visible gap between them. Desktop/tablet never
 ## call this, so `_safe_insets` stays at its flat 10 px default there.
+## The insets the shell last handed `set_safe_insets` (`left`, `top`, `right`, `bottom`, `scale`): the band the phone's
+## app bar and bottom chrome cover. Read by floating map bars outside this file (`llm_region.gd`'s painting bar) so they
+## sit clear of it; never written through this copy.
+func safe_insets() -> Dictionary:
+	return _safe_insets.duplicate()
+
+
 func set_safe_insets(insets: Dictionary) -> void:
 	_safe_insets = insets
 	_apply_touch_scale(float(insets.get("scale", 1.0)))
