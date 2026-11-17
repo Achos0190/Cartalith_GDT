@@ -755,6 +755,14 @@ func _phase1(vp: Vector2) -> void:
 
 	# ------------------------------------------------------------------ 12. density
 	print("== 12. density and layout ==")
+	## The tablet never shows the window form (its "Open in a window" button is desktop-only, PC-6): the Assistant is the
+	## Ask tab's content there, so its layout is judged inside the dock's scroller. Measuring the window form on a tablet
+	## made this section report a layout nobody can open (2026-11-17: Send at y 789 of an 800 px window).
+	if _mode == "tablet":
+		await _layout_docked()
+		_panel.hide()
+		await _layout_settings(vp)
+		return
 	_panel.open_window()
 	await _settle(10)
 	var floor_px := 0.0
@@ -784,6 +792,35 @@ func _phase1(vp: Vector2) -> void:
 		print("  note  Close is %.0f px tall on the phone sheet (stock dialog button, pre-existing)" % close_btn.size.y)
 	await _shot("12_panel_header")
 	_panel.hide()
+	await _layout_settings(vp, floor_px)
+
+
+## Section 12 for the tablet: the docked Ask tab. Horizontal fit is judged against the dock's scroller (which cannot scroll
+## sideways), vertical reach by scrolling the control into view and then checking it lies inside the scroller.
+func _layout_docked() -> void:
+	_panel.open()
+	await _settle(10)
+	var scroll := _app.right_dock_ctrl._ask_scroll as ScrollContainer
+	var box := scroll.get_global_rect()
+	_ok(_panel.is_docked() and _panel.is_open(), "the tablet shows the Assistant in the Ask tab (docked %s, open %s)" % [_panel.is_docked(), _panel.is_open()])
+	var floor_px := float(DccTheme.role_px("btn_min_h"))
+	var po := _p("profile") as OptionButton
+	_ok(po.is_visible_in_tree() and po.size.y + 0.5 >= floor_px, "the profile switch is at least %d px tall: %.0f" % [int(floor_px), po.size.y])
+	var send := _p("send") as Button
+	for c in [po, send]:
+		scroll.ensure_control_visible(c)
+		await _settle(3)
+		var r := (c as Control).get_global_rect()
+		_ok(r.position.x >= box.position.x - 1.0 and r.end.x <= box.end.x + 1.0, "'%s' sits inside the dock's width (%s of %s)" % [c.name, r, box])
+		_ok(r.position.y >= box.position.y - 1.0 and r.end.y <= box.end.y + 1.0, "'%s' is reachable by scrolling, inside the dock's scroller (%s of %s)" % [c.name, r, box])
+	_ok(send.size.y + 0.5 >= floor_px, "Send is >= %d px tall: %.0f" % [int(floor_px), send.size.y])
+	await _shot("12_panel_header")
+
+
+## Section 12's settings-window half, shared by every form.
+func _layout_settings(vp: Vector2, floor_px: float = -1.0) -> void:
+	if floor_px < 0.0:
+		floor_px = float(DccTheme.role_px("btn_min_h")) if _mode == "tablet" else 0.0
 	_set.open()
 	await _settle(10)
 	var swr := Rect2(Vector2(_set.position), Vector2(_set.size))

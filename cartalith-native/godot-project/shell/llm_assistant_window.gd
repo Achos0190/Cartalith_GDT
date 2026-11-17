@@ -372,6 +372,7 @@ func open_window() -> void:
 	if _host.get_parent() != self:
 		_host.get_parent().remove_child(_host)
 		add_child(_host)
+	_sync_scroll_floor()
 	_on_reopen()
 	_show_dialog()
 	if app.get("right_dock_ctrl") != null:
@@ -408,6 +409,7 @@ func present_in(parent: Control) -> bool:
 	if _host.get_parent() != parent:
 		_host.get_parent().remove_child(_host)
 		parent.add_child(_host)
+	_sync_scroll_floor()
 	_on_reopen()
 	if _input != null:
 		_input.grab_focus.call_deferred()
@@ -726,7 +728,10 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	var facts_l := DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
 	facts_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	facts_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	facts_l.custom_minimum_size.x = WRAP_MIN_W
+	## The phone's one row is this label plus View facts plus Refresh (116 + 91 px at the 44 px floor): a 160 px floor made
+	## the sheet's contents minimum 407 px against a 393 px window (`_llmundoregen_probe`, 2026-11-17). The label expands
+	## into the rest of the row, so only its floor shrinks; docked it has its own line and keeps WRAP_MIN_W.
+	facts_l.custom_minimum_size.x = 96.0 if _phone else WRAP_MIN_W
 	facts_row.add_child(facts_l)
 	controls["facts_status"] = facts_l
 	var facts_btns: BoxContainer = facts_row
@@ -2283,7 +2288,7 @@ func _answer_save_card(box: Control, on: bool) -> void:
 	if is_instance_valid(box):
 		box.queue_free()
 	controls.erase("conv_save_card")
-	_scroll.custom_minimum_size.y = 100 if _phone else 80
+	_sync_scroll_floor()
 	_add_msg("", "This conversation will be saved with the world." if on else "Not saved with the world. Preferences, Assistant, has the switch if you change your mind.", "text_ghost")
 	_refresh()
 
@@ -2646,6 +2651,57 @@ func _refresh_cards() -> void:
 			b.tooltip_text = why
 		rl.text = why
 		rl.visible = why != ""
+	_sync_scroll_floor()
+
+
+## The transcript's floor (px) in the docked Ask tab while a proposal card waits for Apply or Dismiss. The 80 px floor of an
+## idle transcript showed the card through a slot about as tall as one of its own buttons (STATUS.md, 2026-11-17: "a card's
+## buttons are seen through a small scroller"). The labelled judgement: a setting card with five changes, its refusal
+## lines and the Apply row measures about 280 px at the dock's 304 px width, and a terrain-edit card with its preview
+## figures about 560, so 380 shows the end of any card, its Apply row, with the transcript scrolled to the end (a longer
+## card scrolls inside, from its top). The floor only ever raises the minimum: the Ask tab's own scroller takes the extra
+## height, and 380 is below the 577 px that scroller measures on the 1700x1000 tablet.
+const PENDING_CARD_SCROLL_MIN := 380.0
+
+
+## Sets the transcript's floor from what it holds now: 100 on the phone and 80 docked when idle (the values `_rebuild` and the
+## save card's answer used to write), `CARD_SCROLL_MIN` while the first-use save question is shown, and
+## `PENDING_CARD_SCROLL_MIN` while a card is waiting, docked only (the phone's and the window form's transcript already
+## expands into the free space, and a raised floor there would push Send off the sheet's edge). Called after every change
+## of a card or of the save question, and when the content is mounted. Pure layout: never touches a message.
+func _sync_scroll_floor() -> void:
+	if _scroll == null or not is_instance_valid(_scroll):
+		return
+	var want := 100.0 if _phone else 80.0
+	if controls.has("conv_save_card") and is_instance_valid(controls["conv_save_card"]):
+		want = maxf(want, CARD_SCROLL_MIN)
+	if is_docked():
+		for c in cards:
+			if String(c.get("state", "")) == "new" and is_instance_valid(c["box"]):
+				want = maxf(want, PENDING_CARD_SCROLL_MIN)
+	if absf(_scroll.custom_minimum_size.y - want) < 0.5:
+		return
+	var raised := want > _scroll.custom_minimum_size.y
+	_scroll.custom_minimum_size.y = want
+	if raised:
+		_reveal_transcript.call_deferred()
+
+
+## Scrolls the Ask tab's own scroller (the one above the transcript, not the transcript's) so the transcript is on screen,
+## after its floor rose: the card the user is about to press must not be below the fold of the dock.
+func _reveal_transcript() -> void:
+	if _scroll == null or not is_instance_valid(_scroll) or not _scroll.is_inside_tree():
+		return
+	await get_tree().process_frame
+	var n := _scroll.get_parent()
+	while n != null and not (n is ScrollContainer):
+		n = n.get_parent()
+	if n != null and is_instance_valid(_scroll):
+		(n as ScrollContainer).ensure_control_visible(_scroll)
+	## The transcript's own end, where the card's Apply row is, once the new floor has been laid out.
+	await get_tree().process_frame
+	if is_instance_valid(_scroll):
+		_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value)
 
 
 ## Why Apply cannot run now, or "".
@@ -2657,6 +2713,7 @@ func _apply_blocked() -> String:
 
 func _close_card(card: Dictionary, state: String, text: String, token: String) -> void:
 	card["state"] = state
+	_sync_scroll_floor()
 	for k in ["apply", "dismiss", "undo_regen"]:
 		var b = card.get(k)
 		if b != null and is_instance_valid(b):

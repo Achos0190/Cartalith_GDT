@@ -341,6 +341,13 @@ func _terminal(notify: Callable) -> void:
 ## gate is asked again (`prepare_continue`), with a fresh settings snapshot.
 func _continue_after_join() -> void:
 	var args := {"current": params_source.call() if params_source.is_valid() else Dictionary(_last["args"]).get("current", {})}
+	## The request's own limits ride every turn, not only the first: `prepare_params` reads the reply cap, the usage flag and
+	## the context window from `args`, and a turn that omitted them fell back to the 1 024-token default, no usage chunk and
+	## the 8 192 design window (found 2026-11-17 in `_llmparams_probe`: with a 16 384 window set, the second request was
+	## still refused "more than the 8192-token window"; a pinned reply cap was also dropped from the second turn on).
+	for k in ["max_tokens", "include_usage", "context_tokens"]:
+		if Dictionary(_last["args"]).has(k):
+			args[k] = Dictionary(_last["args"])[k]
 	## The model's waiting lookups (LLM-8) are answered from what is read NOW, not from when its
 	## reply ended: a generation may have started since, and `LlmFacts.read` then reads nothing.
 	if view_source.is_valid():

@@ -200,6 +200,10 @@ func _ready() -> void:
 	await _settle(10)
 	await _shot("1_open")
 	print("  (the Assistant window: size %s, contents minimum %s)" % [str(_win.size), str(_win.get_contents_minimum_size())])
+	## The phone's sheet is the whole window, so its contents must fit the window's width: 407 px against 393 was the old
+	## measurement (the Place facts row's 160 px label beside two 44 px buttons), which pushed Apply and Send past the edge.
+	if _mode == "phone":
+		_ok(float(_win.get_contents_minimum_size().x) <= float(_win.size.x) + 0.5, "the phone Assistant's contents minimum %.0f fits its %d px window" % [_win.get_contents_minimum_size().x, _win.size.x])
 
 	print("== 1. no offer before Apply, none without a rebuild ==")
 	var peak0 := float(_bridge.param_get("peak_m"))

@@ -27,11 +27,16 @@ extends RefCounted
 
 const _REGION := preload("res://shell/llm_region.gd")
 
-## Thumbnail display scale per density. A labelled judgement from the first desktop capture (1x was too small
-## to see a ridge): the engine's 96 px thumbnails shown at 1.5x, so two side by side are about 300 px, inside
-## the 560 px desktop window and the 393 dp phone sheet; a touch layout takes the same size.
-const THUMB_SCALE_DESKTOP := 1.5
+## Thumbnail display scale per form. A labelled judgement from the first desktop capture (1.0 was too small to see
+## a ridge when the Assistant was a 560 px window): the engine's 96 px thumbnails shown at 1.5x, so two side by side
+## are about 300 px, inside the 393 dp phone sheet. **Desktop and tablet now dock the Assistant in a 304 to 313 px
+## Ask tab whose cards have about 245 px**, and 300 px of thumbnails widened the whole dock past the display's right
+## edge (tablet 1700x1000, 2026-11-17: the Ask scroller 378 px wide, Apply and the year field outside the screen), so
+## those two forms show them at 1.0: 96 + 10 + 96 = 202 px. The row is also a flow, so a still narrower card wraps
+## rather than widening anything.
+const THUMB_SCALE_DESKTOP := 1.0
 const THUMB_SCALE_TOUCH := 1.5
+const THUMB_SCALE_TABLET := 1.0
 
 
 ## The validated rows as the engine's operation dictionaries (`{operation, amount_m?, strength?,
@@ -217,10 +222,11 @@ static func _draw_pair(col: Control, p: Dictionary, prefix: String) -> bool:
 	var tex_a := thumb_texture(int(p.get("thumb_w", 0)), int(p.get("thumb_h", 0)), p.get("thumb_after", PackedByteArray()))
 	if tex_b == null or tex_a == null:
 		return false
-	var pics := HBoxContainer.new()
-	pics.add_theme_constant_override("separation", 10)
+	var pics := HFlowContainer.new()
+	pics.add_theme_constant_override("h_separation", 10)
+	pics.add_theme_constant_override("v_separation", 4)
 	col.add_child(pics)
-	var sc := THUMB_SCALE_TOUCH if (DccTheme.is_phone() or DccTheme.is_tablet()) else THUMB_SCALE_DESKTOP
+	var sc := THUMB_SCALE_TOUCH if DccTheme.is_phone() else (THUMB_SCALE_TABLET if DccTheme.is_tablet() else THUMB_SCALE_DESKTOP)
 	for pair in [["Before", tex_b], ["After", tex_a]]:
 		var cell := VBoxContainer.new()
 		pics.add_child(cell)

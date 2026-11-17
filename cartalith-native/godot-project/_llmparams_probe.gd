@@ -15,7 +15,7 @@ extends Node
 ##      reason and a forced Send opens NO connection (Ruling DI P3).
 ##   2. TWO STEPS, per wire: the first request offers `get_param_schema` and the six read-only
 ##      query tools of LLM-8 (`_llmquery_probe.gd` owns those) and NOT the proposal tool; the second
-##      adds `set_generation_params`, its key enum is exactly the 34 keys of weather + world + tectonics, and it
+##      adds `set_generation_params`, its key enum is exactly the registry keys of weather + world + tectonics, and it
 ##      replays the call and the tool result in the wire's own shape; the Ollama preset asks for
 ##      `reasoning_effort: none`, the Anthropic wire sends no such field.
 ##   3. CARD: the worked example (s.5b.3) arrives as a card with the MODEL PROPOSAL chip, the five
@@ -99,7 +99,32 @@ func _shot(tag: String) -> void:
 
 
 ## A REAL mouse press and release at the centre of `c` (the `_llmpanel_probe` helper).
+## Scrolls the nearest ScrollContainer ancestor so `c` is inside its viewport. A real click can only reach a control that is
+## on screen, and the docked Ask tab scrolls (PC-6): this probe's section 2-3 Send click landed on whatever was drawn at a
+## Send that sat below the dock's scroller, so no request was ever made (found 2026-11-17).
+## The keys of `groups` in the registry minus the eight the catalogue never offers (`param_catalogue::EXCLUDED`), sorted.
+func _expected_keys(groups: Array) -> Array:
+	var withheld := ["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve", "rough_routing", "basin_routing"]
+	var out: Array = []
+	var info: Dictionary = _app.bridge.world_gen.get_param_info()
+	for k in info:
+		if groups.has(String(info[k]["group"])) and not withheld.has(String(k)):
+			out.append(String(k))
+	out.sort()
+	return out
+
+
+func _reveal(c: Control) -> void:
+	var n := c.get_parent()
+	while n != null and not (n is ScrollContainer):
+		n = n.get_parent()
+	if n != null:
+		(n as ScrollContainer).ensure_control_visible(c)
+		await _settle(2)
+
+
 func _click(c: Control) -> void:
+	await _reveal(c)
 	var local := c.get_global_rect().get_center()
 	var vp := c.get_viewport()
 	var at: Vector2 = vp.get_final_transform() * local
@@ -149,7 +174,12 @@ func _configure(over: Dictionary = {}) -> void:
 	var s := {"enabled": true, "commands": true, "prose": false, "local_allowed": true, "preset_id": "ollama",
 		"base_url": "http://127.0.0.1:%d/v1" % _port, "model": "mock-model",
 		"key_source": "env", "env_var": ENV_VAR, "ctx_params": true,
-		"regen_on_apply": false}  ## Ruling DS: sections 1-9 are the switch-OFF behaviour; section 10 turns it on
+		"regen_on_apply": false,  ## Ruling DS: sections 1-9 are the switch-OFF behaviour; section 10 turns it on
+		## The request-size guard (`action_tools::check_budget`) assumes the 8 192 design window when this is 0. The
+		## second request of a three-group proposal is estimated at about 7 300 tokens plus the 1 024 kept for the
+		## answer, which that window refuses (found 2026-11-17: this probe's request never reached the server). The
+		## probe tests the proposal flow, not the guard (`_ac4_probe` owns that), so it gives the model a larger window.
+		"context_tokens": 16384}
 	s.merge(over, true)
 	for k in s:
 		DccSettings.set_llm_value(k, s[k])
@@ -237,11 +267,15 @@ func _ready() -> void:
 	while i < args.size():
 		if args[i] == "--force-touch":
 			pass
+		elif args[i] == "--density" and i + 1 < args.size():
+			i += 1  ## read by the shell itself (the dp classifier)
+		elif args[i].begins_with("--density="):
+			pass
 		elif args[i] == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]
 		else:
-			print("ABORT: unrecognised argument %s -- this probe reads --force-touch and --shots <dir> only" % args[i])
+			print("ABORT: unrecognised argument %s -- this probe reads --force-touch, --density D and --shots <dir> only" % args[i])
 			get_tree().quit(2)
 			return
 		i += 1
@@ -308,7 +342,12 @@ func _ready() -> void:
 		var b2 := _body(r0 + 1)
 		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS + ["list_actions", "search_actions", "describe_action", "propose_actions"], "%s: request 1 offers get_param_schema, the six read-only tools and the view tool, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
 		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"] + QUERY_TOOLS + ["list_actions", "search_actions", "describe_action", "propose_actions"], "%s: request 2 adds the proposal tool to the same set" % wire)
-		_ok(_key_enum(b2, anth).size() == 34, "%s: the key enum is the 34 keys of weather + world + tectonics: %d" % [wire, _key_enum(b2, anth).size()])
+		## Counted from the registry itself (`get_param_info`'s group column, minus the keys the catalogue withholds), not
+		## from a number written here: the literal 34 of 2026-10-25 went stale when the registry grew (43 on 2026-11-17).
+		var want_keys := _expected_keys(["weather", "world", "tectonics"])
+		var got_keys := _key_enum(b2, anth)
+		got_keys.sort()
+		_ok(want_keys.size() > 30 and got_keys == want_keys, "%s: the key enum is exactly the %d keys of weather + world + tectonics (excluding the withheld ones): %d offered" % [wire, want_keys.size(), got_keys.size()])
 		_ok(not _key_enum(b2, anth).has("use_gpu") and not _key_enum(b2, anth).has("geology_model"), "%s: no excluded key is offered" % wire)
 		var replay := String(_server.requests[r0 + 1]["body"]) if r0 + 1 < _server.requests.size() else ""
 		_ok(replay.contains("climate.rain_dep") and replay.contains("first ridge"), "%s: request 2 replays the schema result, desc included" % wire)

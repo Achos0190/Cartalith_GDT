@@ -59,11 +59,23 @@ func _init() -> void:
 		option.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	else:
 		option.custom_minimum_size.y = 26
-	LlmProfiles.hub.changed.connect(_on_hub_changed)
-	tree_exiting.connect(func():
-		if LlmProfiles.hub.changed.is_connected(_on_hub_changed):
-			LlmProfiles.hub.changed.disconnect(_on_hub_changed))
 	refresh()
+
+
+## The hub subscription follows the node's time in the tree, not its life. It used to be connected once in `_init()` and
+## dropped by `tree_exiting`, so a node taken out of the tree and put back (the phone sheet's reparent over a modal
+## window, `DccWidgets.reparent_over`) kept a dropdown that never redrew again: after a declined consent card on the
+## phone it read External while Local was active (`_llmprofiles_probe`, 2026-11-17). Never leaves a connection behind.
+func _enter_tree() -> void:
+	if not LlmProfiles.hub.changed.is_connected(_on_hub_changed):
+		LlmProfiles.hub.changed.connect(_on_hub_changed)
+	## A change that happened while out of the tree was not heard.
+	refresh.call_deferred()
+
+
+func _exit_tree() -> void:
+	if LlmProfiles.hub.changed.is_connected(_on_hub_changed):
+		LlmProfiles.hub.changed.disconnect(_on_hub_changed)
 
 
 func _on_hub_changed() -> void:

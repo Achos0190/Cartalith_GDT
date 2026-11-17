@@ -11,10 +11,12 @@ extends Node
 ## **Windowed, never `--headless`**, from a worktree with its own `config/name` and a wiped user dir
 ## (`MISTAKES.md`). Reads `--force-touch`, `--density D` (the shell's), `--shots <dir>`, `--failfast` and `--corpus <path>`; anything else exits 2.
 ##
-## **Known stale since the PC-6 dock (2026-11-17):** on the desktop and tablet forms the Assistant lives in the Ask tab,
-## so every check that reads `_win.visible` or the dialog's width (sections 2 "Done", 4 "stay inside the window") fails
-## and its cascade follows. The apply path it exercises through the card is covered directly, without the window, by
-## `_llmapply_probe.gd`; touch painting by `_llmtouchpaint_probe.gd`. Re-pointing this probe at the dock is open.
+## **Re-pointed at the PC-6 dock (2026-11-17).** On the desktop and tablet forms the Assistant lives in the Ask tab, so
+## "is it shown" is `_win.is_open()` (never `_win.visible`, which only the window form and the phone sheet set), Paint's
+## "hides the window" is asserted only for those two forms, a click that leaves the tab in place waits for the brush
+## (`REGION_SCRIPT.painting`), and "inside the frame" is the Ask scroller's rectangle (`_frame_rect()`). The card's Apply
+## and Dismiss are checked against that frame by themselves, and on the phone the dialog's contents minimum against its
+## width (`_widest_chain` names the culprit on a failure).
 ##
 ## What it protects (every check names it):
 ##   0. SWITCH: Edit is off by default, its context source is off by default, the switch is available in
@@ -109,6 +111,25 @@ func _click_until(c: Control, done: Callable, tries: int = 3) -> void:
 		if done.call():
 			return
 		print("  (click %d of %d on '%s' did not register; window focused=%s)" % [i + 1, tries, c.name, str(get_window().has_focus())])
+
+
+## The rectangle the Assistant must stay inside: the Ask tab's scroller when docked (desktop, tablet), the dialog's own
+## space (0 .. size) when it is a window or the phone's sheet.
+func _frame_rect() -> Rect2:
+	if _win.is_docked():
+		return (_app.right_dock_ctrl._ask_scroll as ScrollContainer).get_global_rect()
+	return Rect2(Vector2.ZERO, Vector2(_win.size))
+
+
+## The path of the widest minimum size from `n` down, for a failure message: each step names the child with the largest
+## `get_combined_minimum_size().x` ("Name(class) 407 > Name(class) 402 > ...").
+func _widest_chain(n: Control) -> String:
+	var out := "%s(%s) %.0f" % [n.name, n.get_class(), n.get_combined_minimum_size().x]
+	var best: Control = null
+	for c in n.get_children():
+		if c is Control and (c as Control).visible and (best == null or (c as Control).get_combined_minimum_size().x > best.get_combined_minimum_size().x):
+			best = c
+	return out if best == null else out + " > " + _widest_chain(best)
 
 
 ## A REAL mouse press and release at the centre of `c`.
@@ -460,9 +481,12 @@ func _ready() -> void:
 		_ok(not paint_btn.disabled and paint_btn.tooltip_text.contains("one finger"), "phone: Paint region is enabled, and says one finger: '%s'" % paint_btn.tooltip_text.left(70))
 	else:
 		_ok(not paint_btn.disabled, "Paint region is enabled with a world open")
-		await _click_until(paint_btn, func(): return not _win.visible)
+		await _click_until(paint_btn, func(): return REGION_SCRIPT.painting)
 		await _settle(6)
-		_ok(not _win.visible and REGION_SCRIPT.painting and _app.armed_tool == REGION_SCRIPT.TOOL_ID, "Paint hides the Assistant, arms the region brush and starts painting (armed %s)" % _app.armed_tool)
+		## Windowed (desktop's "Open in a window", the phone sheet) Paint hides the dialog so the map is reachable; docked
+		## (the Ask tab, desktop and tablet) the map already is and the tab stays: `_win.visible` is never true there, so the
+		## old `not _win.visible` check was vacuous and its `visible` twin after Done could not be true.
+		_ok((_win.is_docked() or not _win.visible) and REGION_SCRIPT.painting and _app.armed_tool == REGION_SCRIPT.TOOL_ID, "Paint arms the region brush and starts painting, and hides the window form (docked %s, armed %s)" % [_win.is_docked(), _app.armed_tool])
 		var bar = _app.viewport.get_node_or_null("AssistRegionBar")
 		_ok(bar != null and (bar as Control).visible, "the painting bar is on the map")
 		if bar != null:
@@ -494,9 +518,9 @@ func _ready() -> void:
 		REGION_SCRIPT.undo_stroke(_app)
 		_ok(REGION_SCRIPT.dabs.is_empty(), "Undo stroke removed the whole stroke (the press and the drag are ONE stroke)")
 		var done0 = _app.viewport.get_node("AssistRegionBar").find_child("assist_done", true, false) as Button
-		await _click_until(done0, func(): return _win.visible)
+		await _click_until(done0, func(): return not REGION_SCRIPT.painting)
 		await _settle(10)
-		_ok(_win.visible and _win._task == "edit" and (_c("input") as TextEdit).text == "raise it into a ridge about 300 m high", "Done (a real click) brought the Assistant back on Edit with the prompt kept")
+		_ok(_win.is_open() and _win._task == "edit" and (_c("input") as TextEdit).text == "raise it into a ridge about 300 m high", "Done (a real click) brought the Assistant back on Edit with the prompt kept")
 		_ok(not REGION_SCRIPT.painting and _app.armed_tool == "inspect" and _app.viewport.get_node_or_null("AssistRegionBar") == null, "...and the brush is disarmed and the bar is gone (armed %s)" % _app.armed_tool)
 	_paint_region()
 	var strokes: int = REGION_SCRIPT.strokes.size()
@@ -531,12 +555,12 @@ func _ready() -> void:
 		await _settle(8)
 		_win._pick_task("edit")
 		await _type("keep this prompt")
-		await _click_until(_c("region_paint") as Button, func(): return not _win.visible)
-		_ok(not _win.visible, "Paint hid the window again")
+		await _click_until(_c("region_paint") as Button, func(): return REGION_SCRIPT.painting)
+		_ok(_win.is_docked() or not _win.visible, "Paint hid the window form again (or left the docked tab in place)")
 		var done_btn := _app.viewport.get_node("AssistRegionBar").find_child("assist_done", true, false) as Button
-		await _click_until(done_btn, func(): return _win.visible)
+		await _click_until(done_btn, func(): return not REGION_SCRIPT.painting)
 		await _settle(10)
-		_ok(_win.visible and _win._task == "edit", "Done brought the Assistant back on the Edit task")
+		_ok(_win.is_open() and _win._task == "edit", "Done brought the Assistant back on the Edit task")
 		_ok((_c("input") as TextEdit).text == "keep this prompt", "...with the prompt as the user left it")
 		_ok(not REGION_SCRIPT.painting and _app.armed_tool == "inspect", "...the brush is disarmed (armed %s)" % _app.armed_tool)
 		_ok(not REGION_SCRIPT.dabs.is_empty(), "...and the region is still there (%d dabs)" % REGION_SCRIPT.dabs.size())
@@ -585,6 +609,10 @@ func _ready() -> void:
 		_configure({})
 		_paint_region()
 		_win._edit_key = ""
+		## `_paint_region` writes the region through the tool's handlers, not the Paint button, so nothing asks the panel to
+		## read it again; a window re-read on show and the docked tab does not, which left Send disabled "No region is
+		## selected" from the second seed on (found 2026-11-17 re-pointing this probe at the dock).
+		_win._refresh()
 		var rid := _region_id()
 		var f4: Dictionary = REGION_SCRIPT.facts(_bridge)
 		var amt := 300.0
@@ -624,7 +652,32 @@ func _ready() -> void:
 		_ok(_digest() == snap0 and _app.undo_groups.cursor == g0 and _gen_started == gen0, "seed %d: NOTHING changed before the click (digest, undo stack, generations)" % seed_)
 		var srect: Rect2 = (_c("send") as Button).get_global_rect()
 		var crect: Rect2 = (card["box"] as Control).get_global_rect()
-		_ok(srect.end.x <= float(_win.size.x) + 0.5 and crect.end.x <= float(_win.size.x) + 0.5, "seed %d: Send and the card stay inside the window width %d" % [seed_, _win.size.x])
+		var fr := _frame_rect()
+		_ok(srect.end.x <= fr.end.x + 0.5 and crect.end.x <= fr.end.x + 0.5, "seed %d: Send and the card stay inside the frame width (%s)" % [seed_, fr])
+		## The frame itself must be on screen: a docked content whose minimum width exceeds the dock widens the dock past the
+		## window's right edge (the tablet frame of 2026-11-17: the Ask scroller 378 px wide in a 313 px dock, its right
+		## 65 px, Apply and the year field among them, outside the display), and the card then measures "inside" its own frame.
+		var vw := get_viewport().get_visible_rect().size.x
+		if fr.end.x > vw + 0.5:
+			print("  widest chain: ", _widest_chain(_win._host))
+		_ok(fr.end.x <= vw + 0.5, "seed %d: the frame (right edge %.0f) is inside the display (%.0f)" % [seed_, fr.end.x, vw])
+		## Apply and Dismiss themselves, not only the card around them: on a tablet and a phone Apply was drawn past the
+		## edge while the card box (which clips nothing) still reported a width inside it (STATUS.md, 2026-11-17).
+		if _win.is_docked():
+			## The docked transcript used to be about 80 px tall: a card's buttons were seen through a slot as tall as one of
+			## them. While a card waits the floor is 380, and Apply must be on screen without the user scrolling anything.
+			var ts: float = (_win._scroll as ScrollContainer).size.y
+			var ab: Rect2 = (card["apply"] as Button).get_global_rect()
+			_ok(ts >= 300.0, "seed %d: the docked transcript is %.0f px tall while a card waits (80 before)" % [seed_, ts])
+			_ok(ab.position.y >= fr.position.y - 0.5 and ab.end.y <= fr.end.y + 0.5, "seed %d: the card's Apply is on screen without scrolling (%s of %s)" % [seed_, ab, fr])
+		for k in ["apply", "dismiss"]:
+			var br: Rect2 = (card[k] as Button).get_global_rect()
+			_ok(br.position.x >= fr.position.x - 0.5 and br.end.x <= fr.end.x + 0.5, "seed %d: the card's %s lies inside the frame (%s of %s)" % [seed_, k, br, fr])
+		if _mode == "phone":
+			var cmx: float = _win.get_contents_minimum_size().x
+			if cmx > float(_win.size.x) + 0.5:
+				print("  widest chain: ", _widest_chain(_win._host))
+			_ok(cmx <= float(_win.size.x) + 0.5, "seed %d: the phone dialog's contents minimum %.0f fits its %d px window" % [seed_, cmx, _win.size.x])
 		if _mode != "desktop":
 			for k in ["apply", "dismiss"]:
 				var bsz: Vector2 = (card[k] as Button).get_global_rect().size
