@@ -1,0 +1,646 @@
+
+running 1 test
+test town_river_census::town_placement_audit ...   the civ pass's rivers are the map's: false (653 and 603 polylines; cells civ 6701, map 6941, shared 4408)
+seed 483920 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  #  0 (   1,  60) river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #  1 ( 337, 234) riverthrough>riverthrough river 0 m built-to-water 21 m in_box true sea 531 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #  2 (  22, 113) river>river river 0 m built-to-water 15 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #  3 (   1, 115) river>river river 0 m built-to-water 12 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  4 ( 100,  70) river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #  5 ( 380, 209) riverthrough>riverthrough river 0 m built-to-water 23 m in_box true sea 1389 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  6 ( 360, 194) riverthrough>riverthrough river 0 m built-to-water 34 m in_box true sea 110 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #  7 (  10,  39) river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #  8 ( 267,  71) river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (8 dry): river_kind_built_off_water
+  #  9 ( 157, 106) river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 10 ( 187, 155) river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 11 (  32,  30) river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 12 ( 183, 106) riverthrough>riverthrough river 0 m built-to-water 16 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (4 dry): river_kind_built_off_water
+  # 14 ( 253, 254) river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 15 ( 148, 248) river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (6 dry): river_kind_built_off_water
+  # 16 (  17,  69) river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 17 ( 220, 263) river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 18 ( 246, 237) river>river river 0 m built-to-water 20 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 20 ( 289,  71) river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 22 ( 121, 220) river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 23 (  10,  99) river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 24 ( 225, 241) river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 25 (  46, 103) river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 27 ( 314, 199) riverthrough>coast river 2083 m built-to-water - in_box false sea 221 lake 0 uses_real_water true crossings_off [] | on-river cell 1 cells off, 4 in reach 2 (4 dry): river_town_off_river, proxy_and_layout_disagree
+  # 29 (  48,  36) river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 30 ( 239, 266) river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 31 ( 346, 267) riverthrough>coast river 2083 m built-to-water - in_box false sea 2318 lake 0 uses_real_water true crossings_off [] | on-river cell 1 cells off, 2 in reach 2 (2 dry): river_town_off_river, proxy_and_layout_disagree
+  # 32 (  42,  70) river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 33 (   8,  56) village river>river river 0 m built-to-water 56 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 34 (   8,  49) village river>river river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 35 (  14,  55) village river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 37 (   7, 111) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 38 (   7,  43) village river>river river 0 m built-to-water 86 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 39 (  22,  34) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 13 in reach 2 (13 dry): river_kind_built_off_water
+  # 40 (  13, 111) village river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 41 (   4,  68) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 42 (  87,  70) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 44 (   8,  74) village river>river river 0 m built-to-water 20 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 45 ( 230, 265) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 46 (  22, 118) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 47 (  96,  67) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 49 (  15,  64) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 50 ( 153, 263) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 51 (  24, 100) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 52 (  17, 122) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 54 ( 239, 238) village river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 55 (  14, 242) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 56 ( 179, 154) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 57 ( 230, 237) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 58 (  18,  99) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 60 (  29,  98) village river>river river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 61 (  34,  97) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 62 ( 209, 269) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (9 dry): river_kind_built_off_water
+  # 63 (  10, 238) village river>river river 0 m built-to-water 60 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (7 dry): river_kind_built_off_water
+  # 65 (  21,  56) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 66 (  58,  46) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 67 (  33,  67) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 68 ( 257, 265) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 70 ( 244, 262) village river>river river 0 m built-to-water 118 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 71 (  38,  29) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 72 (  44,  28) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 73 ( 253, 238) village river>river river 0 m built-to-water 68 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 74 ( 214, 267) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 75 ( 263, 254) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 76 ( 346, 280) village riverthrough>riverthrough river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  # 77 ( 346, 177) village riverthrough>riverthrough river 0 m built-to-water 111 m in_box true sea 353 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  # 80 (  57,  79) village river>river river 0 m built-to-water 69 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 81 ( 282,  70) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 16 in reach 2 (16 dry): river_kind_built_off_water
+  # 82 ( 110, 222) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (6 dry): river_kind_built_off_water
+  # 83 ( 348, 260) village riverthrough>riverthrough river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  # 84 (  27, 120) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 85 (  30,   2) village river>river river 0 m built-to-water 60 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 86 ( 127, 217) village river>river river 0 m built-to-water 12 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (8 dry): river_kind_built_off_water
+  # 87 ( 157, 285) village river>river river 0 m built-to-water 53 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 88 ( 175, 103) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 89 ( 136, 213) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (3 dry): river_kind_built_off_water
+  # 90 ( 115, 222) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 91 ( 166, 106) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 92 ( 264, 239) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 93 ( 254,  13) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 94 ( 102,  51) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 95 ( 111,  38) village river>river river 0 m built-to-water 91 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 96 ( 328, 214) village riverthrough>riverthrough river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 97 ( 134,  20) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 98 ( 149,  47) village river>river river 0 m built-to-water 70 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 99 ( 339, 164) village riverthrough>riverthrough river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #100 ( 154,  56) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #101 ( 295,  75) village river>river river 0 m built-to-water 10 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #103 ( 151, 279) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  #104 (  49,  29) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #106 ( 242,  36) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #107 ( 363, 199) village riverthrough>riverthrough river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #108 (  58,  71) village river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (8 dry): river_kind_built_off_water
+  #109 ( 368, 204) village riverthrough>riverthrough river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #110 ( 297, 193) village riverthrough>riverthrough river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #111 ( 352, 185) village riverthrough>riverthrough river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #112 (  69, 232) village river>river river 0 m built-to-water 15 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #113 ( 355, 199) village river>river river 0 m built-to-water 75 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #114 ( 106,  68) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #115 (  54,  68) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (9 dry): river_kind_built_off_water
+  #117 ( 276,  70) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #118 ( 100,  59) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #120 (  75, 231) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #121 ( 330, 220) village riverthrough>riverthrough river 0 m built-to-water 87 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #122 (  23,  83) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #123 ( 316, 172) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #124 (  94, 227) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #125 ( 249, 231) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #126 ( 137,  15) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #127 ( 209, 275) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #128 (  16,  79) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #129 ( 346, 241) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #130 ( 251,  23) village river>river river 0 m built-to-water 67 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #131 ( 152, 105) village river>river river 0 m built-to-water 15 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #132 ( 279, 191) village riverthrough>riverthrough river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #133 ( 348, 251) village riverthrough>riverthrough river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #134 ( 141,   4) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #135 ( 116,  38) village river>river river 0 m built-to-water 58 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #136 ( 247,  29) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #137 (   8,  80) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #138 (  50, 114) village river>river river 0 m built-to-water 70 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #139 (  15, 129) village river>river river 0 m built-to-water 56 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #140 (  92,  60) village river>river river 0 m built-to-water 93 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #142 ( 223, 274) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #143 ( 321, 201) village riverthrough>riverthrough river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #146 ( 342, 216) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #147 ( 374, 207) village riverthrough>riverthrough river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #148 (  80,  48) village river>river river 0 m built-to-water 56 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #149 ( 376, 259) village river>river river 0 m built-to-water 75 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #150 (  39,  92) village river>river river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #151 (  54,  39) village river>river river 0 m built-to-water 104 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #152 (   2,  39) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #153 ( 191, 149) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (3 dry): river_kind_built_off_water
+  #154 ( 240,  21) village river>river river 0 m built-to-water 14 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #155 ( 122, 286) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #156 ( 247, 274) village river>river river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #157 (  53, 106) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #158 (  66,  96) village river>river river 0 m built-to-water 109 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #159 ( 107,  47) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #161 ( 206, 263) village river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #162 ( 153,  51) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #163 ( 307,  52) village riverthrough>riverthrough river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #164 (  57, 235) village river>river river 0 m built-to-water 76 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #165 ( 244, 231) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #166 (  87, 101) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #168 ( 342, 169) village riverthrough>riverthrough river 0 m built-to-water 9 m in_box true sea 1337 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #169 ( 287, 192) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #170 ( 325, 206) village riverthrough>riverthrough river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #172 ( 366, 239) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #174 (   2,  34) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #175 ( 337, 208) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #177 (  71,  38) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #178 (   1,  44) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #180 (  60,  94) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #181 ( 105,  74) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #185 ( 180, 277) village river>river river 0 m built-to-water 56 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #187 ( 284, 111) village river>river river 0 m built-to-water 97 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #188 ( 322, 164) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #189 ( 377, 214) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #191 (  40, 122) village river>river river 0 m built-to-water 92 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #192 (   1,  29) village river>river river 0 m built-to-water 90 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #193 (  83,   7) village river>river river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #194 (  79,   4) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #195 (  61,  84) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #196 (  31,  73) village river>river river 0 m built-to-water 63 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #197 ( 278,  61) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #198 ( 375, 246) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #199 ( 148,  74) village river>river river 0 m built-to-water 54 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #200 ( 265, 263) village riverthrough>riverthrough river 0 m built-to-water 56 m in_box true sea 387 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #201 (   2,  24) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #202 ( 125,  36) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #203 (  63, 235) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #205 ( 150,  64) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #207 ( 228, 230) village river>river river 0 m built-to-water 66 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #208 (  64,  41) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #209 ( 252, 269) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #211 (  31,  36) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #215 ( 172, 281) village river>river river 0 m built-to-water 53 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #217 ( 274,  89) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #219 ( 364, 227) village river>river river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #220 ( 109,  80) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #221 ( 189, 275) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #222 (   7,   4) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #223 ( 264,   2) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #224 ( 268,  22) village river>river river 0 m built-to-water 92 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #225 ( 148, 108) village river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #226 ( 138,  26) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #227 (  74, 186) village river>river river 0 m built-to-water 78 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #230 ( 263, 234) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #231 (  14,  49) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #232 ( 257, 234) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  river towns (proxy river/riverthrough): 227 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 1, no water or no building 35
+  in_water                     0
+  river_town_off_river         2
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    2
+  river_kind_built_off_water   189
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 2 of 227 (0.9%)
+  ports (harbour badge): 5; sea lanes: 3; river-kind towns laying neither bridge nor ford: 144
+  road crossings of the map's rivers: 194 (114 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 102
+  Ruling FI: crossings the router paid nothing for: 102 (99 with a charged cell beside them); priced: 92; drawn road length 4015.8 km
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (555 and 595 polylines; cells civ 5647, map 5961, shared 3680)
+seed 912345 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  #  0 (  13, 106) river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  #  1 ( 363, 239) river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  #  2 (  46,  67) river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #  3 (  55,  83) river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  4 ( 379, 253) river>river river 0 m built-to-water 13 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  5 ( 363, 218) river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #  6 (   2,  14) river>river river 0 m built-to-water 13 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #  7 ( 312, 235) river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #  8 ( 342, 242) river>river river 0 m built-to-water 12 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  9 ( 134, 240) river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 10 ( 366, 264) river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 13 in reach 2 (13 dry): river_kind_built_off_water
+  # 13 (  59,  51) river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 14 ( 375, 180) river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 15 ( 175, 282) river>river river 0 m built-to-water 75 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 16 ( 348, 261) river>river river 0 m built-to-water 59 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 17 (  11,  82) river>river river 0 m built-to-water 20 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 18 ( 184, 201) riverthrough>riverthrough river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  # 19 ( 378, 231) river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 20 (  14,  32) river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 22 ( 228, 124) riverthrough>riverthrough river 0 m built-to-water 29 m in_box true sea 928 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  # 23 (  27,  59) river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 24 ( 370, 199) river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 25 ( 295, 227) river>river river 0 m built-to-water 67 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (8 dry): river_kind_built_off_water
+  # 27 ( 349, 203) river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 28 (  78, 100) river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (5 dry): river_kind_built_off_water
+  # 30 ( 120, 190) river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 31 ( 121, 222) river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 32 ( 144, 154) riverthrough>coast river 2083 m built-to-water - in_box false sea 364 lake 0 uses_real_water true crossings_off [] | on-river cell 1 cells off, 6 in reach 2 (6 dry): river_town_off_river, proxy_and_layout_disagree
+  # 34 (   3, 113) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 35 ( 353, 241) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 36 ( 366, 225) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 37 ( 377, 261) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 38 (  17, 103) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 39 (  26, 101) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 40 (  50,  73) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 41 ( 371, 261) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 42 ( 366, 243) village river>river river 0 m built-to-water 59 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 43 ( 375, 248) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 44 ( 319, 235) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 45 (  48,  59) village river>river river 0 m built-to-water 96 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 46 ( 325, 243) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 47 ( 348, 239) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 49 ( 329, 246) village river>river river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 50 (  33,  68) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 51 ( 363, 212) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 52 ( 172, 232) village river>river river 0 m built-to-water 20 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 53 ( 382, 245) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 54 ( 360, 232) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 55 ( 336, 245) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 57 ( 355, 229) village river>river river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 59 (  15,  19) village river>river river 0 m built-to-water 66 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 60 (  10,  15) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 61 (  40,  73) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 62 (  46,  83) village river>river river 0 m built-to-water 76 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 63 (  13,  90) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 65 (  21, 106) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 66 (  14,  96) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 67 ( 375, 188) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 68 ( 318, 247) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 69 (  11,  24) village river>river river 0 m built-to-water 67 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 70 ( 362, 248) village river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (7 dry): river_kind_built_off_water
+  # 71 ( 363, 204) village river>river river 0 m built-to-water 55 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 72 ( 361, 263) village river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 73 ( 166, 286) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 74 ( 378, 215) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 75 ( 359, 208) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 76 ( 378, 220) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 77 ( 372, 204) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 78 ( 362, 197) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 81 (   7,   1) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 82 ( 171, 237) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (7 dry): river_kind_built_off_water
+  # 83 (  32,  61) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 84 (  13,  42) village river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 85 ( 376, 210) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 86 (  81, 105) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 87 ( 353, 265) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 88 (  38,  63) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 89 ( 134, 234) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 90 ( 127, 184) village river>river river 0 m built-to-water 76 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 91 ( 177, 220) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 93 (  45,  77) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 95 ( 134, 224) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 97 (  88, 118) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 98 ( 258,  10) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #100 (  36,  88) village river>river river 0 m built-to-water 59 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #101 (  87, 113) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #102 (  25, 116) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #106 ( 222, 117) village riverthrough>riverthrough river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #108 ( 130, 180) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #109 ( 355, 282) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #110 ( 367, 194) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #111 ( 354, 252) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #113 ( 357, 247) village river>river river 0 m built-to-water 68 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #115 (  34,  42) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #116 ( 180, 282) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #117 ( 176, 274) village river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #118 (  21,  18) village river>river river 0 m built-to-water 77 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #120 ( 350, 274) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #121 (  35,  54) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #122 (  28,  89) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #123 (  22,  62) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #125 (  92, 121) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #126 (  59,  40) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #127 (  62,  78) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #128 ( 311, 249) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #129 ( 358, 193) village river>river river 0 m built-to-water 54 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #130 (  29,  71) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #131 ( 354, 158) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #132 ( 249,   4) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #133 (  65,  88) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #134 (  21,  95) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #138 ( 157,  58) village riverthrough>riverthrough river 0 m built-to-water 39 m in_box true sea 828 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #139 ( 169, 282) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #140 ( 185, 276) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #141 (  12,  59) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #143 (  66,  98) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #144 ( 152, 172) village riverthrough>riverthrough river 0 m built-to-water 61 m in_box true sea 1971 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #145 (  83,  84) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #147 ( 192, 106) village riverthrough>riverthrough river 0 m built-to-water 45 m in_box true sea 101 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #148 ( 154, 281) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #149 ( 110, 225) village river>river river 0 m built-to-water 11 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #151 ( 334, 229) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  #152 ( 305,  81) village riverthrough>riverthrough river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #153 (  28,  82) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #154 (  79,  81) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #155 ( 236, 131) village riverthrough>riverthrough river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #156 (  42, 104) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (6 dry): river_kind_built_off_water
+  #157 ( 127, 220) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #158 ( 209, 106) village riverthrough>riverthrough river 0 m built-to-water 45 m in_box true sea 366 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #159 ( 380, 198) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #160 ( 381, 192) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #161 ( 186, 105) village riverthrough>riverthrough river 0 m built-to-water 56 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #162 ( 382, 173) village river>river river 0 m built-to-water 79 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #163 (  21,  50) village river>river river 0 m built-to-water 58 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #164 (  51, 112) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #165 (  27,   2) village river>river river 0 m built-to-water 90 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #166 ( 150, 274) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #167 ( 342, 227) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #168 ( 340, 200) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #169 (  51,  32) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #171 ( 337, 267) village river>river river 0 m built-to-water 63 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #173 (  57,  46) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #175 (  57, 105) village river>river river 0 m built-to-water 87 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #176 ( 298, 234) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (6 dry): river_kind_built_off_water
+  #178 ( 325, 228) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #179 (  34,   5) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #181 ( 342, 216) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #182 ( 140, 160) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #183 (  67,  44) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #184 (  55,  36) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #185 (  20,  90) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #187 (  20,   6) village river>river river 0 m built-to-water 76 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #188 (   4, 106) village river>river river 0 m built-to-water 77 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #189 ( 234, 120) village river>river river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #191 ( 241, 136) village riverthrough>riverthrough river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #192 ( 353, 213) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #194 ( 290, 229) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #196 ( 116, 201) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #197 ( 322, 259) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #199 ( 153, 177) village riverthrough>riverthrough river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #200 ( 346, 271) village river>river river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #201 (  55,  99) village river>river river 0 m built-to-water 80 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (4 dry): river_kind_built_off_water
+  #203 ( 132, 190) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #205 ( 290, 221) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #206 ( 291, 213) village river>river river 0 m built-to-water 54 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #207 (   3, 100) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #208 ( 140, 199) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #209 (  84, 109) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #210 (  10,  37) village river>river river 0 m built-to-water 7 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #211 ( 322, 220) village river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #212 ( 123, 251) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #214 ( 351, 224) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #215 ( 141, 282) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #216 ( 137, 279) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #217 ( 120, 245) village river>river river 0 m built-to-water 64 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #218 ( 131, 280) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #219 ( 296, 245) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #221 (   5, 128) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #222 (  48, 104) village river>river river 0 m built-to-water 59 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (4 dry): river_kind_built_off_water
+  #223 (  79,  20) village river>river river 0 m built-to-water 55 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #224 ( 318, 263) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #227 ( 201, 104) village riverthrough>riverthrough river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #230 (  81,   8) village river>river river 0 m built-to-water 58 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #231 ( 154, 196) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  river towns (proxy river/riverthrough): 232 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 48
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   183
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 1 of 232 (0.4%)
+  ports (harbour badge): 3; sea lanes: 1; river-kind towns laying neither bridge nor ford: 167
+  road crossings of the map's rivers: 143 (95 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 71
+  Ruling FI: crossings the router paid nothing for: 71 (70 with a charged cell beside them); priced: 72; drawn road length 2735.9 km
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (565 and 593 polylines; cells civ 6832, map 7220, shared 4116)
+seed 246371 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  #  0 ( 381, 231) river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #  1 ( 357, 226) river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 13 in reach 2 (13 dry): river_kind_built_off_water
+  #  3 ( 349, 168) river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #  4 ( 347, 212) river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #  5 ( 240, 205) river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #  6 (   1, 224) river>river river 0 m built-to-water 11 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #  7 (  88,  99) riverthrough>coast river 2083 m built-to-water - in_box false sea 2642 lake 0 uses_real_water true crossings_off [] | on-river cell 1 cells off, 2 in reach 2 (2 dry): river_town_off_river, proxy_and_layout_disagree
+  #  8 ( 372, 173) river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  #  9 (  97,  75) river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 10 ( 366, 246) river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 11 ( 167, 109) river>river river 0 m built-to-water 16 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 12 ( 157, 127) riverthrough>coast river 2083 m built-to-water - in_box false sea 1109 lake 0 uses_real_water true crossings_off [] | on-river cell 1 cells off, 3 in reach 2 (3 dry): river_town_off_river, proxy_and_layout_disagree
+  # 13 ( 313, 151) river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 15 (  12,  29) river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 16 ( 301, 175) river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 17 ( 270, 265) river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 19 (  19,  57) river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 20 ( 252, 221) river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 21 ( 343, 241) river>river river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 22 ( 333, 226) river>river river 0 m built-to-water 38 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 23 ( 348, 265) river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 13 in reach 2 (13 dry): river_kind_built_off_water
+  # 26 (   3,  11) river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 27 (  22,  78) river>river river 0 m built-to-water 13 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 28 (  64,  95) river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (6 dry): river_kind_built_off_water
+  # 29 ( 332, 122) river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 30 ( 335, 181) river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 31 ( 178, 283) river>river river 0 m built-to-water 54 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 32 ( 332, 273) river>river river 0 m built-to-water 69 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 33 ( 375, 233) village river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 34 ( 370, 231) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 36 ( 343, 165) village river>river river 0 m built-to-water 8 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 15 in reach 2 (15 dry): river_kind_built_off_water
+  # 37 ( 340, 218) village river>river river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 38 ( 350, 216) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 40 ( 358, 236) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 41 ( 372, 244) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 42 ( 378, 244) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 43 ( 368, 170) village river>river river 0 m built-to-water 63 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 44 ( 269, 272) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 45 ( 353, 237) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 46 ( 243, 216) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 48 ( 362, 170) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 50 ( 324, 159) village river>river river 0 m built-to-water 8 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 51 ( 229, 197) village river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 53 ( 352, 222) village river>river river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 55 ( 361, 251) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 56 ( 347, 184) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 57 ( 291, 177) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  # 58 ( 364, 218) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 60 (  13,  42) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 62 ( 303, 168) village river>river river 0 m built-to-water 98 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 63 ( 287, 183) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  # 65 ( 349, 241) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 66 ( 171, 106) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 67 ( 278, 251) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 68 ( 270, 260) village river>river river 0 m built-to-water 21 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 69 ( 319, 155) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 71 ( 355, 253) village river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 72 ( 172, 119) village river>river river 0 m built-to-water 28 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 73 ( 251, 210) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 74 (  45,  69) village river>river river 0 m built-to-water 17 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 75 ( 341, 269) village river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 12 in reach 2 (12 dry): river_kind_built_off_water
+  # 76 ( 325, 119) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 77 ( 335, 160) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 78 (   4, 212) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 79 ( 336, 270) village river>river river 0 m built-to-water 84 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 15 in reach 2 (15 dry): river_kind_built_off_water
+  # 80 (   8, 221) village river>river river 0 m built-to-water 40 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 81 ( 326, 219) village river>river river 0 m built-to-water 75 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 83 (  12, 218) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 87 ( 179, 266) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 88 ( 342, 185) village river>river river 0 m built-to-water 36 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 89 (  34,  88) village riverthrough>riverthrough river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  # 90 ( 186, 107) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  # 91 ( 177, 272) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 92 ( 313,  96) village riverthrough>riverthrough river 0 m built-to-water 41 m in_box true sea 441 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 93 ( 337, 126) village river>river river 0 m built-to-water 70 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 94 ( 367, 239) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  # 95 ( 184, 260) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 96 (  16,  52) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  # 97 ( 371, 281) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  # 98 (  65, 285) village riverthrough>riverthrough river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  # 99 ( 343, 126) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #100 ( 101,  79) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #101 ( 337, 242) village river>river river 0 m built-to-water 60 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #102 ( 356, 274) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #103 (  34,  58) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #105 ( 359, 241) village river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #106 ( 186,  96) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #107 ( 164, 113) village river>river river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #108 ( 357, 267) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #110 ( 322, 115) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #112 ( 183,  92) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #113 (  18,  25) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #115 ( 193, 126) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #116 ( 361, 262) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #117 ( 324, 175) village river>river river 0 m built-to-water 55 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #118 ( 375, 165) village river>river river 0 m built-to-water 60 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #119 ( 380, 222) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #120 ( 377, 216) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #121 ( 329,  94) village river>river river 0 m built-to-water 86 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #122 (  56,  42) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #123 ( 345, 225) village river>river river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 11 in reach 2 (11 dry): river_kind_built_off_water
+  #125 ( 352, 231) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #126 ( 373, 212) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #128 (  90,  54) village river>river river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #131 ( 355, 124) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #132 ( 365, 162) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #133 (  23,  69) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #134 ( 334,  96) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #135 ( 176, 277) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #136 (  22, 182) village riverthrough>riverthrough river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #138 (  30,  54) village river>river river 0 m built-to-water 42 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #139 ( 349, 127) village river>river river 0 m built-to-water 49 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #140 ( 236, 217) village river>river river 0 m built-to-water 55 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #141 ( 157,  98) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #142 ( 382, 193) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #143 ( 175, 111) village river>river river 0 m built-to-water 122 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #144 ( 345, 280) village river>river river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #145 (  40,  29) village river>river river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #146 ( 281, 262) village river>river river 0 m built-to-water 33 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #147 ( 355, 188) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #148 ( 323,  94) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #149 ( 335, 207) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #150 ( 264, 266) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #151 ( 252, 242) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #153 ( 278, 266) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #155 ( 220, 195) village river>river river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #156 ( 259, 271) village river>river river 0 m built-to-water 47 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #158 ( 284, 194) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #160 (  48,  41) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #161 ( 363, 108) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #163 ( 377, 159) village river>river river 0 m built-to-water 48 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #164 (  36,  32) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #165 ( 138, 192) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #166 ( 214, 192) village riverthrough>riverthrough river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #168 ( 166,  91) village river>river river 0 m built-to-water 55 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #169 (  17,  33) village river>river river 0 m built-to-water 79 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #170 ( 349, 179) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #171 ( 212, 206) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #172 ( 299, 206) village river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #173 (  83,  53) village river>river river 0 m built-to-water 74 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #174 ( 370, 204) village river>river river 0 m built-to-water 24 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #176 (  23,  21) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #177 (  98,  69) village river>river river 0 m built-to-water 53 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #179 ( 260, 225) village river>river river 0 m built-to-water 62 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #180 (  94,  92) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #181 (  49,  34) village river>river river 0 m built-to-water 25 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #182 (  64,  61) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #184 ( 327, 180) village river>river river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #185 ( 337, 248) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #186 ( 261, 151) village riverthrough>riverthrough river 0 m built-to-water 184 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #187 ( 338, 111) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #189 (  23, 216) village river>river river 0 m built-to-water 61 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #190 (  50,  72) village river>river river 0 m built-to-water 91 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #191 ( 105, 192) village riverthrough>riverthrough river 0 m built-to-water 51 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #192 ( 372, 115) village river>river river 0 m built-to-water 68 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #193 (   7,  44) village river>river river 0 m built-to-water 39 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #194 (  50,  58) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #196 ( 107, 184) village riverthrough>riverthrough river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #197 (  78,  42) village river>river river 0 m built-to-water 50 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #198 (  87,  62) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #199 ( 167, 119) village river>river river 0 m built-to-water 200 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #200 (  27,  48) village river>river river 0 m built-to-water 27 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #201 ( 348, 276) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #202 ( 314, 240) village river>river river 0 m built-to-water 52 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #203 ( 285, 259) village river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #204 ( 263, 230) village river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #205 (  48,  25) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #206 ( 125, 195) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #207 (  27,  40) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #209 ( 103, 201) village riverthrough>riverthrough river 0 m built-to-water 31 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #210 (   5,  76) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #211 ( 332, 186) village river>river river 0 m built-to-water 35 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #212 ( 339, 212) village river>river river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #213 ( 180,  84) village river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #214 (  30,  16) village river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water
+  #217 ( 172,  88) village river>river river 0 m built-to-water 12 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #218 ( 278, 226) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #220 ( 319,  97) village river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #222 ( 341, 284) village river>river river 0 m built-to-water 32 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  #223 ( 308, 108) village riverthrough>riverthrough river 0 m built-to-water 43 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water
+  #225 (  78,  59) village river>river river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 8 in reach 2 (8 dry): river_kind_built_off_water
+  #226 ( 368, 118) village river>river river 0 m built-to-water 60 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 9 in reach 2 (9 dry): river_kind_built_off_water
+  #228 (  33, 221) village river>river river 0 m built-to-water 22 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water
+  #230 ( 275, 215) village river>river river 0 m built-to-water 59 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 6 in reach 2 (6 dry): river_kind_built_off_water
+  #231 ( 383, 239) village river>river river 0 m built-to-water 26 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water
+  #232 (  61,  51) village river>river river 0 m built-to-water 23 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 10 in reach 2 (10 dry): river_kind_built_off_water
+  river towns (proxy river/riverthrough): 233 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 3, no water or no building 44
+  in_water                     0
+  river_town_off_river         2
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    2
+  river_kind_built_off_water   184
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 2 of 233 (0.9%)
+  ports (harbour badge): 2; sea lanes: 1; river-kind towns laying neither bridge nor ford: 168
+  road crossings of the map's rivers: 188 (113 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 103
+  Ruling FI: crossings the router paid nothing for: 103 (99 with a charged cell beside them); priced: 85; drawn road length 3199.6 km
+  network towns with no way: 0 of 33 []
+all seeds at 384: 699 towns, 692 river towns
+  ports 10; sea lanes 5; road crossings of the map's rivers 525 (322 navigable), not in the pricing network 0, wrong ford/bridge rate 0, priced nothing 276; river-kind towns with neither bridge nor ford 479
+  Ruling FI: crossings the router paid nothing for 276; priced 249; drawn road length 9951.3 km
+  in_water                     0
+  river_town_off_river         5
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    5
+  river_kind_built_off_water   556
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 5 of 692 (0.7%)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 9.32s
+

@@ -353,7 +353,7 @@ pub fn civ_pass1_cost(
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
     let mut cost = civ_enhanced_travel_cost(
         &grid.dfld, grid.rw, grid.rh, sea, None, gw, gh, Some(water_bodies), Some(flow), flow_thresh,
-        Some(river_order), Some(biome), map_crossings,
+        Some(river_order), Some(biome), map_crossings, Some(field),
     );
     civ_apply_settlement_gravity(&mut cost, grid.rw, grid.rh, grid.sc, places, world);
     (cost, grid.rw, grid.rh)

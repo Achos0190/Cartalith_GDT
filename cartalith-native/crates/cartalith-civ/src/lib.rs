@@ -7707,14 +7707,73 @@ fn civ_crossing_term(
     drawn.map_or(sampled, |d| d.max(sampled))
 }
 
+/// Whether routing cell `(x, y)` of a `w x h` routing grid is passable, and
+/// which full-resolution cell its per-cell lookups (flow, order, biome) read:
+/// `Some(fi)` for the sampled cell `fi` when the reference passes it, `None`
+/// when the cost grid makes it impassable. One function, so the road router
+/// ([`civ_enhanced_travel_cost`]) and the census's charge map
+/// ([`civ_crossing_charge_map`]) cannot disagree about which cells are water.
+///
+/// The reference's test is the sample's: impassable when the downsampled
+/// height `d_i` is under `sea` or the sampled full-resolution cell `fi` is in
+/// a water body. With `map_crossings` off that is all, by control flow.
+///
+/// **Not the reference** -- Ruling FI's left item (iii) (`civ.map_crossings`,
+/// 2026-11-17). On a map wider than [`RW_CAP`] a routing cell covers a block
+/// of full-resolution cells but reads one of them, so where a drawn river
+/// reaches the shore or a lake the block can hold dry river cells while its
+/// sample is water. The router then never enters it, and a drawn way smoothed
+/// across that corner crosses the river on a cell the cost grid never charged
+/// (8 of 525 drawn crossings at 2 048 on seeds 483920, 912345 and 246371, each
+/// one cell from a charged crossing of the same river). With `map_crossings`
+/// such a cell is passable, and its lookups read the block's first dry cell
+/// on the drawn river (row-major, the same [`routing_block`]s
+/// [`civ_map_river_crossing_cost`] reads; dry: in no water body and not under
+/// `sea`), so it is charged as the ford or bridge it is. Inert where routing
+/// is 1:1, every map up to [`RW_CAP`] wide. Must never open a block with no
+/// dry cell on a drawn river, and never open anything without the full-
+/// resolution `field`, `water_bodies` and `river_order` (no data is not
+/// "dry").
+#[allow(clippy::too_many_arguments)]
+fn civ_routing_cell_passable(
+    d_i: f64,
+    sea: f64,
+    field: Option<&[f32]>,
+    water_bodies: Option<&[u8]>,
+    river_order: Option<&[i16]>,
+    gw: usize,
+    gh: usize,
+    (x, y): (usize, usize),
+    (w, h): (usize, usize),
+    fi: usize,
+    map_crossings: bool,
+) -> Option<usize> {
+    if d_i >= sea && !water_bodies.is_some_and(|wb| wb[fi] != 0) {
+        return Some(fi);
+    }
+    // `d_i < sea` is false for NaN, so a NaN height passes above exactly as the
+    // reference's `if d_i < sea` lets it; only a cell the reference stops gets here.
+    let (true, Some(fl), Some(wb), Some(ro)) = (map_crossings, field, water_bodies, river_order) else {
+        return None;
+    };
+    // Dry as the reference's own test reads a sample: in no water body and
+    // not under the sea. Where routing is 1:1 (every map up to `RW_CAP` wide)
+    // the block is the sample itself, which failed that test, so nothing opens.
+    routing_block(y, h, gh)
+        .flat_map(|fy| routing_block(x, w, gw).map(move |fx| fy * gw + fx))
+        .find(|&j| wb[j] == 0 && fl[j] as f64 >= sea && ro[j] >= 1)
+}
+
 /// For a census (`cartalith-godot`'s `town_river_census.rs`, Ruling FI item
 /// 2): the river-crossing charge the road network's cost grid
 /// ([`civ_enhanced_travel_cost`]) adds at each routing cell, spread back over
 /// the full-resolution cells that routing cell covers (the same
 /// [`routing_block`]s [`civ_map_river_crossing_cost`] reads), so a drawn
 /// road's crossing, given as full-resolution cells, can be asked whether the
-/// router paid to cross it. Cells under the sea or a lake read `0` (the cost
-/// grid makes them impassable, not charged). Read-only; never used to route.
+/// router paid to cross it. A routing cell the cost grid makes impassable
+/// ([`civ_routing_cell_passable`], the router's own test) reads `0` (water,
+/// not charged) as before: a census that must tell the two apart reads
+/// `water_bodies` beside it. Read-only; never used to route.
 pub fn civ_crossing_charge_map(
     field: &[f32],
     water_bodies: &[u8],
@@ -7733,15 +7792,13 @@ pub fn civ_crossing_charge_map(
     let mut out = vec![0.0f32; gw * gh];
     for y in 0..h {
         for x in 0..w {
-            if (grid.dfld[y * w + x] as f64) < sea {
-                continue;
-            }
             let fx = ((x as f64 * sc_x).round() as usize).min(gw - 1);
             let fy = ((y as f64 * sc_y).round() as usize).min(gh - 1);
-            let fi = fy * gw + fx;
-            if water_bodies.get(fi).is_some_and(|&c| c != 0) {
+            let Some(fi) = civ_routing_cell_passable(
+                grid.dfld[y * w + x] as f64, sea, Some(field), Some(water_bodies), Some(river_order), gw, gh, (x, y), (w, h), fy * gw + fx, map_crossings,
+            ) else {
                 continue;
-            }
+            };
             let c = civ_crossing_term(Some(flow), flow_thresh, Some(river_order), gw, gh, (x, y), (w, h), fi, map_crossings) as f32;
             for yy in routing_block(y, h, gh) {
                 for xx in routing_block(x, w, gw) {
@@ -8064,6 +8121,7 @@ fn civ_enhanced_travel_cost(
     river_order: Option<&[i16]>,
     biome: Option<&[u8]>,
     map_crossings: bool,
+    field: Option<&[f32]>,
 ) -> Vec<f32> {
     /// Slope-squared cost weight, the reference's `slopeK` default of 50 (`_civEnhancedTravelCost`, line 20960).
     const SLOPE_K: f64 = 50.0;
@@ -8077,18 +8135,22 @@ fn civ_enhanced_travel_cost(
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let d_i = dfld[i] as f64;
-            if d_i < sea {
-                cost[i] = f32::INFINITY;
-                continue;
-            }
             let fx = ((x as f64 * sc_x).round() as usize).min(gw - 1);
             let fy = ((y as f64 * sc_y).round() as usize).min(gh - 1);
-            let fi = fy * gw + fx;
-            if water_bodies.is_some_and(|wb| wb[fi] != 0) {
+            // The reference's water test, plus (with `map_crossings`) a
+            // coastal or lakeside block on a drawn river opened and read at
+            // its dry river cell: [`civ_routing_cell_passable`].
+            let Some(fi) = civ_routing_cell_passable(
+                dfld[i] as f64, sea, field, water_bodies, river_order, gw, gh, (x, y), (w, h), fy * gw + fx, map_crossings,
+            ) else {
                 cost[i] = f32::INFINITY;
                 continue;
-            }
+            };
+            // A cell opened that way keeps its sampled height, which can be
+            // under the sea: the slope reads the neighbours either way, and
+            // the swamp and pass tests (`d_i` against `sea + 0.06` and
+            // `sea + 0.15`) read it as low ground, which a river mouth is.
+            let d_i = dfld[i] as f64;
             let xl = if x > 0 { dfld[i - 1] as f64 } else { d_i };
             let xr = if x < w - 1 { dfld[i + 1] as f64 } else { d_i };
             let yt = if y > 0 { dfld[i - w] as f64 } else { d_i };
@@ -8322,6 +8384,7 @@ pub fn civ_hierarchical_network_topology_with(
         Some(river_order),
         Some(biome),
         map_crossings,
+        Some(field),
     );
     civ_apply_settlement_gravity(&mut cost1, rw, rh, sc, places, world);
     let rp1: Vec<usize> = places
@@ -8416,6 +8479,7 @@ pub fn civ_hierarchical_network_topology_with(
         Some(river_order),
         Some(biome),
         map_crossings,
+        Some(field),
     );
     civ_apply_settlement_gravity(&mut cost2, rw, rh, sc, places, world);
     let rp2: Vec<usize> = places
@@ -22139,6 +22203,97 @@ mod tests {
                 next = r.end;
             }
             assert_eq!(next, n, "blocks of {w} cover all {n}");
+        }
+    }
+
+    /// Protects Ruling FI's left item (iii) (2026-11-17): with
+    /// `map_crossings`, a coarse routing cell whose sample is water but whose
+    /// block holds a dry cell on a drawn river is passable, costed at that
+    /// cell and charged as a crossing (the router and the census's charge map
+    /// agree on it); a block whose only river cell is in the water, or under
+    /// the sea, stays impassable; and with the switch off the reference's
+    /// sample test holds. MUTATION: dropping the `map_crossings` guard, the
+    /// water-body test, the sea-level test or the river (`ro >= 1`) test fails
+    /// a bar.
+    #[test]
+    fn a_coastal_block_on_a_drawn_river_is_passable_and_charged_with_map_crossings() {
+        // 4 x 2 full-resolution cells under a 2 x 1 routing grid. Routing cell 0
+        // covers x 0..2, y 0..2 and samples (0, 0), which is sea; (1, 1) is a
+        // dry cell on an order-1 river. Routing cell 1 (x 2..4) samples (2, 0),
+        // sea, and its only river cell (3, 1) is in a lake.
+        let (gw, gh) = (4usize, 2usize);
+        let wb = [1u8, 1, 1, 1, 0, 0, 0, 2];
+        let order = [0i16, 0, 0, 0, 0, 1, 0, 1];
+        let flow = [0.0f32, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 2.0];
+        // Heights: the samples (row 0) under the sea, row 1 on land.
+        let field = [-0.1f32, -0.1, -0.1, -0.1, 0.1, 0.1, 0.1, 0.1];
+        let sea = 0.0;
+        let pass = |x: usize, sample: usize, on: bool| {
+            civ_routing_cell_passable(field[sample] as f64, sea, Some(&field), Some(&wb), Some(&order), gw, gh, (x, 0), (2, 1), sample, on)
+        };
+        assert_eq!(pass(0, 0, true), Some(5), "on: opened, read at the dry river cell (1, 1)");
+        assert_eq!(pass(0, 0, false), None, "off: the reference's sample test, by control flow");
+        assert_eq!(pass(1, 2, true), None, "a block whose river cell is in a lake stays water");
+        // No data is not dry.
+        assert_eq!(civ_routing_cell_passable(-0.1, sea, Some(&field), None, Some(&order), gw, gh, (0, 0), (2, 1), 0, true), None);
+        assert_eq!(civ_routing_cell_passable(-0.1, sea, Some(&field), Some(&wb), None, gw, gh, (0, 0), (2, 1), 0, true), None);
+        assert_eq!(civ_routing_cell_passable(-0.1, sea, None, Some(&wb), Some(&order), gw, gh, (0, 0), (2, 1), 0, true), None);
+        // A dry block with no river is not opened (only the river rule opens).
+        let dry_order = [0i16; 8];
+        assert_eq!(civ_routing_cell_passable(-0.1, sea, Some(&field), Some(&wb), Some(&dry_order), gw, gh, (0, 0), (2, 1), 0, true), None);
+        // A river cell in no water body but under the sea is not dry either.
+        let mut low = field;
+        low[5] = -0.05;
+        assert_eq!(civ_routing_cell_passable(-0.1, sea, Some(&low), Some(&wb), Some(&order), gw, gh, (0, 0), (2, 1), 0, true), None);
+        // A dry sample is the reference's own pass, whatever the switch.
+        assert_eq!(civ_routing_cell_passable(0.1, sea, Some(&field), Some(&wb), Some(&order), gw, gh, (0, 0), (2, 1), 4, true), Some(4));
+        // The router and the charge map: the opened cell costs finite and is
+        // charged at the at-threshold ford rate; off, it is impassable and 0.
+        // Flow 2 under a threshold of 10: only the drawn rule can charge it.
+        let thresh = 10.0;
+        // The routing grid of a 4-wide map is 1:1 (`RW_CAP`); build the cost on
+        // a 2 x 1 downsample by hand: its `dfld` is the samples' heights.
+        let dfld = [-0.1f32, -0.1];
+        // Biome 3 (dense forest, friction 1.6) only on the dry river cell, so a
+        // cost read at the wet sample instead would show it.
+        let mut biome = [0u8; 8];
+        biome[5] = 3;
+        for on in [true, false] {
+            let c = civ_enhanced_travel_cost(&dfld, 2, 1, sea, None, gw, gh, Some(&wb), Some(&flow), thresh, Some(&order), Some(&biome), on, Some(&field));
+            if on {
+                // Flat (slope 0), no swamp (flow far under 8x the threshold):
+                // (1 + the at-threshold ford rate) x the dry cell's friction.
+                let want = (1.0 + 8.0 * 2f64.ln() / 5.0 * 0.35) * 1.6;
+                assert!((c[0] as f64 - want).abs() < 1e-5, "on: routing cell 0 is passable, costed at its dry river cell: {} vs {want}", c[0]);
+                assert!(c[1].is_infinite(), "on: routing cell 1 (river only in the lake) stays water");
+            } else {
+                assert!(c.iter().all(|v| v.is_infinite()), "off: both are water, as the reference reads them");
+            }
+        }
+        // The census's invariant on a map wide enough to route 2:1 (2 048 x 4,
+        // routing 1 024 x 2 sampling rows 0 and 2): rows 0 and 2 sea, rows 1
+        // and 3 land, an order-2 river on every 7th land cell of row 1. With
+        // the switch every dry drawn-river cell is charged; without it none is
+        // (every sample is sea).
+        let (gw, gh) = (2048usize, 4usize);
+        let mut wb = vec![0u8; gw * gh];
+        let mut field = vec![0.1f32; gw * gh];
+        let mut order = vec![0i16; gw * gh];
+        for x in 0..gw {
+            for y in [0, 2] {
+                wb[y * gw + x] = 1;
+                field[y * gw + x] = -0.1;
+            }
+            if x % 7 == 3 {
+                order[gw + x] = 2;
+            }
+        }
+        let flow = vec![1.0f32; gw * gh];
+        for (on, want) in [(true, true), (false, false)] {
+            let charge = civ_crossing_charge_map(&field, &wb, &flow, &order, gw, gh, sea, 800.0, on);
+            let rivers: Vec<usize> = (0..gw * gh).filter(|&j| wb[j] == 0 && order[j] >= 1).collect();
+            assert!(rivers.len() > 250, "premise: the fixture has dry river cells");
+            assert!(rivers.iter().all(|&j| (charge[j] > 0.0) == want), "switch {on}: every dry drawn-river cell charged = {want}");
         }
     }
 

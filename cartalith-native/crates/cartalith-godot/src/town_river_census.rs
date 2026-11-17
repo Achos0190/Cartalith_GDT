@@ -155,7 +155,7 @@ thread_local! {
     /// [`town_placement_audit`]'s Ruling FF totals over the seeds: crossings,
     /// navigable, unseen, misrated, unpriced, ports, sea lanes, unbridged towns,
     /// and Ruling FI's free (the router paid nothing) and priced crossings.
-    static CROSS: std::cell::RefCell<[usize; 10]> = const { std::cell::RefCell::new([0; 10]) };
+    static CROSS: std::cell::RefCell<[usize; 11]> = const { std::cell::RefCell::new([0; 11]) };
     /// Set while [`town_placement_audit`] builds its `TOWN_RIVER_COMPARE=ff`
     /// (`1`) or `=fi` (`2`) world: [`generate_world`] then flips Ruling FF's
     /// `civ.map_rivers` and `civ.harbour_box`, or Ruling FI's `civ.port_shore`
@@ -654,7 +654,7 @@ const CROSSING_SLACK_M: f64 = 120.0;
 #[test]
 #[ignore = "measurement; see the module doc and KINDS"]
 fn town_placement_audit() {
-    CROSS.with(|c| *c.borrow_mut() = [0; 10]);
+    CROSS.with(|c| *c.borrow_mut() = [0; 11]);
     ROAD_KM.with(|r| r.set(0.0));
     let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
     let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
@@ -967,7 +967,15 @@ fn town_placement_audit() {
                 .filter(|g| g.2.way_type != cartalith_civ::WayType::Ancient)
                 .map(|(pts, brks, w)| cartalith_civ::way_audit::AuditWay { pts, brks, under_px: 1.0, ends: (w.a_idx, w.b_idx) })
                 .collect();
-            let runs = cartalith_civ::way_audit::river_crossing_runs(&ways, map_order, gw, gh, 0.25);
+            // Per way, so a free run can name its way: the same runs in the same
+            // order as one call over every way.
+            let geo_kept: Vec<&cartalith_civ::Way> = geo.iter().filter(|g| g.2.way_type != cartalith_civ::WayType::Ancient).map(|g| g.2).collect();
+            let runs_of: Vec<(usize, Vec<usize>)> = ways
+                .iter()
+                .enumerate()
+                .flat_map(|(wi, w)| cartalith_civ::way_audit::river_crossing_runs(std::slice::from_ref(w), map_order, gw, gh, 0.25).into_iter().map(move |r| (wi, r)))
+                .collect();
+            let runs: Vec<&Vec<usize>> = runs_of.iter().map(|(_, r)| r).collect();
             let class = |o: i16| if o <= 2 { 0 } else if o <= 4 { 1 } else { 2 };
             let (mut nav, mut unpriced, mut misrated, mut unseen) = (0usize, 0usize, 0usize, 0usize);
             // Ruling FI item 2: whether the router paid to cross each run, read
@@ -977,7 +985,14 @@ fn town_placement_audit() {
             );
             // `free_near`: free runs with a charged cell one cell beside one of
             // theirs (the drawn, smoothed way beside the routed path).
-            let (mut free, mut priced, mut free_near) = (0usize, 0usize, 0usize);
+            // `free_wet`: free runs wholly on water cells (a drawn road over a
+            // lake or the sea, which no crossing charge could cover; Ruling FI
+            // left item (iii), 2026-11-17).
+            let (mut free, mut priced, mut free_near, mut free_wet) = (0usize, 0usize, 0usize, 0usize);
+            // Every run wholly on water cells, charged or not: a drawn road
+            // over a lake or the sea. A charge spread over a routing block can
+            // land on a water cell, so a priced run can still be one.
+            let wet_all = runs_of.iter().filter(|(_, r)| r.iter().all(|&i| civ.water_bodies[i] != 0)).count();
             let near_charged = |i: usize| {
                 let (x, y) = ((i % gw) as i64, (i / gw) as i64);
                 (-1..=1i64).any(|dy| (-1..=1i64).any(|dx| {
@@ -985,12 +1000,27 @@ fn town_placement_audit() {
                     xx >= 0 && yy >= 0 && xx < gw as i64 && yy < gh as i64 && charge[yy as usize * gw + xx as usize] > 0.0
                 }))
             };
-            for r in &runs {
+            for (wi, r) in &runs_of {
                 if r.iter().any(|&i| charge[i] > 0.0) {
                     priced += 1;
                 } else {
                     free += 1;
                     free_near += usize::from(r.iter().any(|&i| near_charged(i)));
+                    let wet = r.iter().all(|&i| civ.water_bodies[i] != 0);
+                    free_wet += usize::from(wet);
+                    if list {
+                        let mut cells = r.clone();
+                        cells.dedup();
+                        let w = geo_kept[*wi];
+                        println!(
+                            "    free crossing: way {wi} ({:?}, places {}-{}) cells [{}]{}",
+                            w.way_type,
+                            w.a_idx,
+                            w.b_idx,
+                            cells.iter().map(|&i| format!("{}:{} order {} water {}", i % gw, i / gw, map_order[i], civ.water_bodies[i])).collect::<Vec<_>>().join(", "),
+                            if wet { " (on water)" } else { "" },
+                        );
+                    }
                 }
                 let mo = r.iter().map(|&i| map_order[i]).max().unwrap_or(0);
                 let co = r.iter().map(|&i| cost_order[i]).max().unwrap_or(0);
@@ -1014,11 +1044,39 @@ fn town_placement_audit() {
             );
             // Drawn road length (every way but the ancient tracks), km.
             let road_km: f64 = ways.iter().map(|w| w.pts.windows(2).map(|q| ((q[1].0 - q[0].0).powi(2) + (q[1].1 - q[0].1).powi(2)).sqrt()).sum::<f64>()).sum::<f64>() * cell_m / 1000.0;
-            println!("  Ruling FI: crossings the router paid nothing for: {free} ({free_near} with a charged cell beside them); priced: {priced}; drawn road length {road_km:.1} km");
+            println!("  Ruling FI: crossings the router paid nothing for: {free} ({free_near} with a charged cell beside them; {free_wet} wholly on water); priced: {priced}; drawn road length {road_km:.1} km; runs wholly on water, priced or not: {wet_all}");
+            // What a road change moves downstream (Ruling FI left item (iii),
+            // 2026-11-17): the trade flows over these ways, as the app's
+            // `trade_network` and FH-R2's `harness_flows` build them, as a
+            // count, a carried-distance sum and an FNV-1a over each flow's
+            // `Debug`. A measurement only.
+            {
+                let tariffs = civ.faction_roster.tariff_rows();
+                let input = cartalith_civ::trade::TradeInput {
+                    settlements: &civ.settlements,
+                    balances: &civ.trade_balances,
+                    ways: &civ.ways,
+                    map_width_km: p.map_width_km,
+                    gw,
+                    tariffs: &tariffs,
+                };
+                let flows = cartalith_civ::trade::trade_flows(&input, &uw).flows;
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for f in &flows {
+                    for b in format!("{f:?}").bytes() {
+                        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                println!(
+                    "  trade flows over the ways: {}; carried {:.1} km in all; fingerprint {h:016x}",
+                    flows.len(),
+                    flows.iter().map(|f| f.distance_km).sum::<f64>()
+                );
+            }
             ROAD_KM.with(|k| k.set(k.get() + road_km));
             CROSS.with(|c| {
                 let mut c = c.borrow_mut();
-                for (k, v) in [(0, runs.len()), (1, nav), (2, unseen), (3, misrated), (4, unpriced), (5, ports), (6, civ.sea_routes.len()), (7, unbridged_layouts), (8, free), (9, priced)] {
+                for (k, v) in [(0, runs.len()), (1, nav), (2, unseen), (3, misrated), (4, unpriced), (5, ports), (6, civ.sea_routes.len()), (7, unbridged_layouts), (8, free), (9, priced), (10, free_wet)] {
                     c[k] += v;
                 }
             });
@@ -1102,7 +1160,7 @@ fn town_placement_audit() {
             "  ports {}; sea lanes {}; road crossings of the map's rivers {} ({} navigable), not in the pricing network {}, wrong ford/bridge rate {}, priced nothing {}; river-kind towns with neither bridge nor ford {}",
             c[5], c[6], c[0], c[1], c[2], c[3], c[4], c[7]
         );
-        println!("  Ruling FI: crossings the router paid nothing for {}; priced {}; drawn road length {:.1} km", c[8], c[9], ROAD_KM.with(|k| k.get()));
+        println!("  Ruling FI: crossings the router paid nothing for {} ({} wholly on water); priced {}; drawn road length {:.1} km", c[8], c[10], c[9], ROAD_KM.with(|k| k.get()));
     });
     for k in KINDS {
         println!("  {k:28} {}", total[k]);

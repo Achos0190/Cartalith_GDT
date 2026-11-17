@@ -1,0 +1,15 @@
+no map_crossings guard KILLED
+no water-body test KILLED
+no sea-level test KILLED
+no river test KILLED
+lookups read the sample, not the dry river cell KILLED
+charge map ignores the rule KILLED
+router ignores the rule KILLED
+restored 3699320a4432
+KILLED       no map_crossings guard
+KILLED       no water-body test
+KILLED       no sea-level test
+KILLED       no river test
+KILLED       lookups read the sample, not the dry river cell
+KILLED       charge map ignores the rule
+KILLED       router ignores the rule

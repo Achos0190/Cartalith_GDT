@@ -1,0 +1,112 @@
+
+running 1 test
+test town_river_census::town_placement_audit ...   the civ pass's rivers are the map's: false (696 and 570 polylines; cells civ 28454, map 29666, shared 20233)
+seed 483920 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  river towns (proxy river/riverthrough): 236 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 14
+  in_water                     0
+  river_town_off_river         3
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    3
+  river_kind_built_off_water   219
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 3 of 236 (1.3%)
+  ports (harbour badge): 3; sea lanes: 2; river-kind towns laying neither bridge nor ford: 165
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1520:293 order 3 wb 0 h-sea 0.0001 flow 3.4 ch8 [0.00/0/0 1.16/0/0 1.16/0/3 0.00/1/0 0.00/0/3 0.00/0/0 0.00/1/0 0.00/1/0 0.00/1/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 1323:80 order 3 wb 0 h-sea 0.0008 flow 20.9 ch8 [0.00/1/0 0.00/0/3 1.41/0/0 0.00/1/0 0.00/0/3 1.41/0/0 0.83/0/0 0.83/0/3 0.83/0/0]
+  FREEDIAG cell 343:363 order 2 wb 0 h-sea 0.2202 flow 4378.3 ch8 [0.91/0/2 0.91/0/0 0.56/0/0 0.00/0/0 0.00/0/2 0.00/0/0 0.00/2/0 0.00/2/0 0.00/2/2]
+  FREEDIAG cell 343:363 order 2 wb 0 h-sea 0.2202 flow 4378.3 ch8 [0.91/0/2 0.91/0/0 0.56/0/0 0.00/0/0 0.00/0/2 0.00/0/0 0.00/2/0 0.00/2/0 0.00/2/2]
+  FREEDIAG cell 343:363 order 2 wb 0 h-sea 0.2202 flow 4378.3 ch8 [0.91/0/2 0.91/0/0 0.56/0/0 0.00/0/0 0.00/0/2 0.00/0/0 0.00/2/0 0.00/2/0 0.00/2/2]
+  FREEDIAG cell 343:363 order 2 wb 0 h-sea 0.2202 flow 4378.3 ch8 [0.91/0/2 0.91/0/0 0.56/0/0 0.00/0/0 0.00/0/2 0.00/0/0 0.00/2/0 0.00/2/0 0.00/2/2]
+  road crossings of the map's rivers: 189 (89 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 81
+  Ruling FI: crossings the router paid nothing for: 6 (6 with a charged cell beside them); priced: 183; drawn road length 2936.0 km
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (890 and 647 polylines; cells civ 30368, map 31825, shared 21562)
+seed 912345 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  river towns (proxy river/riverthrough): 223 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 3
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 8
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   213
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 1 of 223 (0.4%)
+  ports (harbour badge): 5; sea lanes: 2; river-kind towns laying neither bridge nor ford: 144
+  FREEDIAG cell 248:1153 order 1 wb 0 h-sea 0.0003 flow 3.6 ch8 [0.39/0/1 0.00/0/0 0.00/2/0 0.42/0/0 0.00/0/1 0.00/2/0 0.42/0/0 0.00/2/0 0.00/2/0]
+  FREEDIAG cell 248:1153 order 1 wb 0 h-sea 0.0003 flow 3.6 ch8 [0.39/0/1 0.00/0/0 0.00/2/0 0.42/0/0 0.00/0/1 0.00/2/0 0.42/0/0 0.00/2/0 0.00/2/0]
+  FREEDIAG cell 248:1153 order 1 wb 0 h-sea 0.0003 flow 3.6 ch8 [0.39/0/1 0.00/0/0 0.00/2/0 0.42/0/0 0.00/0/1 0.00/2/0 0.42/0/0 0.00/2/0 0.00/2/0]
+  FREEDIAG cell 248:1153 order 1 wb 0 h-sea 0.0003 flow 3.6 ch8 [0.39/0/1 0.00/0/0 0.00/2/0 0.42/0/0 0.00/0/1 0.00/2/0 0.42/0/0 0.00/2/0 0.00/2/0]
+  FREEDIAG cell 248:1153 order 1 wb 0 h-sea 0.0003 flow 3.6 ch8 [0.39/0/1 0.00/0/0 0.00/2/0 0.42/0/0 0.00/0/1 0.00/2/0 0.42/0/0 0.00/2/0 0.00/2/0]
+  road crossings of the map's rivers: 167 (86 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 87
+  Ruling FI: crossings the router paid nothing for: 1 (1 with a charged cell beside them); priced: 166; drawn road length 2964.1 km
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (847 and 643 polylines; cells civ 35390, map 37661, shared 25174)
+seed 246371 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  river towns (proxy river/riverthrough): 233 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 11
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    0
+  river_kind_built_off_water   222
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 0 of 233 (0.0%)
+  ports (harbour badge): 1; sea lanes: 0; river-kind towns laying neither bridge nor ford: 174
+  FREEDIAG cell 1100:1189 order 2 wb 2 h-sea 0.2202 flow 3659.1 ch8 [0.83/2/2 0.00/2/0 0.00/0/0 0.00/0/0 0.00/2/2 0.00/0/0 0.00/2/0 0.00/2/2 0.00/0/2]
+  FREEDIAG cell 1100:1189 order 2 wb 2 h-sea 0.2202 flow 3659.1 ch8 [0.83/2/2 0.00/2/0 0.00/0/0 0.00/0/0 0.00/2/2 0.00/0/0 0.00/2/0 0.00/2/2 0.00/0/2]
+  FREEDIAG cell 1100:1189 order 2 wb 2 h-sea 0.2202 flow 3659.1 ch8 [0.83/2/2 0.00/2/0 0.00/0/0 0.00/0/0 0.00/2/2 0.00/0/0 0.00/2/0 0.00/2/2 0.00/0/2]
+  FREEDIAG cell 1100:1189 order 2 wb 2 h-sea 0.2202 flow 3659.1 ch8 [0.83/2/2 0.00/2/0 0.00/0/0 0.00/0/0 0.00/2/2 0.00/0/0 0.00/2/0 0.00/2/2 0.00/0/2]
+  road crossings of the map's rivers: 177 (95 navigable); not a river in the network the roads were priced on: 0; priced at the wrong ford/bridge rate: 0; under the flow threshold (free under the reference's gate): 88
+  Ruling FI: crossings the router paid nothing for: 1 (1 with a charged cell beside them); priced: 176; drawn road length 3547.5 km
+  network towns with no way: 0 of 40 []
+all seeds at 2048: 720 towns, 692 river towns
+  ports 9; sea lanes 4; road crossings of the map's rivers 533 (270 navigable), not in the pricing network 0, wrong ford/bridge rate 0, priced nothing 256; river-kind towns with neither bridge nor ford 483
+  Ruling FI: crossings the router paid nothing for 8; priced 525; drawn road length 9447.6 km
+  in_water                     0
+  river_town_off_river         4
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    4
+  river_kind_built_off_water   654
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 4 of 692 (0.6%)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1426 filtered out; finished in 34.08s
+

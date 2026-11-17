@@ -1,0 +1,53 @@
+"""mut.py: Ruling FI left item (iii) mutants. Exact literal replace (occurs once), cargo test, restore in finally.
+Usage: python mut.py  (run from anywhere; paths absolute). BUILD_ERROR is reported apart from SURVIVED."""
+import hashlib, os, subprocess, sys
+
+ROOT = "C:/cw/plots/cartalith-native"
+LIB = ROOT + "/crates/cartalith-civ/src/lib.rs"
+ENV = dict(os.environ, CARGO_TARGET_DIR="C:/cw/plots_target")
+TEST = ["cargo", "test", "--release", "-p", "cartalith-civ", "--lib", "--", "coastal_block", "every_drawn"]
+
+MUTANTS = [
+    ("no map_crossings guard", "(map_crossings, field, water_bodies, river_order) else {", "(true, field, water_bodies, river_order) else {"),
+    ("no water-body test", ".find(|&j| wb[j] == 0 && fl[j] as f64 >= sea && ro[j] >= 1)", ".find(|&j| wb[j] < 255 && fl[j] as f64 >= sea && ro[j] >= 1)"),
+    ("no sea-level test", ".find(|&j| wb[j] == 0 && fl[j] as f64 >= sea && ro[j] >= 1)", ".find(|&j| wb[j] == 0 && fl[j] as f64 >= f64::NEG_INFINITY && ro[j] >= 1)"),
+    ("no river test", ".find(|&j| wb[j] == 0 && fl[j] as f64 >= sea && ro[j] >= 1)", ".find(|&j| wb[j] == 0 && fl[j] as f64 >= sea && ro[j] >= 0)"),
+    ("lookups read the sample, not the dry river cell", "            ) else {\r\n                cost[i] = f32::INFINITY;\r\n                continue;\r\n            };\r\n", "            ) else {\r\n                cost[i] = f32::INFINITY;\r\n                continue;\r\n            };\r\n            let fi = fy * gw + fx;\r\n"),
+    ("router reads no field", "        map_crossings,\r\n        Some(field),\r\n    );\r\n\r\n    // Pass-1", None),
+    ("charge map ignores the rule", "grid.dfld[y * w + x] as f64, sea, Some(field), Some(water_bodies)", "grid.dfld[y * w + x] as f64, sea, None, Some(water_bodies)"),
+    ("router ignores the rule", "dfld[i] as f64, sea, field, water_bodies, river_order", "dfld[i] as f64, sea, None, water_bodies, river_order"),
+]
+
+def h(b):
+    return hashlib.sha256(b).hexdigest()
+
+orig = open(LIB, "rb").read()
+h0 = h(orig)
+results = []
+try:
+    for name, a, b in MUTANTS:
+        if b is None:
+            continue
+        s = orig.decode("utf-8")
+        n = s.count(a)
+        if n != 1:
+            results.append((name, f"PATTERN x{n}"))
+            continue
+        open(LIB, "wb").write(s.replace(a, b).encode("utf-8"))
+        p = subprocess.run(TEST, cwd=ROOT, env=ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out = p.stdout + p.stderr
+        if "error[" in out or "could not compile" in out:
+            verdict = "BUILD_ERROR"
+        elif "test result: ok" in out and p.returncode == 0:
+            verdict = "SURVIVED"
+        else:
+            verdict = "KILLED"
+        results.append((name, verdict))
+        print(name, verdict, flush=True)
+        open(LIB, "wb").write(orig)
+finally:
+    open(LIB, "wb").write(orig)
+assert h(open(LIB, "rb").read()) == h0, "restore failed"
+print("restored", h0[:12])
+for r in results:
+    print(f"{r[1]:12s} {r[0]}")
