@@ -300,6 +300,8 @@ func setup(a, b: EngineBridge) -> void:
 	run.edit_source = func() -> String: return _REGION.facts_json(bridge)
 	## A region painted on one world means nothing on the next: a generate or an open drops it.
 	bridge.generation_finished.connect(func(_ok): _on_world_replaced())
+	## A rebuild in flight disables every card's Apply and the Undo and regenerate offer (V13).
+	bridge.generation_started.connect(func(): _refresh_cards())
 	bridge.world_loaded.connect(func(): _on_world_replaced())
 	## The next turn of a setting request reads the settings as they are THEN.
 	run.params_source = func() -> Dictionary: return bridge.param_snapshot()
@@ -2570,7 +2572,8 @@ func _on_proposal(info: Dictionary) -> void:
 	reason_l = _note_label(col, "", "warn")
 	reason_l.visible = false
 	var row := card_row(col)
-	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "params", "group_id": 0}
+	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "params", "group_id": 0,
+		"col": col, "undo_regen": null, "rebuilt": false}
 	var dismiss_b := _button(row, "Dismiss", func(): _dismiss_card(card))
 	card["dismiss"] = dismiss_b
 	if not valid.is_empty():
@@ -2629,10 +2632,11 @@ func _refresh_cards() -> void:
 	## rebuilds the body, which frees the widgets a card holds, and a refresh that ran before the card list was
 	## cleared read them. Re-checked 2026-11-07 (AC-3): `_rebuild` clears `cards` first, so the path is shut
 	## there; this filter is the second wall.
-	cards = cards.filter(func(c): return is_instance_valid(c["box"]) and (c["apply"] == null or is_instance_valid(c["apply"])))
+	cards = cards.filter(func(c): return is_instance_valid(c["box"]) and (c["apply"] == null or is_instance_valid(c["apply"])) 			and (c.get("undo_regen") == null or is_instance_valid(c["undo_regen"])))
 	for card in cards:
 		var b = card["apply"]
 		var rl: Label = card["reason"]
+		_refresh_undo_regen(card)
 		if card["state"] != "new":
 			continue
 		var kind := String(card.get("kind", "params"))
@@ -2653,8 +2657,8 @@ func _apply_blocked() -> String:
 
 func _close_card(card: Dictionary, state: String, text: String, token: String) -> void:
 	card["state"] = state
-	for k in ["apply", "dismiss"]:
-		var b: Button = card[k]
+	for k in ["apply", "dismiss", "undo_regen"]:
+		var b = card.get(k)
 		if b != null and is_instance_valid(b):
 			b.disabled = true
 	var rl: Label = card["reason"]
@@ -2702,12 +2706,65 @@ func _apply_card(card: Dictionary) -> void:
 	card["applied_text"] = ("Applied as one undo step (Edit ▸ Undo restores the settings only, it does not rebuild the world). Rebuilding now."
 		if rebuild else "Applied as one undo step (Edit ▸ Undo restores the settings only). Press Generate to see the effect.")
 	_close_card(card, "applied", String(card["applied_text"]), "good")
+	if rebuild:
+		_offer_undo_regen(card)
 	var n := int(r.get("members", 0))
 	if app.has_method("set_status"):
 		app.set_status("hint", "Assistant: %d setting%s changed.%s" % [n, "" if n == 1 else "s",
 			" Rebuilding the world with them." if rebuild else " The world was not rebuilt."])
 	if rebuild:
 		_regenerate_after_apply(plan)
+
+
+## Ruling DS follow-up (`LLM_ASSISTANT_SCOPE.md` s.5b.4 item 6): after an "Apply and regenerate" that
+## rebuilt something, the card offers **Undo and regenerate**: ONE press takes the card's own undo group
+## (the same `app._group_step(true)` as Edit > Undo, so no second stack and the same refusals) and then
+## rebuilds with the restored settings through the same guarded path as Apply. The settings come back
+## exactly; the world comes back because generation is deterministic in its settings and seed, NOT from a
+## stored copy, so hand edits the Apply's discard question dropped are not restored (the card says so).
+func _offer_undo_regen(card: Dictionary) -> void:
+	card["rebuilt"] = true
+	if card.get("undo_regen") != null:
+		return
+	## Its OWN row under Dismiss and Apply: three buttons in one row do not fit a 393 px phone sheet.
+	var b := _button(card_row(card["col"]), "Undo and regenerate", func(): _undo_regen_card(card))
+	card["undo_regen"] = b
+	_refresh_undo_regen(card)
+
+
+## Why Undo and regenerate cannot run now, or "": the card must still be applied AND be the step Edit >
+## Undo would take, nothing may be generating, and the same availability gate as Apply holds.
+func _undo_regen_blocked(card: Dictionary) -> String:
+	if not bool(card.get("rebuilt", false)) or String(card["state"]) != "applied":
+		return "This change is not applied (or was not rebuilt)."
+	var ug = app.undo_groups
+	if ug.undo_top_id() != int(card.get("group_id", 0)):
+		return "A newer change is on top of the undo stack. Undo that first."
+	return _apply_blocked()
+
+
+## Enables or disables the card's offer from `_undo_regen_blocked`, with the reason as its tooltip.
+func _refresh_undo_regen(card: Dictionary) -> void:
+	var b = card.get("undo_regen")
+	if b == null or not is_instance_valid(b):
+		return
+	var why := _undo_regen_blocked(card)
+	b.disabled = why != ""
+	b.tooltip_text = why if why != "" else "Restores the previous settings in one undo step, then rebuilds the world with them."
+
+
+func _undo_regen_card(card: Dictionary) -> void:
+	if _undo_regen_blocked(card) != "":
+		_refresh_cards()
+		return
+	var gid := int(card["group_id"])
+	app._group_step(true)
+	if String(app.undo_groups.state_of(gid)) != "undone":
+		## Refused: `_group_step` already said why in the status bar; nothing changed, nothing rebuilds.
+		_refresh_cards()
+		return
+	_close_card(card, "undone", "Undone: the previous settings are back. Rebuilding the world with them now (you are asked first if you have hand edits; declining leaves the world on screen as it is). Hand edits dropped by the earlier rebuild are not restored. Edit ▸ Redo re-applies the settings only.", "text_dim")
+	_regenerate_after_apply(_regen_plan(card["info"]))
 
 
 ## Ruling DS: the user's global switch "Regenerate when I apply a proposal" (default ON).
@@ -3082,6 +3139,7 @@ func _sync_card_undo() -> void:
 				elif not bool(card.get("gone", false)):
 					card["gone"] = true
 					_close_card(card, "applied", String(card.get("applied_text", "Applied.")) + " It is no longer on the undo stack (a newer edit or a different world replaced it).", "text_dim")
+		_refresh_undo_regen(card)
 
 
 # ---------------------------------------------------------------------------

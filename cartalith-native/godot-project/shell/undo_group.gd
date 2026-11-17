@@ -280,6 +280,12 @@ func wants_redo() -> bool:
 	_prune()
 	return cursor < groups.size() and _owns_redo(groups[cursor])
 
+## Id of the group `undo()` would take, or 0 when `wants_undo()` is false. Lets a card ask "am I the
+## step Edit > Undo would take now" without a second stack (LLM undo-and-regenerate offer, Ruling DS
+## follow-up): the offer is enabled only for the top group, the same test the Edit menu applies.
+func undo_top_id() -> int:
+	return int((groups[cursor - 1] as Dictionary).get("id", 0)) if wants_undo() else 0
+
 ## Label of the group `undo()` would take, or "" when `wants_undo()` is false.
 func undo_label() -> String:
 	return _display_label(groups[cursor - 1]) if wants_undo() else ""
