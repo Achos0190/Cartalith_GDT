@@ -9625,10 +9625,38 @@ func set_map_width_km(km: float) -> void:
 func set_urban_layouts(requested: PackedInt32Array, layouts: Array) -> void:
 	for i in requested:
 		_urban_layouts[i] = null
+	var box_moved := false
 	for l: Dictionary in layouts:
 		_urban_layouts[int(l["index"])] = l
+		box_moved = _adopt_drawn_box(int(l["index"]), l) or box_moved
+	## The pin claim is cached on this revision, so a changed box must bump it or the old claim stays.
+	if box_moved:
+		_urban_boxes_rev += 1
 	_urban_pending = false
 	queue_redraw()
+
+
+## Ruling FI (v) / FK (v) follow-up (`096d1407`): records the box a laid-out town is DRAWN in (`layout.wm` x `hm`, the
+## same box `WorldGen.urban_layout_boxes` reports once the engine has judged the town) in `_urban_boxes`, so the pin
+## claim stops using the planned box, an upper bound, for a town the stretch bars refused or softened. Absent stays "the reference's
+## box" (`URBAN_SITE_BOX_KM` x 1 250 m), the key's own meaning. Returns true when the entry changed. Never asks the
+## engine: the layout already holds the answer. A layout without `wm`/`hm`, or a roster index past the roster, is left alone.
+func _adopt_drawn_box(index: int, layout: Dictionary) -> bool:
+	if index < 0 or index >= _settlements.size() or not (layout.has("wm") and layout.has("hm")):
+		return false
+	var tid := int(_settlements[index].get("tid", -1))
+	if tid < 0:
+		return false
+	var drawn := Vector2(float(layout["wm"]), float(layout["hm"]))
+	var ref_box := Vector2(URBAN_SITE_BOX_KM * 1000.0, 1250.0)
+	var known: Vector2 = _urban_boxes.get(tid, ref_box)
+	if absf(known.x - drawn.x) < 0.5 and absf(known.y - drawn.y) < 0.5:
+		return false
+	if absf(drawn.x - ref_box.x) < 0.5 and absf(drawn.y - ref_box.y) < 0.5:
+		_urban_boxes.erase(tid)
+	else:
+		_urban_boxes[tid] = drawn
+	return true
 
 
 ## Dropped wholesale when the world changes — `ViewportHost.refresh()` calls
@@ -9646,9 +9674,15 @@ func forget_urban_layout(index: int) -> void:
 
 
 ## Ruling FQ (owner, 2026-11-16): settlement `tid` -> `Vector2(width, height)` metres, the box each STRETCHED river
-## town's layout is planned in (`WorldGen.urban_layout_boxes`), centred on its pin. Absent = the reference's 1.7 x 1.25 km
-## box (`URBAN_SITE_BOX_KM`). Pushed by `ViewportHost.refresh_urban_boxes()`; read by the pin claim
-## (`_town_pin_membership`) and, for a town with no layout yet, by the culling (`_urban_plan_update`).
+## town is drawn in, centred on its pin. Absent = the reference's 1.7 x 1.25 km box (`URBAN_SITE_BOX_KM`).
+## Two sources, the second correcting the first. (1) `ViewportHost.refresh_urban_boxes()` pushes
+## `WorldGen.urban_layout_boxes()`, which since `096d1407` answers the box a town was LAID OUT in once the engine has
+## judged it, and before that its PLANNED box, an upper bound (a town the stretch bars refuse or soften is drawn in a
+## smaller box than planned). Nothing laid a town out when the roster was applied, so the first push is all planned
+## boxes. (2) `set_urban_layouts` replaces a town's entry with the layout's own `wm` x `hm` as the layout arrives
+## (`_adopt_drawn_box`), so an over-wide claim (a town drawn narrower than planned) is dropped without asking the engine again.
+## Read by the pin claim (`_town_pin_membership`) and, for a town with no layout yet, by the culling
+## (`_urban_plan_update`); a town with a layout is culled by `_layout_half_km` instead.
 var _urban_boxes: Dictionary = {}
 var _urban_boxes_rev := 0
 
@@ -9659,8 +9693,9 @@ func set_urban_boxes(boxes: Dictionary) -> void:
 	queue_redraw()
 
 ## Ruling FQ: how far, km, settlement `s`'s town reaches from its pin, for claiming pins and for culling: half the larger
-## side of its planned box (`_urban_boxes`), else of the reference's box (0.85 km, `URBAN_SITE_BOX_KM / 2`). A planned
-## box, not a constant: a stretched town's runs to about 2.5 km.
+## side of its box in `_urban_boxes` (the drawn box once its layout has arrived, else the engine's answer, which for a
+## town not laid out yet is its planned box, an upper bound), else of the reference's box (0.85 km,
+## `URBAN_SITE_BOX_KM / 2`). A box, not a constant: a stretched town's runs to about 2.5 km.
 func _town_half_km(s: Dictionary) -> float:
 	var b = _urban_boxes.get(int(s.get("tid", -1)))
 	if b is Vector2:
@@ -9668,8 +9703,8 @@ func _town_half_km(s: Dictionary) -> float:
 	return URBAN_SITE_BOX_KM * 0.5
 
 ## Ruling FQ: the same reach, km, for culling a town that HAS a layout: its own box (`wm`, `hm`) measured from its `pin`,
-## the farthest box edge in x or y. Exact where `_town_half_km` is an upper bound (a stretched town whose layout the
-## engine refused is laid out in the reference's box). Layouts carry no rotation on real water, which every stretched
+## the farthest box edge in x or y. Exact where `_town_half_km` may be an upper bound (before the layout arrives, a
+## planned box; a stretched town the engine refused is laid out in the reference's box). Layouts carry no rotation on real water, which every stretched
 ## town has (`orient` 0), so the box's half-extents bound it.
 func _layout_half_km(layout: Dictionary) -> float:
 	var wm := float(layout.get("wm", URBAN_SITE_BOX_KM * 1000.0))
