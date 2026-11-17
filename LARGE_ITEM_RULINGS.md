@@ -3880,3 +3880,7 @@ The custom-pins build (`782a5e85`) found the asset library is a session store: i
 ## Ruling FS: accept the river stretch at 4.1 / 3.7 % and ship it after the water defect (owner, 2026-11-17)
 
 After `872fe397` (every worse row fixed; riverside 4.1 % at 384 and 3.7 % at 2 048, short of Ruling FQ's ~5 %), owner: **(a)** -- accept the measured share and turn `urban_river_stretch` on in `params::defaults` once the 246371 #11 defect (the stretched 2.1 km box loses the open water and harbour quays) is diagnosed and fixed. The judgement's riverside bar is recorded as the measured 4.1 / 3.7 %, a floor for later changes.
+
+## Ruling FT: no map rotation (owner, 2026-11-17)
+
+Owner: *"I don't think map rotation is a necessity."* The map does not rotate; the phone MAP sheet's North-up toggle is dropped (it waited on rotation). The scale-bar toggle is unaffected.
