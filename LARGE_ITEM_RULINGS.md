@@ -3919,3 +3919,7 @@ Owner idea and answers (`OUTSTANDING_WORK.md` row "Name styles from CSV"): a `Da
 3. **Export template:** a button writes any built-in culture in this exact format as a worked example; export then import unchanged must reproduce the same names (a test).
 4. **Rename all is offered:** one undoable step that renames generated names with a style and never touches a hand-given name.
 5. Rivers and the other kinds that are unnamed today get names from the style for new worlds (a §7p switch). Built-in cultures stay byte-identical (JS goldens). Styles live in the user's library, usable in every world, with a per-world copy; preview with a reseedable sample; per-faction and world-default assignment; desktop, tablet and phone forms.
+
+## Ruling GA: parallel streets, PS-0 with every default (owner, 2026-11-17)
+
+On `PARALLEL_STREETS_SCOPE.md` (`2fca4746`): **start PS-0, the measure-first spike, with every recommended default** of Q1-Q10 -- the scope's §4 type rule picks which towns get parallel streets; no planted grids in this build; an organic core kept, growing with town age; FS-2 replaces "bearing entropy not below today's"; a rear household on deep lots decided after PS-0; a footprint up to 1.4x accepted; `urban_burgage` folded in and its back lanes and budget flags scrubbed at PS-7; FS-4/FS-5 judged by the owner after a verifier's pre-screen; a spindle market on the spine; the must-hold bars strict. PS-1 onward waits on PS-0's go bars.
