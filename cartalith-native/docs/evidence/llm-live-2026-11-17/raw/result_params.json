@@ -1,0 +1,31 @@
+{
+  "card_found": false,
+  "events": [
+    {
+      "ms": 22834,
+      "t_ms": 24335,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nAssistant\nMODEL-GENERATED\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nThe model is reading the climate, weather, world settings…\nThis request is about 7978 tokens plus 1024 kept for the answer, which is more than the 8192-token window, so it was not sent. Ask for less at once, or turn off the knowledge sources or the lookup tools in the Assistant settings.",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 29,
+          "prompt": 6208,
+          "total": 6237
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "card": false,
+      "t_ms": 24451,
+      "what": "no_apply"
+    }
+  ],
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nAssistant\nMODEL-GENERATED\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nThe model is reading the climate, weather, world settings…\nThis request is about 7978 tokens plus 1024 kept for the answer, which is more than the 8192-token window, so it was not sent. Ask for less at once, or turn off the knowledge sources or the lookup tools in the Assistant settings.",
+  "scenario": "params",
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

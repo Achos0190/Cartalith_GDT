@@ -1,0 +1,53 @@
+{
+  "card_found": true,
+  "events": [
+    {
+      "ms": 11225,
+      "prompt": "Turn the area I painted into a mesa, a flat-topped plateau with steep sides, about 250 m high.",
+      "t_ms": 13810,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nTurn the area I painted into a mesa, a flat-topped plateau with steep sides, about 250 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“One edit: raise the whole region as a mesa, +250 m to a flat top.”\n1. Mesa in the middle of the region, 250 m high (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\n    “Raise the painted area into a flat-topped mesa about 250 m high with steep sides.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2369 m, highest 5149 m to 5149 m.\n    839 cells change; largest rise 250 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 121,
+          "prompt": 1873,
+          "total": 1994
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "field_changed": true,
+      "state": "applied",
+      "t_ms": 14311,
+      "undo_groups_added": 1,
+      "what": "applied"
+    },
+    {
+      "field_restored": true,
+      "t_ms": 14762,
+      "what": "undone"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nTurn the area I painted into a mesa, a flat-topped plateau with steep sides, about 250 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“One edit: raise the whole region as a mesa, +250 m to a flat top.”\n1. Mesa in the middle of the region, 250 m high (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\n    “Raise the painted area into a flat-topped mesa about 250 m high with steep sides.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2369 m, highest 5149 m to 5149 m.\n    839 cells change; largest rise 250 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nUndone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it.\n[Dismiss]\n[Apply 1 edit]",
+  "preview": {
+    "changed": 839,
+    "ok": true
+  },
+  "region": "diagonal stroke from (44, 24)",
+  "rejected": [],
+  "scenario": "edit_mesa",
+  "structural": "",
+  "valid": [
+    {
+      "operation": "mesa",
+      "text": "Mesa in the middle of the region, 250 m high (smooth falloff, softness 0.50)"
+    }
+  ],
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

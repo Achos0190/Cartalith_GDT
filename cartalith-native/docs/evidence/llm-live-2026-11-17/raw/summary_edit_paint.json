@@ -1,0 +1,34 @@
+[
+ {
+  "first_byte_ms": 1942,
+  "total_ms": 6638,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5137,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"paint\", \"region_id\": \"region_82af7a6bddf1\", \"colour\": \"red\", \"opacity\": 0.8, \"reason\": \"Colour the painted region red as requested.\"}],\"summary\":\"Paint the selected region red (no ground moved).\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1854,
+   "completion_tokens": 101,
+   "total_tokens": 1955,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

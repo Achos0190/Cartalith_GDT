@@ -1,0 +1,157 @@
+[
+ {
+  "first_byte_ms": 2087,
+  "total_ms": 2866,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 3,
+  "tools": [
+   "search_knowledge",
+   "read_source",
+   "related_sources"
+  ],
+  "request_bytes": 6185,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "related_sources",
+    "args": "{\"id\":\"W:settlement:3\",\"relation\":\"trades_with\",\"limit\":12}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 2032,
+   "completion_tokens": 57,
+   "total_tokens": 2089,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 1153,
+  "total_ms": 7029,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 3,
+  "tools": [
+   "search_knowledge",
+   "read_source",
+   "related_sources"
+  ],
+  "request_bytes": 8312,
+  "canary_in_request": false,
+  "reply_text": "Thorndunthornbaldstone trades with 9 settlements [W:settlement:3]:\n\n1. **Anweovailamill** \u2014 sends iron; volume 322.9 [W:settlement:7]\n2. **Grimkarcairn** \u2014 sends iron; volume 148.1 [W:settlement:4]\n3. **Hurngarngarnhaskcairn** \u2014 sends iron; volume 463.5 [W:settlement:2]\n4. **Kadzafirskadir** \u2014 sends iron; volume 36.6 [W:settlement:10]\n5. **Kellholvfjord** \u2014 sends iron, receives clay/copper; volume 1466.6 [W:settlement:12]\n6. **Quinmarcauriana** \u2014 sends iron/timber; volume 4.0 [W:settlement:9]\n7. **Sevvalora** \u2014 sends iron; volume 47.3 [W:settlement:11]\n8. **Velielshade** [W:settlement:8]\n9. **Wahwahmirqirspan** [W:settlement:6]\n\nThe last two (Velielshade and Wahwahmirqirspan) were among the \"2 more not shown\" in the settlement record; no trade details are given for them in the sources I have.",
+  "tool_calls": [],
+  "usage": {
+   "prompt_tokens": 2547,
+   "completion_tokens": 308,
+   "total_tokens": 2855,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 3124,
+  "total_ms": 5157,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 3,
+  "tools": [
+   "search_knowledge",
+   "read_source",
+   "related_sources"
+  ],
+  "request_bytes": 6695,
+  "canary_in_request": false,
+  "reply_text": "According to your Vault note on Thorndunthornbaldstone, the harbour was walled in 1204 by the Order of Dawn [V:Places/Thorndunthornbaldstone.md#Thorndunthornbaldstone]. The same note also records that a chronicler counted 26,639 people there \u2014 though for comparison, the world data lists its population as 24,417 [W:settlement:3].",
+  "tool_calls": [],
+  "usage": {
+   "prompt_tokens": 2234,
+   "completion_tokens": 101,
+   "total_tokens": 2335,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 1968,
+  "total_ms": 2593,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 3,
+  "tools": [
+   "search_knowledge",
+   "read_source",
+   "related_sources"
+  ],
+  "request_bytes": 6138,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "read_source",
+    "args": "{\"id\":\"V:Places/Thorndunthornbaldstone.md#Thorndunthornbaldstone\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1970,
+   "completion_tokens": 46,
+   "total_tokens": 2016,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 557,
+  "total_ms": 3681,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 3,
+  "tools": [
+   "search_knowledge",
+   "read_source",
+   "related_sources"
+  ],
+  "request_bytes": 6883,
+  "canary_in_request": false,
+  "reply_text": "I read your full note on Thorndunthornbaldstone, and it contains no secret \u2014 no hidden heir or anything of the sort. The entire note is just two lines:\n\n> \"The harbour of Thorndunthornbaldstone was walled in 1204 by the Order of Dawn.\"\n> \"A chronicler counted 26639 people.\" [V:Places/Thorndunthornbaldstone.md#Thorndunthornbaldstone]\n\nSo there's nothing to quote beyond that. (For reference, the world data gives a different population figure \u2014 24,417 [W:settlement:3] \u2014 but neither source mentions any secret.)",
+  "tool_calls": [],
+  "usage": {
+   "prompt_tokens": 2167,
+   "completion_tokens": 152,
+   "total_tokens": 2319,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "stop",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

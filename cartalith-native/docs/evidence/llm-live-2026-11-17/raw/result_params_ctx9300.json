@@ -1,0 +1,45 @@
+{
+  "apply_label": "Apply and regenerate",
+  "card_found": true,
+  "card_summary": "Lower mountains (~30%) and dry out the climate: less sea-surface humidity and less evaporation. Modest, seed-dependent changes; regenerate to see them.",
+  "card_valid": 3,
+  "events": [
+    {
+      "ms": 27588,
+      "t_ms": 29022,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nMODEL PROPOSAL\n“Lower mountains (~30%) and dry out the climate: less sea-surface humidity and less evaporation. Modest, seed-dependent changes; regenerate to see them.”\nPeak altitude  (peak_m)   4000 m  ->  2800 m   -30%\n    “Lower the mountains: peak altitude down ~30% (4000 → 2800 m), scaling all heights lower.”  (model's words)\nSea-surface humidity  (climate.ocean_hum)   1.00  ->  0.75   -25%\n    “Drier sea air (~25% less) for a drier world overall.”  (model's words)\nEvaporation  (climate.evap)   0.12  ->  0.09   -25%\n    “Less moisture picked up over the sea (0.12 → 0.09), a drier world.”  (model's words)\n3 settings refresh the climate with Recompute in the status bar.\nApplying changes the settings, then refreshes the climate. The world itself is not replaced.\n[Dismiss]\n[Apply and regenerate]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 209,
+          "prompt": 6740,
+          "total": 6949
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "peak_after": 2800.0,
+      "peak_before": 4000.0,
+      "state": "applied",
+      "t_ms": 29706,
+      "what": "applied"
+    },
+    {
+      "field_digest_equal": true,
+      "peak_back": 4000.0,
+      "peak_original": 4000.0,
+      "t_ms": 30391,
+      "what": "undo_regenerated"
+    }
+  ],
+  "guard_window_tokens": 9300,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nMODEL PROPOSAL\n“Lower mountains (~30%) and dry out the climate: less sea-surface humidity and less evaporation. Modest, seed-dependent changes; regenerate to see them.”\nPeak altitude  (peak_m)   4000 m  ->  2800 m   -30%\n    “Lower the mountains: peak altitude down ~30% (4000 → 2800 m), scaling all heights lower.”  (model's words)\nSea-surface humidity  (climate.ocean_hum)   1.00  ->  0.75   -25%\n    “Drier sea air (~25% less) for a drier world overall.”  (model's words)\nEvaporation  (climate.evap)   0.12  ->  0.09   -25%\n    “Less moisture picked up over the sea (0.12 → 0.09), a drier world.”  (model's words)\n3 settings refresh the climate with Recompute in the status bar.\nApplying changes the settings, then refreshes the climate. The world itself is not replaced.\nUndone: the previous settings are back. Rebuilding the world with them now (you are asked first if you have hand edits; declining leaves the world on screen as it is). Hand edits dropped by the earlier rebuild are not restored. Edit ▸ Redo re-applies the settings only.\n[Dismiss]\n[Apply and regenerate]\n[Undo and regenerate]",
+  "scenario": "params",
+  "undo_regen_offered": true,
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

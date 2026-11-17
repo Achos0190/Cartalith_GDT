@@ -1,0 +1,66 @@
+[
+ {
+  "first_byte_ms": 12826,
+  "total_ms": 19857,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5163,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"raise\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 300, \"softness\": 1, \"strength\": 0.5}],\"summary\":\"Raise the painted area into a ridge about 300 m high (crest strongest in the middle of the shape).\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1863,
+   "completion_tokens": 112,
+   "total_tokens": 1975,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 2095,
+  "total_ms": 9661,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5934,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"raise\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 300, \"softness\": 1}],\"summary\":\"Raise the painted area into a ridge about 300 m high (crest strongest in the middle of the shape).\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 2054,
+   "completion_tokens": 104,
+   "total_tokens": 2158,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

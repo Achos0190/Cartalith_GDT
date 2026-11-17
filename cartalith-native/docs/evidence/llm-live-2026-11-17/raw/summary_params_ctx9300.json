@@ -1,0 +1,89 @@
+[
+ {
+  "first_byte_ms": 2046,
+  "total_ms": 2726,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 12,
+  "tools": [
+   "get_param_schema",
+   "get_parameters",
+   "get_changed_parameters",
+   "describe_parameter",
+   "get_ecology_summary",
+   "sample_point",
+   "get_world_summary",
+   "propose_view_actions",
+   "list_actions",
+   "search_actions",
+   "describe_action",
+   "propose_actions"
+  ],
+  "request_bytes": 12612,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "get_param_schema",
+    "args": "{\"groups\":[\"climate\", \"weather\", \"world\"]}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 3578,
+   "completion_tokens": 35,
+   "total_tokens": 3613,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 15360,
+  "total_ms": 24582,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 13,
+  "tools": [
+   "get_param_schema",
+   "set_generation_params",
+   "get_parameters",
+   "get_changed_parameters",
+   "describe_parameter",
+   "get_ecology_summary",
+   "sample_point",
+   "get_world_summary",
+   "propose_view_actions",
+   "list_actions",
+   "search_actions",
+   "describe_action",
+   "propose_actions"
+  ],
+  "request_bytes": 25284,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "set_generation_params",
+    "args": "{\"changes\":[{\"key\": \"peak_m\", \"value\": 2800, \"reason\": \"Lower the mountains: peak altitude down ~30% (4000 \u2192 2800 m), scaling all heights lower.\"}, {\"key\": \"climate.ocean_hum\", \"value\": 0.75, \"reason\": \"Drier sea air (~25% less) for a drier world overall.\"}, {\"key\": \"climate.evap\", \"value\": 0.09, \"reason\": \"Less moisture picked up over the sea (0.12 \u2192 0.09), a drier world.\"}],\"summary\":\"Lower mountains (~30%) and dry out the climate: less sea-surface humidity and less evaporation. Modest, seed-dependent changes; regenerate to see them.\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 6740,
+   "completion_tokens": 209,
+   "total_tokens": 6949,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

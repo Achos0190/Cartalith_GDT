@@ -1,0 +1,89 @@
+[
+ {
+  "first_byte_ms": 7860,
+  "total_ms": 8543,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 12,
+  "tools": [
+   "get_param_schema",
+   "get_parameters",
+   "get_changed_parameters",
+   "describe_parameter",
+   "get_ecology_summary",
+   "sample_point",
+   "get_world_summary",
+   "propose_view_actions",
+   "list_actions",
+   "search_actions",
+   "describe_action",
+   "propose_actions"
+  ],
+  "request_bytes": 12612,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "get_param_schema",
+    "args": "{\"groups\":[\"climate\", \"weather\", \"world\"]}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 3578,
+   "completion_tokens": 35,
+   "total_tokens": 3613,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 13338,
+  "total_ms": 14009,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 13,
+  "tools": [
+   "get_param_schema",
+   "set_generation_params",
+   "get_parameters",
+   "get_changed_parameters",
+   "describe_parameter",
+   "get_ecology_summary",
+   "sample_point",
+   "get_world_summary",
+   "propose_view_actions",
+   "list_actions",
+   "search_actions",
+   "describe_action",
+   "propose_actions"
+  ],
+  "request_bytes": 23330,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "get_param_schema",
+    "args": "{\"groups\":[\"weather\"]}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 6208,
+   "completion_tokens": 29,
+   "total_tokens": 6237,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

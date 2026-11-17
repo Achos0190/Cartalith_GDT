@@ -1,0 +1,45 @@
+{
+  "apply_label": "Apply and regenerate",
+  "card_found": true,
+  "card_summary": "Lower mountains (~30%) and dry the climate: cut ocean rain budget, sea moisture pickup, sea-surface humidity, and raise dryness so interiors lose more rain.",
+  "card_valid": 5,
+  "events": [
+    {
+      "ms": 27972,
+      "t_ms": 29223,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nMODEL PROPOSAL\n“Lower mountains (~30%) and dry the climate: cut ocean rain budget, sea moisture pickup, sea-surface humidity, and raise dryness so interiors lose more rain.”\nPeak altitude  (peak_m)   4000 m  ->  2800 m   -30%\n    “Lower the mountains: peak altitude down ~30% from 4000 m.”  (model's words)\nOcean supply  (climate.ocean)   1.00 ×  ->  0.75 ×   -25%\n    “Cut the global rain budget by a quarter for a drier world.”  (model's words)\nEvaporation  (climate.evap)   0.12  ->  0.10   -17%\n    “Less moisture picked up over the sea (down ~17%).”  (model's words)\nSea-surface humidity  (climate.ocean_hum)   1.00  ->  0.85   -15%\n    “Drier sea air feeding the map.”  (model's words)\nDryness  (climate.rain_dep)   0.35  ->  0.42   +20%\n    “Air rains out sooner; land past the first ridge dries further.”  (model's words)\n5 settings refresh the climate with Recompute in the status bar.\nApplying changes the settings, then refreshes the climate. The world itself is not replaced.\n[Dismiss]\n[Apply and regenerate]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 252,
+          "prompt": 6208,
+          "total": 6460
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "peak_after": 2800.0,
+      "peak_before": 4000.0,
+      "state": "applied",
+      "t_ms": 29957,
+      "what": "applied"
+    },
+    {
+      "field_digest_equal": true,
+      "peak_back": 4000.0,
+      "peak_original": 4000.0,
+      "t_ms": 30742,
+      "what": "undo_regenerated"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nMake the climate drier and the mountains lower.\nLooked up 8 matching actions first (about 502 tokens).\nThe model is reading the climate, weather, world settings…\nMODEL PROPOSAL\n“Lower mountains (~30%) and dry the climate: cut ocean rain budget, sea moisture pickup, sea-surface humidity, and raise dryness so interiors lose more rain.”\nPeak altitude  (peak_m)   4000 m  ->  2800 m   -30%\n    “Lower the mountains: peak altitude down ~30% from 4000 m.”  (model's words)\nOcean supply  (climate.ocean)   1.00 ×  ->  0.75 ×   -25%\n    “Cut the global rain budget by a quarter for a drier world.”  (model's words)\nEvaporation  (climate.evap)   0.12  ->  0.10   -17%\n    “Less moisture picked up over the sea (down ~17%).”  (model's words)\nSea-surface humidity  (climate.ocean_hum)   1.00  ->  0.85   -15%\n    “Drier sea air feeding the map.”  (model's words)\nDryness  (climate.rain_dep)   0.35  ->  0.42   +20%\n    “Air rains out sooner; land past the first ridge dries further.”  (model's words)\n5 settings refresh the climate with Recompute in the status bar.\nApplying changes the settings, then refreshes the climate. The world itself is not replaced.\nUndone: the previous settings are back. Rebuilding the world with them now (you are asked first if you have hand edits; declining leaves the world on screen as it is). Hand edits dropped by the earlier rebuild are not restored. Edit ▸ Redo re-applies the settings only.\n[Dismiss]\n[Apply and regenerate]\n[Undo and regenerate]",
+  "scenario": "params",
+  "undo_regen_offered": true,
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

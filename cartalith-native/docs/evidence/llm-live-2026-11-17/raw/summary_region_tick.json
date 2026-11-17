@@ -1,0 +1,98 @@
+[
+ {
+  "first_byte_ms": 394,
+  "total_ms": 3518,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5163,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"raise\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 200, \"softness\": 1, \"strength\": 0.5}],\"summary\":\"Raise the painted area into a ridge about 200 m high (crest strongest in the middle of the shape).\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1863,
+   "completion_tokens": 112,
+   "total_tokens": 1975,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 996,
+  "total_ms": 3856,
+  "n_messages": 4,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5934,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"raise\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 200, \"softness\": 1}],\"summary\":\"Raise the painted area into a ridge about 200 m high (crest strongest in the middle of the shape).\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 2054,
+   "completion_tokens": 104,
+   "total_tokens": 2158,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ },
+ {
+  "first_byte_ms": 488,
+  "total_ms": 3943,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5163,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"ridge\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 200, \"reason\": \"Raise the painted area into a ridge about 200 m high along the stroke.\"}],\"summary\":\"Proposing a ~200 m ridge across the painted region.\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1863,
+   "completion_tokens": 110,
+   "total_tokens": 1973,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

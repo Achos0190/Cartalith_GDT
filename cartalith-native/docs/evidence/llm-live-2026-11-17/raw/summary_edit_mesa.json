@@ -1,0 +1,34 @@
+[
+ {
+  "first_byte_ms": 1843,
+  "total_ms": 11008,
+  "n_messages": 2,
+  "reasoning_effort": "none",
+  "max_tokens": 1024,
+  "stream": true,
+  "n_tools": 1,
+  "tools": [
+   "propose_edit_actions"
+  ],
+  "request_bytes": 5202,
+  "canary_in_request": false,
+  "reply_text": "",
+  "tool_calls": [
+   {
+    "name": "propose_edit_actions",
+    "args": "{\"edits\":[{\"operation\": \"mesa\", \"region_id\": \"region_82af7a6bddf1\", \"amount_m\": 250, \"reason\": \"Raise the painted area into a flat-topped mesa about 250 m high with steep sides.\"}],\"summary\":\"One edit: raise the whole region as a mesa, +250 m to a flat top.\"}"
+   }
+  ],
+  "usage": {
+   "prompt_tokens": 1873,
+   "completion_tokens": 121,
+   "total_tokens": 1994,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish": "tool_calls",
+  "reasoning_chars": 0,
+  "status": 200
+ }
+]

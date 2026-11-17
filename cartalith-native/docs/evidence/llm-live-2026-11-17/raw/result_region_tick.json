@@ -1,0 +1,65 @@
+{
+  "events": [
+    {
+      "active": "local",
+      "ok": true,
+      "t_ms": 1315,
+      "what": "switch_local"
+    },
+    {
+      "card": true,
+      "ms": 7623,
+      "profile": "local",
+      "profile_stores_region_tick": "true",
+      "t_ms": 9241,
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 104,
+          "prompt": 2054,
+          "total": 2158
+        }
+      },
+      "what": "local_tick_on"
+    },
+    {
+      "reason": "Tick \"Send: the painted region and its heights\" in Settings first: an edit request shows the model the region's shape and its measured heights, as numbers.",
+      "t_ms": 9658,
+      "what": "send_disabled"
+    },
+    {
+      "ms": -1,
+      "profile": "p2",
+      "profile_stores_region_tick": "false",
+      "request_sent": false,
+      "send_refused_with": "Tick \"Send: the painted region and its heights\" in Settings first: an edit request shows the model the region's shape and its measured heights, as numbers.",
+      "setting": false,
+      "t_ms": 9673,
+      "what": "copy_tick_off"
+    },
+    {
+      "ms": 4153,
+      "profile": "local",
+      "setting": true,
+      "t_ms": 14261,
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 110,
+          "prompt": 1863,
+          "total": 1973
+        }
+      },
+      "what": "back_on_local"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 200 m high.\nThe suggestion could not be used (R7 raise: raise does not take strength; it takes: amount_m, falloff, softness). Asking the assistant to try again.\nMODEL PROPOSAL · TERRAIN EDIT\n“Raise the painted area into a ridge about 200 m high (crest strongest in the middle of the shape).”\n1. Raise the region by 200 m (smooth falloff, softness 1)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1103 m, mean 2323 m to 2413 m, highest 5149 m to 5149 m.\n    2901 cells change; largest rise 200 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Apply 1 edit]\nYou\nRaise the area I painted into a ridge about 200 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“Proposing a ~200 m ridge across the painted region.”\n1. Ridge along the painted stroke, crest 200 m high (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\n    “Raise the painted area into a ridge about 200 m high along the stroke.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2365 m, highest 5149 m to 5149 m.\n    2715 cells change; largest rise 200 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Apply 1 edit]",
+  "region": "diagonal stroke from (44, 24)",
+  "scenario": "region_tick",
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}
