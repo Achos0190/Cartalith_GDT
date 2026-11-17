@@ -1,0 +1,29 @@
+import re,sys,statistics,json
+def parse(f):
+    towns=[];cur=None
+    for ln in open(f,encoding='utf8',errors='replace'):
+        m=re.match(r"=== seed (\d+) #(\d+) gw (\d+) (\w+) pop (\d+)/(\d+) bld (\d+) wall (\w+)",ln)
+        if m:
+            cur=dict(seed=int(m[1]),idx=int(m[2]),gw=int(m[3]),kind=m[4],pop=int(m[5]),target=int(m[6]),bld=int(m[7]),wall=m[8]=='true',eps=[],grow=None,passes=0);towns.append(cur);continue
+        if cur is None: continue
+        if ln.startswith("passes"): cur['passes']=int(ln.split()[1])
+        elif ln.startswith("GROW"):
+            cur['grow']=dict(re.findall(r"(\w+)=?\s*([^ ]+)",ln.split(' ',1)[1]) ) if False else ln.strip()
+        elif ln.startswith("  ep"):
+            e=dict(ep=int(re.match(r"  ep\s*(\d+)",ln)[1]))
+            e['budget']=float(re.search(r"budget\s+(-?\d+)",ln)[1]);e['laid']=float(re.search(r"laid\s+(\d+)",ln)[1]);e['tries']=int(re.search(r"tries\s+(\d+)",ln)[1])
+            a,b=ln.split("| far-bank:")[0],ln
+            near=ln.split("|")[1];far=ln.split("far-bank:")[1] if "far-bank:" in ln else ""
+            e['near']={k:int(v) for k,v in re.findall(r"([\w<>]+)=(\d+)",near)}
+            e['far']={k:int(v) for k,v in re.findall(r"([\w<>]+)=(\d+)",far)}
+            cur['eps'].append(e)
+    return towns
+if __name__=="__main__":
+    for f in sys.argv[1:]:
+        T=[t for t in parse(f) if t['target']>=1500]
+        per=[t['bld']/t['target']*1000 for t in T]
+        med=statistics.median(per)
+        print(f,len(T),"towns>=1500 median",round(med))
+        for t,p in sorted(zip(T,per),key=lambda x:x[1])[:12]:
+            laid=sum(e['laid'] for e in t['eps']);
+            print(f"  s{t['seed']} #{t['idx']:<3} {t['kind']:12} target {t['target']:6} bld {t['bld']:5} housed {100*t['pop']/t['target']:5.1f}% {p:4.0f}/1000 ({p/med:.2f}) laid {laid:6.0f} capped_eps {sum(e['tries']>=2600 for e in t['eps'])}")

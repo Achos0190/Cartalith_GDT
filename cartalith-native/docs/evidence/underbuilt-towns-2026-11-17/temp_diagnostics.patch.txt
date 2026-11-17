@@ -1,0 +1,315 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index 240d261d..04e64797 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -3260,3 +3260,4 @@ pub fn settlement_layout_with(
+ /// See `urban_adapter/tests.rs`'s own `//!` for what this suite protects.
+ #[cfg(test)]
+ mod tests;
++pub use cartalith_urban::growth as ub_growth;
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+index 406f2bcb..4ddffae4 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+@@ -102,7 +102,7 @@ fn generate_world(
+     let gh = std::env::var("TOWN_RIVER_GH").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| crate::reference_grid_h(gw, false));
+     let mut p = crate::with_call_args(crate::params::defaults(), seed, 800.0, gw, gh);
+     p.civ.factions = 6;
+-    p.use_gpu = false;
++    p.use_gpu = std::env::var("UB_GPU").is_ok_and(|v| v == "1");
+     p.civ.river_front = front;
+     // Ruling FF items 5 and 6 (2026-11-15): `TOWN_RIVER_MAP_RIVERS=0` sites
+     // towns and prices roads on the civ pass's rebuilt network, and
+@@ -2857,3 +2857,52 @@ fn stretch_water_audit() {
+     }
+     println!("all seeds at {gw}: planned stretched {planned}, laid out stretched {laid}, flagged {flagged}");
+ }
++
++
++#[test]
++#[ignore = "temporary diagnostic"]
++fn underbuilt_diag() {
++    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
++    let ub = std::env::var("UB_TOWNS").unwrap();
++    let all = ub == "all";
++    let want: Vec<(i32, usize)> = if all { std::env::var("UB_SEEDS").unwrap_or("483920,912345,246371".into()).split(',').map(|t| (t.parse().unwrap(), usize::MAX)).collect() } else { ub.split(',').map(|t| { let (a, b) = t.split_once(':').unwrap(); (a.parse().unwrap(), b.parse().unwrap()) }).collect() };
++    let dir = std::env::var("UB_DIR").unwrap();
++    std::fs::create_dir_all(&dir).unwrap();
++    let mut seeds: Vec<i32> = want.iter().map(|w| w.0).collect();
++    seeds.dedup();
++    for seed in seeds {
++        let (ws, civ, gh, p) = generate_world(seed, gw, true);
++        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
++            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
++            _ => Vec::new(),
++        };
++        let uw = UrbanWorld {
++            field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(),
++            river_polys: &river_polys, gw, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km,
++            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
++            world_seed: seed, river_kind_from_map: river_kind_map(&p),
++        };
++        let others = stretch_others(&civ);
++        let idxs: Vec<(i32, usize)> = if all { (0..civ.settlements.len()).map(|i| (seed, i)).collect() } else { want.iter().filter(|w| w.0 == seed).copied().collect() };
++        for (sd, i) in idxs {
++            let s = &civ.settlements[i];
++            let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: p.urban_riverbank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
++            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
++            cartalith_civ::urban_adapter::ub_growth::DIAG.with(|d| d.borrow_mut().clear());
++            let Some(l) = run_layout(&ctx, None) else { println!("{sd} #{i}: no layout"); continue };
++            println!("=== seed {sd} #{i} gw {gw} {} pop {:.0}/{:.0} bld {} wall {}", l.site_kind, l.pop, l.pop_target, l.buildings.len(), l.wall.ring.is_some());
++            println!("ROUTES {:?} bridge {:?} harbour {:?}", l.route_ends.iter().map(|p| (p.x.round(), p.y.round())).collect::<Vec<_>>(), l.bridge_pt.map(|p| (p.x.round(), p.y.round())), l.harbour_pt.map(|p| (p.x.round(), p.y.round())));
++            cartalith_civ::urban_adapter::ub_growth::DIAG.with(|d| { let d = d.borrow(); let n = d.iter().filter(|t| t.starts_with("GROW")).count(); let at = d.iter().rposition(|t| t.starts_with("GROW")).unwrap_or(0); println!("passes {n}"); for t in d[at..].iter() { println!("{t}") } });
++            if std::env::var("UB_REF").is_ok() { let rs = cartalith_civ::urban_adapter::ub_growth::REF.with(|r| r.borrow().iter().map(|t| format!("[{:.0},{:.0},{}]", t.0, t.1, t.2)).collect::<Vec<_>>().join(",")); std::fs::write(format!("{dir}/{sd}_{gw}_{i}_ref.json"), format!("[{rs}]")).unwrap(); }
++            let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| format!("{{\"mw\":{},\"mh\":{},\"cell\":{},\"d\":\"{}\"}}", w.ctx.mw, w.ctx.mh, w.ctx.cell_m, o.iter().map(|&b| if b != 0 { '1' } else { '0' }).collect::<String>()))).unwrap_or_else(|| "null".into());
++            std::fs::write(format!("{dir}/{sd}_{gw}_{i}_open.json"), open).unwrap();
++            let pts = |v: &[Vec2]| -> String { format!("[{}]", v.iter().map(|p| format!("[{:.1},{:.1}]", p.x, p.y)).collect::<Vec<_>>().join(",")) };
++            let edges: Vec<String> = l.edges.iter().map(|e| format!("[{:.1},{:.1},{:.1},{:.1},\"{}\"]", e.a.x, e.a.y, e.b.x, e.b.y, e.cls)).collect();
++            let blds: Vec<String> = l.buildings.iter().map(|b| pts(&b.poly)).collect();
++            let json = format!("{{\"wm\":{},\"hm\":{},\"market\":[{:.1},{:.1}],\"river\":{},\"water_poly\":{},\"ring\":{},\"edges\":[{}],\"buildings\":[{}],\"bridge\":{}}}",
++                l.wm, l.hm, l.market.x, l.market.y, pts(&l.river), pts(&l.water_poly), l.wall.ring.as_deref().map(pts).unwrap_or_else(|| "[]".into()), edges.join(","), blds.join(","),
++                l.bridge_pt.map(|b| format!("[{:.1},{:.1}]", b.x, b.y)).unwrap_or_else(|| "null".into()));
++            std::fs::write(format!("{dir}/{sd}_{gw}_{i}.json"), json).unwrap();
++        }
++    }
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 79e8466b..7e0d5f71 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -833,7 +833,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+     // M-DEN-1/2, M-PAR-1: ~150 p/ha and ~8 m frontages give ~2.1 m of street per
+     // inhabitant; the floor keeps a hamlet a crossroads cluster (M-AMEN-2).
+     let target_len = js_max(1600.0, js_min(42000.0, pop_target * 2.1));
+-    let max_rf = town_reach_m(pop_target);
++    let max_rf = town_reach_m(pop_target) * std::env::var("UB_RF").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.0);
+     // **Not the reference** (Ruling FE item 2, `crate::village`): a street
+     // village. Organic plan only (the radial plan lays its own rings).
+     let street_village = opts.street_village && pop_target < crate::plaza::PLAZA_MARKET_POP && profile.planning != "radial";
+@@ -1175,7 +1175,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+             if tb != TownBridge::None
+                 && let Some(far_centre) = crate::riverbank::far_bridge_end(&site, anchors.market)
+             {
+-                crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre);
++                let fl = crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre);
++                crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("FARBANK share {share:.2} laid {fl:.0} centre {far_centre:?}")));
+             }
+             town_bridge = Some(tb);
+         }
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index 5f3166dc..009b9855 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -550,6 +550,8 @@ pub fn wall_occupancy(g: &Graph, ring: &[Vec2]) -> Occupancy {
+ /// way JS's `undefined` already guards it — `g.nodes[r.int(0, -1)]` on an empty
+ /// graph is `undefined` and `continue`s, and so is this.
+ #[allow(clippy::too_many_arguments)]
++thread_local!{ pub static DIAG: std::cell::RefCell<Vec<String>> = const{std::cell::RefCell::new(Vec::new())}; pub static REF: std::cell::RefCell<Vec<(f64,f64,usize)>> = const{std::cell::RefCell::new(Vec::new())}; pub static LAST: std::cell::Cell<usize> = const{std::cell::Cell::new(0)}; }
++fn why(k:usize)->Option<Vec<usize>>{ LAST.with(|l|l.set(k)); None }
+ pub fn grow(
+     seed: u32,
+     site: &Site,
+@@ -562,6 +564,12 @@ pub fn grow(
+ ) -> f64 {
+     let target_len = opts.target_len;
+     let mkt_side = site.bank_side(anchors.market);
++    REF.with(|r| r.borrow_mut().clear());
++    if std::env::var("UB_DIAG").is_ok() {
++        let m = anchors.market;
++        DIAG.with(|d| d.borrow_mut().push(format!("GROW kind={} box {:.0}x{:.0} market ({:.0},{:.0}) riverdist {:.0} edges L{:.0} R{:.0} T{:.0} B{:.0} bridge {:?} river_w {:.0} target_len {:.0} epochs {} max_rf {:.0} whole_budget {} wide {} STRETCH {:?}",
++          site.kind, site.wm, site.hm, m.x, m.y, dist_to_line(m,&site.river), m.x, site.wm-m.x, m.y, site.hm-m.y, site.bridge_pt.map(|p|(p.x.round(),p.y.round())), site.river_w, opts.target_len, epochs, opts.max_rf, opts.whole_budget, opts.wide_spacing, site.stretch().map(|f| f.plan()))));
++    }
+     let rules = opts.rules.unwrap_or(DEFAULT_RULES);
+     let s = &rules.street;
+     let wall_gens = opts.wall_generations;
+@@ -617,7 +625,8 @@ pub fn grow(
+             g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| e.id).collect();
+         let mut len = 0.0f64;
+         let mut tries = 0i32;
+-        while len < budget && tries < 2600 {
++        let mut c=[0u32;48];
++        while len < budget && tries < std::env::var("UB_TRIES").ok().and_then(|v| v.parse().ok()).unwrap_or(2600) {
+             tries += 1;
+             let explore = r.chance(explore_share);
+             // The urbanisation front advances by epoch: linear by default; with
+@@ -654,7 +663,7 @@ pub fn grow(
+                 }
+                 let (a0, b0) = (g.nodes[e0.a].pt(), g.nodes[e0.b].pt());
+                 if a0.dist(b0) < 38.0 {
+-                    continue; // keep split halves out of the short-segment tail (M-NET-4)
++                    c[2]+=1; continue; // keep split halves out of the short-segment tail (M-NET-4)
+                 }
+                 o = a0.lerp(b0, r.range(0.35, 0.65));
+                 let edge_ang = js_atan2(b0.y - a0.y, b0.x - a0.x);
+@@ -673,10 +682,10 @@ pub fn grow(
+                 None => d_mkt,
+             };
+             if !explore && d_m > max_r {
+-                continue;
++                c[3]+=1; REF.with(|r| r.borrow_mut().push((o.x,o.y,3))); continue;
+             }
+-            if explore && (d_m > max_r + 140.0 || d_m < 60.0) {
+-                continue;
++            if explore && (d_m > max_r + 140.0 || d_m < std::env::var("UB_EXPL_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(60.0)) {
++                c[4]+=1; REF.with(|r| r.borrow_mut().push((o.x,o.y,4))); continue;
+             }
+             // The bridgehead stays small: growth on the far bank is confined to
+             // the bridge approach. Sea sites have no far bank.
+@@ -691,10 +700,10 @@ pub fn grow(
+                     None => f64::NAN,
+                 };
+                 if d_b > s.bridgehead_distance {
+-                    continue;
++                    c[5]+=1; REF.with(|r| r.borrow_mut().push((o.x,o.y,5))); continue;
+                 }
+                 if r.u() > s.bridgehead_probability {
+-                    continue;
++                    c[6]+=1; continue;
+                 }
+             }
+             // Once walled, extramural growth clings to the approach roads.
+@@ -711,7 +720,7 @@ pub fn grow(
+                     }
+                 }
+                 if !near_prim {
+-                    continue;
++                    c[7]+=1; continue;
+                 }
+             }
+             // **Not the reference** (Ruling FE item 2, `GrowOpts::road_reach`):
+@@ -728,16 +737,24 @@ pub fn grow(
+             }
+             let w = 1.0 / (1.0 + d_m / s.market_gradient_decay); // Clark gradient, M-DEN-3
+             if !explore && r.u() > w * 1.35 {
+-                continue;
++                c[8]+=1; REF.with(|r| r.borrow_mut().push((o.x,o.y,8))); continue;
+             }
+             let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing) else {
+-                continue;
++                let k = LAST.with(|l| l.get()); c[k] += 1; REF.with(|r| r.borrow_mut().push((o.x,o.y,k))); if o_side != mkt_side { c[k+16] += 1; } continue;
+             };
++            REF.with(|r| r.borrow_mut().push((o.x,o.y,1))); c[1]+=1; if o_side != mkt_side { c[17]+=1; }
+             for eid in made {
+                 let e = &g.edges[eid];
+                 len += g.nodes[e.a].pt().dist(g.nodes[e.b].pt());
+             }
+         }
++        if std::env::var("UB_DIAG").is_ok() {
++            let names=["","made","short<38","d>maxR","expl_rng","bridge_d","bridge_p","wall_prim","gradient","hit<18","sliver","box","slope","water","wall","parallel"];
++            let mut t=format!("  ep{ep:2} budget {budget:7.0} laid {len:7.0} tries {tries:4} maxR {:.0} |",opts.max_rf*(0.38+0.62*ep as f64/epochs as f64));
++            for i in 1..16 { if c[i]>0 { t+=&format!(" {}={}",names[i],c[i]); } }
++            t+=" | far-bank:"; for i in 17..32 { if c[i]>0 { t+=&format!(" {}={}",names[i-16],c[i]); } }
++            DIAG.with(|d| d.borrow_mut().push(t));
++        }
+         placed_len += len;
+         // Wall episode(s), M-GRW-2. Without `wallGenerations` this fires exactly
+         // once; with it, the first circuit still rises at `fireEpoch` and every
+@@ -838,7 +855,7 @@ fn legalize_street(
+     {
+         b = Vec2::new(hp.x, hp.y);
+         if o.dist(b) < 18.0 {
+-            return None;
++            return why(9);
+         }
+         // No acute sliver at the junction (M-NET-3).
+         let he = &g.edges[hit_e.expect("hit_e is set whenever hit_pt is")];
+@@ -847,14 +864,14 @@ fn legalize_street(
+         let mut dd = (((ang - e_ang) % PI + PI) % PI).abs();
+         dd = js_min(dd, PI - dd);
+         if dd < s.junction_angle_limit {
+-            return None;
++            return why(10);
+         }
+     }
+     if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
+-        return None;
++        return why(11);
+     }
+     if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
+-        return None; // M-REG-5
++        return why(12); // M-REG-5
+     }
+     // Never cross water — the bridge already exists. The accumulation
+     // is the reference's and is load-bearing: it produces a sixth
+@@ -869,7 +886,7 @@ fn legalize_street(
+         t += 0.17;
+     }
+     if wet {
+-        return None;
++        return why(13);
+     }
+     // Wall permeability: after the wall exists, streets cross only at
+     // gates (M-NET-9).
+@@ -891,7 +908,7 @@ fn legalize_street(
+                 }
+             }
+             if !ok {
+-                return None;
++                return why(14);
+             }
+         }
+     }
+@@ -924,7 +941,7 @@ fn legalize_street(
+         }
+     }
+     if too_close {
+-        return None;
++        return why(15);
+     }
+     let cls = if explore {
+         "street"
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank.rs b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+index feb06e86..95aba5b2 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+@@ -1169,9 +1169,9 @@ fn dry_line(site: &Site, a: Vec2, b: Vec2) -> bool {
+ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64) -> TownBridge {
+     let r = &site.river;
+     if !site.riverbank() || r.len() < 2 {
+-        return TownBridge::None;
++        return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 1 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None };
+     }
+-    let (Some(bp), Some(dir)) = (site.bridge_pt, site.bridge_dir) else { return TownBridge::None };
++    let (Some(bp), Some(dir)) = (site.bridge_pt, site.bridge_dir) else { return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 2 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None } };
+     // A road that already crosses counts only where it is this bridge: a
+     // `primary` (the base sweep culls any other street through the channel)
+     // crossing within the span's own half-length (`riverW/2 + 16`) of the
+@@ -1203,7 +1203,7 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
+         }
+     }
+     if bp.dist(anchors.market) > max_r {
+-        return TownBridge::None;
++        return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 3 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None };
+     }
+     let nl = dir.rot90();
+     let half = site.river_w / 2.0 + 16.0;
+@@ -1219,10 +1219,10 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
+             && site.river_dist(p) >= site.river_w / 2.0 + 0.5
+     };
+     if !ok_end(near) || !ok_end(far) || site.bank_side(near) == site.bank_side(far) {
+-        return TownBridge::None;
++        return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 4 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None };
+     }
+     if !far_bank_buildable(site, far) {
+-        return TownBridge::None;
++        return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 5 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None };
+     }
+     // The near end's join: the nearest live street, lane or primary node on
+     // the market's bank, joined by a dry straight street.
+@@ -1236,7 +1236,7 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
+             }
+         }
+     }
+-    let Some((jp, _)) = join else { return TownBridge::None };
++    let Some((jp, _)) = join else { return { crate::growth::DIAG.with(|d| d.borrow_mut().push(format!("BRIDGE none reason 6 bp {:?} market {:?}", site.bridge_pt, anchors.market))); TownBridge::None } };
+     g.add_street(near.x, near.y, far.x, far.y, "primary", 6.0, 0, TOWN_BRIDGE_PROV);
+     if jp.dist(near) > 1.0 {
+         g.add_street(near.x, near.y, jp.x, jp.y, "street", 4.0, 0, TOWN_BRIDGE_APPROACH_PROV);
+@@ -1245,6 +1245,7 @@ pub fn lay_town_bridge(site: &Site, anchors: &Anchors, g: &mut Graph, max_r: f64
+     if ok_end(stub) && dry_line(site, far, stub) {
+         g.add_street(far.x, far.y, stub.x, stub.y, "street", 4.0, 0, TOWN_BRIDGE_APPROACH_PROV);
+     }
++    crate::growth::DIAG.with(|d| d.borrow_mut().push("BRIDGE laid".into()));
+     TownBridge::Laid
+ }
+ 

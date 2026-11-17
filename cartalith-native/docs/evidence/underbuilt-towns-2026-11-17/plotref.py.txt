@@ -1,0 +1,31 @@
+import json,sys
+from PIL import Image, ImageDraw
+base=sys.argv[1]; d=json.load(open(base+".json")); R=json.load(open(base+"_ref.json")); S=0.6
+W,H=int(d["wm"]*S),int(d["hm"]*S)
+im=Image.new("RGB",(W,H),(236,232,218)); dr=ImageDraw.Draw(im); P=lambda p:(p[0]*S,p[1]*S)
+if len(d["water_poly"])>=3: dr.polygon([P(p) for p in d["water_poly"]],fill=(150,180,215))
+if len(d["river"])>=2: dr.line([P(p) for p in d["river"]],fill=(110,150,205),width=6)
+try:
+    o=json.load(open(base+"_open.json"))
+except Exception: o=None
+if o:
+    c=o["cell"]; 
+    for i,ch in enumerate(o["d"]):
+        if ch=="1":
+            cx=(i%o["mw"])*c; cy=(i//o["mw"])*c
+            dr.rectangle([cx*S,cy*S,(cx+c)*S,(cy+c)*S],fill=(190,210,235))
+for b in d["buildings"]:
+    if len(b)>=3: dr.polygon([P(p) for p in b],fill=(200,180,170))
+for a in d["edges"]: dr.line([P(a[:2]),P(a[2:4])],fill=(90,90,90),width=1)
+if len(d["ring"])>=3: dr.line([P(p) for p in d["ring"]]+[P(d["ring"][0])],fill=(200,40,40),width=2)
+col={3:(0,160,0),4:(0,200,200),5:(150,0,200),8:(150,150,150),9:(255,150,0),10:(255,150,0),11:(0,0,0),12:(120,70,20),13:(0,0,255),14:(200,0,0),15:(230,0,230),1:(0,0,0)}
+for x,y,k in R:
+    if k==1: continue
+    c=col.get(k,(0,0,0)); X,Y=P((x,y)); dr.ellipse([X-2,Y-2,X+2,Y+2],fill=c)
+m=P(d["market"]); dr.ellipse([m[0]-7,m[1]-7,m[0]+7,m[1]+7],outline=(0,150,0),width=3)
+dr.rectangle([40*S,40*S,(d["wm"]-40)*S,(d["hm"]-40)*S],outline=(180,180,0))
+y=4
+for k,n in [(3,"d>maxR"),(4,"explore range"),(5,"bridgehead dist"),(8,"gradient"),(9,"hit<18"),(11,"box"),(12,"slope"),(13,"water"),(14,"wall"),(15,"parallel")]:
+    dr.ellipse([6,y+2,12,y+8],fill=col[k]); dr.text((16,y),n+" (%d)"%sum(1 for r in R if r[2]==k or (k==9 and r[2]==10)),fill=(0,0,0)); y+=12
+dr.text((6,y),sys.argv[3],fill=(0,0,0))
+im.save(sys.argv[2])

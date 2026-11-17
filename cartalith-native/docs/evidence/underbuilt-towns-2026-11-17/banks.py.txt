@@ -1,0 +1,37 @@
+import json,math,sys
+def side(river,p):
+    best=1e18;bi=0
+    for i in range(len(river)-1):
+        a=river[i];b=river[i+1];dx=b[0]-a[0];dy=b[1]-a[1];L=dx*dx+dy*dy
+        t=0 if L==0 else max(0,min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L))
+        q=(a[0]+t*dx,a[1]+t*dy);d=(p[0]-q[0])**2+(p[1]-q[1])**2
+        if d<best: best=d;bi=i
+    a=river[bi];b=river[min(bi+1,len(river)-1)]
+    s=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0])
+    return 1 if s>=0 else -1
+def cen(poly):
+    n=len(poly);return (sum(p[0] for p in poly)/n,sum(p[1] for p in poly)/n)
+def run(t):
+    d=json.load(open(f"census/{t}.json")); o=json.load(open(f"census/{t}_open.json"))
+    mx,my=d["market"]; R=720
+    river=d["river"]
+    ms=side(river,(mx,my))
+    c=o["cell"];mw=o["mw"];mh=o["mh"];s=o["d"]
+    land={1:0,-1:0}; wet=0;box=0;n=0
+    for iy in range(-72,73):
+        for ix in range(-72,73):
+            if ix*ix+iy*iy>72*72: continue
+            x=mx+ix*10;y=my+iy*10; n+=1
+            if x<40 or y<40 or x>d["wm"]-40 or y>d["hm"]-40: box+=1; continue
+            cx=int(x/c);cy=int(y/c)
+            if 0<=cx<mw and 0<=cy<mh and s[cy*mw+cx]=="1": wet+=1; continue
+            land[side(river,(x,y))*ms]+=1   # +1 = market's bank
+    # buildings within disc by bank
+    b={1:0,-1:0}
+    for poly in d["buildings"]:
+        p=cen(poly)
+        if math.hypot(p[0]-mx,p[1]-my)<=R: b[side(river,p)*ms]+=1
+    tot=len(d["buildings"])
+    print(f"{t}: disc 720 m = {n} samples: market-bank land {100*land[1]/n:.0f}%, far-bank land {100*land[-1]/n:.0f}%, open water {100*wet/n:.0f}%, outside box {100*box/n:.0f}% | buildings in disc: market bank {b[1]} far {b[-1]} (total {tot})")
+    return n,land,wet,box,b
+for t in sys.argv[1:]: run(t)

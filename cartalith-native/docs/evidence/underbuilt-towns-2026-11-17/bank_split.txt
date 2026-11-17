@@ -1,0 +1,6 @@
+246371_2048_0: disc 720 m = 16241 samples: market-bank land 11%, far-bank land 23%, open water 58%, outside box 9% | buildings in disc: market bank 354 far 780 (total 1188)
+483920_2048_10: disc 720 m = 16241 samples: market-bank land 47%, far-bank land 16%, open water 28%, outside box 9% | buildings in disc: market bank 2232 far 27 (total 2259)
+912345_2048_10: disc 720 m = 16241 samples: market-bank land 49%, far-bank land 42%, open water 0%, outside box 9% | buildings in disc: market bank 2689 far 55 (total 2744)
+246371_2048_2: disc 720 m = 16241 samples: market-bank land 48%, far-bank land 43%, open water 0%, outside box 10% | buildings in disc: market bank 2187 far 1261 (total 3508)
+246371_2048_1: disc 720 m = 16241 samples: market-bank land 46%, far-bank land 44%, open water 0%, outside box 9% | buildings in disc: market bank 3067 far 1049 (total 4116)
+246371_384_7: disc 720 m = 16241 samples: market-bank land 37%, far-bank land 1%, open water 53%, outside box 9% | buildings in disc: market bank 1842 far 5 (total 1847)

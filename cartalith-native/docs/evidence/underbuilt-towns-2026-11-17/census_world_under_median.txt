@@ -1,0 +1,26 @@
+all384.txt 35 towns>=1500 median 227
+  s246371 #7   coast        target  20000 bld  1847 housed  44.9%   92/1000 (0.41) laid  12521 capped_eps 7
+  s912345 #32  coast        target   1843 bld   309 housed  92.2%  168/1000 (0.74) laid   4110 capped_eps 0
+  s912345 #2   river        target   2458 bld   446 housed  85.9%  181/1000 (0.80) laid   5479 capped_eps 0
+  s912345 #1   river        target  20000 bld  3931 housed  94.3%  197/1000 (0.86) laid  21798 capped_eps 7
+  s483920 #4   river        target  20000 bld  3935 housed  94.7%  197/1000 (0.87) laid  18572 capped_eps 8
+  s912345 #7   river        target  20000 bld  4067 housed  97.0%  203/1000 (0.89) laid  23050 capped_eps 7
+  s246371 #11  river        target  18568 bld  3803 housed  95.2%  205/1000 (0.90) laid  24028 capped_eps 4
+  s912345 #0   river        target  20000 bld  4113 housed 100.0%  206/1000 (0.90) laid  22625 capped_eps 7
+  s246371 #0   river        target  20000 bld  4115 housed  97.4%  206/1000 (0.90) laid  28328 capped_eps 5
+  s246371 #5   river        target  20000 bld  4223 housed  98.5%  211/1000 (0.93) laid  27515 capped_eps 5
+  s246371 #15  river        target  20000 bld  4328 housed  97.0%  216/1000 (0.95) laid  28521 capped_eps 5
+  s912345 #9   river        target  20000 bld  4335 housed 101.9%  217/1000 (0.95) laid  23138 capped_eps 6
+all2048.txt 36 towns>=1500 median 223
+  s246371 #0   riverthrough target  20000 bld  1188 housed  28.9%   59/1000 (0.27) laid  11389 capped_eps 8
+  s483920 #10  riverthrough target  20000 bld  2259 housed  54.8%  113/1000 (0.51) laid  17290 capped_eps 7
+  s912345 #10  river        target  20000 bld  2744 housed  62.1%  137/1000 (0.62) laid  20182 capped_eps 6
+  s483920 #38  river        target   1584 bld   262 housed  84.7%  165/1000 (0.74) laid   3598 capped_eps 0
+  s246371 #2   river        target  20000 bld  3508 housed  82.1%  175/1000 (0.79) laid  18004 capped_eps 8
+  s483920 #5   river        target  20000 bld  4008 housed  93.4%  200/1000 (0.90) laid  24659 capped_eps 6
+  s483920 #11  river        target  18644 bld  3750 housed  95.4%  201/1000 (0.90) laid  22847 capped_eps 7
+  s483920 #4   river        target  20000 bld  4058 housed  94.5%  203/1000 (0.91) laid  22868 capped_eps 6
+  s246371 #31  river        target  20000 bld  4070 housed  91.4%  204/1000 (0.91) laid  20807 capped_eps 7
+  s246371 #1   river        target  20000 bld  4116 housed  96.2%  206/1000 (0.92) laid  22790 capped_eps 6
+  s483920 #1   river        target  20000 bld  4136 housed  96.6%  207/1000 (0.93) laid  22271 capped_eps 7
+  s912345 #9   river        target   2003 bld   416 housed 100.4%  208/1000 (0.93) laid   4388 capped_eps 0

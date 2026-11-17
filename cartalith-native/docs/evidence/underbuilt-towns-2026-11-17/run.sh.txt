@@ -1,0 +1,5 @@
+#!/bin/bash
+# run.sh gw gh towns [extra env...]
+E=C:/cw/underbuilt_target/debug/deps/cartalith_godot-79b8946b4ca0e1d8.exe
+export UB_DIAG=1 TOWN_RIVER_VILLAGES=1 UB_DIR=C:/cw/underbuilt_scratch/census
+TOWN_RIVER_GW=$1 TOWN_RIVER_GH=$2 UB_TOWNS=$3 $E underbuilt_diag --ignored --nocapture 2>&1 | grep -E "^===|GROW|passes|^  ep|BRIDGE|FARBANK|ROUTES" | cut -c1-400

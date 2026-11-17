@@ -1,0 +1,81 @@
+Under-built towns, cause per town (2026-11-17). Investigation only: no product code changed.
+
+WHAT WAS RUN
+Temporary diagnostics on a throwaway worktree (diff kept as temp_diagnostics.patch.txt, never committed as code):
+refused street origins per epoch and per reason (grow), street length laid vs budget, tries used, the
+town-bridge and far-bank pass outcome, route ends, and a dump of the open-water raster. Harness: the
+census world (CPU, 800 km, villages on, app defaults), 384x288 and 2048x1311, seeds 483920 912345 246371,
+the layout the app lays (urban_riverbank on, stretch on, market_road_bank on). run.sh.txt, an.py.txt,
+banks.py.txt, plotref.py.txt reproduce the tables and plans.
+
+WHAT COULD NOT BE DONE
+The five APP-WORLD (GPU) towns (912345 #30 at 384; 483920 #8, #0, #11, 246371 #3, 912345 #0 at 2048)
+are NOT reproduced: with use_gpu on, the harness builds a world with the same town count (39) but not
+the app's towns (no town under 0.78 of the median; #30's target differs), so the app's world has inputs the
+harness does not carry. They are classed below by analogy only and need the same diagnostics run from the app
+(a probe that prints the final-pass grow table and the open-water raster). The four CENSUS towns reproduce
+exactly (246371 #7 at 384; 246371 #0, 483920 #10, 912345 #10 at 2048: census_world_under_median.txt).
+
+CAUSE THAT IS NOT THE CAUSE
+- The 2600-tries-per-epoch cap in grow, and 'short<38' picks eating 40-58 % of tries, is real (every town,
+  healthy or not, runs out of tries from epoch 3-4 and lays 12-28 km of the 42 km budget; whole_budget is off
+  in the app) but it does not separate the under-built from the rest. Ablation: 4x tries moves 246371 #7
+  8 970 -> 9 012 housed and 246371 #0 5 782 -> 8 767 (still 44 % of target). Not the cause.
+- The stretch frame: STRETCH None on all five. grow's explore minimum (d_m < 60 m): lowering to 0 moves
+  246371 #0 5 782 -> 6 536 only.
+
+CAUSE PER CENSUS TOWN (bank_split.txt, grow_diag_per_town.txt, plans/ref_*.png)
+All four are targets of 20 000 (max_rf clamps at 720 m, town_reach_m) and all four have a walled one-sided plan.
+The town's street front is a disc of 720 m round the market; 20 000 people need about all of it.
+
+ Group A, the front disc is mostly water (market on a coast or lake shore).
+  246371 #7 at 384 (coast, 45 %): disc r=720: 53 % open water, 1 % far side, 9 % outside the box margin: 37 % land.
+     1 847 buildings for 37 % land, i.e. the land is built about as densely as the healthy towns.
+  246371 #0 at 2048 (riverthrough, 29 %): market is 377 m from the river; sea to the south and east: 58 % open water,
+     9 % outside the box, 33 % land. Zero street edges south of the market (edges south of y = market+30: 0 of 427);
+     both route ends are on the north edge; the town bridge is refused (bridge point is outside the box, 790 m from
+     the market, past max_rf 720; BRIDGE none reason 3), so the far (NE) bank gets no far-bank pass.
+  483920 #10 at 2048 (riverthrough, 55 %): lake to the west: 28 % open water, 9 % box, far bank 16 % land with 27
+     buildings; near bank 47 % land with 2 232 buildings (as dense as a full disc). Far-bank pass ran
+     (bridge laid at 446 m south of the market) but laid 390 m for a budget of 0.85 x near bank: the far land
+     is a lake-shore strip.
+  This is the "market 314-344 m from the river" shape the row names: the market stands on the shore of
+  the water body that is NOT the river, so the river tells nothing about the side the town can use.
+
+ Group B, the far bank is land but not grown (market bank full, far bank empty).
+  912345 #10 at 2048 (river, 62 %): no open water. Market bank 49 % of the disc, 2 689 buildings (full);
+     far bank 42 % of the disc, 55 buildings (2 %). Healthy control 246371 #1: far bank 44 %, 1 049 buildings;
+     246371 #2: 43 %, 1 261. The river bends in a V round the market, the bridge point is 50 m from it, and
+     lay_town_bridge returns None at its "ends are dry, on opposite banks, 0.5 m past the channel" test
+     (BRIDGE none reason 4; which of its three sub-tests fails was not split out), so grow_far_bank never
+     runs (no FARBANK line); the reference's bridgehead rule (kind == river: far-bank origins only within
+     bridgehead_distance of the bridge point and with bridgehead_probability, 166 refusals) leaves the far
+     bank empty.
+
+APP-WORLD TOWNS, BY ANALOGY ONLY (not reproduced)
+ 483920 #0 and #8 at 2048 (riverthrough, 20 000 / 18 917, market 314-344 m from the river, 47-48 %): Group A.
+   Predicted; confirm by printing the open-water share of the 720 m disc.
+ 246371 #3 (2048, riverthrough, target 7 140, 52 %): max_rf is 600 m here, not 720; Group A or B undetermined.
+ 912345 #30 (384, river, 1 690, 65 %), 912345 #0 and 483920 #11 (2048, river, 60 / 63 %): Group B is the
+   likely one for the river towns (far bank empty), undetermined.
+
+ABLATION FOR THE FIX (widening the front by a factor, temp env var; not a proposed constant)
+  max_rf x       246371 #7 (384)   246371 #0 (2048)   483920 #10 (2048)
+  1.0            8 970 (45 %)      5 782 (29 %)       10 951 (55 %)
+  1.5            10 681 (53 %)     11 638 (58 %)      15 101 (76 %)
+  2.0            10 811 (54 %)     12 646 (63 %)      19 604 (98 %)
+  #7 saturates at 54 %: the box (1 700 x 1 250 m) holds only about that much land beside its water.
+
+PROPOSED FIXES (owner questions are in OUTSTANDING_WORK.md)
+ A. Scale the front by the land the disc holds: max_rf_eff = max_rf / sqrt(land share of the 720 m disc),
+    capped (default x1.6), only where the share is under 0.8. Moves: only water-clipped towns (3 of the 4 under-built census towns; the other
+    32 big towns at 2048 and 35 at 384 untouched, byte-identical by control flow. Goes through
+    DECISIONS.md section 7p (a re-baseline of those towns' layout pins) and needs an owner ruling.
+    Limit shown by the ablation: a town whose box is mostly water (246371 #7) stays near 54 %.
+ B. Let the town bridge look for a crossing: when lay_town_bridge's point fails (reason 3 or 4), try the
+    nearest centreline vertices within max_rf with both ends valid, instead of giving up. Moves: only
+    both-banks towns whose bridge is refused today (about 40 of 60 had none before FB: town-housing evidence).
+ C. Accept it: a town whose site cannot hold its target is reported at its real size (a note on the card), and
+    its population is unchanged. Moves nothing generated.
+ D. (Both groups) A size-aware cap: clamp pop_target for layout to the disc's capacity so the housed share
+    reads 100 %. Moves the population shown for those towns only (the settlement's own pop is untouched).

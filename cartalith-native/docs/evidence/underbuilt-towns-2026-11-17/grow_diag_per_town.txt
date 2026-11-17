@@ -1,0 +1,80 @@
+=== seed 246371 #0 gw 2048 riverthrough pop 5782/20000 bld 1188 wall true
+ROUTES [(628.0, 0.0), (1624.0, 0.0)] bridge Some((1179.0, -95.0)) harbour Some((1107.0, -22.0))
+passes 2
+GROW kind=riverthrough box 1700x1250 market (824,610) riverdist 377 edges L824 R876 T610 B640 bridge Some((1179.0, -95.0)) river_w 38 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    4377 tries 2600 maxR 329 | made=82 short<38=777 d>maxR=150 expl_rng=104 gradient=5 hit<18=18 sliver=4 box=152 water=50 parallel=70 | far-bank: made=32 hit<18=10 sliver=3 box=152 water=17 parallel=14
+  ep 2 budget    5250 laid    1531 tries 2600 maxR 385 | made=35 short<38=989 d>maxR=141 expl_rng=46 gradient=11 hit<18=20 sliver=4 box=77 water=27 parallel=51 | far-bank: made=27 hit<18=6 sliver=2 box=77 water=7 parallel=24
+  ep 3 budget    5250 laid    1379 tries 2600 maxR 441 | made=25 short<38=1136 d>maxR=93 expl_rng=37 gradient=10 hit<18=22 sliver=2 box=68 water=33 parallel=35 | far-bank: made=19 hit<18=9 sliver=1 box=68 water=9 parallel=20
+  ep 4 budget    5250 laid     997 tries 2600 maxR 497 | made=21 short<38=1229 d>maxR=59 expl_rng=29 gradient=11 hit<18=10 sliver=1 box=57 water=21 parallel=29 | far-bank: made=17 hit<18=4 sliver=1 box=57 water=4 parallel=15
+  ep 5 budget    5250 laid     829 tries 2600 maxR 553 | made=17 short<38=1252 d>maxR=61 expl_rng=19 gradient=14 hit<18=18 sliver=5 box=41 water=25 wall=10 parallel=24 | far-bank: made=14 hit<18=15 sliver=4 box=41 water=7 wall=8 parallel=13
+  ep 6 budget    5250 laid     607 tries 2600 maxR 608 | made=13 short<38=1340 d>maxR=43 expl_rng=14 wall_prim=1 gradient=29 hit<18=15 box=50 water=21 wall=14 parallel=34 | far-bank: made=13 hit<18=9 box=50 water=4 wall=8 parallel=21
+  ep 7 budget    5250 laid     670 tries 2600 maxR 664 | made=13 short<38=1467 d>maxR=43 expl_rng=5 wall_prim=9 gradient=22 hit<18=12 box=32 water=16 wall=11 parallel=24 | far-bank: made=11 hit<18=10 box=32 water=4 wall=8 parallel=23
+  ep 8 budget    5250 laid     999 tries 2600 maxR 720 | made=20 short<38=1457 d>maxR=63 expl_rng=5 wall_prim=3 gradient=30 hit<18=11 sliver=3 box=37 water=15 wall=5 parallel=23 | far-bank: made=18 hit<18=8 sliver=3 box=37 water=4 wall=3 parallel=19
+BRIDGE none reason 3 bp Some(Vec2 { x: 1179.2410714285713, y: -94.86607142857133 }) market Vec2 { x: 824.0192378864668, y: 610.0 }
+=== seed 483920 #10 gw 2048 riverthrough pop 10951/20000 bld 2259 wall true
+ROUTES [(1700.0, 1022.0), (0.0, 527.0), (1008.0, 0.0)] bridge Some((906.0, 1071.0)) harbour Some((850.0, 992.0))
+passes 2
+GROW kind=riverthrough box 1700x1250 market (880,625) riverdist 30 edges L880 R820 T625 B625 bridge Some((906.0, 1071.0)) river_w 31 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    5266 tries 1398 maxR 329 | made=101 short<38=453 d>maxR=43 expl_rng=38 gradient=6 hit<18=37 sliver=1 box=5 water=23 parallel=57 | far-bank:
+  ep 2 budget    5250 laid    3565 tries 2600 maxR 385 | made=73 short<38=1105 d>maxR=98 expl_rng=34 gradient=20 hit<18=37 sliver=1 box=9 water=32 parallel=81 | far-bank:
+  ep 3 budget    5250 laid    2934 tries 2600 maxR 441 | made=62 short<38=1200 d>maxR=92 expl_rng=23 gradient=20 hit<18=26 sliver=2 box=5 water=23 parallel=77 | far-bank:
+  ep 4 budget    5250 laid    1951 tries 2600 maxR 497 | made=37 short<38=1276 d>maxR=60 expl_rng=15 gradient=38 hit<18=21 sliver=2 box=2 water=12 parallel=77 | far-bank:
+  ep 5 budget    5250 laid    1321 tries 2600 maxR 553 | made=28 short<38=1301 d>maxR=42 expl_rng=12 wall_prim=21 gradient=40 hit<18=12 sliver=4 water=8 wall=7 parallel=59 | far-bank:
+  ep 6 budget    5250 laid    1177 tries 2600 maxR 608 | made=25 short<38=1372 d>maxR=20 expl_rng=8 wall_prim=23 gradient=43 hit<18=13 water=11 wall=9 parallel=63 | far-bank:
+  ep 7 budget    5250 laid     508 tries 2600 maxR 664 | made=13 short<38=1486 d>maxR=13 expl_rng=3 wall_prim=19 gradient=45 hit<18=14 sliver=2 water=7 wall=9 parallel=45 | far-bank:
+  ep 8 budget    5250 laid     568 tries 2600 maxR 720 | made=15 short<38=1473 d>maxR=13 expl_rng=2 wall_prim=18 gradient=36 hit<18=11 sliver=3 water=10 wall=7 parallel=58 | far-bank:
+BRIDGE laid
+FARBANK share 0.85 laid 390 centre Vec2 { x: 883.5297078211953, y: 1093.702435035948 }
+=== seed 912345 #10 gw 2048 river pop 12418/20000 bld 2744 wall true
+ROUTES [(1700.0, 719.0), (0.0, 1169.0)] bridge Some((850.0, 665.0)) harbour Some((811.0, 664.0))
+passes 12
+GROW kind=river box 1700x1250 market (880,625) riverdist 30 edges L880 R820 T625 B625 bridge Some((850.0, 665.0)) river_w 31 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    5311 tries 1025 maxR 329 | made=93 short<38=344 d>maxR=9 expl_rng=34 bridge_d=12 bridge_p=13 gradient=4 hit<18=7 sliver=4 water=22 parallel=52 | far-bank: made=4 sliver=1 parallel=1
+  ep 2 budget    5250 laid    5264 tries 1723 maxR 385 | made=97 short<38=707 d>maxR=34 expl_rng=23 bridge_d=9 bridge_p=13 gradient=14 hit<18=16 water=18 parallel=82 | far-bank: made=1 hit<18=1 parallel=2
+  ep 3 budget    5250 laid    4479 tries 2600 maxR 441 | made=82 short<38=1148 d>maxR=38 expl_rng=13 bridge_d=24 bridge_p=7 gradient=45 hit<18=32 sliver=5 box=1 water=21 parallel=101 | far-bank: made=1 parallel=2
+  ep 4 budget    5250 laid    3397 tries 2600 maxR 497 | made=76 short<38=1229 d>maxR=21 expl_rng=1 bridge_d=29 bridge_p=4 gradient=69 hit<18=19 sliver=4 box=5 water=9 parallel=85 | far-bank: made=1 parallel=1
+  ep 5 budget    5250 laid     708 tries 2600 maxR 553 | made=18 short<38=1298 d>maxR=3 expl_rng=4 bridge_d=22 bridge_p=2 wall_prim=157 gradient=22 hit<18=11 sliver=5 water=6 wall=12 parallel=35 | far-bank: parallel=2
+  ep 6 budget    5250 laid     334 tries 2600 maxR 608 | made=8 short<38=1358 expl_rng=7 bridge_d=22 bridge_p=2 wall_prim=153 gradient=27 hit<18=5 sliver=1 water=1 wall=11 parallel=25 | far-bank: parallel=1
+  ep 7 budget    5250 laid     397 tries 2600 maxR 664 | made=10 short<38=1414 expl_rng=1 bridge_d=22 bridge_p=1 wall_prim=160 gradient=12 hit<18=6 water=5 wall=6 parallel=21 | far-bank: parallel=2
+  ep 8 budget    5250 laid     292 tries 2600 maxR 720 | made=6 short<38=1486 bridge_d=26 bridge_p=2 wall_prim=148 gradient=15 hit<18=5 water=4 wall=2 parallel=16 | far-bank: made=1
+BRIDGE none reason 4 bp Some(Vec2 { x: 850.0, y: 664.8596938775511 }) market Vec2 { x: 880.0, y: 625.0 }
+=== seed 246371 #2 gw 2048 river pop 16411/20000 bld 3508 wall true
+ROUTES [(1230.0, 0.0), (960.0, 1250.0), (0.0, 625.0)] bridge Some((1196.0, 580.0)) harbour Some((1209.0, 625.0))
+passes 12
+GROW kind=river box 1700x1250 market (850,655) riverdist 21 edges L850 R850 T655 B595 bridge Some((1196.0, 580.0)) river_w 38 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    4711 tries 2600 maxR 329 | made=87 short<38=942 d>maxR=56 expl_rng=90 bridge_d=171 bridge_p=63 gradient=15 hit<18=23 sliver=1 water=66 parallel=61 | far-bank: made=18 hit<18=4 water=2 parallel=15
+  ep 2 budget    5250 laid    4826 tries 2600 maxR 385 | made=93 short<38=1086 d>maxR=29 expl_rng=38 bridge_d=83 bridge_p=26 gradient=31 hit<18=25 water=34 parallel=60 | far-bank: water=1 parallel=4
+  ep 3 budget    5250 laid    2902 tries 2600 maxR 441 | made=57 short<38=1180 d>maxR=45 expl_rng=29 bridge_d=56 bridge_p=19 gradient=33 hit<18=18 sliver=6 water=19 parallel=67 | far-bank: made=4 hit<18=3 water=1 parallel=3
+  ep 4 budget    5250 laid    3460 tries 2600 maxR 497 | made=69 short<38=1257 d>maxR=24 expl_rng=14 bridge_d=66 bridge_p=13 gradient=45 hit<18=16 sliver=1 box=4 water=22 parallel=78 | far-bank: made=4 water=1 parallel=4
+  ep 5 budget    5250 laid     782 tries 2600 maxR 553 | made=17 short<38=1314 d>maxR=8 expl_rng=7 bridge_d=60 bridge_p=15 wall_prim=161 gradient=19 hit<18=7 water=11 wall=6 parallel=19 | far-bank: made=2 water=2 parallel=3
+  ep 6 budget    5250 laid     611 tries 2600 maxR 608 | made=14 short<38=1312 d>maxR=1 expl_rng=3 bridge_d=62 bridge_p=15 wall_prim=136 gradient=20 hit<18=11 sliver=1 water=4 wall=6 parallel=23 | far-bank: made=1 water=1 parallel=4
+  ep 7 budget    5250 laid     395 tries 2600 maxR 664 | made=8 short<38=1394 expl_rng=5 bridge_d=60 bridge_p=5 wall_prim=136 gradient=20 hit<18=7 sliver=1 water=7 wall=4 parallel=12 | far-bank: made=2 hit<18=1 parallel=4
+  ep 8 budget    5250 laid     317 tries 2600 maxR 720 | made=7 short<38=1502 d>maxR=1 expl_rng=5 bridge_d=63 bridge_p=18 wall_prim=118 gradient=19 hit<18=4 water=6 wall=12 parallel=18 | far-bank: made=5 water=2 parallel=2
+BRIDGE laid
+FARBANK share 0.98 laid 9581 centre Vec2 { x: 1220.7308801986721, y: 555.6084055156138 }
+=== seed 246371 #1 gw 2048 river pop 19245/20000 bld 4116 wall true
+ROUTES [(886.0, 1250.0), (0.0, 439.0), (1700.0, 629.0)] bridge Some((822.0, 653.0)) harbour Some((895.0, 580.0))
+passes 6
+GROW kind=river box 1700x1250 market (880,625) riverdist 21 edges L880 R820 T625 B625 bridge Some((822.0, 653.0)) river_w 38 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    5259 tries 1030 maxR 329 | made=94 short<38=327 d>maxR=23 expl_rng=27 bridge_d=2 gradient=22 hit<18=11 sliver=2 water=10 parallel=66 | far-bank:
+  ep 2 budget    5250 laid    5294 tries 1902 maxR 385 | made=100 short<38=758 d>maxR=33 expl_rng=10 gradient=41 hit<18=14 sliver=2 water=13 parallel=83 | far-bank:
+  ep 3 budget    5250 laid    3961 tries 2600 maxR 441 | made=85 short<38=1183 d>maxR=42 expl_rng=5 bridge_d=3 gradient=39 hit<18=20 box=2 water=12 parallel=56 | far-bank:
+  ep 4 budget    5250 laid    4091 tries 2600 maxR 497 | made=72 short<38=1249 d>maxR=33 expl_rng=10 bridge_d=1 gradient=41 hit<18=17 sliver=3 box=4 water=17 parallel=49 | far-bank:
+  ep 5 budget    5250 laid     711 tries 2600 maxR 553 | made=16 short<38=1275 d>maxR=15 expl_rng=2 bridge_d=7 wall_prim=52 gradient=67 hit<18=9 sliver=5 water=4 wall=12 parallel=48 | far-bank:
+  ep 6 budget    5250 laid    1307 tries 2600 maxR 608 | made=29 short<38=1344 d>maxR=3 expl_rng=2 bridge_d=3 wall_prim=62 gradient=63 hit<18=23 box=1 water=4 wall=5 parallel=46 | far-bank:
+  ep 7 budget    5250 laid    1103 tries 2600 maxR 664 | made=23 short<38=1389 d>maxR=5 bridge_d=5 wall_prim=68 gradient=55 hit<18=14 box=1 water=3 wall=8 parallel=53 | far-bank:
+  ep 8 budget    5250 laid    1064 tries 2600 maxR 720 | made=20 short<38=1473 d>maxR=3 bridge_d=5 wall_prim=61 gradient=46 hit<18=10 sliver=2 water=3 wall=13 parallel=43 | far-bank:
+BRIDGE laid
+FARBANK share 0.40 laid 9057 centre Vec2 { x: 797.3494769441851, y: 628.1530483727566 }
+=== seed 246371 #7 gw 384 coast pop 8970/20000 bld 1847 wall true
+ROUTES [(1600.0, 0.0), (0.0, 625.0)] bridge None harbour Some((869.0, 671.0))
+passes 1
+GROW kind=coast box 1700x1250 market (850,625) riverdist 50 edges L850 R850 T625 B625 bridge None river_w 12 target_len 42000 epochs 8 max_rf 720 whole_budget false wide false
+  ep 1 budget    5250 laid    5251 tries 2571 maxR 329 | made=99 short<38=1046 d>maxR=130 expl_rng=64 gradient=1 hit<18=10 sliver=1 water=21 parallel=90 | far-bank: water=2
+  ep 2 budget    5250 laid    1362 tries 2600 maxR 385 | made=28 short<38=1188 d>maxR=94 expl_rng=57 gradient=4 hit<18=13 water=12 parallel=75 | far-bank: water=2
+  ep 3 budget    5250 laid    2016 tries 2600 maxR 441 | made=36 short<38=1263 d>maxR=96 expl_rng=40 gradient=12 hit<18=13 sliver=2 water=7 parallel=76 | far-bank:
+  ep 4 budget    5250 laid    1272 tries 2600 maxR 497 | made=26 short<38=1327 d>maxR=55 expl_rng=14 gradient=16 hit<18=10 sliver=4 water=9 parallel=62 | far-bank: water=2
+  ep 5 budget    5250 laid     855 tries 2600 maxR 553 | made=21 short<38=1369 d>maxR=61 expl_rng=9 wall_prim=12 gradient=16 hit<18=8 water=9 wall=9 parallel=54 | far-bank: water=1
+  ep 6 budget    5250 laid     766 tries 2600 maxR 608 | made=17 short<38=1448 d>maxR=37 expl_rng=16 wall_prim=17 gradient=23 hit<18=6 water=1 wall=14 parallel=43 | far-bank:
+  ep 7 budget    5250 laid     477 tries 2600 maxR 664 | made=11 short<38=1489 d>maxR=37 expl_rng=6 wall_prim=13 gradient=33 hit<18=7 water=6 wall=9 parallel=34 | far-bank: water=1
+  ep 8 budget    5250 laid     522 tries 2600 maxR 720 | made=10 short<38=1519 d>maxR=31 expl_rng=3 wall_prim=12 gradient=20 hit<18=4 sliver=1 water=4 wall=16 parallel=29 | far-bank: water=1
