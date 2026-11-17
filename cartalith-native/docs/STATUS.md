@@ -15,6 +15,11 @@ become a second changelog and mis-stamped itself 2026-08-25.
 
 ---
 
+**Ruling FV: industrial budget factor floored at 0.67 on brackets 5 and 6, built (2026-11-17; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.14).** Opened at the symbols first: `manpower_with_levy_bonus`'s `budget_ecology`, `INDUSTRIAL_UPKEEP_FIRST_BRACKET`.
+- **Built.** `INDUSTRIAL_BUDGET_ECOLOGY_FLOOR` 0.67 (fitted to the bar, labelled): chain 1 reads `max(E, 0.67)` on brackets 5-6 only. No §7p switch.
+- **Reproduced.** Industrial sweep 253 / 1 / 36 (was 121 / 1 / 168); grid era-13 262 740 / 0 / 20 284; 0 unordered; industrial hash `0xb982324cf21769af` -> `0x023027c8b7699f14`, the other five bit-identical; `G1_0`, `fh_r2`, Kingdom A/B unmoved. 6 mutants killed (floor x2, gate x3, max -> min).
+- **Superseded:** item 2's "nothing built" below: the floor is candidate A of that section.
+
 **Ruling FU item 2: the industrial below-band majority, measured first, nothing built (2026-11-17, `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.12-§10.13).** Opened at the symbols first: `manpower_with_levy_bonus`'s `budget_ecology`, `ECOLOGICAL_FLOOR`, `era_for`. Product code unchanged.
 - **Measured at `b32b9116`.** Industrial sweep 121 / 1 / 168 within / above / below (164 below before C3). All 168 have E < 1 (117 on the 0.25 clamp) and all 168 clear the band's lower edge with the ecological factor out of chain 1; the field army and levy cannot cause it. The same reading is below band on every pre-industrial row (161 / 141 / 135 / 152), so it is Ruling DE C1's design met by a band calibrated at E = 1, not an industrial defect.
 - **Candidates scored (sweep, 284 240-reading grid):** A gated floor 0.67 (36 below; grid 20 284), B gated E^0.5 (138; 18 992), C verdict wording only (no number moves); none moves a world at the default base technology. Owner questions Q16-Q20 with defaults are in §10.13.

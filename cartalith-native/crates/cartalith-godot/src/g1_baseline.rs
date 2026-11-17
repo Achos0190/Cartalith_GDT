@@ -891,6 +891,9 @@ fn ea0_ecological_ordering_diagnostic() {
     // RE-RECORDED 2026-11-17 under Ruling FU's C3 (the industrial upkeep follows the fee on brackets 5 and 6): ONLY the
     // sixth hash (`industrial`) moved, 0xfd92dc8c3684a768 -> 0xb982324cf21769af; the five others are bit-identical
     // (earlyIndustrial is bracket 4, so by control flow). That the five held is the positive control.
+    // RE-RECORDED 2026-11-17 under Ruling FV (the industrial budget factor floored at 0.67 on brackets 5 and 6): ONLY the
+    // sixth hash moved, 0xb982324cf21769af -> 0x023027c8b7699f14; the five others are bit-identical (control flow), and the
+    // default-governments triple, `G1_0` and the forced-form counts are unchanged.
     // RE-RECORDED 2026-11-16 (Ruling FK's `civ.port_reach` moved two worlds; the model did not; with it forced off
     // every count and hash here held; see `G1_0`'s note): the six before, in order: 0xa0e2ad76e5968a5b,
     // 0x7f0bf827c95e4dd5, 0x966146d98cf089f6, 0x786092b2766d3ff5, 0xf709b7c481b8a116, 0xd2016974fae5327d. Every
@@ -904,7 +907,7 @@ fn ea0_ecological_ordering_diagnostic() {
             0x937338a15ca8d3e9,
             0x48e60129b69425e9,
             0xdb810a7aff1bfe26,
-            0xb982324cf21769af,
+            0x023027c8b7699f14,
         ],
         "ag-tech sweep manpower hashes"
     );
@@ -913,11 +916,11 @@ fn ea0_ecological_ordering_diagnostic() {
     // restated (Q4 named the two unreachable cells); `industrial` reads its
     // restated 15-25 % band (Ruling DL Q4).
     // The industrial row's standing verdicts (within, above, below) under Ruling FU's C3, the sweep column of
-    // `ECOLOGICAL_ARMY_TERM_SCOPE.md` section 10.9.3 (121 / 1 / 168; 98 / 28 / 164 before). The one "above" is the
+    // `ECOLOGICAL_ARMY_TERM_SCOPE.md` section 10.9.3 (253 / 1 / 36 under Ruling FV's floor; 121 / 1 / 168 under C3 alone; 98 / 28 / 164 before). The one "above" is the
     // `Modern mechanized` reading, a band-edge discontinuity in `era_for` (Q15), not an ordering failure.
     assert_eq!(
         (sweep[5].within, sweep[5].above, sweep[5].below),
-        (121, 1, 168),
+        (253, 1, 36),
         "industrial standing verdicts"
     );
     let mob = |t: &Tally| (t.mob_within, t.mob_above, t.mob_below);

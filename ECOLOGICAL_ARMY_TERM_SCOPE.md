@@ -848,6 +848,16 @@ The ordering holds on all candidates because the floor is at most 1 and the `E =
 | **Q19** | Gate: brackets 5 and 6 only (as C3), or bracket 4 (`earlyIndustrial`, 152 below, 36 with the same floor) as well? | **5 and 6 only**, for continuity with C3; bracket 4's argument is weaker (early railways, not yet an importer) and it would move a row that is bit-identical today |
 | **Q20** | Should the same question be put for the pre-industrial rows (161, 141, 135, 152 below)? | **No.** Ruling DE C1 chose the linear arm there for a measured reason (59 standing armies above the field army their levy could concentrate); lifting it would reopen that ordering. Its own row if the owner wants it |
 
+### 10.14 Ruling FV: candidate A built (2026-11-17)
+
+**Built** (`manpower.rs`, `manpower_with_levy_bonus`): on `alpha_bracket >= INDUSTRIAL_UPKEEP_FIRST_BRACKET` (brackets 5 and 6) the `E <= 1` arm of `budget_ecology` is `max(E, INDUSTRIAL_BUDGET_ECOLOGY_FLOOR)`, with the floor 0.67. Other brackets keep `E` by control flow; `E > 1` is unchanged. **0.67 is fitted to the bar and says so** (0.667 is the factor at which the band's centre reaches its 5 % edge, rounded; the import argument is recalled, not verified). No §7p switch (port-only).
+
+**Reproduced against §10.12's scored numbers:** industrial sweep **253 / 1 / 36**; grid era-13 **262 740 / 0 / 20 284**; grid unordered **0** (all from the model's own readings, pinned).
+
+**Re-pinned, reason in each test:** the grid era-13 triple (248 624 / 0 / 34 400 -> 262 740 / 0 / 20 284); the `ea0_` industrial verdict triple (121 / 1 / 168 -> 253 / 1 / 36) and hash (`0xb982324cf21769af` -> `0x023027c8b7699f14`). **Bit-identical:** the five other sweep hashes, the default-governments triple, the forced-form counts; `G1_0`, `fh_r2` and Kingdom A/B unmoved (no generated faction is on bracket 5 or 6; the worked examples sit at E 1 or on pre-industrial rows). New test `industrial_budget_factor_is_floored_at_067_on_brackets_5_and_6_only` (ratios as literals, pre-industrial rows keep the linear arm).
+
+**Mutants, all killed** (Python, restored in a `finally`): floor 0.67 -> 0.6 and 0.8; gate `>= 5` -> `>= 4`, `>= 6`, `> 5`; `max` -> `min`.
+
 #### Evidence
 
 `cartalith-native/docs/evidence/industrial-army-2026-11-17/`: `ea0_run.log` (the existing `ea0_` diagnostic, passing), `ia_dump_run.log` (300 `IA row` and 300 `IA default` lines), `driver_space_run.log` (the grid), `analyse.py` and `analyse_out.txt` (the re-pricing, with its control). Code, ignored and pinning nothing: `g1_baseline.rs` `ia_dump_industrial_rows`; `cartalith-civ/tests/industrial_army_driver_space.rs`. Commands, each run alone:

@@ -263,6 +263,21 @@ pub const INDUSTRIAL_UPKEEP_FIRST_BRACKET: usize = 5;
 /// section 10.9, not a citation.
 pub const INDUSTRIAL_UPKEEP_REFERENCE_FEE: f64 = 0.09056;
 
+/// The least a bracket-5-or-6 (industrial) economy's budget factor can read:
+/// **0.67**, so chain 1's `g(E) = min(E, 1)` becomes `max(E, 0.67)` there
+/// (Ruling FV, owner, 2026-11-17: an industrial state is less bound by its own
+/// land, since it imports food and sells manufactures).
+///
+/// **A fitted number, not a sourced one** (Ruling BK): 0.667 is the factor at
+/// which a polity centred in the 5-10 % standing band reaches the band's 5 %
+/// lower edge (5 / 7.5), rounded. Its only support is
+/// `ECOLOGICAL_ARMY_TERM_SCOPE.md` section 10.12; the import argument is
+/// recalled, not verified. Gated on [`INDUSTRIAL_UPKEEP_FIRST_BRACKET`], so
+/// brackets 0..=4 take the pre-ruling expression by control flow. Only
+/// `E < 1` readings move; the field army and the levy do not read this.
+/// Port-only model, no `section 7p` switch.
+pub const INDUSTRIAL_BUDGET_ECOLOGY_FLOOR: f64 = 0.67;
+
 /// The exponent of the industrial upkeep's fee term: **0.5**, **fitted to the
 /// bar, not sourced** (Ruling FU, `ECOLOGICAL_ARMY_TERM_SCOPE.md` section
 /// 10.9). Measured on the 284 240-reading driver-space grid, 0.25 leaves 117
@@ -1482,7 +1497,15 @@ fn manpower_with_levy_bonus(input: &ManpowerInput, levy_bonus: Option<f64>) -> M
     // arm is the pre-ruling expression, untouched by control flow, so every
     // land-poor faction's standing army is bit-identical to before.
     let e = d.ecological_factor;
-    let budget_ecology = if e > 1.0 { e.powf(BUDGET_ECOLOGY_EXPONENT) } else { e };
+    // Ruling FV: on the industrial brackets the budget factor is floored at
+    // INDUSTRIAL_BUDGET_ECOLOGY_FLOOR (max, not min: it raises E < 1 readings).
+    let budget_ecology = if e > 1.0 {
+        e.powf(BUDGET_ECOLOGY_EXPONENT)
+    } else if alpha_bracket(d.agricultural_labour_ratio) >= INDUSTRIAL_UPKEEP_FIRST_BRACKET {
+        js_max(e, INDUSTRIAL_BUDGET_ECOLOGY_FLOOR)
+    } else {
+        e
+    };
     let non_agricultural = total_pop * (1.0 - d.agricultural_labour_ratio);
     let military_budget = non_agricultural * budget_ecology * d.fiscal_extraction_efficiency;
     let standing = military_budget / d.soldier_upkeep;
@@ -2727,6 +2750,38 @@ mod tests {
         }
     }
 
+    /// Protects: Ruling FV's floor on the industrial budget factor. The
+    /// expected ratios are literals (0.67, 0.25 / 1 and 0.5 / 1), not read from
+    /// the constant: on brackets 5 and 6 a faction at E 0.25 or 0.5 reads the
+    /// standing army of E 0.67 (so 0.67x that of E 1); E 0.8 is above the floor
+    /// and keeps its linear factor; the pre-industrial `improvedAgrarian` and
+    /// `earlyIndustrial` rows (bracket 3 and 4) keep the linear arm; E above
+    /// 1 is unchanged. Mutating the floor, the gate or max -> min goes red.
+    #[test]
+    fn industrial_budget_factor_is_floored_at_067_on_brackets_5_and_6_only() {
+        let standing = |key: &str, e: f64| {
+            let f = crate::roster::civ_ag_tech_by_key(key).farmers_per_urbanite;
+            civ_military_manpower(&ManpowerInput {
+                nucleated_pop: 100_000.0,
+                farmers_per_urbanite: f,
+                land_capacity: e * 100_000.0 * (1.0 + f),
+                ..kingdom_a()
+            })
+            .standing_army
+        };
+        let ind1 = standing("industrial", 1.0);
+        for e in [0.25, 0.5, 0.67] {
+            assert!((standing("industrial", e) / ind1 - 0.67).abs() < 1e-12, "E {e}");
+        }
+        assert!((standing("industrial", 0.8) / ind1 - 0.8).abs() < 1e-12);
+        assert!((standing("industrial", 2.0) / ind1 - 1.0).abs() < 1e-12);
+        for key in ["improvedAgrarian", "earlyIndustrial", "traditionalAgrarian"] {
+            let one = standing(key, 1.0);
+            assert!((standing(key, 0.25) / one - 0.25).abs() < 1e-12, "{key}");
+            assert!((standing(key, 0.5) / one - 0.5).abs() < 1e-12, "{key}");
+        }
+    }
+
     /// Protects: [`INDUSTRIAL_UPKEEP_REFERENCE_FEE`] is what it says -- the
     /// geometric mean of the fee over bracket 5's derivation set (eight
     /// reference governments but `none` x capital reach 0..1 by 0.1, E 1,
@@ -3063,7 +3118,12 @@ mod tests {
         // above, 34 400 below (before: 202 572 / 20 720 / 59 732). Not
         // asserted against a constant: the verdict is the model's own
         // comparison of its standing share with the era table's band.
-        assert_eq!(era13, (248_624, 0, 34_400), "industrial era-13 standing verdicts on the grid");
+        // RE-PINNED 2026-11-17 under Ruling FV: 248 624 / 0 / 34 400 -> 262 740 / 0
+        // 20 284. The industrial budget factor is floored at 0.67, so E < 1
+        // readings read more standing army; 14 116 leave "below", none cross
+        // "above", and the unordered count stays 0 (the field army does not
+        // read E below 1).
+        assert_eq!(era13, (262_740, 0, 20_284), "industrial era-13 standing verdicts on the grid");
         assert!(improved_l_max > 0.15 && improved_l_max < 0.20, "{improved_l_max}");
         // The empty case is its own answer, and a NaN headcount is not ordered.
         assert_eq!(ManpowerOrder::of(0.0, 0.0, 0.0, 0.0), ManpowerOrder::Empty);

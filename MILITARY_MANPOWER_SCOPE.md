@@ -413,6 +413,11 @@ standing soldier costs the treasury, in subsistence-equivalents.
 > still holds, because the term preserves the set's geometric mean. Brackets 0-4 are flat in the fee by
 > control flow. Port-only, so no §7p switch. See `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.11.
 
+> **Ruling FV (owner, 2026-11-17): the industrial budget factor is floored.** On brackets 5 and 6
+> chain 1's ecological factor reads `max(E, 0.67)` below 1 (an industrial state imports food and is less
+> bound by its land); 0.67 is fitted to the standing band's lower edge, labelled as such. Other brackets
+> keep the linear arm of Ruling DE C1. See `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.14.
+
 > **Until 2026-09-23 this was one constant, `SOLDIER_UPKEEP = 3.0`** (Roman
 > legionary pay against a subsistence wage). Owner ruling AI, option (c),
 > replaced it with one value per `era_for` α-bracket,
