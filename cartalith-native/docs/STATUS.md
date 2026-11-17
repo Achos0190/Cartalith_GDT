@@ -197,6 +197,10 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Ruling GD, the chronos timeline: DESIGN WRITTEN, nothing built (2026-11-17)
+
+`CHRONOS_TIMELINE_DESIGN.md` at the repository root. Read at the symbols (`chronos::parse`, `entity_chronos`, `add_chronos_event`, `tl_selection_events`, `tl_conflict_spans`, `PlaceExtras::founded`, `Conflict`, `Journey`, `OwnershipSpan`, `TimelineSnapshot`, `private::is_private`) and written without running any test. It recommends a consolidated view on the existing strip (option a) over making chronos the primary timeline (option b), and sets out recognition rules, the per-timeline prompt, saves and milestones CT-0..CT-9. No product code, save format or golden changed; the build waits on the owner's answers.
+
 ### Tablet brush edge sliders (2026-11-17, owner request; `MAP_CONTEXT_SCOPE.md` s.7.3, fork F5b): BUILT, GDScript only, probed windowed on tablet, desktop and phone, 8 literal mutants killed, frames looked at
 
 Opened at the symbols first: `tool_bar.gd` (the sculpt row's `brush_size`/`intensity`, paint's `Size`), `world_workspace.gd::_paint_brush`, `colour_paint_tool.gd`, `llm_region.gd`, `viewport_host.gd::_on_map`/`MAP_CHROME_META`, the scale bar's `_apply_hand()` edge choice.
