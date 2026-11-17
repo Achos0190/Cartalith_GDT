@@ -244,3 +244,28 @@ breakpoint — all on direction 1a.
 > **Port note.** This list is the design project's own to-do for the mockup as
 > of 2026-08-19, not a record of what the port has built — that is
 > `STATUS.md`'s.
+
+## 11 · Build note: the touch crosshair (2026-11-17, owner 2026-11-16)
+
+On the touch forms (phone, tablet) the planner has a second way to place stops, built from the owner's *"maybe it's easier to
+use a crosshair system for the journey planner on android to drop waypoints and then commit the journey"*. **Desktop is
+unchanged** (it clicks: the context card, the Route tool, PC-8's Start here / Add as stop / End here).
+
+- **Entry.** The planner's Journeys section carries **Drop waypoints with a crosshair** at its top on the touch forms
+  (`JourneyPlannerView._touch_crosshair_wanted()`, `start_crosshair()`); the empty-route note names it.
+- **The mode** is `shell/journey_crosshair.gd`: the planner steps aside (Inspect is armed, as every route back to the map does),
+  the map shows a fixed crosshair at the centre of the map view and a four-button bar anchored to the bottom edge (44 UI units
+  tall each, capped at 640 wide on a tablet, nowhere near the crosshair): **Add start** then **Add waypoint**, **Undo last**,
+  **Commit journey** (disabled below two waypoints), **Cancel** (gives the planner back, adds no route). The map pans and zooms
+  under it as ever. A second Add on the same spot (under 0.75 cell) is refused.
+- **One route model.** Commit calls `JourneyPlannerView.commit_waypoints()`, which is `_commit_stops()`: `route_begin("mixed")`,
+  `route_append_stop` for each, `route_commit`, the same three calls End here and the Route tool make, then
+  `open_journey_planner_with_route()`. The probe compares the committed route's length with the Route tool's calls on the same
+  stops (273.31 km both).
+- **Live route: not built, by measurement.** The only call that solves a route is `route_commit` (the draft holds points), so a
+  live preview is a commit followed by a delete on every press. Measured 2026-11-17 on the windowed harness, 512x384, three
+  waypoints, five runs: 188 to 208 ms, median 189 ms (a single solve earlier in the session read 110 ms), and the cost is the route-input build per call, not the legs. That is over
+  ten frames per press on this PC and more on a phone, so the preview is straight legs between numbered waypoints and the route
+  is computed once, on commit. Revisit if the engine gains a draft solve that reuses its inputs.
+- **Probe.** `_pf_probe.gd --leg cross` on the phone (1080x2340, density 2.625), the tablet (1700x1000, density 1.0) and the
+  desktop (1600x900, no crosshair offered).

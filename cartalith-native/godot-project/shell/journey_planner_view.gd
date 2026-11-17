@@ -3,6 +3,8 @@ class_name JourneyPlannerView
 
 ## The one route name (Ruling FO item 2): "Route N" from 1, a typed name wins.
 const RouteName := preload("res://shell/route_name.gd")
+## The touch forms' crosshair for dropping waypoints (`journey_crosshair.gd`; no `class_name`, so no import pass).
+const CROSSHAIR := preload("res://shell/journey_crosshair.gd")
 
 ## The Journey Planner as an in-shell tool takeover -- `JOURNEY_PLANNER_SPEC.md`'s
 ## direction 1a (distance spine), replacing the old `journey_planner_window.gd`
@@ -499,9 +501,41 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 ## freeing the view (`DccApp._unmount_app_composition()`) would leave both behind, one more of each per mount.
 ## `queue_free()`, because the tree is locked while this runs.
 func _exit_tree() -> void:
-	for n in [_window, _route_map_layer_popup]:
+	for n in [_window, _route_map_layer_popup, _crosshair]:
 		if n != null and is_instance_valid(n) and (n as Node).get_parent() != null:
 			(n as Node).queue_free()
+
+## The crosshair mode's control (`journey_crosshair.gd`), built on first use, a child of the app so it floats over the map the
+## planner hands back. Null until a touch form first asks for it.
+var _crosshair: Control = null
+
+## True where waypoints are dropped with the fixed crosshair: the touch forms (phone, tablet), which keep the planner as a
+## swap that covers the map. The desktop clicks (the context card, the Route tool, PC-8's Start here / Add as stop / End
+## here), and its planner window leaves the map live, so it is never offered the crosshair.
+func _touch_crosshair_wanted() -> bool:
+	return _window == null and DccTheme.is_touch()
+
+## The crosshair control, created on demand. A probe and the button both go through it.
+func crosshair() -> Control:
+	if _crosshair == null or not is_instance_valid(_crosshair):
+		_crosshair = CROSSHAIR.new()
+		app.add_child(_crosshair)
+		_crosshair.call("setup", app, bridge, self)
+	return _crosshair
+
+## Starts the crosshair mode: the planner steps aside and the map shows its fixed centre crosshair
+## (`journey_crosshair.gd`). Refused, with its reason in the status line, with no world or while one generates.
+func start_crosshair() -> void:
+	if not _bound or bridge.generating or not bool(bridge.has_world):
+		app.set_status("hint", "There is no world to place waypoints on yet.", "text_ghost")
+		return
+	crosshair().call("begin")
+
+## The one commit path for a list of stops `[{x, y}]` (grid points): `_commit_stops()`, the same three engine calls
+## the desktop's End here makes. Public for the crosshair, which keeps no route model of its own. Returns the route's
+## index, or -1 when the engine committed nothing.
+func commit_waypoints(stops: Array) -> int:
+	return _commit_stops(stops)
 
 ## PC-8: builds the planner's window and moves both panels into it. Called once, from `setup()`, only where
 ## `DccApp.planner_in_window()` is true. The panels were built into the left dock and the map's place by
@@ -1288,10 +1322,19 @@ func _refresh_route_choice() -> void:
 		_left_route_section.remove_child(c)
 		c.queue_free()
 
+	## Touch forms: the crosshair is the way to place waypoints (`journey_crosshair.gd`). At the top, in thumb reach, above
+	## the list, and always (also with routes committed: a second journey starts here too).
+	if _touch_crosshair_wanted():
+		var xb := DccWidgets.action(_left_route_section, "Drop waypoints with a crosshair", start_crosshair, true)
+		xb.name = "CrosshairStart"
+		xb.custom_minimum_size.y = maxf(xb.custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
+		xb.tooltip_text = "Pan the map under a fixed crosshair and press Add waypoint for the start and each stop, then Commit journey."
+
 	var count := bridge.route_count()
 	if count == 0:
 		DccWidgets.note(_left_route_section,
-			"No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it.")
+			("No committed routes yet -- use the crosshair above to drop waypoints, then Commit journey." if _touch_crosshair_wanted()
+			else "No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it."))
 		_route_index = -1
 		return
 

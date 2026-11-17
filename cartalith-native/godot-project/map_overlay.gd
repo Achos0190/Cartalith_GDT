@@ -6045,18 +6045,52 @@ func _draw_settlement_name(e: Dictionary, s: Dictionary, radius: float, sc: floa
 ## small ringed dot with a stem, the same two-pass dark-halo-then-colour trick
 ## the landmark ring used (before CL-2 made landmarks teardrop pins) so it survives on pale terrain. No glyph: the
 ## pin marks a point, not a kind.
+##
+## **Its size follows the map pins' zoom law (owner, 2026-11-16, 6T: the long-press pin "stays enormous").** This
+## control is an ancestor-scaled child (`_camera_zoom`, see `_landmark_pin_r`), so a radius and line widths written in
+## local px grow linearly with the zoom: the pin was 9 local px at x1 and 144 screen px at x16, with 22 px-thick strokes.
+## Every dimension now goes through `_sample_pin_k()` (local px per design px), so the head is `sample_pin_screen_radius()`
+## screen px at every zoom and the strokes keep their on-screen thickness. Hit area: `_sample_pin_hit_radius()`.
 func _draw_sample_pin(rect: Rect2) -> void:
-	var pos := _cell_to_screen(Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)
-	var r := _SAMPLE_PIN_RADIUS
+	## `_point_to_screen`, not `_cell_to_screen`: the pin holds the CONTINUOUS point `_grid_point()` answered, and the cell form
+	## adds half a cell, which at x16 is ~50 px, so the pin was drawn off the spot the finger pressed.
+	var pos := _point_to_screen(Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)
+	var k := _sample_pin_k()
+	var r := _SAMPLE_PIN_RADIUS * k
 	var col: Color = DccTheme.c("accent")
 	var halo: Color = DccTheme.c("bg")
 	var stem_end := pos + Vector2(0.0, r * 1.8)
-	_cv.draw_line(pos, stem_end, halo, 3.0, true)
-	_cv.draw_line(pos, stem_end, col, 1.4, true)
+	_cv.draw_line(pos, stem_end, halo, 3.0 * k, true)
+	_cv.draw_line(pos, stem_end, col, 1.4 * k, true)
 	_cv.draw_circle(pos, r, halo, true, -1.0, true)
-	_cv.draw_arc(pos, r, 0, TAU, 24, halo, 2.4, true)
-	_cv.draw_arc(pos, r, 0, TAU, 24, col, 1.4, true)
+	_cv.draw_arc(pos, r, 0, TAU, 24, halo, 2.4 * k, true)
+	_cv.draw_arc(pos, r, 0, TAU, 24, col, 1.4 * k, true)
 	_cv.draw_circle(pos, r * 0.4, col, true, -1.0, true)
+
+
+## The sample pin's design-px to local-px factor. Its on-screen size (`sample_pin_screen_radius()`) is the landmark
+## pin's law: `_SAMPLE_PIN_RADIUS` times `_landmark_zoom_k()` (so the pin grows with `zoom^(1/3)` past the opening
+## view and not at all below it), floored at the readable-head minimum `PIN_HEAD_MIN_PX` times the form's UI unit, and
+## the whole mark scales with that ratio; divided by the camera zoom to land in this control's local px. An export has
+## no camera and keeps the plain radius.
+func _sample_pin_k() -> float:
+	if _export_mode:
+		return 1.0
+	return sample_pin_screen_radius() / _SAMPLE_PIN_RADIUS / maxf(_camera_zoom, 0.001)
+
+
+## The drawn head radius of the sample pin in SCREEN px at the current zoom (also what a probe reads).
+func sample_pin_screen_radius() -> float:
+	var z := maxf(_camera_zoom, 0.001)
+	return maxf(_SAMPLE_PIN_RADIUS * _landmark_zoom_k() * z, PIN_HEAD_MIN_PX * _pin_unit())
+
+
+## The sample pin's touch hit radius in local px: the 44 dp target (22 dp radius times the form's UI unit, screen px) kept
+## as a HIT area and never as the drawn size, and never smaller than the old 30 px nor than the drawn head.
+func _sample_pin_hit_radius() -> float:
+	var z := maxf(_camera_zoom, 0.001)
+	var screen := maxf(_SAMPLE_PIN_HIT_RADIUS, maxf(22.0 * _pin_unit(), sample_pin_screen_radius()))
+	return screen / z
 
 
 ## Owner ruling 14's `origin`, read back on the draw side.
@@ -9191,9 +9225,9 @@ func _gui_input(event: InputEvent) -> void:
 			## claimed here, before `_pick_mark`/the hold arming below, so the pin
 			## wins over whatever mark happens to sit under the same finger.
 			if (mb.device < 0 or OS.has_feature("mobile")) and not _sample_pin.is_empty() \
-					and mb.position.distance_to(_cell_to_screen(
+					and mb.position.distance_to(_point_to_screen(
 						Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)) \
-					<= _SAMPLE_PIN_HIT_RADIUS:
+					<= _sample_pin_hit_radius():
 				_pin_drag_active = true
 				return
 			var pick := _pick_mark(mb.position, interior, rect)

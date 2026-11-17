@@ -1874,6 +1874,32 @@ func move_view_to(gx: float, gy: float) -> void:
 	_camera.position = _keep_map_covering(size * 0.5 - local * _zoom, rect)
 	_update_lod()
 
+## The grid point under this node's centre, for the touch planner's fixed crosshair (`journey_crosshair.gd`): the inverse of
+## `move_view_to()`'s centring, in the same continuous coordinates the overlay's own `_grid_point()` answers (no +0.5), so a
+## waypoint dropped here and one tapped on the same spot agree. `{valid: false, gx: 0, gy: 0}` with no world, no map under
+## the centre, or the centre on the paper margin outside the plate interior (a stop there is no place the map can route to).
+func grid_at_view_centre() -> Dictionary:
+	var rect: Rect2 = overlay.displayed_rect()
+	var g := _bridge.grid_size() if _bridge != null else Vector2i.ZERO
+	if rect.size.x <= 0.0 or g.x <= 0 or g.y <= 0 or _zoom <= 0.0:
+		return {"valid": false, "gx": 0.0, "gy": 0.0}
+	var local: Vector2 = (size * 0.5 - _camera.position) / _zoom
+	if not overlay._interior_rect(rect).has_point(local):
+		return {"valid": false, "gx": 0.0, "gy": 0.0}
+	return {"valid": true, "gx": (local.x - rect.position.x) / rect.size.x * float(g.x),
+		"gy": (local.y - rect.position.y) / rect.size.y * float(g.y)}
+
+
+## Where grid point (`gx`, `gy`) is drawn, in this node's own coordinates: `grid_at_view_centre()`'s forward map, for
+## marks the crosshair draws over the map. `Vector2.INF` when there is no map.
+func grid_to_view(gx: float, gy: float) -> Vector2:
+	var rect: Rect2 = overlay.displayed_rect()
+	var g := _bridge.grid_size() if _bridge != null else Vector2i.ZERO
+	if rect.size.x <= 0.0 or g.x <= 0 or g.y <= 0:
+		return Vector2.INF
+	return _camera.position + (rect.position + Vector2(gx / float(g.x), gy / float(g.y)) * rect.size) * _zoom
+
+
 ## Owner finding 2026-10-26 (OnePlus 6T): picking a search result near a world edge centred it and left a black
 ## strip of void, with the world frame running through it, over a third of the view. Centring a point is a
 ## request to SHOW it, not to expose the area outside the world, so on each axis where the zoomed map is at
