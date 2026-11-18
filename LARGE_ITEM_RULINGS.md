@@ -3947,3 +3947,7 @@ On `CHRONOS_TIMELINE_DESIGN.md` (`ff9abdc3`): **Q1 (a)** -- a consolidated view 
 ## Ruling GF: parallel streets Q12-Q13 defaults; start PS-1 (owner, 2026-11-18)
 
 On `PARALLEL_STREETS_SCOPE.md` §7 after the PS-2 re-scope (`1115b2dc`): **Q12** (a) market-street towns may move phi by up to 0.30 from today; (b) no lowered entropy floor unless PS-2's step 0 shows 0.90 binds. **Q13** (a) rear households on at most 40 % of deep lots, front lots filled first, a back lane within 30 m or a 2.5 m side passage required; (b) a town short of ground keeps today's layout. **Start PS-1** (the town-type rule with Ruling GC's split and the ground recount, go bar 90 % of towns 5 000+ at both sizes), reporting with before/after frames.
+
+## Ruling GG: parallel streets after PS-1 -- river-front first; start PS-2 (owner, 2026-11-18)
+
+On PS-1 (`8a3b33d7`, `PARALLEL_STREETS_SCOPE.md` §10): **Q14 -- river-front stays first** in the type rule, as built (a river town with a road through its market is river-front, not market-street). **Q15 -- default**: F_req 1.12 decides Q13 (b). **Start PS-2** with its measure-first step 0 (go bars: quads >= 60 %, housed p10 >= 90, FS-1's 85 % kept share in >= 28 of 35 towns), reporting with before/after frames.
