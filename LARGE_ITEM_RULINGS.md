@@ -3951,3 +3951,7 @@ On `PARALLEL_STREETS_SCOPE.md` §7 after the PS-2 re-scope (`1115b2dc`): **Q12**
 ## Ruling GG: parallel streets after PS-1 -- river-front first; start PS-2 (owner, 2026-11-18)
 
 On PS-1 (`8a3b33d7`, `PARALLEL_STREETS_SCOPE.md` §10): **Q14 -- river-front stays first** in the type rule, as built (a river town with a road through its market is river-front, not market-street). **Q15 -- default**: F_req 1.12 decides Q13 (b). **Start PS-2** with its measure-first step 0 (go bars: quads >= 60 %, housed p10 >= 90, FS-1's 85 % kept share in >= 28 of 35 towns), reporting with before/after frames.
+
+## Ruling GH: parallel streets after PS-2 step 0 -- judge the footprint against a re-roll (owner, 2026-11-21)
+
+PS-2 step 0 (`ff3de3d8`, `PARALLEL_STREETS_SCOPE.md` §11) was a no-go on FS-1 (18 of 35 towns keep 85 % of today's footprint, bar 28), but a plain re-seed of today's generator keeps only 10 of 35. **Q16: FS-1 is restated against a re-roll** -- PS-2 must keep the footprint at least as well as a re-seed of today's `grow` does (same towns, same measure). **Q17: next**, find why river towns lose a bank (483920 #0, #11, 912345 #2, 246371 #4), fix it, then re-run step 0 under the restated bar (with FS-2's caps and the needle bar as they stand). No third heading variant without a ruling.
