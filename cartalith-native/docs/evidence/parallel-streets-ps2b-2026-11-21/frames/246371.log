@@ -1,0 +1,78 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build d932d9ef2c32
+ERROR: Couldn't open directory at path "C:/cw/ps2c_scratch/appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5352)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2824)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  the world generated (233 settlements)
+  CELL (240, 205) -> #4
+  PASS  a settlement at cell (240, 205)
+  CELL (96, 92) -> #6
+  PASS  a settlement at cell (96, 92)
+  CELL (177, 98) -> #13
+  PASS  a settlement at cell (177, 98)
+  CELL (314, 122) -> #14
+  PASS  a settlement at cell (314, 122)
+  CELL (216, 193) -> #27
+  PASS  a settlement at cell (216, 193)
+canvas (1296.0, 888.0)
+  TOWN #0 at (271,285) pop 8488
+  TOWN #1 at (365,233) pop 8653
+  TOWN #4 at (240,205) pop 24947
+  TOWN #6 at (96,92) pop 23927
+  TOWN #7 at (361,251) pop 2012
+  TOWN #10 at (13,210) pop 2355
+  TOWN #11 at (326,220) pop 7274
+  TOWN #13 at (177,98) pop 7650
+  TOWN #14 at (314,122) pop 20020
+  TOWN #18 at (141,209) pop 1958
+  TOWN #23 at (286,184) pop 1843
+  TOWN #27 at (216,193) pop 1790
+  TOWN #30 at (180,140) pop 1727
+MEASURE seed 246371 grid 384x288: 233 settlements, 0 river-kind, 0 with water geometry, 0 with water in the opening frame, 0 MISS: []
+  PASS  a river 30 m off pulls the frame to it plus one river width, 140 m ([P: (0.0, -10.0), S: (140.0, 110.0)])
+  PASS  a river 100 m off (over 0.6 of 100 m) leaves the frame alone
+  PASS  a river through the built mass leaves the frame alone
+  PASS  no water leaves the frame alone
+  PASS  a 20 m hamlet reaches a river 25 m off (the 30 m floor, [P: (0.0, -3.375), S: (49.0, 23.375)])
+  PASS  a water body 20 m off pulls the frame to it
+  PASS  a map-water mask run 15 m off pulls the frame to it
+  PASS  urban_parallel_streets set live to 0
+  PASS  #4 has no plan with the switch off
+  PARALLEL0 #4 buildings 4230 edges 1284 type - approaches - ratio - ticks 0
+  PASS  #6 has no plan with the switch off
+  PARALLEL0 #6 buildings 4348 edges 1216 type - approaches - ratio - ticks 0
+  PASS  #13 has no plan with the switch off
+  PARALLEL0 #13 buildings 1887 edges 802 type - approaches - ratio - ticks 0
+  PASS  #14 has no plan with the switch off
+  PARALLEL0 #14 buildings 4741 edges 1148 type - approaches - ratio - ticks 0
+  PASS  #27 has no plan with the switch off
+  PARALLEL0 #27 buildings 336 edges 184 type - approaches - ratio - ticks 0
+  PASS  urban_parallel_streets set live to 1
+  PARALLEL1 #4 buildings 5199 edges 1179 type river_front approaches 4 ratio 1.68851737791465 ticks 817
+  PARALLEL1 #6 buildings 4602 edges 1194 type organic_core approaches 2 ratio 1.13800236406619 ticks 927
+  PARALLEL1 #13 buildings 2725 edges 835 type river_front approaches 4 ratio 2.19984627209839 ticks 625
+  PARALLEL1 #14 buildings 4214 edges 1092 type market_street approaches 3 ratio 1.72711995863495 ticks 767
+  PARALLEL1 #27 buildings 511 edges 165 type river_front approaches 1 ratio 5.49739583333333 ticks 192
+  PASS  the live toggle moved 5 of 5 towns' layouts
+  FIELD #4 market (1283.087, 1253.087) core_m 314.948571428571 fit_box [P: (534.0947, 366.534), S: (1267.248, 1943.876)] field_box [P: (420.0, 420.0), S: (1280.0, 1880.0)]
+  FIELD #6 market (880.0, 625.0) core_m 384.751423043153 fit_box [P: (139.8774, -16.49397), S: (1471.448, 962.3639)] field_box [P: (20.0, 20.0), S: (1640.0, 1200.0)]
+  FIELD #13 market (828.0385, 1020.0) core_m 258.588784628097 fit_box [P: (392.9909, 285.5962), S: (486.175, 1478.543)] field_box [P: (420.0, 220.0), S: (880.0, 1600.0)]
+  FIELD #14 market (850.0, 625.0) core_m 312.109714285714 fit_box [P: (297.871, -45.18835), S: (940.8335, 1333.019)] field_box [P: (140.0, 20.0), S: (1400.0, 1200.0)]
+  FIELD #27 market (880.0, 625.0) core_m 133.434784766315 fit_box [P: (1143.919, 833.2527), S: (267.3059, 203.2419)] field_box [P: (540.0, 300.0), S: (680.0, 640.0)]
+RESULT: PASS (0 failed) checks=21
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

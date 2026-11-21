@@ -1,0 +1,357 @@
+PS2DIAG on=false target=8373 first_pop=13390 both=true pass=None bridge=None final_pop=13390
+PS2DIAG on=true target=8373 first_pop=14888 both=true pass=None bridge=None final_pop=14888
+PS2DIAG on=false target=20000 first_pop=13146 both=true pass=Some(FarBank { share: 0.5213753232922562 }) bridge=Some(Laid) final_pop=21622
+PS2DIAG on=true target=20000 first_pop=11596 both=true pass=Some(FarBank { share: 0.7247326664367024 }) bridge=Some(Laid) final_pop=21315
+PS2DIAG on=false target=9636 first_pop=10088 both=true pass=None bridge=None final_pop=10088
+PS2DIAG on=true target=9636 first_pop=15345 both=true pass=None bridge=None final_pop=15345
+PS2DIAG on=false target=7054 first_pop=11066 both=true pass=None bridge=None final_pop=11066
+PS2DIAG on=true target=7054 first_pop=14456 both=true pass=None bridge=None final_pop=14456
+PS2DIAG on=false target=20000 first_pop=13546 both=true pass=Some(FarBank { share: 0.4764506127270043 }) bridge=Some(Existing) final_pop=19817
+PS2DIAG on=false target=20000 first_pop=13733 both=true pass=Some(FarBank { share: 0.45634602781620903 }) bridge=Some(Existing) final_pop=18918
+PS2DIAG on=false target=20000 first_pop=14524 both=true pass=Some(FarBank { share: 0.37703112090333235 }) bridge=Some(Existing) final_pop=18938
+PS2DIAG on=true target=20000 first_pop=18346 both=true pass=Some(FarBank { share: 0.0901558922925978 }) bridge=Some(Existing) final_pop=18476
+PS2DIAG on=false target=18313 first_pop=13489 both=true pass=Some(FarBank { share: 0.35762473126251026 }) bridge=Some(Laid) final_pop=21341
+PS2DIAG on=true target=18313 first_pop=17139 both=true pass=Some(FarBank { share: 0.06849874555108237 }) bridge=Some(Laid) final_pop=19942
+PS2DIAG on=false target=1955 first_pop=2324 both=true pass=None bridge=None final_pop=2324
+PS2DIAG on=false target=1955 first_pop=2376 both=true pass=None bridge=None final_pop=2376
+PS2DIAG on=true target=1955 first_pop=3052 both=true pass=None bridge=None final_pop=3052
+PS2DIAG on=true target=1955 first_pop=3754 both=true pass=None bridge=None final_pop=3754
+PS2DIAG on=false target=20000 first_pop=19770 both=true pass=Some(FarBank { share: 0.01163378856853825 }) bridge=Some(Laid) final_pop=19786
+PS2DIAG on=true target=20000 first_pop=19032 both=true pass=Some(FarBank { share: 0.05086170659941147 }) bridge=Some(Laid) final_pop=19172
+PS2DIAG on=false target=8006 first_pop=9396 both=true pass=None bridge=None final_pop=9396
+PS2DIAG on=false target=8006 first_pop=8772 both=true pass=None bridge=None final_pop=8772
+PS2DIAG on=true target=8006 first_pop=14300 both=true pass=None bridge=None final_pop=14300
+PS2DIAG on=true target=8006 first_pop=12028 both=true pass=None bridge=None final_pop=12028
+PS2DIAG on=false target=18869 first_pop=14368 both=true pass=Some(FarBank { share: 0.31326559020044553 }) bridge=Some(Laid) final_pop=18850
+PS2DIAG on=true target=18869 first_pop=19469 both=true pass=None bridge=None final_pop=19469
+PS2DIAG on=true target=18869 first_pop=20150 both=true pass=None bridge=None final_pop=20150
+PS2DIAG on=true target=18869 first_pop=15387 both=true pass=Some(FarBank { share: 0.2262949242867356 }) bridge=Some(Laid) final_pop=19848
+PS2DIAG on=false target=7667 first_pop=12558 both=true pass=None bridge=None final_pop=12558
+PS2DIAG on=false target=7667 first_pop=12433 both=true pass=None bridge=None final_pop=12433
+PS2DIAG on=false target=7667 first_pop=10202 both=true pass=None bridge=None final_pop=10202
+PS2DIAG on=true target=7667 first_pop=14045 both=true pass=None bridge=None final_pop=14045
+PS2DIAG on=true target=7667 first_pop=14846 both=true pass=None bridge=None final_pop=14846
+PS2DIAG on=true target=7667 first_pop=11461 both=true pass=None bridge=None final_pop=11461
+PS2DIAG on=false target=20000 first_pop=18086 both=true pass=Some(FarBank { share: 0.10582771204246377 }) bridge=Some(Laid) final_pop=20010
+PS2DIAG on=true target=20000 first_pop=17207 both=true pass=Some(FarBank { share: 0.16231766141686532 }) bridge=Some(Laid) final_pop=20894
+PS2DIAG on=false target=20000 first_pop=18476 both=true pass=Some(FarBank { share: 0.08248538644728298 }) bridge=Some(Existing) final_pop=18866
+PS2DIAG on=true target=20000 first_pop=19391 both=true pass=Some(FarBank { share: 0.031406322520757035 }) bridge=Some(Existing) final_pop=19937
+PS2DIAG on=false target=2458 first_pop=2111 both=true pass=Some(FarBank { share: 0.1643770724774989 }) bridge=Some(Laid) final_pop=4025
+PS2DIAG on=true target=2458 first_pop=2688 both=true pass=None bridge=None final_pop=2688
+PS2DIAG on=false target=7200 first_pop=10166 both=true pass=None bridge=None final_pop=10166
+PS2DIAG on=true target=7200 first_pop=10702 both=true pass=None bridge=None final_pop=10702
+PS2DIAG on=false target=2566 first_pop=2070 both=true pass=Some(FarBank { share: 0.2396135265700483 }) bridge=Some(Laid) final_pop=2782
+PS2DIAG on=false target=2566 first_pop=2517 both=true pass=Some(FarBank { share: 0.019467620182757273 }) bridge=Some(Laid) final_pop=2569
+PS2DIAG on=true target=2566 first_pop=2283 both=true pass=Some(FarBank { share: 0.12395970214629881 }) bridge=Some(Laid) final_pop=3890
+PS2DIAG on=true target=2566 first_pop=3843 both=true pass=None bridge=None final_pop=3843
+PS2DIAG on=false target=20000 first_pop=15756 both=true pass=Some(FarBank { share: 0.26935770500126943 }) bridge=Some(Laid) final_pop=21330
+PS2DIAG on=true target=20000 first_pop=17295 both=true pass=Some(FarBank { share: 0.15640358485111294 }) bridge=Some(Laid) final_pop=21986
+PS2DIAG on=false target=20000 first_pop=20940 both=true pass=None bridge=None final_pop=20940
+PS2DIAG on=true target=20000 first_pop=24263 both=true pass=None bridge=None final_pop=24263
+PS2DIAG on=false target=20000 first_pop=14711 both=true pass=Some(FarBank { share: 0.35952688464414373 }) bridge=Some(Laid) final_pop=19391
+PS2DIAG on=true target=20000 first_pop=19131 both=true pass=Some(FarBank { share: 0.045423657937379014 }) bridge=Some(Laid) final_pop=19786
+PS2DIAG on=false target=20000 first_pop=14664 both=true pass=Some(FarBank { share: 0.36388434260774694 }) bridge=Some(Laid) final_pop=20379
+PS2DIAG on=false target=20000 first_pop=13931 both=true pass=Some(FarBank { share: 0.4356471179384107 }) bridge=Some(Laid) final_pop=15720
+PS2DIAG on=true target=20000 first_pop=17935 both=true pass=Some(FarBank { share: 0.1151379983272931 }) bridge=Some(Laid) final_pop=19646
+PS2DIAG on=true target=20000 first_pop=18330 both=true pass=Some(FarBank { share: 0.09110747408619746 }) bridge=Some(Laid) final_pop=19952
+PS2DIAG on=false target=8152 first_pop=13302 both=true pass=None bridge=None final_pop=13302
+PS2DIAG on=true target=8152 first_pop=15205 both=true pass=None bridge=None final_pop=15205
+PS2DIAG on=false target=7904 first_pop=11658 both=true pass=None bridge=None final_pop=11658
+PS2DIAG on=true target=7904 first_pop=9069 both=true pass=None bridge=None final_pop=9069
+PS2DIAG on=false target=20000 first_pop=19349 both=true pass=Some(FarBank { share: 0.03364514962013532 }) bridge=Some(Laid) final_pop=19474
+PS2DIAG on=true target=20000 first_pop=24211 both=true pass=None bridge=None final_pop=24211
+PS2DIAG on=false target=20000 first_pop=20530 both=true pass=None bridge=None final_pop=20530
+PS2DIAG on=false target=20000 first_pop=14986 both=true pass=Some(FarBank { share: 0.33457894034432134 }) bridge=Some(Laid) final_pop=20072
+PS2DIAG on=true target=20000 first_pop=21752 both=true pass=None bridge=None final_pop=21752
+PS2DIAG on=true target=20000 first_pop=17670 both=true pass=Some(FarBank { share: 0.13186191284663273 }) bridge=Some(Laid) final_pop=19042
+PS2DIAG on=false target=7188 first_pop=10832 both=true pass=None bridge=None final_pop=10832
+PS2DIAG on=true target=7188 first_pop=11175 both=true pass=None bridge=None final_pop=11175
+PS2DIAG on=false target=2559 first_pop=4014 both=true pass=None bridge=None final_pop=4014
+PS2DIAG on=false target=2559 first_pop=2246 both=true pass=Some(FarBank { share: 0.13935886019590393 }) bridge=Some(Laid) final_pop=2283
+PS2DIAG on=true target=2559 first_pop=4612 both=true pass=None bridge=None final_pop=4612
+PS2DIAG on=true target=2559 first_pop=4493 both=true pass=None bridge=None final_pop=4493
+PS2DIAG on=false target=20000 first_pop=19687 both=true pass=Some(FarBank { share: 0.01589881647787883 }) bridge=Some(Laid) final_pop=19698
+PS2DIAG on=true target=20000 first_pop=25272 both=true pass=None bridge=None final_pop=25272
+PS2DIAG on=false target=20000 first_pop=17332 both=true pass=Some(FarBank { share: 0.15393491807062087 }) bridge=Some(Laid) final_pop=18866
+PS2DIAG on=false target=20000 first_pop=21024 both=true pass=None bridge=None final_pop=21024
+PS2DIAG on=false target=20000 first_pop=21804 both=true pass=None bridge=None final_pop=21804
+PS2DIAG on=true target=20000 first_pop=24170 both=true pass=None bridge=None final_pop=24170
+PS2DIAG on=true target=20000 first_pop=21138 both=true pass=None bridge=None final_pop=21138
+PS2DIAG on=false target=2006 first_pop=2324 both=true pass=None bridge=None final_pop=2324
+PS2DIAG on=true target=2006 first_pop=2075 both=true pass=None bridge=None final_pop=2075
+PS2DIAG on=false target=18568 first_pop=15574 both=true pass=Some(FarBank { share: 0.19224348272762293 }) bridge=Some(Laid) final_pop=18164
+PS2DIAG on=false target=18568 first_pop=15257 both=true pass=Some(FarBank { share: 0.21701514059120397 }) bridge=Some(Laid) final_pop=14815
+PS2DIAG on=true target=18568 first_pop=19084 both=true pass=None bridge=None final_pop=19084
+PS2DIAG on=true target=18568 first_pop=17077 both=true pass=Some(FarBank { share: 0.08731041752064184 }) bridge=Some(Laid) final_pop=16260
+PS2DIAG on=false target=19492 first_pop=21720 both=true pass=None bridge=None final_pop=21720
+PS2DIAG on=true target=19492 first_pop=24835 both=true pass=None bridge=None final_pop=24835
+PS2DIAG on=false target=20000 first_pop=19276 both=true pass=Some(FarBank { share: 0.037559659680431734 }) bridge=Some(Laid) final_pop=21128
+PS2DIAG on=false target=20000 first_pop=20186 both=true pass=None bridge=None final_pop=20186
+PS2DIAG on=false target=20000 first_pop=18559 both=true pass=Some(FarBank { share: 0.07764426962659621 }) bridge=Some(Laid) final_pop=19396
+PS2DIAG on=true target=20000 first_pop=22682 both=true pass=None bridge=None final_pop=22682
+PS2DIAG on=true target=20000 first_pop=21590 both=true pass=None bridge=None final_pop=21590
+PS2DIAG on=true target=20000 first_pop=20987 both=true pass=None bridge=None final_pop=20987
+PS2BANK on=false pass=First target=8373 bldg_market=3030 bldg_far=0
+PS2DIAG on=false target=8373 first_pop=13390 both=true pass=None bridge=None final_pop=13390
+PS2BANK on=true pass=First target=8373 bldg_market=3211 bldg_far=0
+PS2DIAG on=true target=8373 first_pop=14888 both=true pass=None bridge=None final_pop=14888
+PS2BANK on=false pass=First target=20000 bldg_market=2895 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.5213753232922562 } target=20000 bldg_market=2969 bldg_far=1810
+PS2DIAG on=false target=20000 first_pop=13146 both=true pass=Some(FarBank { share: 0.5213753232922562 }) bridge=Some(Laid) final_pop=21622
+PS2BANK on=false pass=FarBank { share: 0.5213753232922562 } target=20000 bldg_market=2969 bldg_far=1810
+PS2BANK on=true pass=First target=20000 bldg_market=2542 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.7247326664367024 } target=20000 bldg_market=2611 bldg_far=1972
+PS2DIAG on=true target=20000 first_pop=11596 both=true pass=Some(FarBank { share: 0.7247326664367024 }) bridge=Some(Laid) final_pop=21315
+PS2BANK on=true pass=FarBank { share: 0.7247326664367024 } target=20000 bldg_market=2611 bldg_far=1972
+PS2BANK on=false pass=First target=9636 bldg_market=2127 bldg_far=0
+PS2DIAG on=false target=9636 first_pop=10088 both=true pass=None bridge=None final_pop=10088
+PS2BANK on=true pass=First target=9636 bldg_market=3290 bldg_far=0
+PS2DIAG on=true target=9636 first_pop=15345 both=true pass=None bridge=None final_pop=15345
+PS2BANK on=false pass=First target=7054 bldg_market=2417 bldg_far=0
+PS2DIAG on=false target=7054 first_pop=11066 both=true pass=None bridge=None final_pop=11066
+PS2BANK on=true pass=First target=7054 bldg_market=3326 bldg_far=0
+PS2DIAG on=true target=7054 first_pop=14456 both=true pass=None bridge=None final_pop=14456
+PS2BANK on=false pass=First target=20000 bldg_market=2748 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.4764506127270043 } target=20000 bldg_market=2956 bldg_far=1385
+PS2DIAG on=false target=20000 first_pop=13546 both=true pass=Some(FarBank { share: 0.4764506127270043 }) bridge=Some(Existing) final_pop=19817
+PS2BANK on=false pass=FarBank { share: 0.4764506127270043 } target=20000 bldg_market=2956 bldg_far=1385
+PS2BANK on=false pass=First target=20000 bldg_market=2894 bldg_far=42
+PS2BANK on=false pass=FarBank { share: 0.45634602781620903 } target=20000 bldg_market=2999 bldg_far=1030
+PS2DIAG on=false target=20000 first_pop=13733 both=true pass=Some(FarBank { share: 0.45634602781620903 }) bridge=Some(Existing) final_pop=18918
+PS2BANK on=false pass=FarBank { share: 0.45634602781620903 } target=20000 bldg_market=2999 bldg_far=1030
+PS2BANK on=false pass=First target=20000 bldg_market=3004 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.37703112090333235 } target=20000 bldg_market=2743 bldg_far=1192
+PS2DIAG on=false target=20000 first_pop=14524 both=true pass=Some(FarBank { share: 0.37703112090333235 }) bridge=Some(Existing) final_pop=18938
+PS2BANK on=false pass=FarBank { share: 0.37703112090333235 } target=20000 bldg_market=2743 bldg_far=1192
+PS2BANK on=true pass=First target=20000 bldg_market=3679 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.0901558922925978 } target=20000 bldg_market=3523 bldg_far=146
+PS2DIAG on=true target=20000 first_pop=18346 both=true pass=Some(FarBank { share: 0.0901558922925978 }) bridge=Some(Existing) final_pop=18476
+PS2BANK on=true pass=FarBank { share: 0.0901558922925978 } target=20000 bldg_market=3523 bldg_far=146
+PS2BANK on=false pass=First target=18313 bldg_market=2817 bldg_far=7
+PS2BANK on=false pass=FarBank { share: 0.35762473126251026 } target=18313 bldg_market=2998 bldg_far=1577
+PS2DIAG on=false target=18313 first_pop=13489 both=true pass=Some(FarBank { share: 0.35762473126251026 }) bridge=Some(Laid) final_pop=21341
+PS2BANK on=false pass=FarBank { share: 0.35762473126251026 } target=18313 bldg_market=2998 bldg_far=1577
+PS2BANK on=true pass=First target=18313 bldg_market=3591 bldg_far=2
+PS2BANK on=true pass=FarBank { share: 0.06849874555108237 } target=18313 bldg_market=3510 bldg_far=697
+PS2DIAG on=true target=18313 first_pop=17139 both=true pass=Some(FarBank { share: 0.06849874555108237 }) bridge=Some(Laid) final_pop=19942
+PS2BANK on=true pass=FarBank { share: 0.06849874555108237 } target=18313 bldg_market=3510 bldg_far=697
+PS2BANK on=false pass=First target=1955 bldg_market=359 bldg_far=151
+PS2DIAG on=false target=1955 first_pop=2324 both=true pass=None bridge=None final_pop=2324
+PS2BANK on=false pass=First target=1955 bldg_market=466 bldg_far=0
+PS2DIAG on=false target=1955 first_pop=2376 both=true pass=None bridge=None final_pop=2376
+PS2BANK on=true pass=First target=1955 bldg_market=515 bldg_far=161
+PS2DIAG on=true target=1955 first_pop=3052 both=true pass=None bridge=None final_pop=3052
+PS2BANK on=true pass=First target=1955 bldg_market=769 bldg_far=0
+PS2DIAG on=true target=1955 first_pop=3754 both=true pass=None bridge=None final_pop=3754
+PS2BANK on=false pass=First target=20000 bldg_market=4454 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.01163378856853825 } target=20000 bldg_market=4497 bldg_far=3
+PS2DIAG on=false target=20000 first_pop=19770 both=true pass=Some(FarBank { share: 0.01163378856853825 }) bridge=Some(Laid) final_pop=19786
+PS2BANK on=false pass=FarBank { share: 0.01163378856853825 } target=20000 bldg_market=4497 bldg_far=3
+PS2BANK on=true pass=First target=20000 bldg_market=4076 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.05086170659941147 } target=20000 bldg_market=4068 bldg_far=81
+PS2DIAG on=true target=20000 first_pop=19032 both=true pass=Some(FarBank { share: 0.05086170659941147 }) bridge=Some(Laid) final_pop=19172
+PS2BANK on=true pass=FarBank { share: 0.05086170659941147 } target=20000 bldg_market=4068 bldg_far=81
+PS2BANK on=false pass=First target=8006 bldg_market=1967 bldg_far=0
+PS2DIAG on=false target=8006 first_pop=9396 both=true pass=None bridge=None final_pop=9396
+PS2BANK on=false pass=First target=8006 bldg_market=1822 bldg_far=188
+PS2DIAG on=false target=8006 first_pop=8772 both=true pass=None bridge=None final_pop=8772
+PS2BANK on=true pass=First target=8006 bldg_market=3122 bldg_far=0
+PS2DIAG on=true target=8006 first_pop=14300 both=true pass=None bridge=None final_pop=14300
+PS2BANK on=true pass=First target=8006 bldg_market=2375 bldg_far=295
+PS2DIAG on=true target=8006 first_pop=12028 both=true pass=None bridge=None final_pop=12028
+PS2BANK on=false pass=First target=18869 bldg_market=3043 bldg_far=22
+PS2BANK on=false pass=FarBank { share: 0.31326559020044553 } target=18869 bldg_market=3100 bldg_far=932
+PS2DIAG on=false target=18869 first_pop=14368 both=true pass=Some(FarBank { share: 0.31326559020044553 }) bridge=Some(Laid) final_pop=18850
+PS2BANK on=false pass=FarBank { share: 0.31326559020044553 } target=18869 bldg_market=3100 bldg_far=932
+PS2BANK on=true pass=First target=18869 bldg_market=3954 bldg_far=351
+PS2DIAG on=true target=18869 first_pop=19469 both=true pass=None bridge=None final_pop=19469
+PS2BANK on=true pass=First target=18869 bldg_market=4247 bldg_far=4
+PS2DIAG on=true target=18869 first_pop=20150 both=true pass=None bridge=None final_pop=20150
+PS2BANK on=true pass=First target=18869 bldg_market=3533 bldg_far=1
+PS2BANK on=true pass=FarBank { share: 0.2262949242867356 } target=18869 bldg_market=3240 bldg_far=1078
+PS2DIAG on=true target=18869 first_pop=15387 both=true pass=Some(FarBank { share: 0.2262949242867356 }) bridge=Some(Laid) final_pop=19848
+PS2BANK on=true pass=FarBank { share: 0.2262949242867356 } target=18869 bldg_market=3240 bldg_far=1078
+PS2BANK on=false pass=First target=7667 bldg_market=2803 bldg_far=0
+PS2DIAG on=false target=7667 first_pop=12558 both=true pass=None bridge=None final_pop=12558
+PS2BANK on=false pass=First target=7667 bldg_market=2839 bldg_far=0
+PS2DIAG on=false target=7667 first_pop=12433 both=true pass=None bridge=None final_pop=12433
+PS2BANK on=false pass=First target=7667 bldg_market=2317 bldg_far=0
+PS2DIAG on=false target=7667 first_pop=10202 both=true pass=None bridge=None final_pop=10202
+PS2BANK on=true pass=First target=7667 bldg_market=3206 bldg_far=0
+PS2DIAG on=true target=7667 first_pop=14045 both=true pass=None bridge=None final_pop=14045
+PS2BANK on=true pass=First target=7667 bldg_market=3308 bldg_far=0
+PS2DIAG on=true target=7667 first_pop=14846 both=true pass=None bridge=None final_pop=14846
+PS2BANK on=true pass=First target=7667 bldg_market=2558 bldg_far=0
+PS2DIAG on=true target=7667 first_pop=11461 both=true pass=None bridge=None final_pop=11461
+PS2BANK on=false pass=First target=20000 bldg_market=3357 bldg_far=380
+PS2BANK on=false pass=FarBank { share: 0.10582771204246377 } target=20000 bldg_market=3347 bldg_far=766
+PS2DIAG on=false target=20000 first_pop=18086 both=true pass=Some(FarBank { share: 0.10582771204246377 }) bridge=Some(Laid) final_pop=20010
+PS2BANK on=false pass=FarBank { share: 0.10582771204246377 } target=20000 bldg_market=3347 bldg_far=766
+PS2BANK on=true pass=First target=20000 bldg_market=3381 bldg_far=169
+PS2BANK on=true pass=FarBank { share: 0.16231766141686532 } target=20000 bldg_market=3513 bldg_far=856
+PS2DIAG on=true target=20000 first_pop=17207 both=true pass=Some(FarBank { share: 0.16231766141686532 }) bridge=Some(Laid) final_pop=20894
+PS2BANK on=true pass=FarBank { share: 0.16231766141686532 } target=20000 bldg_market=3513 bldg_far=856
+PS2BANK on=false pass=First target=20000 bldg_market=3327 bldg_far=449
+PS2BANK on=false pass=FarBank { share: 0.08248538644728298 } target=20000 bldg_market=3573 bldg_far=358
+PS2DIAG on=false target=20000 first_pop=18476 both=true pass=Some(FarBank { share: 0.08248538644728298 }) bridge=Some(Existing) final_pop=18866
+PS2BANK on=false pass=FarBank { share: 0.08248538644728298 } target=20000 bldg_market=3573 bldg_far=358
+PS2BANK on=true pass=First target=20000 bldg_market=3667 bldg_far=456
+PS2BANK on=true pass=FarBank { share: 0.031406322520757035 } target=20000 bldg_market=3879 bldg_far=360
+PS2DIAG on=true target=20000 first_pop=19391 both=true pass=Some(FarBank { share: 0.031406322520757035 }) bridge=Some(Existing) final_pop=19937
+PS2BANK on=true pass=FarBank { share: 0.031406322520757035 } target=20000 bldg_market=3879 bldg_far=360
+PS2BANK on=false pass=First target=2458 bldg_market=446 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.1643770724774989 } target=2458 bldg_market=454 bldg_far=394
+PS2DIAG on=false target=2458 first_pop=2111 both=true pass=Some(FarBank { share: 0.1643770724774989 }) bridge=Some(Laid) final_pop=4025
+PS2BANK on=false pass=FarBank { share: 0.1643770724774989 } target=2458 bldg_market=454 bldg_far=394
+PS2BANK on=true pass=First target=2458 bldg_market=619 bldg_far=0
+PS2DIAG on=true target=2458 first_pop=2688 both=true pass=None bridge=None final_pop=2688
+PS2BANK on=false pass=First target=7200 bldg_market=1919 bldg_far=210
+PS2DIAG on=false target=7200 first_pop=10166 both=true pass=None bridge=None final_pop=10166
+PS2BANK on=true pass=First target=7200 bldg_market=2208 bldg_far=92
+PS2DIAG on=true target=7200 first_pop=10702 both=true pass=None bridge=None final_pop=10702
+PS2BANK on=false pass=First target=2566 bldg_market=429 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.2396135265700483 } target=2566 bldg_market=398 bldg_far=185
+PS2DIAG on=false target=2566 first_pop=2070 both=true pass=Some(FarBank { share: 0.2396135265700483 }) bridge=Some(Laid) final_pop=2782
+PS2BANK on=false pass=FarBank { share: 0.2396135265700483 } target=2566 bldg_market=398 bldg_far=185
+PS2BANK on=false pass=First target=2566 bldg_market=519 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.019467620182757273 } target=2566 bldg_market=529 bldg_far=0
+PS2DIAG on=false target=2566 first_pop=2517 both=true pass=Some(FarBank { share: 0.019467620182757273 }) bridge=Some(Laid) final_pop=2569
+PS2BANK on=false pass=FarBank { share: 0.019467620182757273 } target=2566 bldg_market=529 bldg_far=0
+PS2BANK on=true pass=First target=2566 bldg_market=452 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.12395970214629881 } target=2566 bldg_market=481 bldg_far=323
+PS2DIAG on=true target=2566 first_pop=2283 both=true pass=Some(FarBank { share: 0.12395970214629881 }) bridge=Some(Laid) final_pop=3890
+PS2BANK on=true pass=FarBank { share: 0.12395970214629881 } target=2566 bldg_market=481 bldg_far=323
+PS2BANK on=true pass=First target=2566 bldg_market=796 bldg_far=0
+PS2DIAG on=true target=2566 first_pop=3843 both=true pass=None bridge=None final_pop=3843
+PS2BANK on=false pass=First target=20000 bldg_market=3387 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.26935770500126943 } target=20000 bldg_market=3479 bldg_far=1209
+PS2DIAG on=false target=20000 first_pop=15756 both=true pass=Some(FarBank { share: 0.26935770500126943 }) bridge=Some(Laid) final_pop=21330
+PS2BANK on=false pass=FarBank { share: 0.26935770500126943 } target=20000 bldg_market=3479 bldg_far=1209
+PS2BANK on=true pass=First target=20000 bldg_market=3651 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.15640358485111294 } target=20000 bldg_market=3770 bldg_far=1005
+PS2DIAG on=true target=20000 first_pop=17295 both=true pass=Some(FarBank { share: 0.15640358485111294 }) bridge=Some(Laid) final_pop=21986
+PS2BANK on=true pass=FarBank { share: 0.15640358485111294 } target=20000 bldg_market=3770 bldg_far=1005
+PS2BANK on=false pass=First target=20000 bldg_market=4617 bldg_far=0
+PS2DIAG on=false target=20000 first_pop=20940 both=true pass=None bridge=None final_pop=20940
+PS2BANK on=true pass=First target=20000 bldg_market=5200 bldg_far=1
+PS2DIAG on=true target=20000 first_pop=24263 both=true pass=None bridge=None final_pop=24263
+PS2BANK on=false pass=First target=20000 bldg_market=2999 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.35952688464414373 } target=20000 bldg_market=3027 bldg_far=1040
+PS2DIAG on=false target=20000 first_pop=14711 both=true pass=Some(FarBank { share: 0.35952688464414373 }) bridge=Some(Laid) final_pop=19391
+PS2BANK on=false pass=FarBank { share: 0.35952688464414373 } target=20000 bldg_market=3027 bldg_far=1040
+PS2BANK on=true pass=First target=20000 bldg_market=3881 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.045423657937379014 } target=20000 bldg_market=3998 bldg_far=91
+PS2DIAG on=true target=20000 first_pop=19131 both=true pass=Some(FarBank { share: 0.045423657937379014 }) bridge=Some(Laid) final_pop=19786
+PS2BANK on=true pass=FarBank { share: 0.045423657937379014 } target=20000 bldg_market=3998 bldg_far=91
+PS2BANK on=false pass=First target=20000 bldg_market=3021 bldg_far=4
+PS2BANK on=false pass=FarBank { share: 0.36388434260774694 } target=20000 bldg_market=3112 bldg_far=1223
+PS2DIAG on=false target=20000 first_pop=14664 both=true pass=Some(FarBank { share: 0.36388434260774694 }) bridge=Some(Laid) final_pop=20379
+PS2BANK on=false pass=FarBank { share: 0.36388434260774694 } target=20000 bldg_market=3112 bldg_far=1223
+PS2BANK on=false pass=First target=20000 bldg_market=2905 bldg_far=1
+PS2BANK on=false pass=FarBank { share: 0.4356471179384107 } target=20000 bldg_market=2800 bldg_far=526
+PS2DIAG on=false target=20000 first_pop=13931 both=true pass=Some(FarBank { share: 0.4356471179384107 }) bridge=Some(Laid) final_pop=15720
+PS2BANK on=false pass=FarBank { share: 0.4356471179384107 } target=20000 bldg_market=2800 bldg_far=526
+PS2BANK on=true pass=First target=20000 bldg_market=3951 bldg_far=4
+PS2BANK on=true pass=FarBank { share: 0.1151379983272931 } target=20000 bldg_market=3859 bldg_far=558
+PS2DIAG on=true target=20000 first_pop=17935 both=true pass=Some(FarBank { share: 0.1151379983272931 }) bridge=Some(Laid) final_pop=19646
+PS2BANK on=true pass=FarBank { share: 0.1151379983272931 } target=20000 bldg_market=3859 bldg_far=558
+PS2BANK on=true pass=First target=20000 bldg_market=3861 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.09110747408619746 } target=20000 bldg_market=3970 bldg_far=225
+PS2DIAG on=true target=20000 first_pop=18330 both=true pass=Some(FarBank { share: 0.09110747408619746 }) bridge=Some(Laid) final_pop=19952
+PS2BANK on=true pass=FarBank { share: 0.09110747408619746 } target=20000 bldg_market=3970 bldg_far=225
+PS2BANK on=false pass=First target=8152 bldg_market=2934 bldg_far=0
+PS2DIAG on=false target=8152 first_pop=13302 both=true pass=None bridge=None final_pop=13302
+PS2BANK on=true pass=First target=8152 bldg_market=3203 bldg_far=0
+PS2DIAG on=true target=8152 first_pop=15205 both=true pass=None bridge=None final_pop=15205
+PS2BANK on=false pass=First target=7904 bldg_market=400 bldg_far=2208
+PS2DIAG on=false target=7904 first_pop=11658 both=true pass=None bridge=None final_pop=11658
+PS2BANK on=true pass=First target=7904 bldg_market=0 bldg_far=1952
+PS2DIAG on=true target=7904 first_pop=9069 both=true pass=None bridge=None final_pop=9069
+PS2BANK on=false pass=First target=20000 bldg_market=4088 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.03364514962013532 } target=20000 bldg_market=4082 bldg_far=33
+PS2DIAG on=false target=20000 first_pop=19349 both=true pass=Some(FarBank { share: 0.03364514962013532 }) bridge=Some(Laid) final_pop=19474
+PS2BANK on=false pass=FarBank { share: 0.03364514962013532 } target=20000 bldg_market=4082 bldg_far=33
+PS2BANK on=true pass=First target=20000 bldg_market=5272 bldg_far=0
+PS2DIAG on=true target=20000 first_pop=24211 both=true pass=None bridge=None final_pop=24211
+PS2BANK on=false pass=First target=20000 bldg_market=4418 bldg_far=81
+PS2DIAG on=false target=20000 first_pop=20530 both=true pass=None bridge=None final_pop=20530
+PS2BANK on=false pass=First target=20000 bldg_market=3013 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.33457894034432134 } target=20000 bldg_market=3191 bldg_far=998
+PS2DIAG on=false target=20000 first_pop=14986 both=true pass=Some(FarBank { share: 0.33457894034432134 }) bridge=Some(Laid) final_pop=20072
+PS2BANK on=false pass=FarBank { share: 0.33457894034432134 } target=20000 bldg_market=3191 bldg_far=998
+PS2BANK on=true pass=First target=20000 bldg_market=4605 bldg_far=123
+PS2DIAG on=true target=20000 first_pop=21752 both=true pass=None bridge=None final_pop=21752
+PS2BANK on=true pass=First target=20000 bldg_market=3654 bldg_far=0
+PS2BANK on=true pass=FarBank { share: 0.13186191284663273 } target=20000 bldg_market=3571 bldg_far=444
+PS2DIAG on=true target=20000 first_pop=17670 both=true pass=Some(FarBank { share: 0.13186191284663273 }) bridge=Some(Laid) final_pop=19042
+PS2BANK on=true pass=FarBank { share: 0.13186191284663273 } target=20000 bldg_market=3571 bldg_far=444
+PS2BANK on=false pass=First target=7188 bldg_market=2378 bldg_far=0
+PS2DIAG on=false target=7188 first_pop=10832 both=true pass=None bridge=None final_pop=10832
+PS2BANK on=true pass=First target=7188 bldg_market=2398 bldg_far=0
+PS2DIAG on=true target=7188 first_pop=11175 both=true pass=None bridge=None final_pop=11175
+PS2BANK on=false pass=First target=2559 bldg_market=801 bldg_far=23
+PS2DIAG on=false target=2559 first_pop=4014 both=true pass=None bridge=None final_pop=4014
+PS2BANK on=false pass=First target=2559 bldg_market=459 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.13935886019590393 } target=2559 bldg_market=452 bldg_far=13
+PS2DIAG on=false target=2559 first_pop=2246 both=true pass=Some(FarBank { share: 0.13935886019590393 }) bridge=Some(Laid) final_pop=2283
+PS2BANK on=false pass=FarBank { share: 0.13935886019590393 } target=2559 bldg_market=452 bldg_far=13
+PS2BANK on=true pass=First target=2559 bldg_market=701 bldg_far=406
+PS2DIAG on=true target=2559 first_pop=4612 both=true pass=None bridge=None final_pop=4612
+PS2BANK on=true pass=First target=2559 bldg_market=929 bldg_far=0
+PS2DIAG on=true target=2559 first_pop=4493 both=true pass=None bridge=None final_pop=4493
+PS2BANK on=false pass=First target=20000 bldg_market=4233 bldg_far=2
+PS2BANK on=false pass=FarBank { share: 0.01589881647787883 } target=20000 bldg_market=4197 bldg_far=26
+PS2DIAG on=false target=20000 first_pop=19687 both=true pass=Some(FarBank { share: 0.01589881647787883 }) bridge=Some(Laid) final_pop=19698
+PS2BANK on=false pass=FarBank { share: 0.01589881647787883 } target=20000 bldg_market=4197 bldg_far=26
+PS2BANK on=true pass=First target=20000 bldg_market=5612 bldg_far=17
+PS2DIAG on=true target=20000 first_pop=25272 both=true pass=None bridge=None final_pop=25272
+PS2BANK on=false pass=First target=20000 bldg_market=3780 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.15393491807062087 } target=20000 bldg_market=3632 bldg_far=459
+PS2DIAG on=false target=20000 first_pop=17332 both=true pass=Some(FarBank { share: 0.15393491807062087 }) bridge=Some(Laid) final_pop=18866
+PS2BANK on=false pass=FarBank { share: 0.15393491807062087 } target=20000 bldg_market=3632 bldg_far=459
+PS2BANK on=false pass=First target=20000 bldg_market=4615 bldg_far=0
+PS2DIAG on=false target=20000 first_pop=21024 both=true pass=None bridge=None final_pop=21024
+PS2BANK on=false pass=First target=20000 bldg_market=4923 bldg_far=0
+PS2DIAG on=false target=20000 first_pop=21804 both=true pass=None bridge=None final_pop=21804
+PS2BANK on=true pass=First target=20000 bldg_market=5397 bldg_far=0
+PS2DIAG on=true target=20000 first_pop=24170 both=true pass=None bridge=None final_pop=24170
+PS2BANK on=true pass=First target=20000 bldg_market=4719 bldg_far=0
+PS2DIAG on=true target=20000 first_pop=21138 both=true pass=None bridge=None final_pop=21138
+PS2BANK on=false pass=First target=2006 bldg_market=526 bldg_far=0
+PS2DIAG on=false target=2006 first_pop=2324 both=true pass=None bridge=None final_pop=2324
+PS2BANK on=true pass=First target=2006 bldg_market=439 bldg_far=0
+PS2DIAG on=true target=2006 first_pop=2075 both=true pass=None bridge=None final_pop=2075
+PS2BANK on=false pass=First target=18568 bldg_market=3251 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.19224348272762293 } target=18568 bldg_market=3251 bldg_far=560
+PS2DIAG on=false target=18568 first_pop=15574 both=true pass=Some(FarBank { share: 0.19224348272762293 }) bridge=Some(Laid) final_pop=18164
+PS2BANK on=false pass=FarBank { share: 0.19224348272762293 } target=18568 bldg_market=3251 bldg_far=560
+PS2BANK on=false pass=First target=18568 bldg_market=3179 bldg_far=51
+PS2BANK on=false pass=FarBank { share: 0.21701514059120397 } target=18568 bldg_market=3177 bldg_far=34
+PS2DIAG on=false target=18568 first_pop=15257 both=true pass=Some(FarBank { share: 0.21701514059120397 }) bridge=Some(Laid) final_pop=14815
+PS2BANK on=false pass=FarBank { share: 0.21701514059120397 } target=18568 bldg_market=3177 bldg_far=34
+PS2BANK on=true pass=First target=18568 bldg_market=4037 bldg_far=0
+PS2DIAG on=true target=18568 first_pop=19084 both=true pass=None bridge=None final_pop=19084
+PS2BANK on=true pass=First target=18568 bldg_market=3346 bldg_far=272
+PS2BANK on=true pass=FarBank { share: 0.08731041752064184 } target=18568 bldg_market=3365 bldg_far=45
+PS2DIAG on=true target=18568 first_pop=17077 both=true pass=Some(FarBank { share: 0.08731041752064184 }) bridge=Some(Laid) final_pop=16260
+PS2BANK on=true pass=FarBank { share: 0.08731041752064184 } target=18568 bldg_market=3365 bldg_far=45
+PS2BANK on=false pass=First target=19492 bldg_market=4754 bldg_far=10
+PS2DIAG on=false target=19492 first_pop=21720 both=true pass=None bridge=None final_pop=21720
+PS2BANK on=true pass=First target=19492 bldg_market=5299 bldg_far=0
+PS2DIAG on=true target=19492 first_pop=24835 both=true pass=None bridge=None final_pop=24835
+PS2BANK on=false pass=First target=20000 bldg_market=4073 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.037559659680431734 } target=20000 bldg_market=4168 bldg_far=272
+PS2DIAG on=false target=20000 first_pop=19276 both=true pass=Some(FarBank { share: 0.037559659680431734 }) bridge=Some(Laid) final_pop=21128
+PS2BANK on=false pass=FarBank { share: 0.037559659680431734 } target=20000 bldg_market=4168 bldg_far=272
+PS2BANK on=false pass=First target=20000 bldg_market=4405 bldg_far=0
+PS2DIAG on=false target=20000 first_pop=20186 both=true pass=None bridge=None final_pop=20186
+PS2BANK on=false pass=First target=20000 bldg_market=4178 bldg_far=0
+PS2BANK on=false pass=FarBank { share: 0.07764426962659621 } target=20000 bldg_market=4116 bldg_far=212
+PS2DIAG on=false target=20000 first_pop=18559 both=true pass=Some(FarBank { share: 0.07764426962659621 }) bridge=Some(Laid) final_pop=19396
+PS2BANK on=false pass=FarBank { share: 0.07764426962659621 } target=20000 bldg_market=4116 bldg_far=212
+PS2BANK on=true pass=First target=20000 bldg_market=5158 bldg_far=3
+PS2DIAG on=true target=20000 first_pop=22682 both=true pass=None bridge=None final_pop=22682
+PS2BANK on=true pass=First target=20000 bldg_market=4672 bldg_far=0
+PS2DIAG on=true target=20000 first_pop=21590 both=true pass=None bridge=None final_pop=21590
+PS2BANK on=true pass=First target=20000 bldg_market=4379 bldg_far=0
+PS2DIAG on=true target=20000 first_pop=20987 both=true pass=None bridge=None final_pop=20987

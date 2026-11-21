@@ -1118,3 +1118,68 @@ neither removes nor adds them visibly, in line with the census's 11.3 to 12.4 %.
   0.30 / 0.20) and the needle bar (12.4 % against 11 %); the gain-0 variant meets FS-2 but not quads (57 %) or needles
   (11.9 %). [re-run step 0 under the restated FS-1, with the far-bank loss isolated first, since it is the frames'
   most visible change; no third heading variant without a ruling]
+
+## 12. PS-2 step 0b (2026-11-21/22, Ruling GH and the owner's wall question): NO-GO again; nothing built
+
+**Verdict: no-go.** The lost bank was found and mostly fixed, and the wall spikes the owner saw are explained and fixed
+within the prototype; the restated FS-1 now passes. The prototype still fails **FS-2's delta** and the **needle bar**,
+both unchanged by these fixes, so by section 6's rule PS-2 stops. No third heading variant was tried (Ruling GH).
+Evidence: `cartalith-native/docs/evidence/parallel-streets-ps2b-2026-11-21/` (`summary.txt` lists every file); census
+world, tools and the null are step 0's (section 11); the prototype is `scratch_code/step0b_prototype.diff.txt`.
+
+**1. The lost bank (Ruling GH Q17).** Hypothesis: the on layout houses more on the market's bank, so the far-bank pass
+(`riverbank::second_pass`, which runs only while the first layout houses under `pop_target`) never runs.
+**Proved for part, refuted as the whole.** Temporary diagnostics (first-layout housed, target, pass, buildings per
+bank) on the 35 census towns: the on layout's first pass houses 5 to 50 % more than today's (median 1.06, p75 1.22,
+`towns_s0b_384.csv`), and of 32 both-banks towns two lose the far bank exactly this way (912345 #2: off 2 111 against
+a target of 2 458, far-bank pass, 394 far-bank buildings; on 2 688, no pass, 0; 246371 #15 likewise). The rest keep it
+(13 hold it both ways), and in 483920 #0 today's layout has none either (the pass does not run for a town over its
+target). **Fix (prototype, `riverbank::PARALLEL_FAR_BANK_SLACK` 1.25):** a town with a grain is judged against 1.25
+times its target (the p75 of the housing ratio), and the share is taken against that. Re-run: 912345 #2 now keeps its
+far bank (3 099 / 675 buildings against off 3 121 / 684). **Still seen in the frames:** 483920 #11's wall no longer
+spans the river (the far bank holds 687 buildings against 870, under `FAR_BANK_LOT_SHARE`'s 0.32 of the market
+bank's lots, so the wall rings one bank), a wall effect more than a bank effect. The audit's town indices are not the
+probe's (the audit's 483920 #0 is not the probe's #0), so the four named towns were checked in the probe's dumps.
+
+**2. The wall spikes (coordinator, on 246371 #14).** Cause: `wallhug` fits the wall to the lots inside the grown
+circuit. The back streets' 90 m blocks leave the lot mass in clumps with open ground between them, the taut pass fills
+a notch only under 8 000 m2 (`TAUT_POCKET_MAX_M2`) and never a spike, so the ring follows the clumps (912345 #32 and
+246371 #9 go from a hull-like 1.00 to a V-notched 1.21 to 1.25 of their hull). Today's walls are not clean either: on
+the census a wall has a median 4 and a p90 6 vertices turning over 60 degrees (max 8), and today's 246371 #14 has 14
+(`wall_stats.txt`). **Bar added (step 0):** over the walled towns, the median and total of vertices turning over
+60 degrees and the wall-to-hull length (median, p90, max) must be no worse than today's; per town a refit ring over 6
+such vertices (today's p90) or over 1.15 of its hull (the judgement's p90 bar, today's max 1.144) is jagged.
+**Refuted first:** a x3 pocket cap raised the sharpest ring to 27 sharp vertices and the hull ratio to 1.38 (the
+open-ground guard falls back to the raw outline). **Fix kept (`wallhug::ring_is_jagged`, `KeptReason::Jagged`):** a
+refit ring of a town with a grain that is jagged is refused and the grown circuit kept, as for any refused ring.
+
+**Numbers, the final prototype (`c5`) against the bars.**
+
+| step 0b, 384 | quads outside core (24) | housed p10 (35 / 24) | FS-1 kept >= 85 % (35) | FS-2 delta (market-street / river-front) | needle lots (35) | wall sharp med / p90 / total | wall / hull med / p90 / max |
+|---|---|---|---|---|---|---|---|
+| off (today) | 49.9 % | 95 / 95 | 35 | 0 | 11.3 % | 4 / 6 / 133 | 1.045 / 1.113 / 1.144 |
+| null (re-seed, step 0) | 49.9 % | 94 / 94 | **10** (median 0.81) | 0.20 (organic) | 11.6 % | | |
+| step 0 (`s0b`) | 65.3 % | 99 / 96 | 18 (0.87) | 0.38 / 0.32 | 12.4 % | 4 / 7 / 147 | 1.063 / 1.114 / 1.248 |
+| far-bank slack only (`c1`) | 64.4 % | 115 / 108 | **23** (0.885) | 0.378 / 0.274 | 12.5 % | | |
+| **final (`c5`, slack + jag guard)** | **64.4 %** | **101 / 99** | **23** (0.875) | **0.398 / 0.274** | **12.6 %** | **3 / 7 / 127** | **1.034 / 1.086 / 1.114** |
+| **bar** | 60 %+ | 90+ | **the null's 10, median 0.81** | 0.30 / 0.20 | never above 11.3 % | median, total <= today's | <= today's |
+
+Passes: quads; housed p10; **the restated FS-1 (23 of 35, median 0.875, against the null's 10 and 0.81)**; the wall bar
+(median 3 against 4, total 127 against 133, hull ratio max 1.114 against 1.144; the p90 7 and max 9 sit one above
+today's 6 and 8, from towns whose kept circuit is itself sharp). Fails: **FS-2's delta (market-street 0.398 against
+0.30, phi to 0.62 against the cap 0.35; river-front 0.274 against 0.20)**; **needle lots 12.6 % against 11.3 %**; and
+the area ratio's 0.9 to 1.4 holds in 32 of 35 (min 0.80). The heading bend carries FS-2 (step 0's gain-0 diagnostic) and
+the back streets the needles; neither is touched by the far-bank slack or the wall guard, and a lower gain is the third
+variant Ruling GH forbids without a ruling.
+
+**Frames (owner condition).** City Viewer, the 14 towns, opening frame and x4, off and on, windowed under the lock
+(`contact_<seed>.png`, `frames/`, probe `RESULT: PASS` x3); all 14 looked at, and the data checked beside them
+(`dumps_bank_wall_14towns.txt`). 246371 #14's wall is now a smooth taut curtain (`wall_closeups/`, with 246371 #6, #13
+and 483920 #23; off | step 0 | step 0b); the guard keeps the grown circuit, whose rounded ring carries many towers
+(912345 #2 shows a ball chain at x4, as any kept circuit does today). 912345 #2 keeps its far bank; 483920 #11 shows one
+bank inside the wall. x4 still shows long parallel streets and squarer blocks (483920 #4, 246371 #13 and #14).
+
+**What this leaves for the owner.** Q18: FS-2's delta and the needle bar are what stands between this prototype and a
+go, and they are the heading gain and the back streets' blocks; options: (a) a lower gain (the third variant),
+(b) restate FS-2's delta against a re-seed as Q16 did for FS-1 (the null's own organic delta is 0.20), (c) stop at PS-1.
+

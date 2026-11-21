@@ -1,0 +1,12 @@
+== c2
+off n 35 sharp med/p90/max/total 4 6 8 133 reflex tot 48 | len/hull med/p90/max (1.045, 1.113, 1.144)
+proto n 35 sharp med/p90/max/total 4 7 10 147 reflex tot 58 | len/hull med/p90/max (1.063, 1.114, 1.248)
+towns with more sharp vertices 13 ; len/hull up >0.05 4 [(('912345', '1'), '1.047', '1.137'), (('912345', '2'), '1.008', '1.062'), (('912345', '32'), '1.000', '1.248'), (('246371', '9'), '1.000', '1.210')]
+== c4
+off n 35 sharp med/p90/max/total 4 6 8 133 reflex tot 48 | len/hull med/p90/max (1.045, 1.113, 1.144)
+proto n 35 sharp med/p90/max/total 4 8 27 145 reflex tot 54 | len/hull med/p90/max (1.053, 1.101, 1.384)
+towns with more sharp vertices 12 ; len/hull up >0.05 4 [(('912345', '1'), '1.047', '1.249'), (('912345', '2'), '1.008', '1.064'), (('912345', '32'), '1.000', '1.384'), (('246371', '9'), '1.000', '1.097')]
+== c5
+off n 35 sharp med/p90/max/total 4 6 8 133 reflex tot 48 | len/hull med/p90/max (1.045, 1.113, 1.144)
+proto n 35 sharp med/p90/max/total 3 7 9 127 reflex tot 46 | len/hull med/p90/max (1.034, 1.086, 1.114)
+towns with more sharp vertices 10 ; len/hull up >0.05 1 [(('912345', '2'), '1.008', '1.062')]

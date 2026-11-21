@@ -1,0 +1,24 @@
+PARALLEL_STREETS_SCOPE.md PS-2 step 0b (owner Ruling GH, plus the coordinator's wall question), measured 2026-11-21/22.
+Verdict NO-GO again; nothing built. Scope section 12 has the results; this file lists the evidence.
+
+Census world and tools as step 0 (parallel-streets-ps2-2026-11-18): seeds 483920 912345 246371, 800 km, villages on,
+app params::defaults, 384x288, release test binary of origin/main 3911ddf1 plus scratch_code/step0b_prototype.diff.txt
+(the step-0 prototype, plus riverbank.rs's far-bank slack, wallhug.rs's jag guard and the census's wall columns;
+never committed as code). The null (grow re-seeded) is step 0's, unchanged: ../parallel-streets-ps2-2026-11-18/step0/.
+
+step0/far_bank_diag_prefix.txt  temporary diagnostics of the far-bank pass (PS2DIAG: first-layout housed, target, pass,
+                                bridge; PS2BANK: buildings per bank), before the fix. Not in the diff.
+step0/agg_c1_384.txt, towns_c1_384.csv, audit_c1_384.txt   the far-bank fix alone (slack 1.25).
+step0/agg_c4_gain3_384.txt, towns_c4_gain3_384.csv         a refuted wall attempt (pocket cap x3): worse.
+step0/agg_c5_384.txt, towns_c5_384.csv, audit_c5_384.txt   the final prototype: far-bank slack plus the jag guard.
+step0/towns_c2_wallmetrics_384.csv                         the far-bank fix with the wall columns, before the guard.
+step0/wall_stats.txt            wall spike statistics off vs on for c2 (before), c4 (refuted), c5 (guard).
+step0/dumps_bank_wall_14towns.txt   the probe's dumps: buildings per bank and wall spikes for the 14 towns, off vs on (c5).
+contact_<seed>.png              the scope's 14 towns: City Viewer opening frame OFF, ON, x4 OFF, ON (the c5 prototype).
+frames/pair_<seed>_<id>_z1|z4.png  full-size OFF | ON pairs; frames/<seed>.log the probe logs (RESULT: PASS x3).
+needles/                        the 260 m needle crops OFF | ON.
+wall_closeups/wall_<seed>_<id>_off_before_after.png  OFF | step 0 (s0b) | step 0b, for 246371 #14, #6, #13, 483920 #23.
+walls/                          ring-vs-building-point plots of the wall (red) for 912345 #32, 246371 #9, 912345 #1,
+                                off | on, before the guard (ring_*), with the x3 pocket cap (ring_c4_*), with the guard (ring_c5_*).
+scratch_code/                   step0b_prototype.diff.txt, shots.sh.txt, contact.py.txt, wallstat.py, plot.py, _ps2s0_probe.gd.txt.
+Reproduce: the audit needs PS1_CSV; ps1_agg.py is step 0's.
