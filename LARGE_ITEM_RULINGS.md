@@ -3959,3 +3959,7 @@ PS-2 step 0 (`ff3de3d8`, `PARALLEL_STREETS_SCOPE.md` §11) was a no-go on FS-1 (
 ## Ruling GI: every faction may be deleted (owner, 2026-11-21)
 
 On F2 (`ae063511` kept a floor of one faction because the economy, manpower and collapse models read faction 1): **it must be possible to delete all factions.** With no faction, the collapse model and the military models work on loose settlements: armies are only each settlement's own garrison, no faction armies, levies or wars between factions. The economy, manpower and timeline paths must handle zero factions explicitly (no faction is never encoded as a plausible faction id). Relates to F26 (city-states that gather loose settlements into a faction).
+
+## Ruling GJ: PS-2 -- try a lower heading strength (owner, 2026-11-22)
+
+After step 0b (`f0ba5f2b`, `PARALLEL_STREETS_SCOPE.md` §12: FS-1 against the re-roll, quads, housing and the new wall bar pass; FS-2's delta 0.398 / 0.274 and needle lots 12.6 % fail), owner on Q18: **(a), the third heading variant -- a lower heading gain**, keeping step 0b's fixes (`PARALLEL_FAR_BANK_SLACK`, `wallhug::ring_is_jagged`), re-measured against every step-0 bar with frames. FS-2's caps and the needle bar stay as they are.
