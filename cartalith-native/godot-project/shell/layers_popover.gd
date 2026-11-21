@@ -69,17 +69,7 @@ const WindowRepresent := preload("res://shell/window_represent.gd")
 ## cannot mislabel a working row, since a closed gap comes back `available`
 ## and never asks for a suffix at all.
 const GAP_LAYERS := {
-	## `sample_bridge.rs:597`, the `LAYER_GROUPS` `"oro"` hint -- "needs the
-	## boundary-polyline structure generate_terrain folds into height and
-	## never retains". Computed, not kept: `generate_terrain_inner` builds `oro`
-	## (`build_orogeny_field` + `smooth_orogeny`) only when World Structure is
-	## on, folds it into height, and drops it with the boundary polylines.
-	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B2): it was called "a
-	## missing computation", which it is not.
-	"oro":
-		"Never available: the orogeny field is computed during generation " +
-		"(with World Structure on) and added into the height, but it is not " +
-		"kept afterwards, so there is nothing left to draw.",
+	## F34: the "oro" (Orogeny) row was removed (it could never draw), so it has no entry here.
 	## The `LAYER_GROUPS` `"velo"` hint in `sample_bridge.rs` says no velocity
 	## pass exists -- false (reported, Rust side). `velocity_erode_kernel`
 	## (cartalith-erosion passes.rs) runs under `passes.velocity`, and
@@ -157,7 +147,7 @@ var _rows: Dictionary = {}
 ## itself rather than badging `LAYER_GROUPS`' first eight entries outright.
 ## Eleven rows can come back unavailable, on **two different grounds**
 ## (`sample_bridge.rs:751 pub fn layer_available`). **Four** are the permanent
-## engine gaps (`GAP_LAYERS` -- `oro`, `velo`, `popdensity`, `siteprofile`):
+## engine gaps (`GAP_LAYERS` -- `velo`, `popdensity`, `siteprofile`):
 ## disabled on every world that will ever exist, so a digit spent on one is a
 ## digit that does nothing, forever. The other **seven** (`strahler`,
 ## `bclass`, `cterrain`, `windthrow`, `wildlife`, `control`, `contested`) are
@@ -763,7 +753,7 @@ func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) 
 	## original wording. A `GAP_LAYERS` row is refused on a ground no world can
 	## change, so "for this world" beside it read as a self-contradiction; its
 	## sentence comes per id from the table above, because the four hints do
-	## not share one form. All four open "Never available:"; `oro`, `velo` and
+	## not share one form. All four open "Never available:"; `velo` and
 	## `popdensity` are computed but not kept, and `siteprofile` is a composite
 	## with no engine equivalent though both its inputs have rows.
 	var reason := String(GAP_LAYERS.get(id, "Not available for this world."))

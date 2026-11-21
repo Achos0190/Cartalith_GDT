@@ -169,6 +169,8 @@ var _selected := 1
 var module_refresh: Callable
 ## The roster list's `VBoxContainer`, created in `setup`.
 var _list_body: VBoxContainer
+## F2: the "− Remove last" button, disabled at the floor (`_sync_remove_button`).
+var _remove_btn: Button
 ## The inspector pane's `VBoxContainer`, created in `setup`; the selected faction's tabs are
 ## rebuilt into it.
 var _inspector_body: VBoxContainer
@@ -444,7 +446,7 @@ func setup(a, b: EngineBridge) -> void:
 	var roster_row := HBoxContainer.new()
 	roster_row.add_theme_constant_override("separation", 6)
 	DccWidgets.action(roster_row, "+ Add faction", _add_faction)
-	DccWidgets.action(roster_row, "− Remove last", _confirm_remove)
+	_remove_btn = DccWidgets.action(roster_row, "− Remove last", _confirm_remove)
 	## Stays under the list it acts on, on both form factors. Pinning it to the
 	## window foot on the phone was tried first and is what found the layout
 	## trap underneath: an `AcceptDialog` sizes its content child from a resize
@@ -962,7 +964,20 @@ func _rebuild_overview() -> void:
 ## outlined. A press commits any pending inspector edit (`_commit_focused_field`), selects that faction,
 ## clears the marked pair, rebuilds list and inspector and, on phone, navigates to the inspector. An empty
 ## world shows a note pointing at `DccShell.new_world_route()`.
+## F2 (owner 2026-11-21): the reference's floor is Unclaimed plus ONE real faction (`FactionRoster::remove_last`
+## refuses at len <= 2; the economy, manpower and collapse models all read faction 1). The button says so on itself
+## instead of a status-bar hint nobody sees. Run from `_rebuild_list`, because the row is built once, before any
+## world exists, and the count it reads changes with every Add and Remove.
+func _sync_remove_button() -> void:
+	if _remove_btn == null:
+		return
+	var at_floor: bool = bridge.civ_faction_count() <= 1
+	_remove_btn.disabled = at_floor
+	_remove_btn.tooltip_text = ("The last faction cannot be removed: a world keeps Unclaimed plus at least one faction. " 		+ "Add another first, or rename and edit this one.") if at_floor else "Removes the highest-numbered faction; its settlements and territory become Unclaimed."
+
+
 func _rebuild_list() -> void:
+	_sync_remove_button()
 	## PC-10: on a detached module host the panel redraws instead (`module_refresh`).
 	if module_refresh.is_valid():
 		module_refresh.call()

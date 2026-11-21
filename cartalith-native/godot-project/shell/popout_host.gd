@@ -56,6 +56,11 @@ const META_CHOICE := "_popout_choice"
 const META_MOVING := "_popout_moving"
 ## Name of the per-window button (`add_toggle_button`), so a probe can find it by name.
 const BUTTON_NAME := "PopoutButton"
+
+## F30 (owner 2026-11-21): the "Fit screen" button a NATIVE pop-out shows beside Dock, and the rectangle it
+## restores. Hidden while docked, so a docked window's button row is exactly what it was.
+const FIT_BUTTON_NAME := "PopoutFitButton"
+const META_FIT_BEFORE := "_popout_fit_before"
 ## Name of the key-forwarding child (`PopoutKeyForwarder`).
 const FORWARDER_NAME := "PopoutKeyForwarder"
 ## Frames `toggle()` waits after re-showing a window before it puts the scroll positions back: the
@@ -182,6 +187,9 @@ static func _on_visibility(dlg: Window) -> void:
 		var placed := _restore(dlg)
 		fit_scale(dlg, not placed)
 	else:
+		## F30: a closed window forgets a pending "Fit screen" (the stored rectangle below is its real one).
+		if dlg.has_meta(META_FIT_BEFORE):
+			dlg.remove_meta(META_FIT_BEFORE)
 		_remember(dlg)
 
 ## A focus gain is the one signal a window dragged to another monitor gives (`dpi_changed` is macOS
@@ -189,6 +197,41 @@ static func _on_visibility(dlg: Window) -> void:
 static func _on_focus(dlg: Window) -> void:
 	if is_instance_valid(dlg) and dlg.visible:
 		fit_scale(dlg, true)
+		## F30: a window dragged onto a smaller screen is brought inside it, not left hanging off.
+		if not dlg.is_embedded() and not dlg.has_meta(META_FIT_BEFORE):
+			var usable := DisplayServer.screen_get_usable_rect(dlg.current_screen)
+			if needs_fit(Rect2i(dlg.position, dlg.size), usable):
+				fit_to_screen(dlg)
+
+## F30, pure. The rectangle a window takes when it fills `usable` (a screen's usable area): the whole width, and the
+## height below the `PopoutGeometry.TITLE_ROW` strip the OS title bar needs, so the bar stays reachable.
+static func full_rect(usable: Rect2i) -> Rect2i:
+	return Rect2i(usable.position.x, usable.position.y + PopoutGeometry.TITLE_ROW,
+		usable.size.x, maxi(usable.size.y - PopoutGeometry.TITLE_ROW, 1))
+
+## F30, pure. Whether a window of rectangle `r` does not fit inside `usable` (wider, or taller than the area under
+## the title strip).
+static func needs_fit(r: Rect2i, usable: Rect2i) -> bool:
+	return r.size.x > usable.size.x or r.size.y > usable.size.y - PopoutGeometry.TITLE_ROW
+
+## F30: toggles a native window between filling the screen it is on and the rectangle it had. Docked windows are left
+## alone. Press once to fill the monitor the window was dragged to; again to give the old size back.
+static func fit_to_screen(dlg: Window) -> void:
+	if not is_instance_valid(dlg) or dlg.is_embedded() or not dlg.visible:
+		return
+	if dlg.has_meta(META_FIT_BEFORE):
+		var before: Rect2i = dlg.get_meta(META_FIT_BEFORE)
+		dlg.remove_meta(META_FIT_BEFORE)
+		dlg.size = before.size
+		dlg.position = before.position
+	else:
+		dlg.set_meta(META_FIT_BEFORE, Rect2i(dlg.position, dlg.size))
+		var r := full_rect(DisplayServer.screen_get_usable_rect(dlg.current_screen))
+		dlg.size = r.size
+		dlg.position = r.position
+	var fb := dlg.find_child(FIT_BUTTON_NAME, true, false) as Button
+	if fb != null:
+		fb.text = "Restore size" if dlg.has_meta(META_FIT_BEFORE) else "Fit screen"
 
 ## Puts a native window back where it was last left, on the screen it was on if that screen still
 ## exists, else clamped on-screen (`PopoutGeometry.resolve()`). Does nothing for an embedded window
@@ -383,6 +426,7 @@ static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null
 		header_row.move_child(hb, maxi(header_row.get_child_count() - 2, 0))
 		hb.custom_minimum_size.x = BUTTON_MIN_W
 		hb.name = BUTTON_NAME
+		_add_fit_button(dlg, header_row, hb)
 		hb.tooltip_text = "Opens this panel in its own window, for a second monitor. Press again to dock it back."
 		dlg.visibility_changed.connect(func() -> void: sync_button(dlg))
 		sync_button(dlg)
@@ -415,12 +459,25 @@ static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null
 	## by 1.5 px. So the balance follows the button's own size. (PC-7 found why: `AcceptDialog` clears a
 	## row Button's custom minimum when its theme applies; see `BUTTON_MIN_W`. The balance is a `Control`,
 	## so its own width holds.)
-	b.resized.connect(func() -> void: balance.custom_minimum_size.x = b.size.x)
 	b.name = BUTTON_NAME
+	var fit := _add_fit_button(dlg, row, b)
+	b.resized.connect(func() -> void: balance.custom_minimum_size.x = b.size.x + (fit.size.x if fit.visible else 0.0))
+	fit.visibility_changed.connect(func() -> void: balance.custom_minimum_size.x = b.size.x + (fit.size.x if fit.visible else 0.0))
+	fit.resized.connect(func() -> void: balance.custom_minimum_size.x = b.size.x + (fit.size.x if fit.visible else 0.0))
 	b.tooltip_text = "Opens this panel in its own window, for a second monitor. Press again to dock it back."
 	dlg.visibility_changed.connect(func() -> void: sync_button(dlg))
 	sync_button(dlg)
 	return b
+
+## F30: the "Fit screen" button, placed right after `after` in its row; visible only while the window is native
+## (`sync_button`). Returns it.
+static func _add_fit_button(dlg: Window, row: BoxContainer, after: Button) -> Button:
+	var fb := DccWidgets.action(row, "Fit screen", func() -> void: fit_to_screen(dlg))
+	row.move_child(fb, after.get_index() + 1)
+	fb.name = FIT_BUTTON_NAME
+	fb.visible = false
+	fb.tooltip_text = "Makes this window fill the screen it is on (drag it to a second monitor first). Press again to restore its size."
+	return fb
 
 ## Sets the button's label from the window's real state: "Dock" while the window is visible and
 ## native, "Pop out" otherwise.
@@ -428,6 +485,9 @@ static func sync_button(dlg: Window) -> void:
 	var b := dlg.find_child(BUTTON_NAME, true, false) as Button
 	if b != null:
 		b.text = "Dock" if (dlg.visible and not dlg.is_embedded()) else "Pop out"
+	var fb := dlg.find_child(FIT_BUTTON_NAME, true, false) as Button
+	if fb != null:
+		fb.visible = dlg.visible and not dlg.is_embedded()
 
 ## The scroll positions of every `ScrollContainer` under `dlg`, by path, as `[{path, h, v}]`. Taken
 ## before a move so the same positions can be put back (`restore_scrolls`).

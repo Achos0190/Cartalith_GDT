@@ -86,6 +86,8 @@ var _net_note_shown := false
 var _ml_code := ""
 var _ml_key := ""
 var _ml_manual := false
+## F9: the text typed in "Search models" (lower case); narrows the dropdown to ids/names containing it.
+var _ml_filter := ""
 var _ml_tick := 0.0
 ## The "Model name" field's row, shown only while typing a name by hand.
 var _model_field_row: Control
@@ -448,6 +450,14 @@ func _rebuild() -> void:
 	_floor(model_pick)
 	_shrinkable(model_pick)
 	controls["model_pick"] = model_pick
+	## F9 (owner 2026-11-21): a hosted endpoint lists hundreds of models (OpenRouter), which a bare dropdown cannot be
+	## searched; this box narrows it. Shown only when the list is long enough to need it (`_models_render`).
+	var msearch := _field(_body, "Search models", _ml_filter, "type part of a model name", func(t: String): _on_model_search(t), false,
+		"Narrows the model list to names containing this text. Your chosen model stays selected.")
+	msearch.text_changed.connect(func(t: String): _on_model_search(t))
+	controls["model_search"] = msearch
+	controls["model_search_row"] = msearch.get_parent()
+	_body.move_child(msearch.get_parent(), model_pick.get_parent().get_index())
 	var refresh := _button(model_pick.get_parent(), "Refresh", func(): _models_refresh(true), false)
 	refresh.tooltip_text = "Ask the server for its models again."
 	controls["model_refresh"] = refresh
@@ -497,6 +507,20 @@ func _rebuild() -> void:
 			"The name of the environment variable that holds the key. Set it before starting Cartalith.")
 		controls["env_var"] = env
 		env.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_URL
+		if not on_android:
+			## F10 (owner 2026-11-21): on a PC an environment variable set in Windows only reaches Cartalith after a
+			## restart, which read as "only the OS credential store works". The variable is the same one, set in this
+			## process's own environment from a masked field: held in memory for this run, never written to a file or
+			## the credential store, never shown. Cleared by Forget or when Cartalith closes.
+			var sk := _field(_body, "Key for this run", "", "paste a key (kept in memory, never saved)", func(_t: String): pass, true,
+				"Sets the variable above for this run of Cartalith only. Nothing is written to disk; closing Cartalith forgets it.")
+			sk.secret = true
+			controls["session_key_field"] = sk
+			var srow := HBoxContainer.new()
+			srow.add_theme_constant_override("separation", 8)
+			_body.add_child(srow)
+			controls["session_key_use"] = _button(srow, "Use for this run", _on_session_key_use, true)
+			controls["session_key_clear"] = _button(srow, "Forget", _on_session_key_clear)
 	else:
 		var kf := _field(_body, "Key", "", "paste the key, then Save key", func(_t: String): pass, true,
 			"Kept in your system credential store, never in a file. The field clears when you press Save and the key is never shown again.")
@@ -971,6 +995,8 @@ func _refresh_key_line() -> void:
 	else:
 		var need := bool(_endpoint().get("key_required", false))
 		_key_text.text = String(r.get("problem", "")) + ("" if need else " (This endpoint does not need a key.)")
+		if src == "env" and not OS.has_feature("android") and controls.has("session_key_field"):
+			_key_text.text += " Or paste a key for this run below."
 		_dot(_key_dot, "warn" if need else "text_ghost")
 
 
@@ -1094,6 +1120,17 @@ func _on_model_commit(text: String) -> void:
 ## character, which the parser drops from every id), and that row is never stored as a model.
 const _TYPE_A_NAME := "\u0001type-a-name"
 
+## F9: the dropdown shows the search box once the list is longer than this.
+const MODEL_SEARCH_MIN := 8
+
+## F9: the search text changed: narrow the dropdown and say how many are shown.
+func _on_model_search(text: String) -> void:
+	if _building:
+		return
+	_ml_filter = text.strip_edges().to_lower()
+	_models_render()
+
+
 ## Asks the configured server for its models. Called when the window opens, when the address, the
 ## key, the provider or a gate switch changes, and by the Refresh button; never on a timer. The gate
 ## decides first (`LlmModels.begin`): a refusal is drawn as its reason and nothing is dialled.
@@ -1176,13 +1213,24 @@ func _models_render() -> void:
 	for m in models:
 		if String(m["id"]) == saved:
 			in_list = true
+	## F9: the list shown is the filtered one; `in_list` above stays about the whole list, so a saved model the
+	## search hides is not called "(not in list)" -- it is kept as the first row, selected.
+	var total := models.size()
+	if _ml_filter != "":
+		models = models.filter(func(m): return String(m["id"]).to_lower().contains(_ml_filter) or LlmModelList.item_text(m).to_lower().contains(_ml_filter))
+	var shown_has_saved := false
+	for m in models:
+		if String(m["id"]) == saved:
+			shown_has_saved = true
+	if controls.has("model_search_row") and is_instance_valid(controls["model_search_row"]):
+		(controls["model_search_row"] as Control).visible = total > MODEL_SEARCH_MIN or _ml_filter != ""
 	if saved == "":
 		ob.add_item("Choose a model…")
 		ob.set_item_metadata(0, "")
 		_ml_rows.append({"id": "", "text": "Choose a model…"})
 		sel = 0
-	elif not in_list:
-		var t0 := saved + (" (not in list)" if not models.is_empty() else "")
+	elif not shown_has_saved:
+		var t0 := saved + (" (not in list)" if not in_list and total > 0 else (" (hidden by search)" if in_list else ""))
 		ob.add_item(t0)
 		ob.set_item_metadata(0, saved)
 		_ml_rows.append({"id": saved, "text": t0})
@@ -1201,7 +1249,7 @@ func _models_render() -> void:
 	_building = was_building
 	## The typed field is shown while the user chose "Type a name…" and whenever there is no list to pick from.
 	if _model_field_row != null and is_instance_valid(_model_field_row):
-		_model_field_row.visible = _ml_manual or models.is_empty()
+		_model_field_row.visible = _ml_manual or total == 0
 	var field := controls.get("model") as LineEdit
 	if field != null and is_instance_valid(field) and not field.has_focus() and field.text != saved:
 		field.text = saved
@@ -1319,6 +1367,45 @@ func _on_key_save() -> void:
 	DccSettings.notify_assistant_state()
 	settings_changed.emit()
 	## A new or removed key changes what the server will answer: ask again.
+	_models_refresh()
+
+
+## F10: puts the masked field's text into this process's environment under the chosen variable name, clears the field
+## at once, and re-reads the key line. The text is held in a local for the one call and never printed or stored.
+func _on_session_key_use() -> void:
+	var field := controls.get("session_key_field") as LineEdit
+	if field == null:
+		return
+	var typed := field.text.strip_edges()
+	field.text = ""
+	var name := String(DccSettings.llm_value("env_var"))
+	var re := RegEx.new()
+	re.compile("^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+	if typed == "":
+		_key_msg.text = "Paste a key first."
+	elif re.search(name) == null:
+		_key_msg.text = "The variable name is not valid: letters, digits and underscores only."
+	else:
+		OS.set_environment(name, typed)
+		_key_msg.text = "Key set for this run only (variable %s). Nothing was saved." % name
+	typed = ""
+	_after_key_change()
+
+
+## F10: removes the run-only key from this process's environment.
+func _on_session_key_clear() -> void:
+	var name := String(DccSettings.llm_value("env_var"))
+	if OS.has_environment(name):
+		OS.unset_environment(name)
+	_key_msg.text = "Variable %s cleared for this run." % name
+	_after_key_change()
+
+
+## The shared tail of every key change: the status line, the Assistant chip, the listeners, and a fresh model list.
+func _after_key_change() -> void:
+	_refresh_dynamic()
+	DccSettings.notify_assistant_state()
+	settings_changed.emit()
 	_models_refresh()
 
 

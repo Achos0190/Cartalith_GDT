@@ -732,11 +732,9 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             ("plates", "Plates", "Plate partition; boundary cells darkened."),
             ("bounds", "Plate boundaries", "Boundary cells only: red convergent, blue divergent (by stress sign)."),
             ("btype", "Tectonic type", "BTYPE_COLS: collision, subduction, island arc, rift, transform."),
-            (
-                "oro",
-                "Orogeny",
-                "Not available: the signed orogeny preview needs the boundary-polyline structure generate_terrain folds into height and never retains (distinct from crust_field/boundary_type, which are retained).",
-            ),
+            // F34 (owner 2026-11-21): the Orogeny row was removed. It could never draw: the field is built
+            // only with World Structure on (off in the app) and is folded into height and dropped, so the
+            // row was a permanently greyed entry. Reinstate it only together with a retained `oro` field.
             ("stress", "Stress", "divColor(): warm convergent, cool divergent."),
             ("age", "Crust age", "Dark young (near a boundary), light old."),
             (
@@ -909,7 +907,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
 /// missing estimator; the hint that said `popdensity` was one is corrected
 /// (2026-09-03) and `layers_popover.gd`'s `GAP_LAYERS` entry states the same
 /// narrow gap, so the two lines of that tooltip agree.
-const GAP_LAYERS: &[&str] = &["oro", "velo", "popdensity", "siteprofile"];
+const GAP_LAYERS: &[&str] = &["velo", "popdensity", "siteprofile"];
 
 /// Whether `id` can be drawn for this world, **without building it**.
 ///
@@ -3626,6 +3624,16 @@ mod tests {
                 "{id} in GAP_LAYERS must also appear in LAYER_GROUPS"
             );
         }
+    }
+
+    /// Protects: F34 (owner 2026-11-21) -- the Orogeny row is not offered. It could never draw (the field exists only
+    /// with World Structure on, off in the app, and is dropped after generation), so a permanently greyed row was
+    /// removed; it comes back only together with a retained `oro` field and a drawing arm.
+    #[test]
+    fn the_orogeny_row_is_not_offered() {
+        assert!(!LAYER_GROUPS.iter().any(|(_, items)| items.iter().any(|(k, _, _)| *k == "oro")));
+        assert!(!GAP_LAYERS.contains(&"oro"));
+        assert_eq!(GAP_LAYERS, &["velo", "popdensity", "siteprofile"], "the three genuine gaps stay listed");
     }
 
     /// Protects: the listed views needing no civilisation layer: available, and a correctly sized raster.

@@ -447,6 +447,19 @@ impl InfraTools {
         self.journeys.len() != before
     }
 
+    /// F8 (owner 2026-11-21): renames the saved journey with this stable `id`. `false` for an unknown id or a
+    /// blank name (a journey is never unnamed: the lists show its name as the open button).
+    pub fn journey_rename(&mut self, id: u64, name: &str) -> bool {
+        let name = name.trim();
+        match self.journeys.iter_mut().find(|j| j.id == id) {
+            Some(j) if !name.is_empty() => {
+                j.name = name.to_owned();
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The saved journey with this stable `id`, or `None`. Looked up by id, never by position.
     pub fn journey_get(&self, id: u64) -> Option<&cartalith_civ::travel_library::Journey> {
         self.journeys.iter().find(|j| j.id == id)
@@ -1702,6 +1715,24 @@ mod tests {
         assert_eq!(t.journeys[0].id, id_b, "deleting by id must not touch the survivor");
         assert!(t.journey_get(id_a).is_none());
         assert!(t.journey_get(id_b).is_some());
+    }
+
+    /// Protects: a rename changes exactly the named journey (by id), trims the name, and refuses a blank name
+    /// or an unknown id without touching anything.
+    #[test]
+    fn journey_rename_changes_only_the_named_journey() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        let a = t.journey_save("A", "p", 0, 1).unwrap();
+        let b = t.journey_save("B", "p", 1, 1).unwrap();
+        assert!(t.journey_rename(b, "  Long road "));
+        assert_eq!(t.journey_get(b).unwrap().name, "Long road");
+        assert_eq!(t.journey_get(a).unwrap().name, "A");
+        assert!(!t.journey_rename(b, "   "));
+        assert!(!t.journey_rename(999, "X"));
+        assert_eq!(t.journey_get(b).unwrap().name, "Long road");
     }
 
     /// Protects: usage counts only journeys with the named preset; unknown presets and the empty store give `0`.

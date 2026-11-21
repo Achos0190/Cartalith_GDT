@@ -1336,7 +1336,9 @@ func _refresh_route_choice() -> void:
 			("No committed routes yet -- use the crosshair above to drop waypoints, then Commit journey." if _touch_crosshair_wanted()
 			else "No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it."))
 		_route_index = -1
-		return
+		## F8: saved journeys stay listed (and deletable) with no committed route left, e.g. after deleting the last one.
+		if _journeys.is_empty():
+			return
 
 	# JP-08's journeys list: the named, saved journeys first (a journey is a
 	# route *plus* a party form), then the raw committed routes underneath.
@@ -1361,7 +1363,14 @@ func _refresh_route_choice() -> void:
 			" Restored from a project saved before the full plan was kept: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were not saved with it and start at their defaults." if bool(j.get("restored", false)) else "")
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
+		var ren_btn := Button.new()
+		ren_btn.name = "JourneyRename"
+		ren_btn.text = "✎"
+		ren_btn.tooltip_text = "Rename this journey."
+		ren_btn.pressed.connect(func(): _rename_journey(i))
+		jrow.add_child(ren_btn)
 		var del_btn := Button.new()
+		del_btn.name = "JourneyDelete"
 		del_btn.text = "×"
 		del_btn.tooltip_text = "Forget this journey."
 		del_btn.pressed.connect(func(): _delete_journey(i))
@@ -1371,6 +1380,40 @@ func _refresh_route_choice() -> void:
 		if _override_notice != "":
 			DccWidgets.note(_left_route_section, _override_notice)
 		_left_route_section.add_child(DccTheme.rule())
+	if count == 0:
+		return
+
+	## F8 (owner 2026-11-21): every plotted route as a row -- open (select), rename, delete -- so the planner is
+	## the overview the dropdown below never was. The same committed routes CIVIL > Routes & ways draws;
+	## `route_set_name` / `route_delete` are the engine's own, nothing is mirrored.
+	_left_route_section.add_child(DccTheme.label("PLOTTED ROUTES (%d)" % count, "text_dim", DccTheme.FS_MICRO))
+	for i in count:
+		var rr: Dictionary = bridge.route_get(i)
+		var prow := HBoxContainer.new()
+		prow.name = "RouteRow%d" % i
+		prow.add_theme_constant_override("separation", 4)
+		_left_route_section.add_child(prow)
+		var sel := Button.new()
+		sel.name = "RouteOpen"
+		sel.text = "%s%s — %s" % ["● " if i == _route_index else "", RouteName.display(rr, i), DccUnits.format_thousands(float(rr.get("km", 0.0)))]
+		sel.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		sel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sel.clip_text = false
+		sel.tooltip_text = "Plan this route."
+		sel.pressed.connect(func(): _select_route(i))
+		prow.add_child(sel)
+		var rb := Button.new()
+		rb.name = "RouteRename"
+		rb.text = "✎"
+		rb.tooltip_text = "Rename this route."
+		rb.pressed.connect(func(): _rename_route(i))
+		prow.add_child(rb)
+		var xb2 := Button.new()
+		xb2.name = "RouteDelete"
+		xb2.text = "×"
+		xb2.tooltip_text = "Delete this route (saved journeys keep their own copy of it)."
+		xb2.pressed.connect(func(): _delete_route(i))
+		prow.add_child(xb2)
 
 	var labels: Array = []
 	for i in count:
@@ -4255,6 +4298,66 @@ func _load_journey(i: int) -> void:
 		app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
 
 ## Forgets journey `i`, mirroring the delete to the engine's own store, and keeps `_active_journey` pointing at the same entry (cleared if it was the one removed, decremented if it was after it).
+## F8: renames committed route `i` (the engine's `route_set_name`, which a blank name clears to the default).
+func _rename_route(i: int) -> void:
+	var r: Dictionary = bridge.route_get(i)
+	if r.is_empty():
+		return
+	DccWidgets.prompt(PopoutHost.dialog_host(app, _window if _window != null else self), "Rename route", "Name for this route:",
+		String(r.get("name", "")), "Rename",
+		func(nm: String):
+			bridge.route_set_name(i, nm)
+			_refresh_route_choice())
+
+## F8: deletes committed route `i` after a confirm. The engine renumbers the routes above it, so the saved
+## journeys' local route indexes follow (a journey that used `i` goes to -1, "its saved route": it holds its own copy).
+func _delete_route(i: int) -> void:
+	var r: Dictionary = bridge.route_get(i)
+	if r.is_empty():
+		return
+	DccWidgets.confirm(PopoutHost.dialog_host(app, _window if _window != null else self), "Delete route?",
+		"Delete %s? Saved journeys that used it keep their own copy." % RouteName.display(r, i), "Delete",
+		func():
+			_delete_route_now(i))
+
+## F8: the delete itself, apart from its confirm so a probe drives exactly what the button runs.
+func _delete_route_now(i: int) -> void:
+	if not bridge.route_delete(i):
+		return
+	for j in _journeys:
+		var jd: Dictionary = j
+		var jr := int(jd.get("route", -1))
+		if jr == i:
+			jd["route"] = -1
+		elif jr > i:
+			jd["route"] = jr - 1
+	if _route_index == i:
+		_select_route(-1 if bridge.route_count() == 0 else 0)
+	else:
+		if _route_index > i:
+			_route_index -= 1
+		_refresh_route_choice()
+	if app.viewport != null:
+		app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+
+## F8: renames saved journey `i` -- this session's entry and the engine's own `Journey`, so the Story >
+## Saved journeys window and the save file agree.
+func _rename_journey(i: int) -> void:
+	if i < 0 or i >= _journeys.size():
+		return
+	DccWidgets.prompt(PopoutHost.dialog_host(app, _window if _window != null else self), "Rename journey", "Name for this journey:",
+		String((_journeys[i] as Dictionary).get("name", "")), "Rename",
+		func(nm: String): _rename_journey_now(i, nm))
+
+func _rename_journey_now(i: int, nm: String) -> void:
+	if i < 0 or i >= _journeys.size() or nm.strip_edges() == "":
+		return
+	_journeys[i]["name"] = nm.strip_edges()
+	var engine_id := int((_journeys[i] as Dictionary).get("engine_id", -1))
+	if engine_id >= 0:
+		bridge.journey_rename(engine_id, nm)
+	_refresh_route_choice()
+
 func _delete_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
 		return

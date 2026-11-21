@@ -6700,6 +6700,13 @@ func journey_delete(id: int) -> bool:
 	mark_world_dirty()
 	return world_gen.journey_delete(id)
 
+## F8: renames saved journey `id` (`WorldGen.journey_rename`); `false` for an unknown id or a blank name.
+func journey_rename(id: int, new_name: String) -> bool:
+	if generating or not _has("journey_rename"):
+		return false
+	mark_world_dirty()
+	return world_gen.journey_rename(id, new_name)
+
 ## `STORY_PLANNING_SCOPE.md` SP-2 (`story_bridge.rs`): every saved journey at
 ## the cursor date -- position (`x`/`y`, absent when the plan is blocked),
 ## phase, supply used, the derived `arrival`. See the `#[func]`'s own doc.

@@ -19038,6 +19038,15 @@ impl WorldGen {
         self.infra.as_mut().is_some_and(|i| i.journey_delete(id))
     }
 
+    /// F8: renames one saved journey by its stable id (`journey_list`'s `id`). `false` for an unknown id or a
+    /// blank name.
+    #[func]
+    fn journey_rename(&mut self, id: i64, name: GString) -> bool {
+        let Ok(id) = u64::try_from(id) else { return false };
+        let name = name.to_string();
+        self.infra.as_mut().is_some_and(|i| i.journey_rename(id, &name))
+    }
+
     // ===================== Measure (DCC_SHELL_SPEC.md §4.5.1, global) =====================
     //
     // No golden-parity test exists for this tool and none can (see

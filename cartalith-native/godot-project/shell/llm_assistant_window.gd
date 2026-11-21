@@ -1937,12 +1937,21 @@ func _on_sources(info: Dictionary) -> void:
 		col.add_child(row)
 	if not cits.is_empty():
 		col.add_child(DccTheme.label("CITATIONS IN THE ANSWER", "text_dim", DccTheme.FS_MICRO))
+	var vault_cited := false
 	for c in cits:
 		var cd: Dictionary = c
 		if bool(cd.get("verified", false)):
 			var ctext := "[%s]  %s" % [String(cd.get("label", "")), String(cd.get("title", cd.get("id", "")))]
+			## F15 (owner 2026-11-21): a Vault citation is shown in Obsidian's own link form, `[[Folder/Note#Heading]]`
+			## ("drive V" was the model's `V:` prefix read as a path). The reply's own `[V:...]` text is rewritten
+			## to match (display only; `_reply` keeps the id Rust verified).
+			if String(cd.get("id", "")).begins_with("V:"):
+				vault_cited = true
+				ctext = vault_link_form(String(cd["id"]))
+				if _reply_label != null and is_instance_valid(_reply_label):
+					_reply_label.text = _reply_label.text.replace("[%s]" % String(cd["id"]), ctext)
 			var target := _citation_target(String(cd.get("id", "")))
-			if target.is_empty() or _phone:
+			if target.is_empty():
 				_card_text(col, ctext, "text")
 			else:
 				## PC-6 (§3.5, finding A3): a verified world citation selects what it names, through the
@@ -1959,9 +1968,24 @@ func _on_sources(info: Dictionary) -> void:
 			_card_text(col, "NAMED, NOT READ  %s  (a source that was sent names it; its own text was not sent, so this is not verified)" % String(cd.get("id", "")), "text_secondary")
 		else:
 			_card_text(col, "UNVERIFIED CITATION  %s  (the app never retrieved this id; do not rely on it)" % String(cd.get("id", "")), "warn")
+	if vault_cited:
+		_card_text(col, "Vault links are written in Obsidian's form, [[Folder/Note#Heading]]: press one to open that note in the Vault (never a drive or a file path).", "text_ghost")
 	_msgs.add_child(box)
 	source_cards.append({"info": info, "box": box})
 	_scroll_to_end()
+
+
+## F15. Obsidian's link form for a Vault citation id (`V:<path>` or `V:<path>#<H1 > H2>`): the path without `.md`,
+## then `#` and the last heading, wrapped in `[[ ]]`.
+static func vault_link_form(id: String) -> String:
+	var rest := id.substr(2) if id.begins_with("V:") else id
+	var hash_at := rest.find("#")
+	var rel := rest if hash_at < 0 else rest.substr(0, hash_at)
+	if rel.to_lower().ends_with(".md"):
+		rel = rel.substr(0, rel.length() - 3)
+	if hash_at < 0:
+		return "[[%s]]" % rel
+	return "[[%s#%s]]" % [rel, rest.substr(hash_at + 1).split(" > ")[-1].strip_edges()]
 
 
 ## PC-6. The selection a world citation id names (`cartalith_knowledge::model`: `W:<kind>:<key>`), or `{}`.
