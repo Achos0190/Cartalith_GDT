@@ -101,6 +101,7 @@ Order (owner): finish this list -> the codebase refactor (`CODEBASE_REFACTOR_PRO
 - **F37:** 'Snap to water' for manually placed settlements does not work properly. Owner: civ tools. Not done.
 - **F38:** Buttons overlap or fall behind window edges. Owner: shell windows. Not done.
 - **F39:** A sea route skips coastal settlements and runs far off the coast (seed 83744, 2048x1024, 200x100 km, parameters in `OWNER_FINDINGS_2026-11-21.md`). Owner: sea lanes. Not done.
+- **F40:** Preferences > Reset to default settings (owner, 2026-11-21: *"For the settings file, make an option to Reset to base settings in Preferences"*): a confirmed reset of the user settings file (shortcuts, UI, graphics, LLM settings minus keys) with a backup beside it; never worlds, vault, asset library or name styles. Given to findings GUI batch 2. Not done.
 - **Tooling asks (same message):**
   - **M1:** A crate that logs what functions do and how they behave -- a deep look at what happens at run time. Owner: new crate (design first). Not done.
   - **M2:** An MCP tool Claude can use to drive Cartalith as a human would (the repo already carries the Fennara editor MCP addon, `addons/fennara`, MIT, 2026-11-11 -- evaluate it first). Owner: tooling. Not done.
