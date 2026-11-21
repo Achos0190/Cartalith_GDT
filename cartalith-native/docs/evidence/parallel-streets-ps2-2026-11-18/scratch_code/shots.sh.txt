@@ -1,0 +1,15 @@
+#!/bin/bash
+# PS-2 step 0 frames: the scope's 14 towns (PS-1's cells), City Viewer opening frame and x4, off then on live.
+G="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+O=C:/cw/ps2b_scratch/shots; mkdir -p $O C:/cw/ps2b_scratch/appdata
+ME="ps2b agent (PS-2 step-0 frames, 2026-11-21) pid $$"
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 15; done
+echo "$ME started $(date)" > C:/cw/.win_lock/owner
+cd C:/cw/ps2b/cartalith-native/godot-project
+declare -A CELLS=( [483920]="10,54;142,235;120,220;152,262;77,195" [912345]="312,235;375,180;81,105;92,121" [246371]="240,205;96,92;177,98;314,122;216,193" )
+for seed in 483920 912345 246371; do
+  APPDATA=C:/cw/ps2b_scratch/appdata timeout 3000 "$G" --path . --resolution 1600x1000 _ps2s0_probe.tscn -- --seed $seed --grid 384x288 --quick 1 --parallel 2 --shots $O --cells "${CELLS[$seed]}" > $O/${seed}.log 2>&1
+  echo "$seed rc $?"
+done
+grep -q "$ME" C:/cw/.win_lock/owner 2>/dev/null && rm -rf C:/cw/.win_lock
+echo SHOTSDONE

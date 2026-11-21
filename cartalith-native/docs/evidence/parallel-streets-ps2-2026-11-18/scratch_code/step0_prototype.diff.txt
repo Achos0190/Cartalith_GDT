@@ -1,0 +1,735 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index 218c9eae..a98a1b9b 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -208,6 +208,9 @@ pub use cartalith_urban::wallhug::HugOutcome;
+ /// polygon centroid, spelled here for the same census's size classes and
+ /// bank sides (2026-11-15, Ruling FB's both-banks audit).
+ pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
++/// PS-0's block-shape measures (`cartalith_urban::field`), for the census's
++/// block audits: one definition with PS-2's closed-block test.
++pub use cartalith_urban::field::{block_mabr, block_outline_corners};
+ /// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
+ /// re-exported so the census counts harbours against the line the layout itself uses.
+ pub use cartalith_urban::generate::HARBOUR_REACH_M;
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+index 06a0a5e6..bc194fe7 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+@@ -2887,78 +2887,7 @@ fn stretch_water_audit() {
+ // Pins nothing; `#[ignore]`d. Ruling BK: each helper says what it measures.
+ // ------------------------------------------------------------------------
+ 
+-/// A block outline with near-duplicate vertices (closer than 6 m) merged and
+-/// near-straight vertices (turn under `turn_deg`) dropped: the corners a
+-/// reader of the plan would count. PS-0's `ps_corners`
+-/// (`parallel-streets-ps0-2026-11-17/scratch_code/prototype_and_audit.diff.txt`),
+-/// kept verbatim so PS-1's block shapes are PS-0's instrument; the 6 m and
+-/// 20-degree thresholds are PS-0's labelled judgements.
+-fn ps_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
+-    let mut p: Vec<(f64, f64)> = Vec::new();
+-    for v in poly {
+-        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
+-            p.push((v.x, v.y));
+-        }
+-    }
+-    while p.len() > 2 && {
+-        let (a, b) = (p[0], p[p.len() - 1]);
+-        (a.0 - b.0).hypot(a.1 - b.1) < 6.0
+-    } {
+-        p.pop();
+-    }
+-    loop {
+-        let n = p.len();
+-        if n <= 3 {
+-            return p;
+-        }
+-        let mut drop = 0usize;
+-        let mut least = f64::INFINITY;
+-        for i in 0..n {
+-            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
+-            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
+-            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
+-            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
+-            if d > std::f64::consts::PI {
+-                d = 2.0 * std::f64::consts::PI - d;
+-            }
+-            if d < least {
+-                least = d;
+-                drop = i;
+-            }
+-        }
+-        if least.to_degrees() < turn_deg {
+-            p.remove(drop);
+-        } else {
+-            return p;
+-        }
+-    }
+-}
+-
+-/// Minimum-area bounding rectangle over the outline's edge directions:
+-/// `(long side, short side)`; the short side is a block's depth across.
+-/// PS-0's `ps_mabr`, verbatim.
+-fn ps_mabr(poly: &[Vec2]) -> (f64, f64) {
+-    let mut best = (f64::INFINITY, 0.0, 0.0);
+-    let n = poly.len();
+-    for i in 0..n {
+-        let (a, b) = (poly[i], poly[(i + 1) % n]);
+-        let th = (b.y - a.y).atan2(b.x - a.x);
+-        let (c, s) = (th.cos(), th.sin());
+-        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+-        for v in poly {
+-            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
+-            x0 = x0.min(x);
+-            x1 = x1.max(x);
+-            y0 = y0.min(y);
+-            y1 = y1.max(y);
+-        }
+-        let (w, h) = (x1 - x0, y1 - y0);
+-        if w * h < best.0 {
+-            best = (w * h, w.max(h), w.min(h));
+-        }
+-    }
+-    (best.1, best.2)
+-}
++use cartalith_civ::urban_adapter::{block_outline_corners as ps_corners, block_mabr as ps_mabr};
+ 
+ /// Every geometric field of a layout that PS-1 must not move, folded to one
+ /// FNV-1a hash over the f64 bits: edges (ends, class, width), blocks,
+diff --git a/cartalith-native/crates/cartalith-urban/src/cleanup.rs b/cartalith-native/crates/cartalith-urban/src/cleanup.rs
+index 10caa2d4..1973e69f 100644
+--- a/cartalith-native/crates/cartalith-urban/src/cleanup.rs
++++ b/cartalith-native/crates/cartalith-urban/src/cleanup.rs
+@@ -592,6 +592,23 @@ pub fn lane_pass(
+     g: &mut Graph,
+     epoch: i32,
+     min_area: Option<f64>,
++) -> usize {
++    lane_pass_with(seed, site, anchors, g, epoch, min_area, false)
++}
++
++/// [`lane_pass`], and with `keep_rect` (**not the reference**; PS-2,
++/// `PARALLEL_STREETS_SCOPE.md` 9.1) a face that is already a closed block,
++/// four corners (`crate::field::block_corners`) and rectangularity
++/// [`KEEP_RECT`] or more, is not cut, so a block PS-2 closed square is not
++/// split into a wedge. Skipped before any draw; `false` is [`lane_pass`].
++pub fn lane_pass_with(
++    seed: u32,
++    site: &Site,
++    anchors: &Anchors,
++    g: &mut Graph,
++    epoch: i32,
++    min_area: Option<f64>,
++    keep_rect: bool,
+ ) -> usize {
+     let min_area = min_area.unwrap_or(12000.0);
+     let mut r = stream(seed, &format!("lanes/{epoch}"));
+@@ -614,6 +631,9 @@ pub fn lane_pass(
+         if site.is_water(c) {
+             continue;
+         }
++        if keep_rect && crate::field::block_corners(&f.poly) == 4 && crate::field::rectangularity(&f.poly) >= KEEP_RECT {
++            continue;
++        }
+ 
+         let n = f.poly.len();
+         let mut longest = [-1isize, -1isize];
+@@ -659,6 +679,10 @@ pub fn lane_pass(
+     added
+ }
+ 
++/// [`lane_pass_with`]'s closed-block line: scope 5.3's rectangularity target
++/// (0.75, from the traced plans), as scope 9.1 names it.
++pub const KEEP_RECT: f64 = 0.75;
++
+ /// This module's unit and golden tests.
+ #[cfg(test)]
+ mod tests;
+diff --git a/cartalith-native/crates/cartalith-urban/src/districts/tests.rs b/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
+index 405021b9..16c70764 100644
+--- a/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
+@@ -321,6 +321,7 @@ fn setup(c: &Case) -> Fixture {
+                 road_reach: None,
+                 wide_spacing: false,
+                 whole_budget: false,
++                field: None,
+                 target_len,
+                 max_rf,
+                 walls: true,
+diff --git a/cartalith-native/crates/cartalith-urban/src/field.rs b/cartalith-native/crates/cartalith-urban/src/field.rs
+index 064c9cdf..9c04b58b 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field.rs
+@@ -445,6 +445,104 @@ pub fn sources_for(ty: TownType, pop: f64, site: &Site, g: &Graph, market: Vec2,
+     (!out.is_empty()).then_some(out)
+ }
+ 
++/// A block outline with near-duplicate vertices (closer than 6 m) merged and
++/// near-straight vertices (turn under `turn_deg`) dropped: the corners a
++/// reader of the plan would count. PS-0's `ps_corners`
++/// (`parallel-streets-ps0-2026-11-17/scratch_code/prototype_and_audit.diff.txt`),
++/// kept verbatim so PS-1's block shapes are PS-0's instrument (moved here
++/// from the census, 2026-11-21, so PS-2's `lane_pass_with` and the census
++/// count one definition); the 6 m and
++/// 20-degree thresholds are PS-0's labelled judgements.
++pub fn block_outline_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
++    let mut p: Vec<(f64, f64)> = Vec::new();
++    for v in poly {
++        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
++            p.push((v.x, v.y));
++        }
++    }
++    while p.len() > 2 && {
++        let (a, b) = (p[0], p[p.len() - 1]);
++        (a.0 - b.0).hypot(a.1 - b.1) < 6.0
++    } {
++        p.pop();
++    }
++    loop {
++        let n = p.len();
++        if n <= 3 {
++            return p;
++        }
++        let mut drop = 0usize;
++        let mut least = f64::INFINITY;
++        for i in 0..n {
++            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
++            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
++            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
++            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
++            if d > std::f64::consts::PI {
++                d = 2.0 * std::f64::consts::PI - d;
++            }
++            if d < least {
++                least = d;
++                drop = i;
++            }
++        }
++        if least.to_degrees() < turn_deg {
++            p.remove(drop);
++        } else {
++            return p;
++        }
++    }
++}
++
++/// Minimum-area bounding rectangle over the outline's edge directions:
++/// `(long side, short side)`; the short side is a block's depth across.
++/// PS-0's `ps_mabr`, verbatim (moved here with [`block_outline_corners`]).
++pub fn block_mabr(poly: &[Vec2]) -> (f64, f64) {
++    let mut best = (f64::INFINITY, 0.0, 0.0);
++    let n = poly.len();
++    for i in 0..n {
++        let (a, b) = (poly[i], poly[(i + 1) % n]);
++        let th = (b.y - a.y).atan2(b.x - a.x);
++        let (c, s) = (th.cos(), th.sin());
++        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
++        for v in poly {
++            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
++            x0 = x0.min(x);
++            x1 = x1.max(x);
++            y0 = y0.min(y);
++            y1 = y1.max(y);
++        }
++        let (w, h) = (x1 - x0, y1 - y0);
++        if w * h < best.0 {
++            best = (w * h, w.max(h), w.min(h));
++        }
++    }
++    (best.1, best.2)
++}
++
++/// The corner count PS-2's closed-block test reads: [`block_outline_corners`]
++/// at PS-0's 20 degrees (the census's own setting).
++pub fn block_corners(poly: &[Vec2]) -> usize {
++    block_outline_corners(poly, 20.0).len()
++}
++
++/// Area over the minimum-area bounding rectangle's ([`block_mabr`]), 0..1:
++/// PS-0's rectangularity, the census's `rect`. 0 for a degenerate outline.
++pub fn rectangularity(poly: &[Vec2]) -> f64 {
++    let (l, s) = block_mabr(poly);
++    let a = crate::geom::poly_area(poly).abs();
++    if l * s > 0.0 { a / (l * s) } else { 0.0 }
++}
++
++/// How far bearing `a` is from the nearest of the grain `axis`'s four
++/// directions (the axis and its cross-direction, either way), 0..pi/4. PS-2
++/// (`crate::growth`) reads it: a street "runs with the grain" when this is
++/// small, whichever of the two directions it follows.
++pub fn axis_off(a: f64, axis: f64) -> f64 {
++    let d = (a - axis).rem_euclid(std::f64::consts::FRAC_PI_2);
++    d.min(std::f64::consts::FRAC_PI_2 - d)
++}
++
+ /// The unsigned angle between two axes (bearings modulo pi), 0..pi/2.
+ fn axis_diff(a: f64, b: f64) -> f64 {
+     let d = (a - b).rem_euclid(std::f64::consts::PI);
+diff --git a/cartalith-native/crates/cartalith-urban/src/field/tests.rs b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+index d9401079..166c75b4 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+@@ -158,19 +158,24 @@ fn near_crossings_merge_into_one_road() {
+ }
+ 
+ /// The town-type and ground pass on generated towns: with the switch on, a
+-/// town's layout is the switch-off one (the reference's `hash_model` and the
+-/// building count), its plan is present with a type and a ground figure; off
+-/// there is no plan. A village (800) and a radial town carry the same layout
+-/// both ways, the village no plan and the radial town no grain.
++/// town with a grain grows a different layout (PS-2, `crate::growth`) and has
++/// a plan with a type and a ground figure; a town with no grain keeps the
++/// switch-off layout (the reference's `hash_model` and the building count);
++/// off there is no plan. A village (800) and a radial town carry the same
++/// layout both ways, the village no plan and the radial town no grain.
+ #[test]
+-fn the_plan_changes_no_layout() {
++fn only_a_town_with_a_grain_changes_layout() {
+     let t = |pop: f64, culture: Option<&str>, on: bool| -> Town {
+         generate(4242, &GenOpts { pop: Some(pop), culture: culture.map(str::to_string), parallel_streets: on, ..GenOpts::default() })
+     };
+     for (pop, culture) in [(6000.0, None), (2500.0, None), (800.0, None), (6000.0, Some("venus"))] {
+         let (off, on) = (t(pop, culture, false), t(pop, culture, true));
+-        assert_eq!(hash_model(&off), hash_model(&on), "pop {pop} {culture:?}");
+-        assert_eq!((off.buildings.len(), off.pop), (on.buildings.len(), on.pop));
++        let grain = on.parallel.as_ref().is_some_and(|p| p.field.is_some());
++        assert_eq!(hash_model(&off) == hash_model(&on), !grain, "pop {pop} {culture:?}");
++        assert!(grain || pop != 6000.0 || culture.is_some(), "the 6 000 organic town has a grain, so the moved branch is reached");
++        if !grain {
++            assert_eq!((off.buildings.len(), off.pop), (on.buildings.len(), on.pop));
++        }
+         assert!(off.parallel.is_none());
+         match (pop, culture) {
+             (800.0, _) => assert!(on.parallel.is_none(), "a village has no plan"),
+diff --git a/cartalith-native/crates/cartalith-urban/src/fortify/tests.rs b/cartalith-native/crates/cartalith-urban/src/fortify/tests.rs
+index f3a1d414..6c1dc7b0 100644
+--- a/cartalith-native/crates/cartalith-urban/src/fortify/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/fortify/tests.rs
+@@ -332,6 +332,7 @@ fn town(c: &Case) -> (Site, Anchors, Graph, f64) {
+         road_reach: None,
+         wide_spacing: false,
+         whole_budget: false,
++        field: None,
+         target_len: c.target_len,
+         max_rf: c.max_rf,
+         walls: false,
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 9155147e..b2738cde 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -78,7 +78,7 @@ use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, b
+ use crate::blocks::{Block, Parcel, build_blocks};
+ use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
+ use crate::courtyard::build_courtyard_rings;
+-use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys};
++use crate::cleanup::{clear_fort_zone, privatize_alleys};
+ use crate::districts::{
+     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
+ };
+@@ -1257,6 +1257,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+             road_reach: street_village.then_some(crate::village::ROAD_REACH_M),
+             wide_spacing: burgage,
+             whole_budget: burgage,
++            // PS-2: the grain, with the switch on and a town that has one.
++            field: parallel.as_ref().and_then(|p| p.field.clone()),
+         };
+         let mut builder = FortificationBuilder;
+         grow(
+@@ -1316,7 +1318,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+         crate::burgage::back_lane_pass(&site, anchors.market, &mut g, epochs, max_rf, wall_state.ring.as_deref(), plaza.as_ref().map(|z| z.poly.as_slice()));
+     }
+     for _ in 0..3 {
+-        if lane_pass(seed, &site, &anchors, &mut g, epochs, lane_min) == 0 {
++        // PS-2: a town with a grain keeps its closed blocks whole.
++        if crate::cleanup::lane_pass_with(seed, &site, &anchors, &mut g, epochs, lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some())) == 0 {
+             break;
+         }
+     }
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index 5f3166dc..98133e6a 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -274,6 +274,13 @@ pub struct GrowOpts {
+     /// `false` (the `Default`, every reference path) is the reference's
+     /// budget by control flow. A street village's `road_reach` budget wins.
+     pub whole_budget: bool,
++    /// **Not the reference** (`PARALLEL_STREETS_SCOPE.md` PS-2, behind
++    /// `urban_parallel_streets`): the town's grain (`crate::field::plan`).
++    /// `Some` bends headings toward it, lays back streets with cross lanes
++    /// and refuses oblique T-junctions where it is strong. `None` (the
++    /// `Default`, every reference path, every town with no grain) is the
++    /// reference's growth by control flow.
++    pub field: Option<crate::field::DirectionField>,
+ }
+ 
+ /// `buildWall` (reference line 29748) plus an epoch observer, injected.
+@@ -594,6 +601,10 @@ pub fn grow(
+ 
+     for ep in 1..=epochs {
+         let mut r = stream(seed, &format!("grow/e{ep}"));
++        // PS-2: the back streets draw from their own substream, so the
++        // epoch's own draws (and with them the rest of the town) stay as near
++        // the switch-off sequence as the changed geometry allows (FS-1).
++        let mut rb = stream(seed, &format!("grow/back/e{ep}"));
+         let explore_share = js_max(
+             s.exploration_minimum,
+             s.exploration_start - s.exploration_decay * ep as f64,
+@@ -630,6 +641,8 @@ pub fn grow(
+             };
+             let o: Vec2;
+             let ang: f64;
++            // PS-2: the tapped edge's exact perpendicular (mid-edge branch only).
++            let mut tap: Option<f64> = None;
+             if explore && r.chance(0.55) {
+                 let ni = r.int(0, g.nodes.len() as i64 - 1);
+                 let Some(n) = usize::try_from(ni).ok().and_then(|i| g.nodes.get(i)) else {
+@@ -661,7 +674,33 @@ pub fn grow(
+                 let side = if r.chance(0.5) { 1.0 } else { -1.0 };
+                 // sigma ~15deg, M-NET-3
+                 ang = edge_ang + side * (PI / 2.0) + r.norm() * s.branch_angle_jitter;
++                tap = Some(edge_ang + side * (PI / 2.0));
+             }
++            // **Not the reference** (PS-2, `GrowOpts::field`; scope 9.1): where
++            // the grain is strong and the tapped edge runs with it, a share of
++            // the candidates become a back street (`lay_back_street`, exactly
++            // square to the edge); every other heading is bent toward the
++            // nearest axis of the grain by `PARALLEL_GAIN` x its strength
++            // (PS-0's rule, scope 8.3; exploration by 0.7 of that). No draw
++            // and no change with `field` `None`.
++            let mut back: Option<f64> = None;
++            let ang = match opts.field.as_ref() {
++                Some(f) => {
++                    let gr = f.at(o, site.market_dist(o, anchors.market));
++                    if let Some(perp) = tap
++                        && gr.strength >= PARALLEL_STRONG
++                        && crate::field::axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD
++                        && rb.chance(BACK_SHARE)
++                    {
++                        back = Some(perp);
++                        perp
++                    } else {
++                        let off = (ang - gr.axis + PI / 4.0).rem_euclid(PI / 2.0) - PI / 4.0;
++                        ang - off * gr.strength * PARALLEL_GAIN * if explore { 0.7 } else { 1.0 }
++                    }
++                }
++                None => ang,
++            };
+             // Demand decays from the market — and from the quay in port towns,
+             // which are densest at the waterfront (harbour-city family).
+             // **Not the reference** (Ruling FN, `Site::market_dist`): a
+@@ -730,7 +769,12 @@ pub fn grow(
+             if !explore && r.u() > w * 1.35 {
+                 continue;
+             }
+-            let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing) else {
++            let par = opts.field.as_ref().map(|f| (f, anchors.market));
++            let made = match (back, par) {
++                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par),
++                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None).map(|m| m.0),
++            };
++            let Some(made) = made else {
+                 continue;
+             };
+             for eid in made {
+@@ -803,12 +847,16 @@ fn legalize_street(
+     ep: i32,
+     prov_tail: &str,
+     wide_spacing: bool,
+-) -> Option<Vec<usize>> {
+-    // segment lengths M-NET-4
+-    let l = js_min(
+-        125.0,
+-        js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance)),
+-    );
++    par: Option<(&crate::field::DirectionField, Vec2)>,
++    fixed_len: Option<f64>,
++) -> Option<(Vec<usize>, Vec2)> {
++    // segment lengths M-NET-4. **Not the reference** (PS-2's back street,
++    // `fixed_len`): the rib to a back street is exactly the block depth, and
++    // draws no length (only ever with `par`, so the reference's draws stand).
++    let l = match fixed_len {
++        Some(l) => l,
++        None => js_min(125.0, js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance))),
++    };
+     let mut b = Vec2::new(o.x + js_cos(ang) * l, o.y + js_sin(ang) * l);
+ 
+     // ---- local constraints (Parish-Mueller legalization) ----
+@@ -849,52 +897,22 @@ fn legalize_street(
+         if dd < s.junction_angle_limit {
+             return None;
+         }
+-    }
+-    if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
+-        return None;
+-    }
+-    if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
+-        return None; // M-REG-5
+-    }
+-    // Never cross water — the bridge already exists. The accumulation
+-    // is the reference's and is load-bearing: it produces a sixth
+-    // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
+-    let mut wet = false;
+-    let mut t = 0.15;
+-    while t <= 1.0 {
+-        if site.is_water(o.lerp(b, t)) {
+-            wet = true;
+-            break;
++        // **Not the reference** (PS-2's far-end oblique refusal, scope 9.1):
++        // where the grain is strong, a street does not end as a T on a street
++        // off every axis of the grain by more than `PARALLEL_OBLIQUE_RAD`, so
++        // a wedge is a seam, not the default. Dropped, not continued: the
++        // shortest rule that removes the oblique T (a crossing would raise
++        // the degree-4 count FS-3 caps).
++        if let Some((f, m)) = par
++            && f.at(b, site.market_dist(b, m)).strength >= PARALLEL_STRONG
++            && crate::field::axis_off(e_ang, f.at(b, site.market_dist(b, m)).axis) > PARALLEL_OBLIQUE_RAD
++        {
++            return None;
+         }
+-        t += 0.17;
+     }
+-    if wet {
++    if refused_by_site(site, wall_state, o, b) {
+         return None;
+     }
+-    // Wall permeability: after the wall exists, streets cross only at
+-    // gates (M-NET-9).
+-    if let Some(ring) = wall_state.ring.as_deref() {
+-        let cross = ring_crossings(ring, o, b);
+-        if !cross.is_empty() {
+-            let mut ok = true;
+-            for cp in cross {
+-                let mut near = false;
+-                for gt in &wall_state.gates {
+-                    if cp.dist(gt.pt) < 20.0 {
+-                        near = true;
+-                        break;
+-                    }
+-                }
+-                if !near {
+-                    ok = false;
+-                    break;
+-                }
+-            }
+-            if !ok {
+-                return None;
+-            }
+-        }
+-    }
+     // Parallel spacing: room for two plot depths between streets
+     // (M-BLK-4).
+     let midp = o.lerp(b, 0.5);
+@@ -940,7 +958,182 @@ fn legalize_street(
+         if explore { "Exploration" } else { "Densification" },
+         ep
+     ) + prov_tail;
+-    Some(g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov))
++    Some((g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov), b))
++}
++
++/// `legalize_street`'s site rules on the segment `o`-`b`: the box margin, the
++/// slope, the water and the wall's gates (moved out unchanged, 2026-11-21, so
++/// PS-2's cross lanes ([`cross_lane`]) are held to exactly the same rules).
++/// Draws nothing. `true` where the reference would `continue`.
++fn refused_by_site(site: &Site, wall_state: &WallState, o: Vec2, b: Vec2) -> bool {
++    if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
++        return true;
++    }
++    if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
++        return true; // M-REG-5
++    }
++    // Never cross water — the bridge already exists. The accumulation
++    // is the reference's and is load-bearing: it produces a sixth
++    // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
++    let mut wet = false;
++    let mut t = 0.15;
++    while t <= 1.0 {
++        if site.is_water(o.lerp(b, t)) {
++            wet = true;
++            break;
++        }
++        t += 0.17;
++    }
++    if wet {
++        return true;
++    }
++    // Wall permeability: after the wall exists, streets cross only at
++    // gates (M-NET-9).
++    if let Some(ring) = wall_state.ring.as_deref() {
++        let cross = ring_crossings(ring, o, b);
++        if !cross.is_empty() {
++            let mut ok = true;
++            for cp in cross {
++                let mut near = false;
++                for gt in &wall_state.gates {
++                    if cp.dist(gt.pt) < 20.0 {
++                        near = true;
++                        break;
++                    }
++                }
++                if !near {
++                    ok = false;
++                    break;
++                }
++            }
++            if !ok {
++                return true;
++            }
++        }
++    }
++    false
++}
++
++/// PS-2's grain is "strong" from this field strength up (PS-0's refusal
++/// threshold, scope 8.3): back streets, cross lanes and the far-end oblique
++/// refusal act only there.
++pub const PARALLEL_STRONG: f64 = 0.5;
++/// A heading or a street more than this off every axis of the grain is
++/// oblique, radians (PS-0's 0.35 rad, scope 8.3 and 9.1).
++pub const PARALLEL_OBLIQUE_RAD: f64 = 0.35;
++/// How far a heading bends toward the grain, times the field's strength:
++/// PS-0's 0.6 setting (housed p10 91, phi near today's; scope 8.3, kept by
++/// scope 9.1).
++pub const PARALLEL_GAIN: f64 = 0.6;
++/// The back street's offset behind its frontage, centreline to centreline,
++/// metres: scope 9.1's block depth, 5.3's 83 m target plus one street width
++/// [labelled in the scope].
++pub const BACK_DEPTH_M: f64 = 90.0;
++/// The share of qualifying taps (strong grain, edge with it) that become a
++/// back street. **A labelled judgement**, set in step 0 (scope section 11).
++pub const BACK_SHARE: f64 = 0.5;
++/// How many legalized steps the back street walks each way from its rib.
++/// **A labelled judgement**: about 1.5 block lengths of the drawn 56 m median.
++pub const BACK_WALK_STEPS: usize = 3;
++/// The cross-lane spacing along a pair, metres, jittered +/- 20 %: twice the
++/// depth, so a block's aspect is about 2.0 (scope 9.1, 5.3's target).
++pub const CROSS_STEP_M: f64 = 2.0 * BACK_DEPTH_M;
++/// A cross lane's ends keep this far from any node, metres (scope 9.1), so
++/// `Graph::add_street` edge-snaps them at the station instead of moving them
++/// onto a node.
++pub const CROSS_NODE_CLEAR_M: f64 = 30.0;
++/// A cross lane must meet the far parallel within this of square, radians
++/// (scope 9.1: 5 degrees).
++pub const CROSS_SQUARE_RAD: f64 = 5.0 * PI / 180.0;
++const BACK_PROV: &str = " Back street (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): one block depth behind its frontage, along the grain.";
++const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): closes a block square between two parallels.";
++
++/// **Not the reference** (PS-2, scope 9.1): the back-street candidate. A rib
++/// exactly square to the tapped frontage, exactly [`BACK_DEPTH_M`] long; if
++/// it reaches that depth free, a back street walked both ways from its end
++/// parallel to the frontage (up to [`BACK_WALK_STEPS`] legalized steps each
++/// way), with a cross lane ([`cross_lane`]) at every station
++/// [`CROSS_STEP_M`] (+/- 20 %) along it. A rib that meets a street first is
++/// kept as an ordinary street. Every piece passes `legalize_street`'s rules
++/// or [`refused_by_site`]'s; nothing is laid that they refuse. Only ever
++/// called with a grain, so it never runs on a reference path.
++#[allow(clippy::too_many_arguments)]
++fn lay_back_street(
++    r: &mut crate::rng::Substream,
++    s: &crate::rules::StreetRules,
++    site: &Site,
++    g: &mut Graph,
++    wall_state: &WallState,
++    o: Vec2,
++    perp: f64,
++    ep: i32,
++    par: (&crate::field::DirectionField, Vec2),
++) -> Option<Vec<usize>> {
++    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M))?;
++    if p.dist(o) < BACK_DEPTH_M - 1.0 {
++        return Some(made);
++    }
++    for dir in [perp + PI / 2.0, perp - PI / 2.0] {
++        let u = Vec2::new(js_cos(dir), js_sin(dir));
++        let (mut end, mut walked) = (p, 0.0);
++        let mut next = CROSS_STEP_M * r.range(0.8, 1.2);
++        for _ in 0..BACK_WALK_STEPS {
++            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None) else { break };
++            made.extend(m);
++            let seg = b.dist(end);
++            while next < walked + seg - CROSS_NODE_CLEAR_M {
++                if next - walked >= CROSS_NODE_CLEAR_M
++                    && let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep)
++                {
++                    made.extend(c);
++                }
++                next += CROSS_STEP_M * r.range(0.8, 1.2);
++            }
++            walked += seg;
++            end = b;
++            // The step ended on a street (a T): the back street stops there.
++            if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 1) {
++                break;
++            }
++        }
++    }
++    Some(made)
++}
++
++/// **Not the reference** (PS-2's `closing` mode, scope 9.1): a cross lane
++/// from `st` (on a back street) at heading `ang`, to the first street it
++/// meets within 1.25 block depths. Refused whole unless that street is within
++/// [`CROSS_SQUARE_RAD`] of square to it, both ends are [`CROSS_NODE_CLEAR_M`]
++/// from every node, and [`refused_by_site`] passes it; then laid with both
++/// ends exact (`add_street` edge-snaps them where they are). Draws nothing.
++fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32) -> Option<Vec<usize>> {
++    let far = st + Vec2::new(js_cos(ang), js_sin(ang)) * (1.25 * BACK_DEPTH_M);
++    let mut hit: Option<(f64, Vec2, f64)> = None;
++    for eid in g.edges_near(st, far) {
++        let e = &g.edges[eid];
++        if !e.alive {
++            continue;
++        }
++        let (a2, b2) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
++        if let Some(h) = seg_int(st, far, a2, b2)
++            && h.u > 1e-3
++            && h.u < 1.0 - 1e-3
++            && h.t > 0.03
++            && hit.is_none_or(|x| h.t < x.0)
++        {
++            hit = Some((h.t, h.pt, js_atan2(b2.y - a2.y, b2.x - a2.x)));
++        }
++    }
++    let (_, b, e_ang) = hit?;
++    let sq = (e_ang - ang).rem_euclid(PI);
++    if (sq - PI / 2.0).abs() > CROSS_SQUARE_RAD
++        || g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_some()
++        || g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()
++        || refused_by_site(site, wall_state, st, b)
++    {
++        return None;
++    }
++    Some(g.add_street(st.x, st.y, b.x, b.y, "lane", 2.6, ep, CROSS_PROV))
+ }
+ 
+ /// How many candidates [`grow_far_bank`] draws at most. **The reference's**
+@@ -1062,7 +1255,7 @@ pub fn grow_far_bank(
+         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
+             continue;
+         }
+-        let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing) else {
++        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None) else {
+             continue;
+         };
+         for eid in made {
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth/tests.rs b/cartalith-native/crates/cartalith-urban/src/growth/tests.rs
+index e087f81f..9b10aa0b 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth/tests.rs
+@@ -353,6 +353,7 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
+             road_reach: None,
+             wide_spacing: false,
+             whole_budget: false,
++            field: None,
+             target_len: c.target_len,
+             max_rf: c.max_rf,
+             walls: c.walls,
+@@ -1041,6 +1042,7 @@ fn the_whole_budget_carries_unlaid_street_into_later_epochs() {
+             road_reach: None,
+             wide_spacing: true,
+             whole_budget: whole,
++            field: None,
+             target_len: c.target_len,
+             max_rf: c.max_rf,
+             walls: c.walls,

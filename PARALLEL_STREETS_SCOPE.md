@@ -1049,3 +1049,72 @@ the far-bank strip. Towns short of ground keep today's layout (Q13 (b)): none at
 through its market takes the 0.25 cap, not 0.35. Keep that order? [yes: the stricter cap; measure the overlap in PS-2
 step 0] **Q15.** Which requirement decides Q13 (b) for a town: section 9.3's median case 1.12 or the p90 case 1.20?
 [1.12, the median case; it keeps today's layout for 246371 #0 at 2 048 only]
+
+---
+
+## 11. PS-2 step 0 result (2026-11-21, Ruling GG): NO-GO; nothing built
+
+**Verdict: no-go.** The scratch prototype of section 9.1 (back street, cross lanes in a closing mode, the far-end
+oblique refusal, `lane_pass` keeping closed blocks, gain 0.6) closes blocks as designed: quads outside the core rise
+from 49.9 % to **65 %** on the 24 towns, past the 60 % bar, and housing holds (p10 96-98). It fails **FS-1's kept
+share: 17-18 of 35 towns keep 85 % of their off footprint, against the bar's 28**, and FS-2's per-town delta (up to
+0.37 / 0.47 against 0.20 / 0.30). By section 6's rule PS-2 stops here: no product code, no third heading variant.
+The prototype is kept only as `scratch_code/step0_prototype.diff.txt`.
+
+**The measured null (new).** FS-1's 85 % had no null (section 8.3). Step 0 measured one: the same town, same rules,
+with only `grow`'s random stream re-seeded (no field, no PS-2 rule) keeps 85 % of its footprint in **10 of 35 towns**
+(median 0.81). The kept-share bar is therefore below the generator's own seed noise: no change to growth that draws
+a different sequence can pass it, and the prototype (17-22 of 35) already keeps more than the null. **This is for the
+owner (Q16 below), not a reason to loosen the bar here.**
+
+Evidence: `cartalith-native/docs/evidence/parallel-streets-ps2-2026-11-18/` (`summary.txt` lists every file). Census
+world: seeds 483920 912345 246371, 800 km, villages on, the app's `params::defaults`, 384 x 288; release test binary
+of `origin/main` `248e2e2f` plus the prototype; `parallel_streets_audit` (PS-1's, with `PS1_CSV`) and PS-1's
+`ps1_agg.py` (PS-0's measures). "Off" is today's layout in the same process; "on" the switch with the prototype.
+
+| step 0, 384 | quads outside core (24 towns) | compact / all triangles | housed p10 (35 / 24) | FS-1 kept >= 85 % (35 towns) | phi on-off max (by type) | needle lots, 35 towns |
+|---|---|---|---|---|---|---|
+| off (today) | 49.9 % | 6.7 / 10.8 % | 95 / 95 | 35 | 0 | 11.3 % |
+| prototype, first run (`s0a`) | **64.4 %** | 3.9 / 6.5 % | 99 / 98 | **17** | 0.47 market-street, 0.34 river-front | 12.6 % |
+| prototype, back streets on their own substream (`s0b`) | **65.3 %** | 3.9 / 6.5 % | 99 / 96 | **18** | 0.38 market-street, 0.32 river-front | 12.4 % |
+| diagnostic: back streets and cross lanes only, gain 0 (`s0g0`) | 57.0 % | 5.5 / 8.7 % | 96 / 95 | 22 | 0.23, 0.18 | 11.9 % |
+| null: `grow` re-seeded, no PS-2 rule (`s0null`) | 49.9 % | 7.5 / 11.0 % | 94 / 94 | **10** | 0.20 organic-core | 11.6 % |
+| **go bar** | **60 %+** | 5 / 15 % or less | **90+** | **28+** | 0.30 / 0.20 | never above 11 % |
+
+- Passes: quads, both triangle bars, housed p10, FS-3 (degree 4 9.1-9.5 %, dead ends 10.4-10.8 %, segments 24.6 m).
+- Fails: FS-1 kept share (both runs); FS-2's delta for market-street and river-front towns; needle lots 12.4-12.6 %
+  against the "never above today's 11 %" (5.2; today 11.3 % on this tree); FS-1's area ratio 0.9-1.4 in 28-32 of 35.
+- Not moved: block depth across (median 29 m, 83 m+ 3.7 %) and aspect (1.57): the back streets' 90 m blocks are
+  filled by ordinary branches afterwards, so the deep blocks section 5.3 wants are not there. That is PS-3's lever
+  (module depth), and it was not tried.
+- The gain-0 diagnostic says the heading bend, not the back street, carries most of the FS-2 delta and part of the
+  FS-1 loss; the back streets and cross lanes alone still reach 57 % quads.
+- Market-street towns rose to phi 0.63-0.72 in the first two runs (cap 0.35); one is 483920 #38, already 0.42 off.
+
+**Frames** (owner condition, Ruling GA): City Viewer frames of the scope's 14 towns (PS-1's cells), windowed, scratch APPDATA, under the
+window lock, from the release-built prototype (the `s0b` code) with the switch toggled live in one session
+(`scratch_code/_ps2s0_probe.gd.txt`, PS-1's probe with an x4 view, a layout dump per phase, and its PS-1 "unchanged"
+check turned into "moved": `RESULT: PASS` on all three seeds, every one of the 14 layouts moved). `contact_<seed>.png`:
+opening frame off, on, then x4 (market-centred) off, on; `frames/pair_<seed>_<id>_z1|z4.png` full size;
+`needles/needles_<seed>_<id>.png`: the same 260 m window off and on from the dumps, needle lots (section 8.4) red.
+What they show, all 14 looked at: **at first sight several river towns lose a bank** (483920 #0 and #11, 912345 #2,
+246371 #4: the off town spans the river, the on town sits on one bank), which is FS-1's failure in the pixels; one
+cause consistent with the data is that the on layout houses more on the market's bank (housed median 115 against
+107), so the far-bank pass is not reached, but it was not isolated. At x4 the on blocks are visibly more rectangular,
+with long parallel streets (483920 #4 and #23, 246371 #13 and #14), and 246371 #14 (market-street) begins to read as a
+grid along its spine. For the small towns (483920 #10, 912345 #30, 246371 #27) the x4 view lands on the market and
+river and shows little. The needle crops show the same defect off and on: fans of thin lots into an irregular
+block's interior corners (483920 #4 16.1 % off, 16.2 % on in its window; 246371 #14 16.8 / 14.7 %); the prototype
+neither removes nor adds them visibly, in line with the census's 11.3 to 12.4 %.
+
+**What this leaves for the owner.**
+
+- **Q16. FS-1's kept share.** The null keeps 85 % in 10 of 35 towns, so the bar (28 of 35) cannot be met by any
+  growth change. Options: (a) judge FS-1 by the area ratio (0.9 or more, as written) and the visual gates FS-4/FS-5
+  only, dropping the kept share; (b) restate it against the null (no worse than the re-seeded layout, 10 of 35, or
+  its median 0.81); (c) keep it, and parallel streets stop at PS-0/PS-1. [(b): the bar measures "the same town",
+  and the null says what the same town looks like grown twice]
+- **Q17. After Q16.** Under (a) or (b) the prototype passes FS-1 but still fails FS-2's delta (0.38 / 0.32 against
+  0.30 / 0.20) and the needle bar (12.4 % against 11 %); the gain-0 variant meets FS-2 but not quads (57 %) or needles
+  (11.9 %). [re-run step 0 under the restated FS-1, with the far-bank loss isolated first, since it is the frames'
+  most visible change; no third heading variant without a ruling]

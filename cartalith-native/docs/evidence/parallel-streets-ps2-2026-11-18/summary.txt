@@ -1,0 +1,20 @@
+PARALLEL_STREETS_SCOPE.md PS-2 step 0 (owner Rulings FY, GA, GC, GF, GG), measured 2026-11-21. Verdict NO-GO; nothing
+built. The scope's section 11 has the results; this file lists the evidence.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, app params::defaults, 384x288. Release test binary of
+origin/main 248e2e2f plus the scratch prototype (scratch_code/step0_prototype.diff.txt; reverted, never committed as
+code). parallel_streets_audit (PS-1's, PS1_CSV) and ps1_agg.py (PS-1's, PS-0's measures): "off" = today, "proto" = the
+switch on with the prototype, in one process.
+
+step0/agg_<run>_384.txt     the block, FS-1/2/3, needle tables (all towns 1500+ and the 8 largest per seed = PS-0's 24).
+step0/audit_<run>_384.txt   the audit's per-town lines (type, ground, whether the layout moved).
+step0/towns_<run>_384.csv   the per-town rows (blocks, lots and buildings CSVs not kept; s0.sh remakes them).
+  runs: s0a  the prototype as first written (all draws from grow's own stream);
+        s0b  the same with the back streets drawing from their own substream (the code in the diff);
+        s0g0 diagnostic, s0b with the heading gain at 0 (back streets, cross lanes, refusal, lane_pass rule only);
+        s0null the null: grow's stream re-seeded for every town that has a grain, no PS-2 rule (temporary env switch,
+               removed; the diff does not carry it).
+contact_<seed>.png          the scope's 14 towns: City Viewer opening frame OFF, ON, x4 OFF, ON (prototype s0b).
+frames/pair_<seed>_<id>_z1|z4.png  full-size OFF | ON pairs; frames/<seed>.log the probe logs (RESULT: PASS).
+needles/needles_<seed>_<id>.png    the same 260 m window OFF | ON from the probe's dumps, needle lots red (PS-0 8.4).
+scratch_code/               step0_prototype.diff.txt, s0.sh, ps1_agg.py, shots.sh, contact.py, _ps2s0_probe.gd (.txt).

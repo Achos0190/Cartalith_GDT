@@ -1,0 +1,8 @@
+#!/bin/bash
+# s0.sh <exe> <outdir> <gw:gh>: parallel_streets_audit with CSVs (off vs on) for PS-2 step 0.
+EXE=$1; OUT=$2; sz=$3; gw=${sz%%:*}; gh=${sz##*:}
+cd /c/cw/ps2b/cartalith-native/crates/cartalith-godot
+mkdir -p $OUT
+env TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 PS1_CSV=$OUT/csv $EXE parallel_streets_audit --ignored --nocapture --test-threads 1 > $OUT/parallel_streets_audit_$gw.txt 2>&1
+python C:/cw/ps2b_scratch/ps1_agg.py $OUT/csv $gw > $OUT/agg_$gw.txt 2>&1
+echo done $gw
