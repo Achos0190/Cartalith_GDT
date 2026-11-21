@@ -172,7 +172,7 @@ func _ready() -> void:
 	var cell := Vector2i(-1, -1)
 	var cls := 0
 	if img0 != null:
-		## Outward from the centre; land classes 1..13 are the ones Biome paint
+		## Outward from the centre; land classes 1..13 are the ones Biome & Terrain Paint
 		## can paint (`PaintTarget::palette()` is `CART_BIOMES[..13]`).
 		for r in range(0, mini(g.x, g.y) / 2):
 			for dy in range(-r, r + 1):

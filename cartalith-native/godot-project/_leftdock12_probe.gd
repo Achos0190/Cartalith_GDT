@@ -368,14 +368,14 @@ func _run(app: Node, label: String) -> void:
 	_ok("(e) ...and Terrain is rendered and open",
 		_wrap(world, "Terrain").visible and _body(world, "Terrain").visible, true)
 
-	## (f) and Biome paint, whose controls are parented into `Biomes`, not
+	## (f) and Biome & Terrain Paint, whose controls are parented into `Biomes`, not
 	## `Terrain` — so it must land in the other mode, not the same one.
 	app.call("arm_tool", "paint")
 	await _frames(3)
 	## Ruling L moves `Biomes` under the SCULPT pill with `Terrain`, so arming
 	## the brush now lands in mode b rather than mode a. Same derivation --
 	## `mode_for_category()` -- different answer, because the table moved.
-	_ok("(f) arming Biome paint selects mode b", app.call("active_mode", "world"), "b")
+	_ok("(f) arming Biome & Terrain Paint selects mode b", app.call("active_mode", "world"), "b")
 	_ok("(f) ...and Biomes is rendered and open",
 		_wrap(world, "Biomes").visible and _body(world, "Biomes").visible, true)
 	app.call("arm_tool", "inspect")

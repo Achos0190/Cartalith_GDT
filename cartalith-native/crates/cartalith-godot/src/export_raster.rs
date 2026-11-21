@@ -3527,22 +3527,28 @@ mod adjust_census_tests {
     /// `85c78c158b762a2c`, crop `e78105cb326592f2` -> `fa99eb2662562443`;
     /// satellite `afe6542a22946667` -> `dd5a82ba9953187e`, crop
     /// `2a5aa83cf3590b90` -> `2e17edcacce82036`.
+    /// **RE-BASELINED 2026-11-21 under the owner's F22 ("remove Animate water entirely"):** the **fingerprint**
+    /// column of all five rows only. The fingerprint hashes the serialized look, and `Npr::animate_water` (never read by
+    /// any renderer) no longer serializes; the eight pixel columns of every row are unmoved. Old -> new: default
+    /// `6f9734dec5cce1ee` -> `c5590351215fe296`, graded `895fa0ef90c68152` -> `fba8a8db18c5affa`, antique
+    /// `b7eacdb1e21f4123` -> `fe7083b9d6bc3e13`, js_reference `fbf5e15d04a0fe8f` -> `138e164241a2280f`, satellite
+    /// `b599bc24f6ac0d2b` -> `3ee37200d307e9eb`.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0x4def868d09349a96, 0x4def868d09349a96, 0x30b34efdb56d3e74, 0x9b391be2e04c9805, 0x6f9734dec5cce1ee],
+            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0x4def868d09349a96, 0x4def868d09349a96, 0x30b34efdb56d3e74, 0x9b391be2e04c9805, 0xc5590351215fe296],
         ),
         (
             "graded",
-            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x3ded135755f23af3, 0x3ded135755f23af3, 0xf851537558febba1, 0x2b8f957ac4e1e427, 0x895fa0ef90c68152],
+            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x3ded135755f23af3, 0x3ded135755f23af3, 0xf851537558febba1, 0x2b8f957ac4e1e427, 0xfba8a8db18c5affa],
         ),
         (
             "antique",
-            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x85c78c158b762a2c, 0x85c78c158b762a2c, 0xfa99eb2662562443, 0x8e06da50b9acb6da, 0xb7eacdb1e21f4123],
+            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x85c78c158b762a2c, 0x85c78c158b762a2c, 0xfa99eb2662562443, 0x8e06da50b9acb6da, 0xfe7083b9d6bc3e13],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xfbf5e15d04a0fe8f],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x138e164241a2280f],
         ),
         (
             "satellite",
@@ -3572,7 +3578,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xdd5a82ba9953187e, 0xdd5a82ba9953187e, 0x2e17edcacce82036, 0x7ff7ed3107406428, 0xb599bc24f6ac0d2b],
+            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xdd5a82ba9953187e, 0xdd5a82ba9953187e, 0x2e17edcacce82036, 0x7ff7ed3107406428, 0x3ee37200d307e9eb],
         ),
     ];
 

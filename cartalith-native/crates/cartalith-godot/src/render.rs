@@ -506,13 +506,9 @@ fn painted_tex(tiles: &[Option<GroundTile>], idx: u8, x: f64, y: f64) -> Option<
 /// renormalised: `contours: 0.5` here means the same picture the HTML app's
 /// "contour veins" slider at 50 produces.
 ///
-/// `animate_water` is the one member that this renderer never reads. It is a
-/// **presentation flag carried with the rest of the block** because the effect
-/// it names is per-*frame*, not per-pixel: the reference draws it on a separate
-/// RAF-driven overlay canvas (`waterAnimFrame`) and this port draws it on a
-/// separate Godot overlay too (`water_anim_layer.gd`). Keeping the flag here
-/// means the whole NPR vocabulary crosses the gdext boundary through one
-/// `set_npr()` rather than through one method plus an unrelated second one.
+/// An old settings or look file may still carry an `animate_water` key (the retired Animate water
+/// overlay, removed on 2026-11-21 by the owner's finding F22); `#[serde(default)]` without
+/// `deny_unknown_fields` ignores it, so those files load cleanly.
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Npr {
@@ -567,9 +563,6 @@ pub struct Npr {
     /// macro hillshade, exactly as `macroShade` does; the meso shade and the
     /// sea shade stay single-sun, as they do in the reference.
     pub multi_sun: bool,
-    /// `state.viz.waterAnim` — see this struct's own doc comment for why a
-    /// flag this renderer never reads lives here.
-    pub animate_water: bool,
     /// The v2.70 "Village map" style (`RC_ENGINE_CHANGES.md`'s v2.70 row) — a
     /// flat, limited-palette look, opt-in and land **and** water (unlike every
     /// flag above it in this struct, which is water-only or land-only). A
@@ -15321,6 +15314,19 @@ mod shore_tests {
             }
         }
         0.5 * (a + b)
+    }
+
+    /// Protects F22 (2026-11-21, "Animate water" removed): an appearance or settings JSON written before the
+    /// removal still carries `"animate_water": true`, and it must load, keep every other member and not
+    /// reappear on a re-save. `Npr` is `#[serde(default)]` with no `deny_unknown_fields`, which is what this pins.
+    #[test]
+    fn an_old_npr_block_carrying_animate_water_still_loads() {
+        let n: Npr = serde_json::from_str(r#"{"waves": true, "multi_sun": true, "animate_water": true, "sepia": 0.5}"#)
+            .expect("an old file's retired key must be ignored, not refused");
+        assert!(n.waves && n.multi_sun);
+        assert_eq!(n.sepia, 0.5);
+        let back = serde_json::to_string(&n).unwrap();
+        assert!(!back.contains("animate_water"), "the retired key is not written back: {back}");
     }
 
     /// Protects: `shore_margins`' sea branch: the base map's coast is the

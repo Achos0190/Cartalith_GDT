@@ -450,7 +450,7 @@ func _sync_phone_tool_palette(on: bool = true) -> void:
 var _phone_tool_palette: Control
 
 ## The active domain's entries, less any whose `modes` exclude the active mode
-## (WORLD's Biome paint is SCULPT-only, Ruling L).
+## (WORLD's Biome & Terrain Paint is SCULPT-only, Ruling L).
 func _strip_entries() -> Array:
 	var dom := active_domain()
 	var mode := active_mode(dom)
@@ -1785,9 +1785,8 @@ func _escape_action(force_disarm := false) -> void:
 ## `_process` still runs while idle, so every change-gated poll in the shell
 ## (`tool_overlay.gd`'s zoom compare, the phone keyboard height, the generation
 ## stage) still sees its change and its `queue_redraw()` still gets drawn. The
-## animated layers (`wind_fx_layer.gd`'s per-frame `queue_redraw()`,
-## `water_anim_layer.gd`'s per-frame `anim_time` write) are changes every frame,
-## so they keep running at full rate -- the same probe asserts both.
+## animated layer (`wind_fx_layer.gd`'s per-frame `queue_redraw()`) is a change every frame,
+## so it keeps running at full rate -- the same probe asserts both.
 ##
 ## **Only when this app owns the window.** Probes host the app in a
 ## `SubViewport` set to `UPDATE_ALWAYS`, and that is NOT enough to keep frames
@@ -3726,7 +3725,7 @@ func _on_workspace_changed(id: String) -> void:
 		_fill_timeline_strip()
 	if id != "world":
 		right_dock_ctrl.leave_sculpt_context()
-		## Biome paint is a WORLD-only tool (`world_workspace.gd`'s own TOOLS
+		## Biome & Terrain Paint is a WORLD-only tool (`world_workspace.gd`'s own TOOLS
 		## block), the same reason Sculpt is cleared on the line above.
 		right_dock_ctrl.leave_paint_context()
 	## `05-right-dock-and-bars.md` §1.9, GUI replacement stage 5:

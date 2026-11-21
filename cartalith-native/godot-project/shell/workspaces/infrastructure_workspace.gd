@@ -796,6 +796,22 @@ func _set_way_type(new_type: String) -> void:
 	_tool_options_way()
 	_push_way_draft()
 
+## **F32 (owner findings 2026-11-21): the tool stopped taking clicks after one route.** Commit and Discard
+## consume the engine's draft (`way_commit`/`route_commit`/`*_discard` leave NO draft), yet Escape, the Commit
+## button and Discard keep the tool armed, and `_on_infra_tool_armed` is the only other place a draft begins --
+## which a second click on the already-armed tool button never reaches (`DccApp.arm_tool` is a no-op for the
+## armed id). Every later map click then appended into "no draft" (`false`, silently) until another tool was
+## armed and this one armed again. Called at the end of each of the four consumers: while the tool is still the
+## armed one, begin a fresh draft. When the consumer ran because ANOTHER tool was armed, `armed_tool` has already
+## moved on, so nothing is begun and the old draft is not left open behind the new tool.
+func _rearm_draft() -> void:
+	if bridge.generating:
+		return
+	if app.armed_tool == "way" and _active_infra_tool == "way":
+		bridge.way_begin(_way_type)
+	elif app.armed_tool == "route" and _active_infra_tool == "route":
+		bridge.route_begin("mixed")
+
 ## Shared by the Commit button, Escape, and switching away to another tool.
 ## `way_commit()` itself already matches `_civCommitWay`'s own "no-op under
 ## two waypoints, but the draft is gone either way" -- so this never needs
@@ -813,6 +829,7 @@ func _commit_way() -> void:
 		app.set_status("hint",
 			"Way #%d committed -- drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % idx,
 			"text_ghost")
+	_rearm_draft()
 	if _active_infra_tool == "way":
 		_tool_options_way()
 	_push_way_draft()
@@ -840,6 +857,7 @@ func _discard_way() -> void:
 	bridge.way_discard()
 	_way_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_way_points)
+	_rearm_draft()
 	if _active_infra_tool == "way":
 		_tool_options_way()
 	_push_way_draft()
@@ -868,6 +886,7 @@ func _commit_route() -> int:
 			"%s committed -- %s, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [
 				RouteName.default_name(idx), DccUnits.format(float(r.get("km", 0.0)))],
 			"text_ghost")
+	_rearm_draft()
 	if _active_infra_tool == "route":
 		_tool_options_route()
 	_push_way_draft()
@@ -889,6 +908,7 @@ func _discard_route() -> void:
 	bridge.route_discard()
 	_route_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_route_points)
+	_rearm_draft()
 	if _active_infra_tool == "route":
 		_tool_options_route()
 	_push_way_draft()

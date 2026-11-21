@@ -100,7 +100,7 @@ const PLACEMENTS: Array = [
 	["Style", "LOOK", "", "Label", "Base look", 1],
 	["Style", "WATER", "", "Label", "Coastal wave lines", 1],
 	["Style", "WATER", "", "Label", "Wave reach", 1],
-	["Style", "WATER", "", "Label", "Animate water", 1],
+	["Style", "WATER", "", "Label", "Animate water", 0],   ## F22: removed 2026-11-21 (a 0 row asserts it stays gone)
 	["Style", "SAVED LOOKS", "", "Button", "Save look", 1],
 	["Style", "SAVED LOOKS", "", "Button", "Load look", 1],
 	["*", "*", "*", "Label", "§ MAP STYLE", 0],

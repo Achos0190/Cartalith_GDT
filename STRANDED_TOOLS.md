@@ -37,7 +37,7 @@ the critical path ahead of any surface.
 **What the spec actually contained, per stranded tool** (the evidence, not an
 assertion):
 
-- **Biome paint** — `biome` appears four times: generation stage 09, a Sample
+- **Biome & Terrain Paint** — `biome` appears four times: generation stage 09, a Sample
   readout, a surface-mode hotkey, and §7's rule that Cartography may not alter
   biome classification. All four are *views of* biome; none is a brush, though
   `paint.rs` has a whole override layer with its own golden suite.
@@ -77,7 +77,7 @@ report's finding, kept as evidence; none of it describes the shell today.
 | 6 | Flatten / terrace | `sculpt.rs` `Feature::Plateau` | specified, unbound | §5.2 |
 | 7 | Stamp (landform library) | `sculpt.rs`, 13 features, `SculptStamp` | specified, unbound | §5.2 + §6 stamp stack |
 | 8 | River / water | `sculpt.rs` river + lake, `sculpt_commit.rs` | specified, unbound | §5.2 + §6 River inspector |
-| 9 | Biome paint | `cartalith-spatial/src/paint.rs`, `PaintStamp` | **stranded** | §4.5.2 WORLD, `B` — moved out of Cartography, because §7's presentation-only rule forbids it there |
+| 9 | Biome & Terrain Paint | `cartalith-spatial/src/paint.rs`, `PaintStamp` | **stranded** | §4.5.2 WORLD, `B` — moved out of Cartography, because §7's presentation-only rule forbids it there |
 | 10 | Place settlement | `cartalith-civ/src/tools.rs` `civ_drop_place`, `civ_pick_place_at` | **stranded** | §4.5.3 CIVIL, `S` |
 | 11 | Draw route / way | `tools.rs` `ManualWay`, `RouteContext`, `DijkstraPath` | **stranded** | §4.5.4 INFRA, **split into two**: Way (`W`) and Route (`⇧R`), because v2.10 keeps `draw_way` and `route` separate |
 | 12 | Territory / faction paint | `tools.rs` `merge_territory_paint` | **stranded** | §4.5.3 CIVIL, `T` |
@@ -120,7 +120,7 @@ the right dock inspects what is selected:
 
 | Tool | Proposed home | Options bar | Draft? |
 |---|---|---|---|
-| Biome paint | WORLD ▸ Sculpt panel, a `PAINT` sibling of the 13 features | biome swatch · radius (default 6) · hardness · Commit / Discard | yes — a `PaintStamp` draft that marks **only** ecology stale |
+| Biome & Terrain Paint | WORLD ▸ Sculpt panel, a `PAINT` sibling of the 13 features | biome swatch · radius (default 6) · hardness · Commit / Discard | yes — a `PaintStamp` draft that marks **only** ecology stale |
 | Place settlement | CIVIL left dock, a new `EDIT` section | kind (5 tiers) · faction · snap to water · pick radius | no — one record; Undo covers it |
 | Draw route / way | INFRA left dock, `EDIT` section | way type · mode (freehand / snap / Dijkstra) · undo/redo · Commit | a polyline until committed |
 | Territory paint | CIVIL left dock, `EDIT` section | faction swatch · radius · add / subtract | yes — `merge_territory_paint` is a merge by construction |

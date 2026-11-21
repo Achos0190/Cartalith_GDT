@@ -2428,7 +2428,7 @@ func show_paint(layer: String, on_pick_value: Callable = Callable()) -> void:
 	_rebuild()
 
 ## Mirrors `leave_sculpt_context()` exactly -- called from `app.gd`'s
-## workspace-switch handler for the same reason: Biome paint is a WORLD-only
+## workspace-switch handler for the same reason: Biome & Terrain Paint is a WORLD-only
 ## tool. Named `..._context` because that is what every call site already says.
 ##
 ## **A plain rebuild, because whether the section draws is `_tool_section()`'s
@@ -2873,7 +2873,7 @@ func _dispatch(body: Control) -> void:
 ## **Paint carries a domain condition §1.2b's own table does not give it**, and
 ## that is behaviour preservation rather than a new rule: `app.gd`'s
 ## `_on_workspace_changed` called `leave_paint_context()` on every switch away
-## from WORLD, "Biome paint is a WORLD-only tool", and `armed_tool` survives a
+## from WORLD, "Biome & Terrain Paint is a WORLD-only tool", and `armed_tool` survives a
 ## domain switch (nothing in the shell re-arms Inspect on one -- checked
 ## against every `arm_tool(` call site). Without this the Paint section would
 ## follow the still-armed tool into CIVIL, which is one thing the old code
@@ -7609,7 +7609,7 @@ func _on_stamp_delete(index: int) -> void:
 # design's `biome` tool -- see the `TOOL_PAINT` const's own doc). Reads
 # `world_workspace.gd`'s live paint-editor state fresh every rebuild, the
 # same "no private draft" shape `TOOL_STAMPS` already uses -- Commit/Discard
-# here, in the left-dock Biome paint panel, and (since 2026-09-05, §2.2.6) on
+# here, in the left-dock Biome & Terrain Paint panel, and (since 2026-09-05, §2.2.6) on
 # the tool options bar are all the same two engine calls, so no two of the
 # three can disagree about what is pending.
 # (They CAN both be on screen showing the same number, which is fine -- see
@@ -7796,7 +7796,7 @@ func _paint_legend_row(parent: Control, label_text: String, count: int, swatch: 
 	if _paint_on_pick.is_valid():
 		var pick := Button.new()
 		pick.text = "arm"
-		pick.tooltip_text = "Arms %s for painting -- the same brush value the left-dock Biome paint panel's own Value picker sets." % label_text
+		pick.tooltip_text = "Arms %s for painting -- the same brush value the left-dock Biome & Terrain Paint panel's own Value picker sets." % label_text
 		pick.focus_mode = Control.FOCUS_NONE
 		pick.custom_minimum_size = Vector2(34, _chip_btn_h(tablet))
 		pick.pressed.connect(func(): _paint_on_pick.call(value_index))

@@ -9906,7 +9906,6 @@ mod biome_cols_tests {
     "waves": false,
     "wave_dist": 0.0,
     "multi_sun": true,
-    "animate_water": false,
     "village": false
   }
 }"#;
@@ -10045,7 +10044,6 @@ mod adjust_member_tests {
     "waves": false,
     "wave_dist": 0.0,
     "multi_sun": true,
-    "animate_water": false,
     "village": false
   }
 }"#;

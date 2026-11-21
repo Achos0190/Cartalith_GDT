@@ -105,7 +105,7 @@ func _run(vw: int, vh: int) -> void:
 	await _frames(6)
 	if not DccTheme.is_phone():
 		## Tablet and desktop have no sheet: the palette bar at the top IS the palette, drawn from the same registry. In SCULPT
-		## mode it carries Sculpt and Biome paint after the three global tools and the Pan legend.
+		## mode it carries Sculpt and Biome & Terrain Paint after the three global tools and the Pan legend.
 		var ids := func() -> Array:
 			var out: Array = []
 			for b in _app._tool_strip_row.find_children("*", "Button", true, false):
@@ -115,7 +115,7 @@ func _run(vw: int, vh: int) -> void:
 		_ok(ids.call() == ["inspect", "measure", "region"], "%s: WORLD pipeline bar is inspect, measure, region (got %s)" % ["tablet" if DccTheme.is_tablet() else "desktop", str(ids.call())])
 		_app.select_domain_mode("world", "b")
 		await _settle()
-		_ok(ids.call() == ["inspect", "measure", "region", "sculpt", "paint"], "SCULPT mode adds Sculpt and Biome paint (got %s)" % str(ids.call()))
+		_ok(ids.call() == ["inspect", "measure", "region", "sculpt", "paint"], "SCULPT mode adds Sculpt and Biome & Terrain Paint (got %s)" % str(ids.call()))
 		_ok(_app._phone_tool_palette == null, "no phone palette row exists off the phone")
 		if _arg("--shot", "") != "":
 			_vp.get_texture().get_image().save_png(_arg("--shot", "") + "_bar.png")
@@ -132,7 +132,7 @@ func _run(vw: int, vh: int) -> void:
 	_ok(_ids() == ["inspect", "measure", "region"], "WORLD pipeline palette is exactly inspect, measure, region (got %s)" % str(_ids()))
 	_ok(_app._phone_tool_palette != null and _app._phone_tool_palette.get_parent() == host and _app._phone_tool_palette.get_index() == 0,
 		"the palette is the FIRST child of the domain sheet's host")
-	# the dock's SCULPT segment adds Sculpt and Biome paint
+	# the dock's SCULPT segment adds Sculpt and Biome & Terrain Paint
 	var sculpt := _find_button(_app._left_dock_mode_switch, "SCULPT")
 	_ok(sculpt != null, "the dock's SCULPT segment exists")
 	if sculpt != null:

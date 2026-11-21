@@ -32,6 +32,10 @@ const FIELD_CHORDS: Array[int] = [KEY_A, KEY_C, KEY_X, KEY_V, KEY_Z, KEY_Y, KEY_
 ## bar only with Ctrl/Cmd or Alt held; while a field types (`typing`), only a Ctrl/Cmd chord that is
 ## not one of `FIELD_CHORDS`, and never an Alt chord.
 static func relays(keycode: int, cmd_or_ctrl: bool, alt: bool, typing: bool) -> bool:
+	## F13: the press of a modifier key itself carries its own modifier flag, so Ctrl alone read as "Ctrl held"
+	## and was offered to every menu. A bare modifier is never a chord.
+	if keycode in [KEY_CTRL, KEY_SHIFT, KEY_ALT, KEY_META]:
+		return false
 	if not cmd_or_ctrl and not alt:
 		return false
 	if typing:

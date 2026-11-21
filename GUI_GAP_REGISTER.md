@@ -4055,7 +4055,7 @@ recompute paints.
 ### IN-11 — ten tooltips, zero bindings
 
 Every `tools_block` entry carries its key in the label (`"Way (W)"`,
-`"Route (⇧R)"`, `"Label (L)"`, `"Biome paint (B)"`, `"Region select (R)"`, …). A
+`"Route (⇧R)"`, `"Label (L)"`, `"Biome & Terrain Paint (B)"`, `"Region select (R)"`, …). A
 search of `shell/` found `_unhandled_key_input` matching Escape, Backspace and
 Delete, `layers_popover.gd` matching digits, and **nothing matching a letter**.
 The tooltip was the whole feature — the fake control this register exists to

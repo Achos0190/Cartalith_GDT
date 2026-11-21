@@ -114,20 +114,12 @@ func _ready() -> void:
 	await get_tree().create_timer(3.0).timeout
 	await _measure("map")
 
-	## The two per-frame layers must NOT idle: they animate by requesting a draw
-	## every frame (`wind_fx_layer.gd` via `queue_redraw()`, `water_anim_layer.gd`
-	## via a per-frame shader parameter). Both should read ~60 draws/s here.
+	## The per-frame wind layer must NOT idle: it animates by requesting a draw
+	## every frame (`wind_fx_layer.gd` via `queue_redraw()`). It should read ~60 draws/s here.
 	app.viewport.set_debug_layer("wind")
 	await get_tree().create_timer(1.0).timeout
 	await _measure("wind-view")
 	app.viewport.set_debug_layer("off")
-	var water = load("res://shell/water_anim_layer.gd").new()
-	water.setup(app.bridge)
-	app.viewport.overlay.add_child(water)
-	print("[WATER] set_enabled(true) -> ", water.set_enabled(true))
-	await get_tree().create_timer(1.0).timeout
-	await _measure("water-anim")
-	water.set_enabled(false)
 	await get_tree().create_timer(1.0).timeout
 	await _measure("map-again")
 	get_tree().quit(0)

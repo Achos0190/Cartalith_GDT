@@ -7,7 +7,7 @@ extends Node
 ##
 ## Windowed, wiped user dir, under the shared lock (`C:/cw/.win_lock`):
 ##   godot --path . --resolution 1600x1000 _penlink_probe.tscn -- --vp 1600x1000
-##   (also --vp 1080x2340 --density 2.8125 --force-touch for the phone form)
+##   (also --vp 1080x2340 --density 2.8125 --force-touch for the phone form; the menu checks need --force-touch, F19)
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument.
 
 var _fails := 0
@@ -389,6 +389,11 @@ func _t_chip() -> void:
 func _t_menu() -> void:
 	var menus = _app.menus
 	var pm: PopupMenu = menus._penlink_popup
+	## F19 (2026-11-21): the Stylo 2 pen link is Android-only, so the PC's Preferences does not draw it; the tablet and
+	## phone (`--force-touch`) do.
+	if not DccTheme.is_touch():
+		_ok(pm == null, "F19: the PC's Preferences > Stylus has no Pen link submenu")
+		return
 	_ok(pm != null, "Preferences > Stylus > Pen link exists")
 	var pop: PopupMenu = menus._pen_kind_popups["tap_drawing"]
 	_ok(pop.item_count == 4, "double tap offers Last tool, Off, Eraser, Undo with an empty quick bar (4 rows, got %d)" % pop.item_count)

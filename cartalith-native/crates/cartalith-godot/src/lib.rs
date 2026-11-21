@@ -12842,7 +12842,7 @@ impl WorldGen {
     ///
     /// **Clears the override map, the ramp override and the two ET-C2
     /// adjustment stacks, and replaces the session's Painter (`npr`) block with
-    /// the file's** (keeping only `animate_water`, which the shell owns). Those are edits
+    /// the file's**
     /// layered over a base, and the file *is* a base: keeping them would mean
     /// loading a saved look reproduced something other than the saved look,
     /// which is the one thing this call has to guarantee. `appearance()` after
@@ -12868,11 +12868,8 @@ impl WorldGen {
                 // own block was silently ignored and a look saved on Ink reloaded over
                 // Default rendered with Default's Painter styles (about 71 % of map bytes
                 // differed; found by ET-F3, fixed by `_lookstate_probe`). Adopt the file's
-                // block as the session's. `animate_water` is the one member the shell owns
-                // (its shader overlay is switched by the shell, `_on_animate_water`), so it
-                // stays the session's; `peak_m` is re-derived from `params` on every render.
-                let animate_water = self.npr.animate_water;
-                self.npr = render::Npr { animate_water, ..a.npr.clone() };
+                // block as the session's; `peak_m` is re-derived from `params` on every render.
+                self.npr = a.npr.clone();
                 self.appearance_preset = Some(a);
                 true
             }
@@ -12917,7 +12914,6 @@ impl WorldGen {
         d.set("waves", n.waves);
         d.set("wave_dist", n.wave_dist);
         d.set("multi_sun", n.multi_sun);
-        d.set("animate_water", n.animate_water);
         d.set("village", n.village);
         d.set("tanaka", n.tanaka);
         d
@@ -12978,7 +12974,6 @@ impl WorldGen {
         };
         flag("waves", &mut self.npr.waves);
         flag("multi_sun", &mut self.npr.multi_sun);
-        flag("animate_water", &mut self.npr.animate_water);
         flag("village", &mut self.npr.village);
         applied
     }

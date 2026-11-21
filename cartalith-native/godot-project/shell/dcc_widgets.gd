@@ -1404,7 +1404,7 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 ## The TOOLS block itself (§4.5: "every left dock opens with a TOOLS block:
 ## first the four global tools, then that domain's own"). `entries` is
 ## `[{glyph, label, id}, ...]`; arming calls `app.arm_tool(id)`. An entry may
-## carry `modes` -- the domain modes it is shown in (WORLD's Biome paint is
+## carry `modes` -- the domain modes it is shown in (WORLD's Biome & Terrain Paint is
 ## `["b"]`, Ruling L); only the top-bar strip reads it, the phone's dock copy
 ## is gated by `world_workspace.gd::_refresh_paint_tool_row()` instead.
 ##
@@ -1526,7 +1526,7 @@ static func _tool_entry(row: Control, e: Dictionary, app, group: ButtonGroup) ->
 	b.set_meta(TOOL_CAPTION_META, tool_caption(String(e["label"])))
 	## `GUI_GAP_REGISTER.md` IN-11. Every one of these labels has advertised
 	## a letter since the TOOLS block was first built -- "Way (W)",
-	## "Route (⇧R)", "Label (L)", "Biome paint (B)" -- and until now not one
+	## "Route (⇧R)", "Label (L)", "Biome & Terrain Paint (B)" -- and until now not one
 	## of them was bound to anything: no `_unhandled_key_input` branch, no
 	## `Shortcut`, nothing anywhere in `shell/` matched a bare letter. The
 	## tooltip was the whole feature. That is exactly the fake control this

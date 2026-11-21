@@ -155,7 +155,7 @@ split; read it before touching layout code.
 
 **The load-bearing new idea is the tool rail plus its editing model** — Select/
 inspect, Pan, Point sample, Raise/lower, Smooth, Flatten/terrace, Stamp,
-River/water, Biome paint, Place settlement, Draw route/way, Territory/faction,
+River/water, Biome & Terrain Paint, Place settlement, Draw route/way, Territory/faction,
 Label, Icon stamp, Measure, Region select/export. A tool's stroke goes into a
 **pass buffer**, visible immediately; **Commit pass** writes it to the field,
 **Discard** drops the buffer; downstream stages are marked **stale** rather

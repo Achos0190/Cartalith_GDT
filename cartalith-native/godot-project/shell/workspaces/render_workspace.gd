@@ -14,7 +14,7 @@ class_name RenderWorkspace
 ## bound through `WorldGen::{get_appearance, set_appearance,
 ## list_appearance_tunables, reset_appearance}` and driven by `_build_map_view`
 ## / `_build_appearance` below. The non-photorealistic half (the ten "Painter"
-## styles, the coastal wave lines, animated water and multi-sun) came live one
+## styles, the coastal wave lines and multi-sun) came live one
 ## pass earlier -- see `_build_npr`.
 ##
 ## **The elevation colour ramp and saved looks** (2026-08-24, CA-02 and CA-08)
@@ -82,12 +82,6 @@ const STYLES := [
 	["risograph", "Risograph", "Indigo-to-amber duotone screen print with halftone dots."],
 	["pointillism", "Pointillism", "Seurat-style coloured dot field."],
 ]
-
-## `preload`, not the `WaterAnimLayer` global class name -- the same reason
-## `layers_popover.gd` preloads `wind_fx_layer.gd`: a global name resolves only
-## once the editor has rescanned and written the class cache, so a fresh clone
-## or an editor-less capture run would fail to parse this file.
-const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 
 ## The reference's five Map-style presets (reference HTML line 12850's
 ## `STYLE_PRESETS`), each an **absolute bundle**: every managed key first goes
@@ -1294,10 +1288,6 @@ const APPEARANCE_HELP := {
 	"grade_field_geology": "How far the grade above follows the lightness of the rock underneath, in the current lithology palette -- dark basalt and pale limestone at opposite ends. Inert on a loaded save, which stores no lithology, and while the whole grade is at rest.",
 }
 
-## The animated-water overlay node: adopted from the overlay's `WaterAnimLayer` child if one exists, else created from `WATER_ANIM_SCRIPT` when the toggle turns on. `null` until then.
-var _water_anim: Control
-## The "Animate water" checkbox; unticked silently with `set_pressed_no_signal` when the world has no discharge field to animate.
-var _anim_check: CheckBox
 
 ## key -> the `DccWidgets.slider` handle, so a preset can move the control the
 ## user is looking at rather than only the value behind it.
@@ -1340,7 +1330,7 @@ var _applying := false
 ## state. Must not be called twice -- the sections have no teardown.
 func _build() -> void:
 	## Nested under CARTO, this node draws nothing itself: it holds the state
-	## (the ramp, the preset tiles, the appearance rows, the water-anim layer)
+	## (the ramp, the preset tiles, the appearance rows)
 	## while `cartography_workspace.gd` calls the four `build_*_into()` entry
 	## points below with v3's own category bodies. See `_host`.
 	if _nested:
@@ -1381,6 +1371,7 @@ func build_style_into(parent: Control) -> void:
 	_host = parent
 	_build_map_style()
 	_build_npr()
+	_build_town_and_markers()
 	_build_look_presets()
 	_build_owed_inventory()
 	_host = null
@@ -3648,6 +3639,30 @@ func _on_load_look() -> void:
 		_mark_custom()
 	_refresh_map()
 
+## F31 (owner findings 2026-11-21): CARTO ▸ Style ▸ Towns & markers, the two draw choices that were Preferences ▸
+## Graphics ▸ Town look and Marker style. They write the same stored values (`DccSettings.set_city_look` /
+## `set_marker_style`, the one setting store) and redraw the map's overlay, exactly as the menu rows did; only
+## where they are reached changed. Never touches the world or a save.
+func _build_town_and_markers() -> void:
+	var body := DccWidgets.section(_h(), "Towns & markers")
+	var looks := ["Map look", "Ink plan"]
+	DccWidgets.choice(body, "Town look", looks, 0 if DccSettings.city_look() == "map" else 1,
+		func(i: int):
+			DccSettings.set_city_look("map" if i == 0 else "ink")
+			_redraw_overlay(),
+		"How a town plan is drawn everywhere: the City Viewer, the map's town layer and exports. Map look draws terrain ground, dark outlined roofs, a stone wall and a full citadel; Ink plan is the original line plan.")
+	var styles := ["Pins", "Circles", "Pins: icons", "Pins: painted"]
+	DccWidgets.choice(body, "Marker pins", styles, maxi(DccSettings.MARKER_STYLES.find(DccSettings.marker_style()), 0),
+		func(i: int):
+			DccSettings.set_marker_style(String(DccSettings.MARKER_STYLES[i]))
+			_redraw_overlay(),
+		"How the map's markers are drawn and clicked: Pins are teardrops that hold a pictogram; Circles are the plain class ring; Pins: icons and Pins: painted draw the same teardrops from your icon packs. Stored on this device.")
+
+## Repaints the map overlay after a draw choice changed (it re-reads the stored look and style on every draw).
+func _redraw_overlay() -> void:
+	if app != null and app.viewport != null and app.viewport.overlay != null:
+		app.viewport.overlay.queue_redraw()
+
 # -- The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) -------------------
 
 ## The ten Painter styles plus the three toggles the reference keeps beside
@@ -3701,13 +3716,6 @@ func _build_npr() -> void:
 	_npr_slider(water, "Wave reach", "wave_dist", 3.0, 0.05, "×",
 		"How far the foam reaches offshore. 1× is the reference's own reach.",
 		npr, 0.25)
-	## Drawn as a shader overlay on the map (`water_anim_layer.gd`), not baked
-	## into the raster -- it costs nothing to turn off and on, and an export
-	## bake never carries it.
-	_anim_check = DccWidgets.toggle(water, "Animate water", bool(npr.get("animate_water", false)),
-		_on_animate_water,
-		"A travelling shimmer along river channels. This is a screen effect, "
-		+ "not part of the map itself -- it never appears in an exported image.")
 	## v2.70 (`RC_ENGINE_CHANGES.md`): a flat limited-palette look, land and
 	## water both -- see `render.rs`'s `Npr::village`. An on/off replacement,
 	## not a slider, so it gets a checkbox like the two above rather than an
@@ -3780,7 +3788,7 @@ func _reset_biome_colours() -> void:
 		look_commit("Reset all biome colours", ["biomes"])
 
 ## After the engine call, never before: the map, the Biomes field (which
-## `viewport.refresh()` re-reads), the swatches, and -- when Biome paint is
+## `viewport.refresh()` re-reads), the swatches, and -- when Biome & Terrain Paint is
 ## armed -- the paint preview and the right dock's paint legend.
 func _after_biome_edit() -> void:
 	_sync_biome_colours()
@@ -3788,36 +3796,6 @@ func _after_biome_edit() -> void:
 	var ws = app._world_workspace() if app != null else null
 	if ws != null:
 		ws.on_biome_colours_changed()
-
-## Animated water is the one member of the block this renderer does not draw:
-## it is per-frame, so it lives on its own shader overlay over the map. The
-## layer is created the first time it is asked for and parented under the map
-## overlay -- the same slot, and for the same reason, `wind_fx_layer.gd` uses.
-func _on_animate_water(on: bool) -> void:
-	## Straight to the engine, not through `_push`: the flag is carried with
-	## the rest of the NPR block so it round-trips in one place, but nothing
-	## in the raster reads it, so re-rendering the map would be pure waste.
-	bridge.set_npr({"animate_water": on})
-	if app == null or app.viewport == null or app.viewport.overlay == null:
-		return
-	if _water_anim == null:
-		var existing: Node = app.viewport.overlay.get_node_or_null("WaterAnimLayer")
-		if existing != null:
-			_water_anim = existing
-		elif on:
-			_water_anim = WATER_ANIM_SCRIPT.new()
-			_water_anim.setup(bridge)
-			app.viewport.overlay.add_child(_water_anim)
-	if _water_anim == null:
-		return
-	## `false` means this world carries no discharge field to animate. Untick
-	## rather than leave a checkbox on over an effect that is not running --
-	## the same honesty rule `wind_fx_layer.gd`'s own `_refused` follows.
-	if not _water_anim.set_enabled(on):
-		if _anim_check != null:
-			_anim_check.set_pressed_no_signal(false)
-		bridge.set_npr({"animate_water": false})
-		push_warning("Animate water: this world has no river discharge field to animate.")
 
 # -- Colour management (`LARGE_ITEM_RULINGS.md`, owner-ruled build) ------------
 
@@ -4072,8 +4050,3 @@ func _sync_npr() -> void:
 			(row["check"] as CheckBox).set_pressed_no_signal(bool(npr[key]))
 		elif row.has("slider"):
 			(row["slider"] as Range).value = float(npr[key])
-	## Not in `_npr_rows`: `_build_npr` keeps this one out of the table because
-	## its handler is `_on_animate_water`, which owns the shader overlay as well
-	## as the flag. Silent for the same reason the two toggles above are.
-	if _anim_check != null:
-		_anim_check.set_pressed_no_signal(bool(npr.get("animate_water", false)))

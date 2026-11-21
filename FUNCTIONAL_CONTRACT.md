@@ -868,7 +868,7 @@ audit's word. One additional disagreement this correction pass found on its
 own, not in the audit's original list: capability 8's claim that the
 Cartography biome/terrain "painted layer" tool was never ported disagreed
 with `paint_bridge.rs`'s real, wired `paint_set_layer`/`paint_stroke_at`/
-`paint_commit` surface and `world_workspace.gd`'s live "Biome paint (B)"
+`paint_commit` surface and `world_workspace.gd`'s live "Biome & Terrain Paint (B)"
 tool — corrected in capabilities 7 and 8 above.
 
 One gap remains genuinely open, not previously flagged anywhere: interactive

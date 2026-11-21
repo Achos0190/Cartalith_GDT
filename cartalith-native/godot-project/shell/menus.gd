@@ -431,8 +431,7 @@ const ID_WIN_CTX_RESET := 934  ## Window ▸ Context panel ▸ Reset panel (back
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
-## Preferences ▸ Graphics ▸ Town look (CL-1): row 0 map look, row 1 ink plan. 625-626, free of 620-623 and 630.
-const ID_GFX_CITY_LOOK_FIRST := 625
+## 625-626 were Preferences ▸ Graphics ▸ Town look (CL-1), moved to CARTO ▸ Style by F31 (2026-11-21); left free.
 ## Marker style (owner request 2026-11-14): row 0 Pins, row 1 Circles. 627-628, free by grep of shell/ and drafts/.
 ## The two icon-set rows (owner, 2026-11-15) take 629 and 637, the two free ids around the atlas rungs (630-636), by the same
 ## grep: `MARKER_STYLE_IDS` maps each id to its `DccSettings.MARKER_STYLES` entry.
@@ -667,9 +666,7 @@ var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own ro
 var _reset_stage_popup: PopupMenu
 ## `Relief exaggeration` submenu.
 var _exag_popup: PopupMenu
-## Preferences ▸ Graphics ▸ Town look (CL-1), the same two looks the City Viewer's dropdown offers.
-var _city_look_popup: PopupMenu
-## Every Marker style submenu (Preferences ▸ Graphics and Assets), all ticked from the one stored value.
+## Every Marker style submenu (Assets only since F31 moved the Preferences one to CARTO ▸ Style), all ticked from the one stored value.
 var _marker_style_popups: Array = []
 var _h3d_popup: PopupMenu  ## Preferences ▸ 3D height rungs (`_build_h3d_menu`)
 ## `Size cap · GB` submenu of the atlas cache.
@@ -4251,7 +4248,8 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 				else "%s: pressure ignored" % kind.capitalize(), ID_PRESSURE_CTRL_BASE + ki * 3 + ci)
 			_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
 				"What a pen's pressure does on this tool. Also in the tool's option bar. Stored on this device, never in a world.")
-	_build_penlink_submenu(_stylus_popup)
+	if DccTheme.is_touch():   ## F19: the Stylo 2 pen link is Android-only (Bluetooth LE through the Kotlin plugin)
+		_build_penlink_submenu(_stylus_popup)
 	_refresh_stylus_menu()
 	_stylus_popup.id_pressed.connect(_on_stylus_choice)
 	_shell.style_popup(_stylus_popup)
@@ -4471,6 +4469,8 @@ func _on_ui_scale_choice(id: int) -> void:
 ## Ticks Preferences ▸ Handedness from `DccSettings.dominant_hand()` (item 0 left, item 1
 ## right). Reads settings only; storing the hand is `_on_handedness_choice`'s job.
 func _refresh_handedness_menu() -> void:
+	if _hand_popup == null:   ## F19: not built on a pointer build
+		return
 	var hand := DccSettings.dominant_hand()
 	_hand_popup.set_item_checked(0, hand == "left")
 	_hand_popup.set_item_checked(1, hand == "right")
@@ -4685,8 +4685,9 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## reference's own Relief slider was, and the 3D view's vertical scale
 	## defaults to true scale instead (Ruling CT; `View3D.VERTICAL_EXAGGERATION_DEFAULT`).
 	_build_relief_exag_menu(p)
-	_build_city_look_menu(p)
-	_build_marker_style_menu(p, "MarkerStyle")
+	## F31 (owner findings 2026-11-21): Town look and Marker style moved out of Preferences into CARTO ▸ Style
+	## (`render_workspace.gd::_build_town_and_markers`); the one setting store (`DccSettings.city_look()` /
+	## `marker_style()`) is unchanged, and Assets ▸ Marker style keeps its second door.
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
 	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
@@ -4826,12 +4827,15 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 		_build_units_submenu(p)
 	## CM-4 residual: unconditional, unlike the two rows above -- see this
 	## function's own header comment for why.
-	_build_handedness_submenu(p)
-	p.add_check_item("Brush edge sliders (tablet)", ID_PREF_EDGE_SLIDERS)
-	p.set_item_checked(p.item_count - 1, DccSettings.edge_sliders_enabled())
-	p.set_item_tooltip(p.item_count - 1,
-		"On a tablet, while a brush is armed, two thin sliders (radius and strength) sit on the screen edge nearest your non-dominant hand (Preferences > Handedness). They change the same settings as the tool options bar. A pen stroke never moves them. Stored on this device. No effect on desktop or phone.")
-	_edge_sliders_pref_row = p.item_count - 1
+	## F19 (owner findings 2026-11-21): Handedness and the brush edge sliders only do anything on a touch form (a tablet's
+	## touch-hold dock and edge sliders), so the PC does not draw them. Tablet and phone keep both.
+	if DccTheme.is_touch():
+		_build_handedness_submenu(p)
+		p.add_check_item("Brush edge sliders (tablet)", ID_PREF_EDGE_SLIDERS)
+		p.set_item_checked(p.item_count - 1, DccSettings.edge_sliders_enabled())
+		p.set_item_tooltip(p.item_count - 1,
+			"On a tablet, while a brush is armed, two thin sliders (radius and strength) sit on the screen edge nearest your non-dominant hand (Preferences > Handedness). They change the same settings as the tool options bar. A pen stroke never moves them. Stored on this device. No effect on desktop or phone.")
+		_edge_sliders_pref_row = p.item_count - 1
 	_build_stylus_submenu(p)
 	_build_ui_scale_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
@@ -4977,51 +4981,11 @@ func _on_relief_exag(id: int) -> void:
 	_host.set_status("hint", "relief exaggeration default %dx (next Generate)" % [
 		int(DccSettings.RELIEF_EXAG_CHOICES[i])], "text_dim")
 
-# -- Preferences ▸ Graphics ▸ Town look (CITY_MAP_LOOK_SCOPE.md CL-1, Ruling EW Q2) --------
-
-## Builds the Town look submenu (`_city_look_popup`) for parent `p`: two radio rows in `DccSettings.CITY_LOOKS`'
-## reversed order (map look first, as the City Viewer's dropdown lists them), ticked from the stored choice at
-## build time and on `about_to_popup`, like the relief-exaggeration group above (a group with no tick at build
-## time reads as having no setting, `_prefvalue_probe`).
-func _build_city_look_menu(p: PopupMenu) -> void:
-	_city_look_popup = PopupMenu.new()
-	_city_look_popup.name = "CityLook"
-	_shell.style_popup(_city_look_popup)
-	_city_look_popup.add_radio_check_item("Map look", ID_GFX_CITY_LOOK_FIRST)
-	_city_look_popup.add_radio_check_item("Ink plan", ID_GFX_CITY_LOOK_FIRST + 1)
-	_city_look_popup.id_pressed.connect(_on_city_look)
-	_city_look_popup.about_to_popup.connect(_refresh_city_look_menu)
-	_refresh_city_look_menu()
-	p.add_child(_city_look_popup)
-	p.add_submenu_item("Town look", "CityLook")
-	p.set_item_tooltip(p.item_count - 1,
-		"How a town plan is drawn everywhere: the City Viewer, the map's town layer and exports. Map look draws terrain ground, dark outlined roofs, a stone wall and a full citadel; Ink plan is the original ink-and-parchment drawing. A per-user setting, never stored in a world.")
-
-## Ticks the stored look (`DccSettings.city_look()`).
-func _refresh_city_look_menu() -> void:
-	if _city_look_popup == null:
-		return
-	var is_map := DccSettings.city_look() == "map"
-	_city_look_popup.set_item_checked(0, is_map)
-	_city_look_popup.set_item_checked(1, not is_map)
-
-## Serves the Town look submenu: stores the choice and redraws the map's town layer; an open City Viewer
-## re-reads the setting on its next draw (its own dropdown is refreshed by `city_viewer_window.gd`'s `_on_look_picked`
-## only when IT is the one chosen from).
-func _on_city_look(id: int) -> void:
-	DccSettings.set_city_look("map" if id == ID_GFX_CITY_LOOK_FIRST else "ink")
-	_refresh_city_look_menu()
-	_host.set_status("hint", "town look: %s" % ("map look" if DccSettings.city_look() == "map" else "ink plan"), "text_dim")
-	## The overlay holds the town layer; it re-reads the look on every draw, so a redraw is all it needs.
-	if _host != null and "viewport" in _host and _host.viewport != null and _host.viewport.overlay != null:
-		_host.viewport.overlay.queue_redraw()
-
-# -- Preferences ▸ Graphics ▸ Marker style (owner request 2026-11-14, Ruling EW) ---------------------------------------
+# -- Assets ▸ Marker style (owner request 2026-11-14, Ruling EW; the Preferences copy moved to CARTO by F31) ---------------------------------------
 
 ## Builds a Marker style submenu for parent `p`: four radio rows, Pins (the teardrop, the default), Circles (the
 ## class ring from before CL-2), ticked from `DccSettings.marker_style()` at build time and on `about_to_popup`
-## (a group with no tick at build time reads as having no setting, `_prefvalue_probe`). Called for Preferences ▸ Graphics
-## and for Assets, beside Landmark types, so the choice is where either the map's look or its landmarks are being thought
+## (a group with no tick at build time reads as having no setting, `_prefvalue_probe`). Called for Assets, beside Landmark types, so the choice is where either the map's look or its landmarks are being thought
 ## about; each builds its OWN popup (a PopupMenu has one parent) and both are ticked from the one stored value.
 func _build_marker_style_menu(p: PopupMenu, node_name: String) -> void:
 	var pop := PopupMenu.new()

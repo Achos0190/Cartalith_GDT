@@ -794,7 +794,7 @@ the crate, all passing — the territory brush is provably unaffected.
 
 **The duplicate slider.** `UNWIRED_FUNCTIONS.md` separately flagged
 `Hardness` drawn live in two places at once. `world_workspace.gd:2103` (the
-WORLD dock's Biome paint panel, which also carries `Softness` at `:2105` and
+WORLD dock's Biome & Terrain Paint panel, which also carries `Softness` at `:2105` and
 owns the actual `_paint_brush` dictionary) and `tool_bar.gd`'s unified tool
 options bar only mirrored that same dictionary through `_paint_state`/
 `_write_paint_state` and never held a value of its own. The dock's copy

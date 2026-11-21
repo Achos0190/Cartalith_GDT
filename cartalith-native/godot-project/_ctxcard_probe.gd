@@ -51,7 +51,7 @@ extends Node
 ##   W  three of CM-2's new rows run what they name: Measure from here arms
 ##      Measure with one point; Copy coordinate ▸ opens in place and copies;
 ##      CARTO's View field ▸ lists eight views and draws the one picked
-##   T  an inline Tool row: WORLD with Biome paint armed, Radius `+` steps the
+##   T  an inline Tool row: WORLD with Biome & Terrain Paint armed, Radius `+` steps the
 ##      brush and the value on the row follows
 ##   E  the card stays on screen at the four edges (its rect is measured)
 ##   P  contrast of the card's text against the card's own ground, both

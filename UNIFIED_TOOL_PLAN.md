@@ -45,7 +45,7 @@ every tool to its binding.
    field-level `undoStack`.
 4. **Backing by group, as read on 2026-08-18.** Terrain (2) had real prior art
    throughout. Water & ecology (3) splits: River/water rides the Sculpt editor;
-   Biome paint is an **override layer** (`paintBiome`), not a mutation of the
+   Biome & Terrain Paint is an **override layer** (`paintBiome`), not a mutation of the
    classifier. Civilization (4): Place settlement and Draw route/way have real
    reference precedent as *manual* tools, separate from this port's
    algorithmic placement and roads; Territory paints over this port's own
@@ -283,7 +283,7 @@ branch noise (0–1, default 0.5); Lake — depth (0.03–0.3, default 0.13), sh
 (0.05–0.6, default 0.25). The structures already existed for the algorithmic
 river network; what was new is the manual-stamp path into them.
 
-**Biome paint (`P`)** — a different data shape. `classify_biome` is a pure
+**Biome & Terrain Paint (`P`)** — a different data shape. `classify_biome` is a pure
 `(temperature, moisture) → biome` function with nothing to hold a manual edit.
 The reference's answer is a **separate override array**: `paintBiome` (line
 4764, a lazily allocated `Uint8Array(GW*GH)`), written by `_paintAt` (line 4783,
@@ -414,7 +414,7 @@ turned out to be a reproducible golden fixture — see B).
 
 **Milestone C — Water & ecology group.** River/water's special commit path
 (`enforceChannelDescent` reuse, the lake `waterOnly` ordering) on B's pipeline,
-kept separate from B because it is more delicate. Biome paint's override layer,
+kept separate from B because it is more delicate. Biome & Terrain Paint's override layer,
 with an audit of the `classify_biome` consumers before wiring — don't assume
 render-time only.
 
@@ -714,7 +714,7 @@ Read directly (reference 9318–9346), a fixed five-step sequence whose
    on raw `f32` bit patterns — so callers never choose between two commit
    functions.
 
-### How Biome paint's override layer works
+### How Biome & Terrain Paint's override layer works
 
 The plan's core was right — a separate override array, `0` = unpainted, a hard
 land-only gate in the reference. Three things around it were not:
@@ -1439,7 +1439,7 @@ The palette is declared per domain through `DccWidgets.tools_block()`; off the
 phone that hands the entries to `DccApp.set_domain_tools()`, and
 `DccWidgets.tool_strip()` draws the four global cells plus the active domain's
 own in the top bar (Ruling AK). `DccApp._strip_entries()` filters by mode,
-which is how WORLD's Biome paint appears only in SCULPT mode (Ruling L).
+which is how WORLD's Biome & Terrain Paint appears only in SCULPT mode (Ruling L).
 
 **Twelve tool ids are registered** (`register_tool_*_handler` calls,
 2026-09-24): `icon`, `label`, `measure`, `paint`, `region`, `route`, `sculpt`,
@@ -1458,7 +1458,7 @@ reference tools (`draw_way`/`route`).
 | 2 | Pan (`H`) | *(none; camera modifier)* | always active | n/a | `viewport_host.gd`'s camera |
 | 3 | Point sample (`I`) | *(none; a readout)* | n/a | n/a | the right dock's Sample context |
 | 4–8 | Raise/lower, Smooth, Flatten/terrace, Stamp, River/water | `sculpt` | picking a feature in WORLD ▸ SCULPT (`world_workspace.gd`, `arm_tool("sculpt")`) | `sculpt: Option<SculptEditor>` | `tool_overlay.gd` path preview + brush ring; `build_sculpt_preview_texture` composited live |
-| 9 | Biome paint | `paint` | top bar in SCULPT mode (`world_workspace.gd`'s `tools_block` entry) | `paint: Option<PaintEditor>` | brush ring; `build_paint_preview_patch` |
+| 9 | Biome & Terrain Paint | `paint` | top bar in SCULPT mode (`world_workspace.gd`'s `tools_block` entry) | `paint: Option<PaintEditor>` | brush ring; `build_paint_preview_patch` |
 | 10 | Place settlement | `settlement` | top bar, CIVIL (`civilization_workspace.gd::_build_tools`) | `civ_tools: Option<CivTools>` | Settlement inspector + map pin |
 | 11 | Draw route / way | `way` + `route` | top bar, CIVIL (handlers in `infrastructure_workspace.gd`) | `infra: Option<InfraTools>` | `tool_overlay.gd` path preview while drafting; the right dock's Route/Way inspector once committed (`right_dock.gd::show_route`) |
 | 12 | Territory / faction paint | `territory` (+ `territory_lasso`) | top bar, CIVIL | `civ_tools` (shared with row 10) | `territory_texture()` wash + brush ring |

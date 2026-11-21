@@ -212,7 +212,7 @@ inventing a feature. The constraint is per-feature:
 - The **categorical paint** tools (biome / terrain / splat) are a different
   tool family with a land-only gate — hard in the reference; in the port on by
   default and switchable (`Land only`, backed by `PaintStamp::ungated`). See
-  `UNIFIED_TOOL_PLAN.md`, Biome paint.
+  `UNIFIED_TOOL_PLAN.md`, Biome & Terrain Paint.
 
 ## 9 · What we deliberately do not copy
 

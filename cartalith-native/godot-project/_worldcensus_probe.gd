@@ -130,8 +130,8 @@ const PLACEMENTS: Array = [
 	["b", "Terrain", "", "", "Label", "§ PRESETS", 1],
 	["b", "Terrain", "DRAFT", "COMMIT", "Button", "Discard draft", 1],
 	["b", "Terrain", "DRAFT", "PAINTED LAKES", "Button", "Count painted lakes as water", 1],
-	["b", "Biomes", "", "", "Label", "§ BIOME PAINT", 1],
-	["b", "Biomes", "BIOME PAINT", "COMMIT", "Button", "Discard draft", 1],
+	["b", "Biomes", "", "", "Label", "§ BIOME & TERRAIN PAINT", 1],
+	["b", "Biomes", "BIOME & TERRAIN PAINT", "COMMIT", "Button", "Discard draft", 1],
 	["b", "*", "*", "*", "Button", "Discard draft", 2],
 ]
 
@@ -422,7 +422,7 @@ func _check_inset(idx: String, title: String, body: Control) -> void:
 			"heading_x=%d rows_x=%d section_x=%d (%s)" % [int(hx), int(rx), int(sx),
 				(sec as Label).text if sec != null else "no § heading"])
 
-## Ruling L's tree puts `Biome paint (B)` in WORLD's Tools row "(SCULPT mode
+## Ruling L's tree puts `Biome & Terrain Paint (B)` in WORLD's Tools row "(SCULPT mode
 ## only)". The pill is found by its tooltip, which is its label
 ## (`DccWidgets.tool_button()`). Since 2026-09-23 the Tools row is drawn in the
 ## top palette bar off the phone (`DccApp._install_tool_palette_bar()`) and is
@@ -437,12 +437,12 @@ func _check_paint_pill(panel: Control) -> void:
 		var n: Node = stack.pop_back()
 		if n.is_queued_for_deletion():
 			continue
-		if n is Button and String((n as Button).tooltip_text) == "Biome paint (B)":
+		if n is Button and String((n as Button).tooltip_text) == "Biome & Terrain Paint (B)":
 			seen += 1
 			vis += 1 if (n as Button).is_visible_in_tree() else 0
 		stack.append_array(n.get_children())
 	var want := 1 if _mode == "b" else 0
-	_ok("[%s] the Tools row's Biome paint (B) pill is %s" % [_mode,
+	_ok("[%s] the Tools row's Biome & Terrain Paint (B) pill is %s" % [_mode,
 		"on screen" if want == 1 else "hidden (SCULPT mode only)"],
 		seen <= 1 and vis == want, "built=%d visible=%d want_visible=%d" % [seen, vis, want])
 

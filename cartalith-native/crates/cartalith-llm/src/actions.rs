@@ -699,7 +699,7 @@ pub const DESC_ONLY: &[(&str, &str)] = &[
     ("civ.settlement_class", "Step the settlement class that the Settlement tool will place next."),
     ("civ.territory_commit", "Write the territory outline being drawn into the territory map."),
     // world_workspace.gd context row (shown while the Paint tool is armed).
-    ("world.paint_radius", "Step the Paint tool's brush radius, in cells."),
+    ("world.paint_radius", "Step the Biome & Terrain Paint tool's brush radius, in cells."),
 ];
 
 /// The [`DESC_ONLY`] description of `id`, when there is one.
@@ -717,7 +717,7 @@ pub const TOOL_REVIEW: &[(&str, &str)] = &[
     ("region", "Arm Region: drag a box on the map to choose an area to edit or export."),
     ("measure", "Arm Measure: click points on the map to measure distance, area or a section."),
     ("sculpt", "Arm Sculpt: stamp raise, lower or smooth brushes onto the terrain."),
-    ("paint", "Arm Paint: paint colour marks over the map."),
+    ("paint", "Arm Biome & Terrain Paint: paint biome and terrain classes by hand."),
     ("settlement", "Arm Settlement: click the map to place a settlement."),
     ("way", "Arm Way: click points to draw a road or path."),
     ("route", "Arm Route: click points to draw a travel route."),

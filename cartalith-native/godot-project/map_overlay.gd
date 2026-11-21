@@ -961,7 +961,7 @@ signal cursor_sampled(gx: float, gy: float, valid: bool)
 ## §4.5's tool palette: the two primitives every armed tool needs, and
 ## nothing more specific than that -- a click-placement tool (Settlement,
 ## POI, Icon, Label, a Way/Route waypoint) wants `map_clicked`; a
-## drag-painting tool (Biome paint, Territory, a Sculpt/Freehand stroke)
+## drag-painting tool (Biome & Terrain Paint, Territory, a Sculpt/Freehand stroke)
 ## wants `map_dragged`, which fires on every motion sample while the left
 ## button is held so a caller can accumulate a stroke or dab a brush
 ## continuously. Both fire in real grid-cell coordinates, the same values

@@ -16,7 +16,7 @@ extends Node
 
 const EXPECT := {
 	"Inspect (V)": "inspect", "Measure (M)": "measure", "Region select (R)": "region",
-	"Biome paint (B)": "paint", "Settlement (S)": "settlement", "Territory (T)": "territory", "Territory lasso (⇧T)": "territory_lasso",
+	"Biome & Terrain Paint (B)": "paint", "Settlement (S)": "settlement", "Territory (T)": "territory", "Territory lasso (⇧T)": "territory_lasso",
 	"Way (W)": "way", "Route (⇧R)": "route", "Icon (I)": "icon", "Label (L)": "label",
 }
 const KEYS := {

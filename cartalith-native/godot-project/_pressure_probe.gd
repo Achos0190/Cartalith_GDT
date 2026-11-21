@@ -6,7 +6,7 @@ extends Node
 ##
 ## What it proves, against the REAL engine (no stub): per tool kind, `DccSettings.pressure_control` decides what a pen's
 ## pressure does. Sculpt strength puts the pen's pressure on the stamp and leaves the stamp's params (radius) alone;
-## sculpt off puts none; a mouse puts none. Biome paint off ignores pressure (same painted area at 0.1 and 1.0), size
+## sculpt off puts none; a mouse puts none. Biome & Terrain Paint off ignores pressure (same painted area at 0.1 and 1.0), size
 ## shrinks the dab at low pressure, and a mouse paints the full-radius area. Colour paint offers strength / off (Ruling EQ item 1), strength by default.
 ##
 ## Windowed, wiped user dir, under the shared lock (`C:/cw/.win_lock`):

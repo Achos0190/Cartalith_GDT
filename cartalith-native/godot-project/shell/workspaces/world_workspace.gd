@@ -20,7 +20,7 @@ class_name WorldWorkspace
 ## Infrastructure, Politics) the spec's Generation Pipeline does not cover at
 ## all -- those live in the CIVIL/INFRA domains, not WORLD, under this spec.
 ##
-## The Sculpt half (§5.2) and the Biome-paint tool (§4.5.2's "Biome paint" row)
+## The Sculpt half (§5.2) and the Biome-paint tool (§4.5.2's "Biome & Terrain Paint" row)
 ## are both wired now, against `cartalith-godot`'s milestone F bindings
 ## (`sculpt_bridge.rs`, `paint_bridge.rs`, exposed through `EngineBridge`'s own
 ## "Milestone F tool bindings" section). `_build_sculpt`/`_build_paint` below
@@ -250,14 +250,14 @@ const CATEGORIES: Array = [
 	{"name": "Terrain", "stages": [],
 	 "lead": "Height molding by hand, over the current surface. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Layers ▸ Data overlays."},
 	{"name": "Biomes", "stages": [],
-	 "lead": "Paint biome and terrain classes by hand. Use Biome paint (B) in the tool palette to start."},
+	 "lead": "Paint biome and terrain classes by hand. Use Biome & Terrain Paint (B) in the tool palette to start."},
 ]
 
 ## The Sculpt category's body; `_build_categories()` creates and parents it, and the sculpt build/refresh paths fill it. Gated by `_sculpt_build_deferred` while the engine is busy.
 var _sculpt_body: VBoxContainer
 ## The Paint (Biomes) category's body, created beside `_sculpt_body`; filled by the paint build path and gated by `_paint_build_deferred`.
 var _paint_body: VBoxContainer
-## The TOOLS block's second row -- WORLD's one domain tool, `Biome paint (B)`.
+## The TOOLS block's second row -- WORLD's one domain tool, `Biome & Terrain Paint (B)`.
 ## Ruling L shows it in SCULPT mode only; see `_build()` and `apply_mode()`.
 var _paint_tool_row: Control
 ## ECOLOGY's whole body (`GUI_GAP_REGISTER.md` WW-14). Refilled wholesale on
@@ -387,7 +387,7 @@ var _last_paint_begin: Dictionary = {}
 ## ET-D5 diagnostic twin of `_last_paint_begin` for the sculpt stroke options; written when a begin is accepted and returned as a copy by `last_begin_options`. Not read by the shell's own logic.
 var _last_sculpt_begin: Dictionary = {}
 
-## Biome paint's live brush state, mirrored here because `paint_set_brush`'s
+## Biome & Terrain Paint's live brush state, mirrored here because `paint_set_brush`'s
 ## own contract is "apply and echo back what was stored", not "read the
 ## current brush" -- there is no `paint_get_brush`. Defaults match
 ## `Brush::default()` in `paint_bridge.rs` exactly, so an untouched panel and
@@ -511,9 +511,9 @@ func _build() -> void:
 	##
 	## Every left dock opens with the TOOLS block, the four global tools then
 	## the domain's own (`04-left-dock.md` §2.4). Its own WORLD row is three
-	## pills -- `Sculpt` (no key), `Freehand` **F**, `Biome paint` **B** -- and
+	## pills -- `Sculpt` (no key), `Freehand` **F**, `Biome & Terrain Paint` **B** -- and
 	## this stage (GUI replacement stage 4) re-examined rather than inherited
-	## that gap: only Biome paint is a TOOLS-block button here, deliberately.
+	## that gap: only Biome & Terrain Paint is a TOOLS-block button here, deliberately.
 	##
 	## `Sculpt` and `Freehand` both arm the one shared "sculpt" tool id, and
 	## the *only* place that id's granularity is chosen -- which of the 13
@@ -534,7 +534,7 @@ func _build() -> void:
 	## has -- see `_build_feature_picker`'s own Freehand `Shortcut` below.
 	##
 	## **Ruling L gates this row on SCULPT mode**, 2026-09-21 -- the tree's own
-	## condition on the row (*"Biome paint (B) [tool] (SCULPT mode only)"*), and
+	## condition on the row (*"Biome & Terrain Paint (B) [tool] (SCULPT mode only)"*), and
 	## the grouping rule behind it: *"each tab's Tools row lists only tools that
 	## can be armed there"*, and WORLD ▸ PIPELINE has no brush in it. The `B`
 	## shortcut follows the pill by construction rather than by a second rule:
@@ -546,14 +546,14 @@ func _build() -> void:
 	## than by child index, because `tools_block()` returns nothing and a
 	## positional read of a shared factory's output is a silent breakage the day
 	## that factory adds a node.
-	## Ruling FL item 1: Sculpt joins Biome paint as a SCULPT-mode cell, so the one registry now answers "which tools
+	## Ruling FL item 1: Sculpt joins Biome & Terrain Paint as a SCULPT-mode cell, so the one registry now answers "which tools
 	## does WORLD have" for the desktop palette bar AND the phone domain sheet's palette row (`DccApp._sync_phone_tool_palette`).
 	## It arms the same `sculpt` tool the Terrain feature buttons arm (`_on_feature_button_armed`).
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "sculpt", "glyph": "tool_sculpt", "label": "Sculpt", "modes": ["b"]},
-		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)", "modes": ["b"]},
+		{"id": "paint", "glyph": "tool_paint", "label": "Biome & Terrain Paint (B)", "modes": ["b"]},
 	])
-	_paint_tool_row = _find_tool_row("Biome paint (B)")
+	_paint_tool_row = _find_tool_row("Biome & Terrain Paint (B)")
 	_refresh_paint_tool_row(app.active_mode(domain_id) if app.has_method("active_mode") else "")
 
 	## **The two-button switch (Generation pipeline | Sculpt) came back on
@@ -625,14 +625,14 @@ func _build() -> void:
 	## recorded twenty lines up, restored deliberately rather than by drift.
 	##
 	## `_paint_body` below is the same shape for the same reason. It was set
-	## `false` here and never set true, because Biome paint's controls lived in
+	## `false` here and never set true, because Biome & Terrain Paint's controls lived in
 	## the RIGHT dock only; Ruling L decision 2 makes `WORLD ▸ Sculpt ▸ Biomes`
 	## the brush's real home, so the body it always built is now on screen. The
 	## right-dock copy is a duplicate to retire once this is live -- not retired
 	## here; see `_refresh_right_dock_paint()`, which keeps the two in step.
 	_sculpt_body.visible = true
 
-	## Biome paint stays a panel of its own, inside the BIOMES category --
+	## Biome & Terrain Paint stays a panel of its own, inside the BIOMES category --
 	## SCULPT mode and the accordion are what show and hide it, the same two
 	## gates `_sculpt_body` above answers to.
 	_paint_body = VBoxContainer.new()
@@ -827,7 +827,7 @@ func _on_world_loaded() -> void:
 	DccWidgets.fill_when_visible(_ecology_body, _fill_ecology.bind(_ecology_body))
 	_build_crs(_crs_body)
 
-## Ruling L's *"(SCULPT mode only)"* on the TOOLS row's `Biome paint (B)`.
+## Ruling L's *"(SCULPT mode only)"* on the TOOLS row's `Biome & Terrain Paint (B)`.
 ##
 ## The base `apply_mode()` gates category wraps off `RAIL_NODES`' `shows`; the
 ## TOOLS block is not a category and is outside that gate, so this is the one
@@ -3271,7 +3271,7 @@ func _arm_ring_freehand(mode_key: String) -> void:
 	if is_instance_valid(_sculpt_body):
 		_build_sculpt(_sculpt_body)
 
-## Biome paint's three `PaintStamp` layers (`bridge.get_paint_layers()`),
+## Biome & Terrain Paint's three `PaintStamp` layers (`bridge.get_paint_layers()`),
 ## armed through the exact same `_on_paint_layer_changed()` the dock's own
 ## "Target field" dropdown calls.
 func _ring_paint_group(armed: String, finalized: bool) -> Dictionary:
@@ -3990,7 +3990,7 @@ func _on_tool_armed(id: String) -> void:
 	## `05-right-dock-and-bars.md` §1.8. Mirrors the Sculpt line right above --
 	## `leave_paint_context()` is the other half, called from `app.gd`'s own
 	## workspace-switch handler the same way `leave_sculpt_context()` is,
-	## since Biome paint is a WORLD-only tool with nothing else that clears
+	## since Biome & Terrain Paint is a WORLD-only tool with nothing else that clears
 	## this context on a domain switch.
 	if id == "paint" and app.right_dock_ctrl.has_method("show_paint"):
 		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
@@ -4020,7 +4020,7 @@ func _on_tool_armed(id: String) -> void:
 ## **Two tools, two destinations, each derived from where its controls actually
 ## are** rather than from the prototype's tool names. `_sculpt_body` is parented
 ## into the `Terrain` category and `_paint_body` into `Biomes` (`_build_categories()`),
-## so Sculpt goes to the mode that renders `Terrain` and Biome paint to the mode
+## so Sculpt goes to the mode that renders `Terrain` and Biome & Terrain Paint to the mode
 ## that renders `Biomes` -- `mode_for_category()` is asked, so neither letter is
 ## written down twice.
 ##
@@ -4041,7 +4041,7 @@ func _follow_tool_to_its_block(id: String) -> void:
 	## `select_domain_category`, not `select_domain_mode`: the mode is the half
 	## that makes the block *visible*, and the category is the half that makes it
 	## *open*. `select_domain_mode("world", "a")` opens that node's own category
-	## (`Generate`) and would leave Biome paint armed over a closed `Biomes`
+	## (`Generate`) and would leave Biome & Terrain Paint armed over a closed `Biomes`
 	## accordion — the tool's controls rendered, in a body nobody expanded.
 	## `select_domain_category()` derives the same mode through
 	## `mode_for_category()` and then opens the category that actually holds the
@@ -4473,14 +4473,14 @@ func _sculpt_brush_radius_cells() -> float:
 			radius = float(params[k])
 	return radius
 
-# -- §4.5.2 Biome paint ---------------------------------------------------------
+# -- §4.5.2 Biome & Terrain Paint ---------------------------------------------------------
 #
 # `get_paint_layers()`/`get_paint_palette()` are the live registry (three
 # layers -- Biome/Terrain/Splat, `paint_bridge.rs`'s own "answered" note on
 # which fields `PaintStamp` may legally write); nothing here hardcodes §4.5.2's
 # own target table.
 
-## (Re)builds the Biome paint panel inside `parent`: frees its children, then draws the layer,
+## (Re)builds the Biome & Terrain Paint panel inside `parent`: frees its children, then draws the layer,
 ## brush and commit controls from the engine's paint layers. Deferred while generating
 ## (`_paint_build_deferred`) and shows a prompt with no world.
 func _build_paint(parent: Control) -> void:
@@ -4494,16 +4494,16 @@ func _build_paint(parent: Control) -> void:
 		child.queue_free()
 
 	if not bridge.has_world:
-		var sec := DccWidgets.section(parent, "Biome paint")
+		var sec := DccWidgets.section(parent, "Biome & Terrain Paint")
 		DccWidgets.note(sec, "Generate a world first.")
 		return
 	var layers := bridge.get_paint_layers()
 	if layers.is_empty():
-		var sec2 := DccWidgets.section(parent, "Biome paint")
+		var sec2 := DccWidgets.section(parent, "Biome & Terrain Paint")
 		DccWidgets.note(sec2, "No paint editor for this world -- a loaded save has no draft session, same ceiling as Sculpt.")
 		return
 
-	var sec := DccWidgets.section(parent, "Biome paint")
+	var sec := DccWidgets.section(parent, "Biome & Terrain Paint")
 	DccWidgets.note(sec,
 		"Brush options for painting biomes, shown in this panel.")
 
@@ -4620,6 +4620,7 @@ func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 		return
 	_paint_layer = String(layers[i])
 	bridge.paint_set_layer(_paint_layer)
+	show_paint_field()
 	_paint_brush["value"] = 1
 	_sync_paint_brush()
 	_build_paint(_paint_body)
@@ -4628,6 +4629,15 @@ func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 	## (unlike the tool bar's own) does not rebuild the tool options row.
 	if app.paint_original != null:
 		app.paint_original.sync()
+
+## F18 (owner findings 2026-11-21): choosing a Biome & Terrain Paint target field switches the visible map field
+## view (Layers popover) to that field's own view -- Biome to Biomes (`bclass`), Terrain to Terrain (`cterrain`) --
+## so the painter sees the field being painted. Splat and Rock have no field view and leave the map as it is.
+## Reuses `paint_original.gd::ORIGINAL_VIEW`, the same layer-to-view table the Original aid reads.
+func show_paint_field() -> void:
+	var view := String(app.PaintOriginal.ORIGINAL_VIEW.get(_paint_layer, ""))
+	if view != "" and app.viewport != null and bridge.has_world:
+		app.viewport.set_debug_layer(view)
 
 ## The dock's Target-field dropdown: positions `0 .. layers.size() - 1` are the
 ## engine's override layers (`_on_paint_layer_changed`, unchanged), and the one after
@@ -4669,6 +4679,7 @@ func select_paint_layer(key: String) -> bool:
 			app.set_status("hint", "Rock not selected: " + bridge.rock_paint_unavailable_reason(bridge.rock_paint_status()), "warn")
 		return false
 	_paint_layer = key
+	show_paint_field()
 	if RockPaintUI.is_rock(key):
 		_rock_layer_last = key
 	_paint_brush["value"] = 1
@@ -4956,7 +4967,7 @@ func _rebuild_tool_bar() -> void:
 
 ## `tool_bar.gd` draws a **second Commit / Discard pair** for the same draft --
 ## its Discard landed 2026-09-05, from §2.2.6 -- and both pairs are on screen
-## together whenever Biome paint is armed. Committing or discarding from either
+## together whenever Biome & Terrain Paint is armed. Committing or discarding from either
 ## one has to refresh the other, or the loser keeps a live button over an empty
 ## draft, which is WW-13's own defect wearing a different hat.
 func rebuild_paint_panel() -> void:
@@ -5008,7 +5019,7 @@ func brush_surfaces_changed() -> void:
 		return
 	_refresh_tool_bar()
 
-# -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
+# -- §4.5.2 Biome & Terrain Paint: stroke capture (map_clicked/map_dragged/map_released) -
 #
 # **Since ET-D2 (2026-10-11) a gesture is an engine STROKE** when the extension
 # has `paint_stroke_begin/_sample/_end`: click opens it, each drag samples it, and

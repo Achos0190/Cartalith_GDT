@@ -274,7 +274,7 @@ the reason for this split rather than a coincidence it exploits.
 | **NW** | **Uplift ▸** Mountains · Hills · Ridge · Plateau · Cliff · Volcano | **Settlement ▸** metropolis · city · town · village · hamlet | **Label** |
 | **NE** | **Carve & water ▸** Canyon · Valley · River · Lake · Basin · Coastline | **Territory ▸** add · subtract | **Icon ▸** Settlement · Feature · POI · Custom (`ManualIconFamily`) |
 | **SE** | **Freehand ▸** Raise · Lower · Smooth · Cliff · Ridge · Canyon · Mesa · Volcano | **Way ▸** Road · Track · Sea lane · Ancient | **View field ▸** the eight Layers views |
-| **SW** | **Biome paint ▸** Biome · Terrain · Splat | **Route** | **Style preset ▸** Natural Vibrant · Default · Antique · Ink · Watercolor · Print |
+| **SW** | **Biome & Terrain Paint ▸** Biome · Terrain · Splat | **Route** | **Style preset ▸** Natural Vibrant · Default · Antique · Ink · Watercolor · Print |
 
 Measure ▸ holds the five modes `global_tools.gd` already defines (segment /
 path, area, radius, cross-section, Δ vertical).
@@ -284,7 +284,7 @@ path, area, radius, cross-section, Δ vertical).
 - **WORLD's twelve sculpt features split cleanly into two sets of six** —
   those that raise and those that carve or hold water. Each set fits a
   sub-ring with room to spare. Freehand's eight sub-modes are exactly eight.
-  Biome paint's three targets are exactly the three `PaintStamp` layers the
+  Biome & Terrain Paint's three targets are exactly the three `PaintStamp` layers the
   engine has (`DCC_SHELL_SPEC.md` §4.5.2's own ruling).
   **`SCULPT_FUNCTION_CHART.md` §2 permits this regrouping and forbids a
   renumbering**: `FEATURE_KEYS`' index is a seed input. The ring maps a slot

@@ -722,7 +722,7 @@ const PRESSURE_CHOICES := {
 	"colour": ["strength", "off"],
 }
 
-## The defaults. Sculpt keeps today's behaviour (strength). Biome paint is OFF by the owner's ruling ("area is from
+## The defaults. Sculpt keeps today's behaviour (strength). Biome & Terrain Paint is OFF by the owner's ruling ("area is from
 ## the slider"): it used to default to size (`paint_bridge.rs` `StrokeOptions::pressure_size` is still true in the
 ## engine; the shell now sends the choice on every stroke begin). Colour paint defaults to strength (Ruling EQ item 1,
 ## the owner: "with strength as the default"); a mouse or finger reports no pressure and paints at full strength by
@@ -739,7 +739,7 @@ static func pressure_why_not(kind: String, mode: String) -> String:
 		"sculpt:size":
 			return "a sculpt stamp has one radius for the whole stroke"
 		"paint:strength":
-			return "biome paint is categorical and has no strength"
+			return "Biome & Terrain Paint is categorical and has no strength"
 		"colour:size":
 			return "a colour mark stores one radius per stroke"
 	return "not available for this tool"
@@ -1374,7 +1374,14 @@ static func _shortcuts_section(context: String) -> String:
 ## not mint a second one just to have a config key.
 static func shortcut_binding(context: String, action_id: int, default_accel: int) -> int:
 	_ensure_loaded()
-	return int(_cfg.get_value(_shortcuts_section(context), str(action_id), default_accel))
+	var stored := int(_cfg.get_value(_shortcuts_section(context), str(action_id), default_accel))
+	## F13 (owner findings 2026-11-21, "Left Control brings up the Vault menu"): an accelerator whose key is a
+	## bare modifier (Ctrl, Shift, Alt, Meta held with no letter) matches the press of that modifier itself, so a
+	## stored one (the capture dialog accepted them before its 2026-09-06 guard, and a settings file keeps them)
+	## fires its row on every Ctrl tap and eats Ctrl+S and Ctrl+Z's lead-in. Never applied: the shipped default is.
+	if (stored & KEY_CODE_MASK) in [KEY_CTRL, KEY_SHIFT, KEY_ALT, KEY_META]:
+		return default_accel
+	return stored
 
 ## Whether the user has stored a rebind for this action, so a caller can show
 ## "not the shipped key" and a way back -- the same distinction

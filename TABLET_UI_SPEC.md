@@ -349,7 +349,7 @@ Template lines 81–128. `gap:8px`, `padding:0 8px`, `background:var(--pan)`,
 1. **Tool picker**, `flex:none`, `gap:3px`: one `var(--tap)` square per tool,
    `radius:var(--rCtl)`, a 15 × 15 stroked SVG at `stroke-width:1.25`; selected
    = `background:var(--acc)` with ink `var(--accInk)`. `_toolsFor(domain)`:
-   * `WORLD` — Inspect, Pan, Measure, Sculpt, Biome paint (**5**)
+   * `WORLD` — Inspect, Pan, Measure, Sculpt, Biome & Terrain Paint (**5**)
    * `CIVIL` — Inspect, Pan, Measure, Settlement, POI, Territory, Way (**7**)
    * `CARTO` — Inspect, Pan, Measure, Label, Icon (**5**)
 2. **Options**, `flex:1;min-width:0;overflow-x:auto` — a horizontally scrolling

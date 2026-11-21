@@ -954,8 +954,8 @@ func _leg_g() -> void:
 	## The menus carry it and agree.
 	var menus = app.get("menus")
 	var pops: Array = menus._marker_style_popups if menus != null else []
-	_ok("G9: Preferences > Graphics and Assets both have a Marker style submenu", pops.size() >= 2, str(pops.size()))
-	if pops.size() >= 2:
+	_ok("G9: Assets has a Marker style submenu (the Preferences one moved to CARTO by F31)", pops.size() >= 1, str(pops.size()))
+	if pops.size() >= 1:
 		menus._on_marker_style(menus.ID_GFX_MARKER_STYLE_FIRST + 1)
 		await _frames(4)
 		_ok("G9: choosing Circles in the menu stores it", DccSettings.marker_style() == "circles")

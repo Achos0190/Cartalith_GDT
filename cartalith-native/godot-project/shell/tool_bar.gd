@@ -583,6 +583,9 @@ func _on_paint_layer(key: String) -> void:
 	_write_paint_state("layer", key)
 	_write_paint_state("value", 1)
 	bridge.paint_set_layer(key)
+	var ws = _world_workspace()
+	if ws != null:
+		ws.show_paint_field()   ## F18: the map's field view follows the target field
 	_sync_paint()
 	app.arm_tool("paint")
 	rebuild()
@@ -622,7 +625,7 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		_write_paint_state("radius", v)
 		_sync_paint()))
 	## `Hardness` (and its `Softness` sibling, which never had a copy here)
-	## lives in the WORLD dock's Biome paint panel only now -- `UNWIRED_
+	## lives in the WORLD dock's Biome & Terrain Paint panel only now -- `UNWIRED_
 	## FUNCTIONS.md`'s "two copies on screen at once" row, ruled by the owner
 	## 2026-08-31 (`LARGE_ITEM_RULINGS.md`): bind the falloff (`DECISIONS.md`
 	## §7k) *and* resolve the duplicate. The dock panel owns the actual
@@ -647,7 +650,7 @@ func _build_paint_options(row: HBoxContainer) -> void:
 	## `05-right-dock-and-bars.md` §2.2.6 (`tbBiome`, ENV:200-211) gives this row
 	## **two** buttons -- `✓ Commit` primary and `Discard` secondary -- and this
 	## bar drew only the first until 2026-09-05, so the toolbar the design draws
-	## the pair on had half of it. Both the WORLD dock's Biome paint panel and
+	## the pair on had half of it. Both the WORLD dock's Biome & Terrain Paint panel and
 	## the right dock's own paint context already draw a Commit/Discard pair over
 	## this same draft, and the engine call is `EngineBridge.paint_discard()`,
 	## which both of them already use -- nothing new is bound here.
@@ -768,7 +771,7 @@ func _on_paint_commit() -> void:
 		wsn.note_paint_commit(summary)
 	rebuild()
 	## **All three surfaces over the one draft**, matching `_on_paint_discard`
-	## below exactly: this bar (`rebuild()` above), the WORLD dock's Biome paint
+	## below exactly: this bar (`rebuild()` above), the WORLD dock's Biome & Terrain Paint
 	## panel (WW-13) and the right dock's paint context. The last of those was
 	## missing until 2026-09-05 and its own defect was measured before it was
 	## fixed (`_rdrefresh_probe.gd` R2): committing here left the right dock
@@ -791,7 +794,7 @@ func _on_paint_commit() -> void:
 ##   the base the next dab's bounded window blits onto. Passing `null` here
 ##   would put the first dab after a discard back on the unbounded path.
 ## - All three surfaces over the one draft are refreshed: this bar, the WORLD
-##   dock's Biome paint panel (WW-13) and the right dock's paint context.
+##   dock's Biome & Terrain Paint panel (WW-13) and the right dock's paint context.
 ##
 ## **`_on_paint_commit` above refreshed the first two and not the third**, which
 ## this comment reported as a separate finding rather than fixing in passing.

@@ -1080,7 +1080,6 @@ A further 336 `pub fn`s are used only inside their own file (public without a re
 | `shell/view3d_quadtree.gd` | 749 | 38 | — | Node3D | No `class_name`, deliberately: `view3d.gd` preloads this file (3D-1's reason). |
 | `shell/view3d_terrain.gd` | 507 | 26 | — | Node3D | No `class_name`, deliberately: `view3d.gd` preloads this file (3D-1's reason). |
 | `shell/viewport_host.gd` | 5835 | 162 | ViewportHost | Control | The map surface (`DCC_SHELL_SPEC.md` §9). |
-| `shell/water_anim_layer.gd` | 130 | 6 | WaterAnimLayer | ColorRect | Animated water (`GUI_GAP_REGISTER.md` RN-01) -- the reference's own |
 | `shell/wind_fx_layer.gd` | 512 | 12 | WindFxLayer | Control | Animated particle streaks over the Wind and Ocean-currents field views -- |
 | `shell/window_represent.gd` | 61 | 3 | — | RefCounted | MS-1 S4.5 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5, Ruling DY MQ-5; `S4_INVENTORY.md` sections 5 and 18): the helpers |
 | `shell/workspaces/cartography_workspace.gd` | 4152 | 107 | CartographyWorkspace | Workspace | CARTO domain (§7 + §4.5.5): layer list, layer properties, colour ramp, stop |

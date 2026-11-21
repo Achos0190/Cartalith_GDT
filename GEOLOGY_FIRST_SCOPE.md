@@ -966,7 +966,7 @@ pattern**, because that is the one edit path that runs erosion. GF-8 is
 `tile_erode`'s first production caller.
 
 **The tool.**
-- Biome paint's target selector gains a fourth target, **Rock**.
+- Biome & Terrain Paint's target selector gains a fourth target, **Rock**.
   - The tool-options row, in §4.5.2's grammar: `PAINT · ROCK` · layer
     (**Surface** / **Beneath** / **Cap thickness**) · value swatch from the
     11-rock legend (Beneath adds **none — single layer**) · thickness *m*

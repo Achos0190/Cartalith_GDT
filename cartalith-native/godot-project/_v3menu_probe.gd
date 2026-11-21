@@ -193,7 +193,7 @@ func _check_disabled(domain: String, ws: Node) -> void:
 
 
 ## Buttons whose greyed state is *live draft state*, not a capability claim:
-## Sculpt and Biome paint both disable Commit/Discard while there is nothing
+## Sculpt and Biome & Terrain Paint both disable Commit/Discard while there is nothing
 ## drafted to commit or discard. A tooltip there would be wrong, not missing.
 ## Named explicitly rather than pattern-matched so a genuinely undisclosed gap
 ## cannot slip in behind a similar label. All four predate this pass.

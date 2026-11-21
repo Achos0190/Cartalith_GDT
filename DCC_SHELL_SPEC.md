@@ -108,7 +108,7 @@
 >   rather than by run order"*; *"the numbered 01-10 stage list disappears as
 >   navigation and survives as pipeline status."*
 > - **§5's `GENERATION PIPELINE | SCULPT` switch is gone.** Sculpt is a group
->   inside WORLD ▸ Terrain; Biome paint a group inside WORLD ▸ Biomes. Both
+>   inside WORLD ▸ Terrain; Biome & Terrain Paint a group inside WORLD ▸ Biomes. Both
 >   still appear whenever their tool is armed.
 > - **§5.1's ten stages all survive** as L3 sections with their `NN NAME`
 >   heading, `needs`/`produces` prose and every parameter row, re-parented
@@ -463,9 +463,9 @@ Neither is authoritative — they are two views of one rect (`region_export.rs`)
 |---|---|---|---|---|
 | Sculpt features (13) | — | Stroke or radial per §5.2 | Per §4 | Stamp stack |
 | Freehand | F | Continuous drag / tap | Sub-mode row per §5.2 | Stamp stack |
-| Biome paint | B | Drag paints cells, ⇧ erases | `PAINT · BIOME` · target field · value swatch from the target's legend · radius 6 · hardness · softness · erase · land only · ✓ Commit | Painted-cell count, the target's legend with painted counts per class, Commit / Discard |
+| Biome & Terrain Paint | B | Drag paints cells, ⇧ erases | `PAINT · BIOME` · target field · value swatch from the target's legend · radius 6 · hardness · softness · erase · land only · ✓ Commit | Painted-cell count, the target's legend with painted counts per class, Commit / Discard |
 
-Biome paint edits world data, so it belongs to WORLD, not to Cartography — in
+Biome & Terrain Paint edits world data, so it belongs to WORLD, not to Cartography — in
 v2.10 the paint brush sat in the Cartography branch (`#carPaintChk`, with value ·
 radius · softness · erase, land only), which the presentation-only rule in §7 now
 forbids. The controls port unchanged; only the home moves.
@@ -588,7 +588,7 @@ the two are one gesture.
   route, or stamp. Never a generation stage.
 - Arming any tool clears the previous tool's in-progress geometry and its armed
   icon or paint mode.
-- A tool that writes world data (Biome paint, Settlement, POI, Territory, Way)
+- A tool that writes world data (Biome & Terrain Paint, Settlement, POI, Territory, Way)
   reports its staleness consequence in the status bar the moment it commits.
 - All tools are locked while the world is finalized, except Inspect, Measure,
   Region select, Label and Icon.
@@ -1013,7 +1013,7 @@ The tool palette adds twelve glyphs, drawn to the same rules:
 | Measure | A ruler edge with three ticks and an end pin |
 | Region select | A dashed rectangle with solid corner ticks |
 | Pan / zoom | An open hand |
-| Biome paint | A round brush head with a single drip |
+| Biome & Terrain Paint | A round brush head with a single drip |
 | Settlement | A house outline |
 | POI | A diamond with a centre dot |
 | Territory | A hatched quadrilateral |
