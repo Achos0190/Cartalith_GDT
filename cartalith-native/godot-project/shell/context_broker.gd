@@ -415,6 +415,13 @@ func present(req: Dictionary, actions: Array) -> void:
 		var cc := _ring_clearance()
 		card.open(req, actions, at, reselect, dock,
 			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]), float(cc["ring_down"]))
+		## F35: the desktop right-click drops the same sample pin the phone's long-press does (`map_overlay.gd::
+		## drop_sample_pin`), where the request points, and it goes when the card closes. One-shot, connected after
+		## `open()` so a reopen's own hide cannot clear the pin just dropped.
+		if String(req.get("source", "")) == "mouse" and not req.has("anchor") and not DccTheme.is_touch() and app.viewport != null:
+			var ov = app.viewport.overlay
+			ov.drop_sample_pin(float(req["gx"]), float(req["gy"]))
+			card.popup_hide.connect(ov.clear_sample_pin, CONNECT_ONE_SHOT)
 		return
 	_present_phone(req, actions)
 

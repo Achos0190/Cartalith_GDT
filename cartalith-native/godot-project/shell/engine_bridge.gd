@@ -7140,6 +7140,52 @@ func labels_render_list() -> Array:
 		return label_list()
 	return world_gen.labels_render_list()
 
+## F3/F4 (owner findings 2026-11-21): the engine's edits over **generated** labels (`label_bridge/auto.rs`), addressed by key.
+## Each answers its empty default while `generating` or on an older cdylib, like every label call.
+func auto_label_list() -> Array:
+	if generating or not _has("auto_label_list"):
+		return []
+	return world_gen.auto_label_list()
+
+## The topmost visible generated label under `(gx, gy)` as its key, or `""`. Selects nothing.
+func auto_label_hit(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> String:
+	if generating or not _has("auto_label_hit"):
+		return ""
+	return String(world_gen.auto_label_hit(gx, gy, px_per_cell, zoom))
+
+## One generated label by key (`{}` when the run does not hold it).
+func auto_label_get(key: String) -> Dictionary:
+	if generating or not _has("auto_label_get"):
+		return {}
+	return world_gen.auto_label_get(key)
+
+## Edits a generated label (`text`, `x`, `y`, `size`, `hidden`, ... as `label_set`); one undo step. Marks the world dirty.
+func auto_label_set(key: String, values: Dictionary) -> Dictionary:
+	if generating or not _has("auto_label_set"):
+		return {"ok": false}
+	mark_world_dirty()
+	var r: Dictionary = world_gen.auto_label_set(key, values)
+	_annotations_edited()
+	return r
+
+## Returns a generated label to the generator's own (drops the override). `false` when it had none.
+func auto_label_reset(key: String) -> bool:
+	if generating or not _has("auto_label_reset"):
+		return false
+	mark_world_dirty()
+	var r: bool = world_gen.auto_label_reset(key)
+	_annotations_edited()
+	return r
+
+## Drops every override over a generated label; how many there were.
+func auto_label_reset_all() -> int:
+	if generating or not _has("auto_label_reset_all"):
+		return 0
+	mark_world_dirty()
+	var r: int = world_gen.auto_label_reset_all()
+	_annotations_edited()
+	return r
+
 ## One hand-placed label's class key, or `""` out of range / on an older
 ## cdylib -- which the panel resolves to the design's own default class.
 ##

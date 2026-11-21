@@ -595,7 +595,7 @@ func _tool_options() -> void:
 		texts.append((l as Label).text)
 	_ok(texts.has("GENERATE · WORLD"), "the row names its context (labels %s)" % str(texts))
 	var hint := "Tap selects · hold opens the cartwheel and the card" if (_mode == "tablet" or DccTheme.is_touch()) \
-		else "Click selects and opens a marker's card · right-click opens the card · Q opens the cartwheel"
+		else "Click selects and opens a marker's card · right-click drops a pin and opens its card · Q opens the cartwheel"
 	_ok(texts.has(hint), "the row carries the one hint for this form factor")
 	_ok(_app._quick_bar != null and is_instance_valid(_app._quick_bar), "the quick bar is still mounted")
 

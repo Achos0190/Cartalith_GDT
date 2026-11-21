@@ -1265,6 +1265,15 @@ const _SAMPLE_PIN_RADIUS := 9.0
 ## every other pick in `hits_at()`.
 const _SAMPLE_PIN_HIT_RADIUS := 30.0
 
+## F35 (owner findings 2026-11-21: "dropping pins automatically is not evident on PC, seems to be built on android"):
+## the phone's long-press drops this sample pin where the finger is and opens the verbs; a desktop right-click opened the
+## same verbs but left no pin, so the gesture looked phone-only. `context_broker.gd::present` now drops it for a mouse
+## request too and clears it when the card closes.
+func drop_sample_pin(gx: float, gy: float) -> void:
+	_sample_pin = {"gx": gx, "gy": gy}
+	queue_redraw()
+
+
 ## Whether a sample pin is down -- read by `context_broker.gd` and by probes,
 ## so neither has to reach into `_sample_pin`'s own dictionary shape.
 func has_sample_pin() -> bool:
@@ -8504,22 +8513,39 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 
 ## The on-canvas hover card body, shared by settlements and (Ruling AL) landmarks.
 func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
+	## F14 (owner findings 2026-11-21: "the base information card stays a fixed size"). The card was laid out in this
+	## control's local space at a literal 13 px, so on screen it was `13 x camera zoom` px (a postage stamp wide, a
+	## billboard deep) and a long faith line simply widened it past the plate. It is now drawn at a constant SCREEN size
+	## (`_crisp_begin`, the sibling draws' own transform) at the form's UI unit, and sized to its content within limits:
+	## no narrower than `CARD_MIN_W`, no wider than `CARD_MAX_W` (a longer line wraps and the card grows taller), and
+	## never wider than half the plate.
+	var k := _crisp_begin()
+	var u := _pin_unit()
 	var font := get_theme_default_font()
-	var font_size := 13
-	var line_h := font.get_height(font_size)
+	var font_size := int(round(13.0 * u))
+	var pad := 8.0 * u
+	var max_w := minf(CARD_MAX_W * u, interior.size.x * k * 0.5)
 	var w := 0.0
+	var heights: Array[float] = []
 	for line in lines:
-		w = maxf(w, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
-	var pad := 8.0
-	var card_size := Vector2(w + pad * 2, line_h * lines.size() + pad * 2)
-	var card_pos := pos + Vector2(10, -card_size.y - 10)
+		var sz := font.get_multiline_string_size(String(line), HORIZONTAL_ALIGNMENT_LEFT, max_w, font_size)
+		w = maxf(w, sz.x)
+		heights.append(sz.y)
+	w = clampf(w, minf(CARD_MIN_W * u, max_w), max_w)
+	var h := pad * 2.0
+	for lh in heights:
+		h += lh
+	var card_size := Vector2(w + pad * 2.0, h)
+	var spos := pos * k
+	var sint := Rect2(interior.position * k, interior.size * k)
+	var card_pos := spos + Vector2(10.0 * u, -card_size.y - 10.0 * u)
 	# Clamped into the plate interior, not into this control's full bounds:
 	# `_draw`'s scissor is still in force here, so a card clamped to the
 	# control edge would be sliced by the neatline. Keeping it inside the
 	# interior keeps it whole *and* keeps it on the map, which is where a
 	# tooltip about map content belongs anyway.
-	card_pos.x = clampf(card_pos.x, interior.position.x, maxf(interior.position.x, interior.end.x - card_size.x))
-	card_pos.y = clampf(card_pos.y, interior.position.y, maxf(interior.position.y, interior.end.y - card_size.y))
+	card_pos.x = clampf(card_pos.x, sint.position.x, maxf(sint.position.x, sint.end.x - card_size.x))
+	card_pos.y = clampf(card_pos.y, sint.position.y, maxf(sint.position.y, sint.end.y - card_size.y))
 
 	# Dark-viewport-compatible palette (GUI decluttering pass, 2026-08-17) --
 	# was a light-parchment cream/brown card, the fourth stray light-styled
@@ -8528,11 +8554,23 @@ func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
 	# top comment). Matches the shell's own surface/border/emphasis tokens
 	# (`theme/dark_theme.tres`): near-black card fill, accent border,
 	# emphasis-toned text.
+	last_card_rect = Rect2(card_pos / k, card_size / k)   # local px, as `_cell_to_screen` answers; a probe reads it
 	_cv.draw_rect(Rect2(card_pos, card_size), Color(0.051, 0.055, 0.059, 0.96), true)
 	_cv.draw_rect(Rect2(card_pos, card_size), Color(0.878, 0.639, 0.290, 1.0), false, 1.5)
+	var y := card_pos.y + pad
 	for j in lines.size():
-		var text_pos := card_pos + Vector2(pad, pad + line_h * (j + 1) - font.get_descent(font_size))
-		_cv.draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.910, 0.922, 0.925))
+		_cv.draw_multiline_string(font, Vector2(card_pos.x + pad, y + font.get_ascent(font_size)), String(lines[j]),
+			HORIZONTAL_ALIGNMENT_LEFT, max_w, font_size, -1, Color(0.910, 0.922, 0.925))
+		y += heights[j]
+	_crisp_end()
+
+
+## F14: the hover card's width limits, in screen px at UI unit 1 (labelled judgements: a name and a population fit the
+## minimum; the maximum is about 45 characters of the 13 px face before a line wraps).
+## The last hover card drawn, in this control's local px (read by probes; `Rect2()` before the first).
+var last_card_rect := Rect2()
+const CARD_MIN_W := 140.0
+const CARD_MAX_W := 380.0
 
 
 ## The hover card's religion lines, or **nothing at all**.

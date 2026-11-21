@@ -5130,7 +5130,7 @@ func _on_tl_selection_changed(_current: Dictionary) -> void:
 ## no actions left on the bar, its one line says what a click and the two context gestures do. Q is the
 ## cartwheel at the pointer and right-click the context card (`PC_SHELL_PROPOSAL.md` §3.9).
 ## Must never name an action that is not on the map itself; the bar holds settings, not commands.
-const WORLD_IDLE_HINT_POINTER := "Click selects and opens a marker's card · right-click opens the card · Q opens the cartwheel"
+const WORLD_IDLE_HINT_POINTER := "Click selects and opens a marker's card · right-click drops a pin and opens its card · Q opens the cartwheel"
 
 ## The same line on a touch tablet. A 500 ms hold opens the cartwheel together with the context card (CM-3,
 ## CM-4, kept as shipped by Ruling DY Q12).

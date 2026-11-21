@@ -386,6 +386,7 @@ const ID_PREF_QUICK_BAR := 902
 const ID_PREF_POPOUT := 903
 ## `Preferences ▸ Brush edge sliders` (tablet; `MAP_CONTEXT_SCOPE.md` s.7.3). 904 was unused (`grep -rn -E "\b904\b" shell/*.gd`, 2026-11-17).
 const ID_PREF_EDGE_SLIDERS := 904
+const ID_PREF_RESET_SETTINGS := 905  ## Preferences ▸ Reset to default settings… (owner, 2026-11-21, F40).
 ## PC-9's rows (`PC_SHELL_PROPOSAL.md` §3.8, §3.9; mockup `design/mobile-shell-2026-10-31/Shell.dc.html`'s
 ## desktop menus). 910-918 were unused, measured 2026-11-01 at `a38e0ac`: no `ID_` constant in this
 ## file is above 903 (`grep -n -E '^const ID_[A-Z_0-9]+ := 9[0-9]{2}' shell/menus.gd` lists 900-903
@@ -4851,6 +4852,10 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## live-menu walk Help's read-only row uses, so the two can never disagree
 	## about what the list *is*, only about whether it can be clicked.
 	_live(p, "Keyboard shortcuts…", ID_PREF_SHORTCUTS)
+	## F40 (owner, 2026-11-21): *"make an option to Reset to base settings in Preferences."* Last in the popup, after a
+	## separator, so it is never one slip from a row people use.
+	p.add_separator()
+	_live(p, "Reset to default settings…", ID_PREF_RESET_SETTINGS)
 	p.id_pressed.connect(_on_preferences.bind(p))
 
 ## Tooltip of `Try the GPU again` while no readback failure is on record (row disabled).
@@ -6501,6 +6506,28 @@ func _clear_caches() -> void:
 			_refresh_atlas_cache_menu()
 			_refresh_tile_size_menu())
 
+## F40: Preferences ▸ Reset to default settings…. Says what goes and what stays before doing anything, then calls
+## `DccSettings.reset_to_defaults()`, which copies the old file aside first (that backup is the undo).
+func _reset_settings() -> void:
+	DccWidgets.confirm(_host, "Reset to default settings?",
+		"This puts your user settings back to the app's own defaults: keyboard shortcuts, interface and window layout, "
+		+ "graphics and GPU choices, theme and units, the quick bar, and the assistant's settings.
+
+"
+		+ "It does not touch your worlds, vault, asset library, name styles or storage locations, and the assistant's "
+		+ "API keys and key names stay as they are.
+
+"
+		+ "Your current settings file is copied to %s first, so this can be undone by copying it back. Some changes "
+		+ "take full effect when the app restarts." % ProjectSettings.globalize_path(DccSettings.RESET_BACKUP_PATH),
+		"Reset settings",
+		func():
+			var r: Dictionary = DccSettings.reset_to_defaults()
+			if bool(r.get("ok", false)):
+				_host.set_status("hint", "settings reset to defaults -- the old file is at %s" % String(r.get("backup", "")), "text_dim")
+			else:
+				_host.set_status("hint", "settings were not reset: %s" % String(r.get("error", "unknown")), "text_dim"))
+
 ## Dispatcher for Preferences' `id_pressed`: storage locations, the editable shortcuts
 ## dialog, Try the GPU again, Clear cached tiles, and the GPU acceleration toggle (the
 ## fall-through arm: it flips `use_gpu`, and rewrites the row text so the backend readout
@@ -6557,6 +6584,9 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		return
 	if id == ID_PREF_CLEAR_CACHES:
 		_clear_caches()
+		return
+	if id == ID_PREF_RESET_SETTINGS:
+		_reset_settings()
 		return
 	if id != ID_PREF_GPU:
 		return

@@ -100,6 +100,9 @@ mod generate;
 /// `label_bridge/pick.rs`, a child module for the same reason.
 mod pick;
 
+/// F3/F4: editing generated labels through overrides — `label_bridge/auto.rs`, a child module for the same reason.
+mod auto;
+
 // Re-exported so `lib.rs` can build a drag loop (`label_resize_size`/
 // `label_rotate_deg`/`label_arc_value` are pure per-call math, no session to
 // hold on this side — the caller keeps `cx`/`cy`/`start_size`/`start_dist`/
@@ -192,6 +195,27 @@ pub struct LabelBridge {
     /// a re-run without options repeats the last one rather than silently
     /// reverting to defaults.
     pub gen_settings: LabelGenSettings,
+    /// F3 (owner findings 2026-11-21): the user's edits to **generated** labels, keyed by [`auto_key`]. An override is a
+    /// full edited copy of the generated label (rename, move, restyle) plus a `hidden` flag; it replaces the generated
+    /// label where it is drawn and picked, so there is never a second label. Kept in this bridge (not in `generated`)
+    /// because a regenerate rebuilds `generated` and the key, built from the candidate's own class, name and cell, finds
+    /// the same label again. A `BTreeMap` so the undo snapshot compares and saves in a stable order.
+    pub overrides: std::collections::BTreeMap<String, AutoOverride>,
+}
+
+/// One user edit over a generated label: the edited copy and whether it is hidden. See [`LabelBridge::overrides`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutoOverride {
+    /// The label as the user left it (a clone of the generated one until the first edit).
+    pub label: MapLabel,
+    /// Hidden labels are neither drawn nor picked, and stay listed so they can be shown again.
+    pub hidden: bool,
+}
+
+/// The identity of a generated label across regenerates: class, name and cell of the **generated** label. Two
+/// candidates sharing all three would be the same label to a reader, so they share an override too.
+pub fn auto_key(lb: &MapLabel) -> String {
+    format!("{}|{}|{:.2}|{:.2}", lb.class.key(), lb.name, lb.x, lb.y)
 }
 
 impl LabelBridge {
@@ -218,6 +242,7 @@ impl LabelBridge {
             // sends the panel's own state on every run, so this is what a
             // freshly generated world looks like before the panel speaks.
             gen_settings: LabelGenSettings { cull: Some(LabelCullMetrics::default()), ..Default::default() },
+            overrides: Default::default(),
         }
     }
 
@@ -268,10 +293,57 @@ impl LabelBridge {
     /// draws in, so a name the user typed is never buried under a generated
     /// one.
     pub fn render_order(&self) -> impl Iterator<Item = (&MapLabel, bool)> {
-        self.generated
-            .iter()
-            .flat_map(|g| g.labels.iter().map(|lb| (lb, true)))
+        self.auto_visible()
+            .map(|(_, lb)| (lb, true))
             .chain(self.labels.iter().map(|lb| (lb, false)))
+    }
+
+    /// Every generated label with its [`auto_key`] and the label as it should look: the user's override where one exists,
+    /// the generated label otherwise, **including hidden ones** (the panel lists them so they can be shown again).
+    pub fn auto_all(&self) -> impl Iterator<Item = (String, &MapLabel, bool)> {
+        self.generated.iter().flat_map(|g| g.labels.iter()).map(|g| {
+            let key = auto_key(g);
+            match self.overrides.get(&key) {
+                Some(o) => (key, &o.label, o.hidden),
+                None => (key, g, false),
+            }
+        })
+    }
+
+    /// [`Self::auto_all`] without the hidden ones: what is drawn and what a click can reach.
+    pub fn auto_visible(&self) -> impl Iterator<Item = (String, &MapLabel)> {
+        self.auto_all().filter(|(_, _, hidden)| !*hidden).map(|(k, lb, _)| (k, lb))
+    }
+
+    /// The generated label `key` names, if the current run holds it.
+    fn auto_base(&self, key: &str) -> Option<&MapLabel> {
+        self.generated.as_ref()?.labels.iter().find(|g| auto_key(g) == key)
+    }
+
+    /// The editable copy for `key`: the existing override, or a fresh one cloned from the generated label.
+    /// `None` when the current run does not hold `key` (a stale key must not invent an override).
+    pub fn auto_edit(&mut self, key: &str) -> Option<&mut AutoOverride> {
+        if !self.overrides.contains_key(key) {
+            let base = self.auto_base(key)?.clone();
+            self.overrides.insert(key.to_string(), AutoOverride { label: base, hidden: false });
+        }
+        self.overrides.get_mut(key)
+    }
+
+    /// Drops the override for `key` (the label returns to its generated look); `false` if there was none.
+    pub fn auto_reset(&mut self, key: &str) -> bool {
+        self.overrides.remove(key).is_some()
+    }
+
+    /// The topmost visible generated label whose box contains `(gx, gy)` — [`Self::pick_all`]'s one-box-at-a-time scan
+    /// over the generated labels, so the containment rule is `label_hit_test`'s. Selects nothing.
+    pub fn auto_hit(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> Option<String> {
+        let none = LabelHandles::default();
+        let all: Vec<(String, &MapLabel)> = self.auto_visible().collect();
+        all.into_iter().rev().find_map(|(k, lb)| {
+            let b = [shell_label_box(lb, px_per_cell, zoom)];
+            cartalith_civ::labels::label_hit_test(&b, &none, gx, gy).is_some_and(|h| h.index.is_some()).then_some(k)
+        })
     }
 
     /// `state.labels.push({...}); _civSelectLabel(lb)` — the click-on-empty-
@@ -1528,6 +1600,33 @@ mod tests {
         b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]);
         let seq: Vec<(String, bool)> = b.render_order().map(|(lb, g)| (lb.name.clone(), g)).collect();
         assert_eq!(seq, vec![("Auto".to_string(), true), ("Mine".to_string(), false)]);
+    }
+
+    /// Protects F3/F4: an edit over a generated label replaces it (never adds one), a hide removes it from the render
+    /// order and the pick but keeps it listed, a move is what the pick then finds, and a regenerate keeps the edit.
+    #[test]
+    fn an_override_replaces_a_generated_label_and_survives_a_regenerate() {
+        let mut b = LabelBridge::new();
+        b.gen_settings.cull = None;
+        let cand = gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0);
+        b.place(&[cand.clone()]);
+        let key = b.auto_all().next().unwrap().0;
+        {
+            let o = b.auto_edit(&key).unwrap();
+            o.label.name = "Renamed".into();
+            o.label.x = 40.0;
+        }
+        assert_eq!(b.render_order().map(|(l, _)| l.name.clone()).collect::<Vec<_>>(), vec!["Renamed"]);
+        assert_eq!(b.auto_hit(40.0, 0.0, 2.0, 1.0).as_deref(), Some(key.as_str()), "found where it was moved to");
+        assert_eq!(b.auto_hit(5.0, 0.0, 2.0, 1.0), None, "nothing is left at the generated cell");
+        b.auto_edit(&key).unwrap().hidden = true;
+        assert_eq!(b.render_order().count(), 0);
+        assert_eq!(b.auto_all().count(), 1, "a hidden label stays listed so it can be shown again");
+        b.place(&[cand]);
+        assert_eq!(b.auto_all().next().unwrap().1.name, "Renamed", "the key finds the same label after a regenerate");
+        assert!(b.auto_reset(&key));
+        assert_eq!(b.render_order().next().unwrap().0.name, "Auto");
+        assert!(b.auto_edit("nope|x|0.00|0.00").is_none(), "a stale key invents nothing");
     }
 
     /// Protects: `place` hands hand-placed labels to the pass as reservations: a colliding generated label yields, never the reverse.

@@ -1261,6 +1261,54 @@ fn year_record_from_dtos(y: &TimelineYearDto) -> cartalith_civ::timeline::YearRe
 struct LabelsDoc {
     #[serde(default)]
     labels: Vec<LabelDto>,
+    /// F3: the user's edits over generated labels (`LabelBridge::overrides`). Absent in an older archive, which then
+    /// opens exactly as before; omitted when there are none, so a save without any is unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    auto_overrides: Vec<AutoOverrideDto>,
+}
+
+/// One override over a generated label: its `auto_key`, whether it is hidden, and the edited label.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AutoOverrideDto {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    hidden: bool,
+    #[serde(default)]
+    label: LabelDto,
+}
+
+fn label_to_dto(l: &cartalith_civ::labels::MapLabel) -> LabelDto {
+    LabelDto {
+        x: l.x,
+        y: l.y,
+        name: l.name.clone(),
+        angle: l.angle,
+        arc: l.arc,
+        size: l.size,
+        font: l.font.clone(),
+        color: l.color.clone(),
+        size_mode: label_size_mode_key(l.size_mode).to_string(),
+        class: l.class.key().to_string(),
+    }
+}
+
+fn label_from_dto(d: &LabelDto) -> cartalith_civ::labels::MapLabel {
+    cartalith_civ::labels::MapLabel {
+        x: d.x,
+        y: d.y,
+        name: d.name.clone(),
+        angle: d.angle,
+        arc: d.arc,
+        size: d.size,
+        font: d.font.clone(),
+        color: d.color.clone(),
+        size_mode: label_size_mode_from(&d.size_mode),
+        class: cartalith_civ::labels::LabelClass::from_key(&d.class).unwrap_or_default(),
+        // Restored labels carry no candidate weight: hand-placed ones never had one, and an override's weight only ranked
+        // the generated label it replaces, which the pass re-ranks on every run.
+        weight: 0.0,
+    }
 }
 
 /// One label row as `label_bridge` stores it: grid position, text, angle, arc, size, optional font/colour, `size_mode` (`label_size_mode_key`) and `class` (`LabelClass::key`).
@@ -3659,26 +3707,17 @@ impl WorldGen {
             }
         }
 
-        if let Some(labels) = self.labels.as_ref().filter(|l| !l.labels.is_empty()) {
+        // The gate asks the whole store: a world whose only labels are edits over generated ones must still save them.
+        if let Some(labels) = self.labels.as_ref().filter(|l| !l.labels.is_empty() || !l.overrides.is_empty()) {
             insert_doc(
                 &mut documents,
                 SLOT_LABELS,
                 &LabelsDoc {
-                    labels: labels
-                        .labels
+                    labels: labels.labels.iter().map(label_to_dto).collect(),
+                    auto_overrides: labels
+                        .overrides
                         .iter()
-                        .map(|l| LabelDto {
-                            x: l.x,
-                            y: l.y,
-                            name: l.name.clone(),
-                            angle: l.angle,
-                            arc: l.arc,
-                            size: l.size,
-                            font: l.font.clone(),
-                            color: l.color.clone(),
-                            size_mode: label_size_mode_key(l.size_mode).to_string(),
-                            class: l.class.key().to_string(),
-                        })
+                        .map(|(k, o)| AutoOverrideDto { key: k.clone(), hidden: o.hidden, label: label_to_dto(&o.label) })
                         .collect(),
                 },
             );
@@ -4182,26 +4221,11 @@ impl WorldGen {
 
         if let Some(Ok(doc)) = data.parse::<LabelsDoc>(SLOT_LABELS) {
             let mut bridge = label_bridge::LabelBridge::new();
-            bridge.labels = doc
-                .labels
+            bridge.labels = doc.labels.iter().map(label_from_dto).collect();
+            bridge.overrides = doc
+                .auto_overrides
                 .iter()
-                .map(|d| cartalith_civ::labels::MapLabel {
-                    x: d.x,
-                    y: d.y,
-                    name: d.name.clone(),
-                    angle: d.angle,
-                    arc: d.arc,
-                    size: d.size,
-                    font: d.font.clone(),
-                    color: d.color.clone(),
-                    size_mode: label_size_mode_from(&d.size_mode),
-                    class: cartalith_civ::labels::LabelClass::from_key(&d.class).unwrap_or_default(),
-                    // A restored label is always hand-placed (`LabelsDoc` is
-                    // `SLOT_LABELS`, the Label tool's own list -- the generated
-                    // pass is re-run, not saved), so it carries no candidate
-                    // weight, same as `MapLabel::new`'s default.
-                    weight: 0.0,
-                })
+                .map(|d| (d.key.clone(), label_bridge::AutoOverride { label: label_from_dto(&d.label), hidden: d.hidden }))
                 .collect();
             self.labels = Some(bridge);
             restored.push("labels");
@@ -9038,6 +9062,26 @@ mod tests {
         for m in [LabelSizeMode::Zoom, LabelSizeMode::Fixed] {
             assert_eq!(label_size_mode_from(label_size_mode_key(m)), m);
         }
+    }
+
+    /// Protects F3: an override over a generated label survives a save, an older `labels.json` with no
+    /// `auto_overrides` still parses, and a document with none writes no such member.
+    #[test]
+    fn a_label_override_round_trips_and_an_old_document_still_opens() {
+        let mut lb = cartalith_civ::labels::MapLabel::new(12.5, 7.0, "Renamed");
+        lb.size = 22.0;
+        let doc = LabelsDoc {
+            labels: vec![],
+            auto_overrides: vec![AutoOverrideDto { key: "settlement|Auto|5.00|0.00".into(), hidden: true, label: label_to_dto(&lb) }],
+        };
+        let back: LabelsDoc = serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
+        assert_eq!(back.auto_overrides.len(), 1);
+        assert!(back.auto_overrides[0].hidden);
+        let got = label_from_dto(&back.auto_overrides[0].label);
+        assert_eq!((got.name.as_str(), got.x, got.size), ("Renamed", 12.5, 22.0));
+        let old: LabelsDoc = serde_json::from_str(r#"{"labels":[]}"#).unwrap();
+        assert!(old.auto_overrides.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("auto_overrides"));
     }
 
     /// Protects: SAVEFILE_COMPAT.md 13.2 -- an appearance document with no members, or with

@@ -282,6 +282,7 @@ func open(kind: String = "") -> void:
 		_refresh_rail()
 		_refresh_inspector()
 	_show_phone_entry(false)
+	_fit_outer.call_deferred()
 
 ## PH-12's two-pane switch. The rail is the list, the inspector is the entry;
 ## on a phone exactly one is visible, and the tab strip above them stays put,
@@ -321,10 +322,25 @@ func _do_phone_refit() -> void:
 ## Build the fixed frame once: head row (Back/Close, title captions), tab strip, status line, then
 ## the entries rail beside the inspector (stacked on a phone), and fill both. Must never be re-run
 ## -- it appends to `self`.
+## The column that fills the window (`_build`), kept so `open()` can re-fit it.
+var _outer: Control
+
+## F38 (owner findings 2026-11-21: "buttons ... fall behind window edges"). A bare Control child of a Window is only as
+## big as its anchors and offsets say, and Godot GROWS an offset to meet a minimum size and never gives it back: while the
+## entry list was being filled the column's minimum was 815 tall, so its offset_bottom stayed at +167 after the content
+## shrank and after the embedder clamped the window to 648 at a 900 px viewport, leaving the footer (the read-only
+## footnote) 15 px below the window edge. Re-asserting full-rect anchors resets the offsets to the window's own size.
+func _fit_outer() -> void:
+	if _outer != null:
+		_outer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
 	add_child(outer)
+	_outer = outer
+	_fit_outer()
 
 	var head_row := HBoxContainer.new()
 	_head_row = head_row

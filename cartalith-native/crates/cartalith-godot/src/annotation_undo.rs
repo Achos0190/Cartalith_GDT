@@ -101,8 +101,8 @@ impl AnnoStore {
 /// A whole store, cloned.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnnoSnap {
-    /// The hand-placed labels.
-    Labels(Vec<MapLabel>),
+    /// The hand-placed labels, and the user's edits over generated ones (F3: `LabelBridge::overrides`).
+    Labels(Vec<MapLabel>, BTreeMap<String, crate::label_bridge::AutoOverride>),
     /// The placed icons.
     Icons(Vec<ManualIcon>),
     /// Landmark key to the user's name for it.
@@ -118,7 +118,7 @@ impl AnnoSnap {
     /// Which store this snapshot is of.
     pub fn store(&self) -> AnnoStore {
         match self {
-            AnnoSnap::Labels(_) => AnnoStore::Labels,
+            AnnoSnap::Labels(..) => AnnoStore::Labels,
             AnnoSnap::Icons(_) => AnnoStore::Icons,
             AnnoSnap::Names(_) => AnnoStore::Names,
             AnnoSnap::Pois(_) => AnnoStore::Pois,
@@ -130,7 +130,7 @@ impl AnnoSnap {
     /// later indices shifted, which is what the shell must be told.
     pub fn len(&self) -> usize {
         match self {
-            AnnoSnap::Labels(v) => v.len(),
+            AnnoSnap::Labels(v, _) => v.len(),
             AnnoSnap::Icons(v) => v.len(),
             AnnoSnap::Names(m) => m.len(),
             AnnoSnap::Pois(v) => v.len(),
@@ -559,7 +559,7 @@ mod tests {
         assert_eq!(u.len(), 0);
         let mut v = AnnoUndo::new();
         v.push(entry(1, AnnoStore::Names, names(&[]), names(&[("a", "A")]), None));
-        v.push(entry(2, AnnoStore::Labels, AnnoSnap::Labels(vec![]), AnnoSnap::Labels(vec![]), None));
+        v.push(entry(2, AnnoStore::Labels, AnnoSnap::Labels(vec![], Default::default()), AnnoSnap::Labels(vec![], Default::default()), None));
         let live = v.live_seqs(&|s| s.store() == AnnoStore::Labels);
         v.retain_seqs(&live);
         assert_eq!(v.len(), 1);

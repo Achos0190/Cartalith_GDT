@@ -187,6 +187,47 @@ static func _copy_file(from: String, to: String) -> bool:
 	f.close()
 	return true
 
+## F40. Where `reset_to_defaults()` copies the settings file before replacing it: the "undo" of a reset. One fixed
+## name, so a second reset replaces the first backup (a labelled judgement: the backup is of the newest settings).
+const RESET_BACKUP_PATH := "user://cartalith_settings.before_reset.bak.cfg"
+
+## F40. Sections a reset leaves alone, each because it points at data the owner said a reset must never touch
+## (worlds, vault, asset library) or carries the assistant's key names: storage locations, the recent-worlds list,
+## the asset library's own record, the vault's per-note folders and the assistant's saved profiles (they hold the
+## credential-store entry names, so dropping them would orphan stored keys).
+const RESET_KEEP_SECTIONS := ["storage_roots", "recent", "asset_library", "vault_note_folders", "llm_profiles"]
+
+## F40. Keys kept inside the `llm` section: where the assistant's API key comes from. The key itself is in the OS
+## credential store, never in this file; these are only the pointers to it.
+const RESET_KEEP_LLM_KEYS := ["key_source", "env_var", "key_account"]
+
+## F40. Preferences ▸ Reset to default settings: copies the settings file to `RESET_BACKUP_PATH`, then rewrites it holding
+## only what `RESET_KEEP_SECTIONS` / `RESET_KEEP_LLM_KEYS` name, so every other setting reads its default. Returns
+## `{ok, backup, error}`. Nothing is changed if the backup cannot be written. Never touches a world, the vault or the
+## asset library: those are not in this file, only their locations are, and those stay.
+static func reset_to_defaults() -> Dictionary:
+	_ensure_loaded()
+	var fresh := ConfigFile.new()
+	for sec in _cfg.get_sections():
+		if sec in RESET_KEEP_SECTIONS:
+			for k in _cfg.get_section_keys(sec):
+				fresh.set_value(sec, k, _cfg.get_value(sec, k))
+		elif sec == _SEC_LLM:
+			for k in RESET_KEEP_LLM_KEYS:
+				if _cfg.has_section_key(sec, k):
+					fresh.set_value(sec, k, _cfg.get_value(sec, k))
+	## Nothing to reset (a second press, or a file already at defaults): do not copy, or the backup of the real settings
+	## would be overwritten by a copy of the already-reset file.
+	if fresh.encode_to_text() == _cfg.encode_to_text():
+		return {"ok": true, "backup": ProjectSettings.globalize_path(RESET_BACKUP_PATH) if FileAccess.file_exists(RESET_BACKUP_PATH) else "", "error": ""}
+	var had_file := FileAccess.file_exists(CONFIG_PATH)
+	if had_file and not _copy_file(CONFIG_PATH, RESET_BACKUP_PATH):
+		return {"ok": false, "backup": "", "error": "the old settings file could not be copied aside, so nothing was changed"}
+	_cfg = fresh
+	if fresh.save(CONFIG_PATH) != OK:
+		return {"ok": false, "backup": ProjectSettings.globalize_path(RESET_BACKUP_PATH), "error": "the new settings file could not be written"}
+	return {"ok": true, "backup": ProjectSettings.globalize_path(RESET_BACKUP_PATH) if had_file else "", "error": ""}
+
 ## Writes `_cfg` back to `CONFIG_PATH`. Callers must have run
 ## `_ensure_loaded()` first (`_cfg` is null otherwise). The save result is not
 ## checked, so an unwritable `user://` fails silently (intent unverified).

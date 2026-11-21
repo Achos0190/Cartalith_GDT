@@ -5536,7 +5536,14 @@ func _open_slicer() -> void:
 	if DccWidgets.phone_present(_slicer, _host):
 		_host.phone_fit(_slicer, 1.0)   ## PH-12; idempotent, so only new rows pay.
 		return
-	_slicer.popup_centered(Vector2i(W_SLICER, H_SLICER))
+	## F38 (owner findings 2026-11-21: "buttons ... fall behind window edges"): the card's column is a bare Control child, so on the
+	## tablet (44 px row floors) its minimum is taller than the 560 px card and Choose image, Cancel and Slice were drawn below the
+	## window edge. The card opens at least as large as that minimum (the popup still clamps it to the viewport).
+	var need := Vector2i(W_SLICER, H_SLICER)
+	for ch in _slicer.get_children():
+		if ch is Control:
+			need = need.max(Vector2i((ch as Control).get_combined_minimum_size()))
+	_slicer.popup_centered(need)
 
 ## Closing drops the engine-side sheet too -- a decoded 3072×2048 sheet is
 ## ~24MB of RGBA the session has no reason to hold once the modal is gone.

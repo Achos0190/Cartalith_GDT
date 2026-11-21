@@ -131,9 +131,10 @@ const PLACEMENTS: Array = [
 	["Colours", "COLOUR RELIEF", "", "Button", "Add stop", 1],
 	["Colours", "COLOUR RELIEF", "", "Button", "Reverse", 1],
 	["Colours", "BIOME COLOURS", "", "HSlider", "", 1],
-	["Colours", "BIOME COLOURS", "", "Button", "Biome colour table*", 1],
+	## The two "Biome colour table*" Button rows were removed 2026-11-21: that link button no longer exists (the table is the
+	## Biome colours section itself, per-class pickers and Reset rows, `render_workspace.gd::_build_biome_colours`), and the
+	## section Label above plus the bio_blend HSlider still prove the section is there.
 	["Colours", "COLOUR MANAGEMENT", "", "Label", "Display", 1],
-	["*", "*", "*", "Button", "Biome colour table*", 1],
 	["*", "*", "*", "Button", "Add stop", 1],
 	# -- 4 Feature style: the style halves of Roads & routes and Political display
 	["Feature style", "", "", "Label", "§ WAYS", 1],

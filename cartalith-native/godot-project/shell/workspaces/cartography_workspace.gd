@@ -302,6 +302,10 @@ var _icon_drag_start_dist := 0.0
 var _label_drag_mode := DragMode.NONE
 ## Index of the label being dragged, `-1` when none; set in `_on_label_click`, cleared by `_on_any_tool_armed` and `_on_world_changed`.
 var _label_drag_index := -1
+## F3/F4: the generated label (its engine key) selected for editing, `""` for none. Mutually exclusive with a
+## hand-placed selection; `_auto_drag` is true while the pointer is dragging it.
+var _auto_sel := ""
+var _auto_drag := false
 var _label_drag_cx := 0.0   ## Grid-space label centre, `lb.x + 0.5` -- see
 	## `_begin_label_handle_drag()`'s own comment for why the +0.5 matters.
 var _label_drag_cy := 0.0
@@ -518,6 +522,14 @@ func _build() -> void:
 	var labels_cat := DccWidgets.category(self, "Labels", categories)
 	_build_label_classes(labels_cat)
 	_build_label_panel(labels_cat)
+	## F4 (owner findings 2026-11-21: "not able to drag labels around when in this mode"): labels can only be dragged by the
+	## Label tool, and opening this category left whatever tool was armed (Inspect), so nothing moved. Opening Labels is
+	## asking to work on labels, so it arms the Label tool; the category's own toggle runs first, so the body state is current.
+	for c in categories:
+		if String(c["title"]) == "Labels":
+			(c["button"] as Button).pressed.connect(func() -> void:
+				if (c["body"] as Control).visible:
+					app.arm_tool("label"))
 
 	## 7 -- ICONS (was Assets & landmarks). The rail's `icons` node lands here.
 	##
@@ -1336,6 +1348,7 @@ func _on_any_tool_armed(id: String) -> void:
 			_pin_drag = {}
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
+			_auto_drag = false
 			_icon_drag_mode = IconDragMode.NONE
 			_icon_drag_index = -1
 			## The reference's own `pointercancel` (line 9753) drops
@@ -1431,6 +1444,8 @@ func _on_world_changed() -> void:
 	app.viewport.tool_overlay.set_handles([])
 	_label_drag_mode = DragMode.NONE
 	_label_drag_index = -1
+	_auto_sel = ""
+	_auto_drag = false
 	_icon_drag_mode = IconDragMode.NONE
 	_icon_drag_index = -1
 	if app.armed_tool == "icon":
@@ -1890,7 +1905,22 @@ func _on_label_click(gx: float, gy: float) -> void:
 			return
 
 	var hit := bridge.label_hit_test_mode(gx, gy, app.viewport.label_px_per_cell(), sel_mode, app.viewport.zoom())
+	if hit < 0 and sel_mode == EngineBridge.SEL_REPLACE:
+		## F3/F4: a generated label under the pointer is edited and dragged through its override, never a second label.
+		var ak := bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom())
+		if ak != "":
+			bridge.label_select(-1)
+			_auto_sel = ak
+			_auto_drag = true
+			_label_drag_mode = DragMode.NONE
+			_label_drag_index = -1
+			app.viewport.tool_overlay.set_handles([])
+			app.set_tool_options(_build_label_tool_options_row)
+			_rebuild_label_panel()
+			return
 	if hit >= 0:
+		_auto_sel = ""
+		_auto_drag = false
 		## A modified click selects; it does not also arm a position drag. A
 		## Ctrl-drag that moved the label it had just added to the set would
 		## make the two gestures fight over one press.
@@ -1901,6 +1931,8 @@ func _on_label_click(gx: float, gy: float) -> void:
 	else:
 		_label_drag_mode = DragMode.NONE
 		_label_drag_index = -1
+		_auto_sel = ""
+		_auto_drag = false
 		## A modified click on empty ground missed a selection; it is not a
 		## request for the New label dialog (`_on_icon_click`'s own reasoning
 		## against falling through to place).
@@ -1986,6 +2018,10 @@ func _label_side_from_handles(index: int) -> float:
 ## helper so the maths lives in the engine, then refreshes the map and the handle
 ## overlay. Does nothing when no label is grabbed.
 func _on_label_drag(gx: float, gy: float) -> void:
+	if _auto_drag and _auto_sel != "" and not bridge.generating:
+		bridge.auto_label_set(_auto_sel, {"x": gx, "y": gy})
+		app.viewport.refresh_annotations()
+		return
 	if _label_drag_index < 0:
 		return
 	## Mid-generation (2026-10-12): `label_resize_size` / `label_rotate_deg` / `label_arc_value`
@@ -2018,6 +2054,9 @@ func _on_label_drag(gx: float, gy: float) -> void:
 ## so its field readouts show the final values. Position and validity unused.
 func _on_label_release(_gx: float, _gy: float, _valid: bool) -> void:
 	bridge.annotation_stream_end()
+	if _auto_drag:
+		_auto_drag = false
+		_rebuild_label_panel()   ## Syncs the form's text and the edited list to the drag's result.
 	if _label_drag_mode != DragMode.NONE:
 		_label_drag_mode = DragMode.NONE
 		_label_drag_index = -1
@@ -2188,6 +2227,11 @@ func _create_label_steps(gx: float, gy: float, text: String) -> int:
 func _build_label_tool_options_row(row: HBoxContainer) -> void:
 	row.add_child(DccTheme.mono_label("CARTO · LABEL", "accent", DccTheme.FS_SMALL, 2, true))
 	var idx := bridge.label_get_selected()
+	if idx < 0 and _auto_sel != "":
+		row.add_child(DccTheme.mono_label("editing generated label", "text_dim", DccTheme.FS_SMALL))
+		row.add_child(DccTheme.label(String(bridge.auto_label_get(_auto_sel).get("text", "")), "text_faint", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.spacer())
+		return
 	if idx < 0:
 		row.add_child(DccTheme.label(
 			"click empty ground to create a label, or an existing one to edit — full form in the dock below",
@@ -3578,6 +3622,9 @@ func _regenerate_labels() -> void:
 	_label_terrain_stale = false
 	_refresh_label_gen_cue()
 	app.viewport.refresh_annotations()
+	## F3: the changed-labels list reads the run that just finished, so it is redrawn from here (a loaded world's saved
+	## edits only become visible once the pass has run).
+	_rebuild_label_panel()
 
 
 ## Ruling AZ's cue, refreshed after every `_regenerate_labels()` and after
@@ -4012,9 +4059,111 @@ func _rebuild_label_panel() -> void:
 	## moves a per-role count. This is the only place the second column is
 	## refreshed from a change to the labels themselves; `_regenerate_labels()`
 	## refreshes it from a change to a role's base.
+	_build_auto_edits_list()
 	_label_role_recount()
 	_rebuild_label_edit_form()
 	_refresh_right_dock_anno()
+
+
+## F3: the generated labels the user has changed or hidden, each with an `edit` (select it on the map) and a `↺`
+## (restore the generator's own). Only changed ones are listed -- hundreds of untouched generated labels would drown the
+## panel, and any of them is one click on the map away. Hidden ones are the reason the list exists: a hidden label cannot
+## be clicked, so this is the only way back to it.
+func _build_auto_edits_list() -> void:
+	var edited: Array = []
+	for entry in bridge.auto_label_list():
+		if bool((entry as Dictionary).get("edited", false)):
+			edited.append(entry)
+	if edited.is_empty():
+		return
+	_label_list_body.add_child(DccTheme.mono_label("Generated labels you changed", "text_dim", DccTheme.FS_MICRO))
+	var tap := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 0.0
+	for entry in edited:
+		var d: Dictionary = entry
+		var key := String(d.get("key", ""))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var l := DccTheme.mono_label(String(d.get("text", "")) + (" (hidden)" if bool(d.get("hidden", false)) else ""),
+			"text_dim", DccTheme.FS_SMALL)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.clip_text = true
+		row.add_child(l)
+		var sel := Button.new()
+		sel.text = "edit"
+		sel.tooltip_text = "Select this generated label for editing"
+		sel.focus_mode = Control.FOCUS_NONE
+		sel.custom_minimum_size = Vector2(maxf(34.0, tap), maxf(20.0, tap))
+		sel.pressed.connect(func():
+			bridge.label_select(-1)
+			_auto_sel = key
+			_rebuild_label_panel())
+		row.add_child(sel)
+		var back := Button.new()
+		back.text = "↺"
+		back.tooltip_text = "Restore the generated label"
+		back.focus_mode = Control.FOCUS_NONE
+		back.custom_minimum_size = Vector2(maxf(22.0, tap), maxf(20.0, tap))
+		back.pressed.connect(func():
+			bridge.auto_label_reset(key)
+			if _auto_sel == key:
+				_auto_sel = ""
+			app.viewport.refresh_annotations()
+			_rebuild_label_panel())
+		row.add_child(back)
+		_label_list_body.add_child(row)
+
+
+## F3: the form for the selected generated label -- text, size, hide and restore, all written through its override.
+func _build_auto_edit_form(key: String) -> void:
+	var g := bridge.auto_label_get(key)
+	if g.is_empty():
+		_auto_sel = ""
+		DccWidgets.note(_label_edit_body, "Select a label above, or click one on the map, to edit its text and style.")
+		return
+	DccWidgets.note(_label_edit_body, "Generated %s label. Your changes sit over it and survive a regenerate; ↺ restores it." % String(g.get("class", "")))
+	var text_row := HBoxContainer.new()
+	text_row.add_theme_constant_override("separation", 8)
+	text_row.custom_minimum_size.y = 24
+	text_row.add_child(DccTheme.mono_label("Text", "text_dim", DccTheme.FS_SMALL))
+	var text_edit := LineEdit.new()
+	text_edit.name = "AutoLabelText"
+	text_edit.text = String(g.get("text", ""))
+	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_edit.text_changed.connect(func(v: String): _apply_auto_field(key, "text", v))
+	## Deferred: removing this edit from the tree (a rebuild) emits `focus_exited` synchronously, which would re-enter the
+	## rebuild that is freeing it.
+	text_edit.focus_exited.connect(_rebuild_label_panel.call_deferred)
+	text_row.add_child(text_edit)
+	_label_edit_body.add_child(text_row)
+	DccWidgets.dock_slider(_label_edit_body, "Size", LABEL_SIZE_MIN, LABEL_SIZE_MAX, 1.0, float(g.get("size", 16.0)), "px",
+		func(v: float): _apply_auto_field(key, "size", v),
+		"This generated label's own size; it stays where you leave it.")
+	var hide_btn := DccWidgets.action(_label_edit_body, "Show" if bool(g.get("hidden", false)) else "Hide",
+		func():
+			_apply_auto_field(key, "hidden", not bool(bridge.auto_label_get(key).get("hidden", false)))
+			_rebuild_label_panel())
+	hide_btn.name = "AutoLabelHide"
+	var reset_btn := DccWidgets.action(_label_edit_body, "Restore generated", func():
+		bridge.auto_label_reset(key)
+		_auto_sel = ""
+		app.viewport.refresh_annotations()
+		_rebuild_label_panel())
+	reset_btn.name = "AutoLabelRestore"
+	## The form sits at the foot of a long dock: bring it on screen, as a click on the map asked for it.
+	var scroll := text_row.get_parent()
+	while scroll != null and not scroll is ScrollContainer:
+		scroll = scroll.get_parent()
+	if scroll != null:
+		(scroll as ScrollContainer).ensure_control_visible.call_deferred(reset_btn)
+		(scroll as ScrollContainer).ensure_control_visible.call_deferred(text_row)
+
+
+## One field of generated label `key` through its override, inside the same idle-merged undo stream a hand-placed
+## label's fields use.
+func _apply_auto_field(key: String, field: String, value) -> void:
+	_hold_field_stream()
+	bridge.auto_label_set(key, {field: value})
+	app.viewport.refresh_annotations()
 
 
 ## The full seven-field form (`DCC_SHELL_SPEC.md` §4.5.5's right-dock
@@ -4029,6 +4178,11 @@ func _rebuild_label_edit_form() -> void:
 		_label_edit_body.remove_child(child)
 		child.queue_free()
 	var idx := bridge.label_get_selected()
+	if idx < 0 and _auto_sel != "":
+		_build_auto_edit_form(_auto_sel)
+		_update_label_handles_overlay()
+		return
+	_auto_sel = ""
 	if idx < 0:
 		DccWidgets.note(_label_edit_body,
 			"Select a label above, or click one on the map, to edit its text and style.")

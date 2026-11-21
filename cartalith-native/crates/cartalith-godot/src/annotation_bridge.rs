@@ -82,7 +82,7 @@ impl WorldGen {
     /// exist (no world yet, or no label bridge).
     pub(crate) fn anno_snap(&self, store: AnnoStore) -> Option<AnnoSnap> {
         match store {
-            AnnoStore::Labels => self.labels.as_ref().map(|l| AnnoSnap::Labels(l.labels.clone())),
+            AnnoStore::Labels => self.labels.as_ref().map(|l| AnnoSnap::Labels(l.labels.clone(), l.overrides.clone())),
             AnnoStore::Icons => self.icons.as_ref().map(|i| AnnoSnap::Icons(i.icons.clone())),
             AnnoStore::Names => Some(AnnoSnap::Names(self.landmark_user_names.clone())),
             AnnoStore::Pois => Some(AnnoSnap::Pois(self.pois.clone())),
@@ -94,7 +94,7 @@ impl WorldGen {
     /// liveness and redo-readiness check asks.
     pub(crate) fn anno_matches(&self, s: &AnnoSnap) -> bool {
         match s {
-            AnnoSnap::Labels(v) => self.labels.as_ref().is_some_and(|l| l.labels == *v),
+            AnnoSnap::Labels(v, o) => self.labels.as_ref().is_some_and(|l| l.labels == *v && l.overrides == *o),
             AnnoSnap::Icons(v) => self.icons.as_ref().is_some_and(|i| i.icons == *v),
             AnnoSnap::Names(m) => self.landmark_user_names == *m,
             AnnoSnap::Pois(v) => self.pois == *v,
@@ -109,9 +109,10 @@ impl WorldGen {
     fn anno_apply(&mut self, s: &AnnoSnap) {
         let was = self.anno_snap(s.store()).map_or(0, |c| c.len());
         match s {
-            AnnoSnap::Labels(v) => {
+            AnnoSnap::Labels(v, o) => {
                 if let Some(l) = self.labels.as_mut() {
                     l.labels = v.clone();
+                    l.overrides = o.clone();
                     l.deselect();
                 }
             }
