@@ -215,11 +215,12 @@ func _leg_f2() -> void:
 	var n0 := int(bridge.civ_faction_count())
 	_check("the world has several factions", n0 >= 3, str(n0))
 	var guard := 0
-	while int(bridge.civ_faction_count()) > 1 and guard < 12:
+	## Ruling GI (owner 2026-11-21) replaced F2's floor of one faction: every faction may go.
+	while int(bridge.civ_faction_count()) > 0 and guard < 12:
 		guard += 1
 		await _open_roster_list(w)
 		var rm := _find(w, "Button", "− Remove last")
-		_check("Remove last is enabled above the floor (%d factions)" % int(bridge.civ_faction_count()), rm != null and not (rm as Button).disabled, ", ".join(Array(w.find_children("*", "Button", true, false).filter(func(b): return b.text.to_lower().contains("remove") or b.text.to_lower().contains("add fa")).map(func(b): return "%s/%s/%s" % [b.text, b.is_visible_in_tree(), b.disabled]))))
+		_check("Remove last is enabled while a faction is left (%d factions)" % int(bridge.civ_faction_count()), rm != null and not (rm as Button).disabled, ", ".join(Array(w.find_children("*", "Button", true, false).filter(func(b): return b.text.to_lower().contains("remove") or b.text.to_lower().contains("add fa")).map(func(b): return "%s/%s/%s" % [b.text, b.is_visible_in_tree(), b.disabled]))))
 		if rm == null:
 			return
 		await _click(rm)
@@ -232,17 +233,17 @@ func _leg_f2() -> void:
 			return
 		await _click(ok_btn)
 		await _frames(4)
-	_check("down to one faction (plus Unclaimed)", int(bridge.civ_faction_count()) == 1, str(bridge.civ_faction_count()))
+	_check("down to no faction (Unclaimed only)", int(bridge.civ_faction_count()) == 0, str(bridge.civ_faction_count()))
 	await _open_roster_list(w)
 	var rm2 := _find(w, "Button", "− Remove last")
-	_check("at the floor the button is disabled", rm2 != null and (rm2 as Button).disabled)
-	_check("its tooltip says why", rm2 != null and (rm2 as Button).tooltip_text.contains("cannot be removed") and (rm2 as Button).tooltip_text.contains("Unclaimed"), rm2.tooltip_text if rm2 != null else "")
-	_check("the engine refuses the last one too", not bridge.civ_remove_faction())
-	await _shot("factions_floor")
+	_check("with none left the button is disabled", rm2 != null and (rm2 as Button).disabled)
+	_check("its tooltip says why", rm2 != null and (rm2 as Button).tooltip_text.contains("No faction is left"), rm2.tooltip_text if rm2 != null else "")
+	_check("the engine refuses to remove Unclaimed", not bridge.civ_remove_faction())
+	await _shot("factions_none")
 	var add := _find(w, "Button", "+ Add faction")
 	await _click(add)
 	await _frames(4)
-	_check("Add faction still works from the floor", int(bridge.civ_faction_count()) == 2)
+	_check("Add faction works from zero", int(bridge.civ_faction_count()) == 1)
 	var rm3 := _find(w, "Button", "− Remove last")
 	_check("and Remove last is enabled again", rm3 != null and not (rm3 as Button).disabled)
 	w.hide()

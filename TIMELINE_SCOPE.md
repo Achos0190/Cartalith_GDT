@@ -429,3 +429,9 @@ recorded; later rulings are dated where they changed one.
   Warfare are §4's and §6's. The owner's later calls are there too: the toggles
   are drawn and inert (`BUILD_ANSWERS.md` §3, 2026-08-31), and the
   program-scope scrubber waits for a design (CV-24, 2026-09-03).
+- **A world with no faction (Ruling GI, owner 2026-11-21).** The collapse and
+  recovery steps read settlements, never factions, so they run unchanged on a
+  world whose factions were all deleted: every settlement stays loose through
+  every recorded year, and a recorded year's military reading is each
+  settlement's own garrison (`MILITARY_MANPOWER_SCOPE.md` §5.6). Tested by
+  `zero_factions_timeline_runs_collapse_and_recovery` and `_gi_probe.gd`.

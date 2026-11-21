@@ -2505,6 +2505,37 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
     }
 }
 
+/// A save and reopen of `civ` alone, through the real archive writer and
+/// reader (`civ_documents`, `write_project`, `read_project`,
+/// `civ_from_project`), for tests outside this file (Ruling GI's
+/// `zero_factions_tests`). Panics on any archive warning.
+#[cfg(test)]
+pub(crate) fn round_trip_for_tests(civ: &CivData, gw: usize, gh: usize) -> CivData {
+    let n = gw * gh;
+    let params = cartalith_io::SaveParams {
+        gw, gh, seed: 4242, map_width_km: 800.0, sea_level: 0.42, world: false,
+        origin: None, name: None,
+    };
+    let fields = cartalith_io::SaveFields {
+        heightmap: std::sync::Arc::new(vec![0.5; n]),
+        temperature: std::sync::Arc::new(vec![10.0; n]),
+        rainfall: std::sync::Arc::new(vec![1.0; n]),
+        volcanic_field: vec![0.0; n],
+        impact_field: vec![0.0; n],
+        strahler_order: vec![0; n],
+    };
+    let mut write = ProjectWrite::new(&params, &fields);
+    civ_documents(civ, None, &mut write.documents);
+    if civ.territory.len() == n {
+        write.raster("rasters/territory.i32", Raster::I32(civ.territory.clone()));
+    }
+    let mut buf = Vec::new();
+    project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write_project");
+    let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read_project");
+    assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+    civ_from_project(&data, n, &mut Vec::new()).expect("a written civ layer comes back")
+}
+
 /// Everything the archive holds about the civilisation layer, as JSON text
 /// keyed by slot, plus the civ rasters. Pure — no Godot, no filesystem —
 /// so the round-trip tests below run under `cargo test -p cartalith-godot`

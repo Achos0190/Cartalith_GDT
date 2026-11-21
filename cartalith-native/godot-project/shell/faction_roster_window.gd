@@ -124,6 +124,9 @@ class_name FactionRosterWindow
 ## engine omits those figures rather than report the zero an empty claim grid
 ## sums to; this is what the dash beside each one says.
 const NO_CLAIM_GRID := "Not known: this project was opened without its territory map. Paint territory, or run Recompute civilisation, to rebuild it."
+## Ruling GI (owner, 2026-11-21): what a world with every faction deleted is. Shown wherever a
+## faction list would be, so "no faction" never reads as "no world" (both give `get_factions()` `[]`).
+const NO_FACTIONS := "No factions: every settlement is loose (Unclaimed) and keeps its own garrison; there are no faction armies, levies or wars. + Add faction makes one."
 
 ## The hub's tabs, in strip order (`FACTION_HUB_DESIGN.md` FH-0). These ids are
 ## the public vocabulary: `open(select_faction, tab)` and
@@ -169,7 +172,7 @@ var _selected := 1
 var module_refresh: Callable
 ## The roster list's `VBoxContainer`, created in `setup`.
 var _list_body: VBoxContainer
-## F2: the "− Remove last" button, disabled at the floor (`_sync_remove_button`).
+## The "− Remove last" button, disabled only when no faction is left (`_sync_remove_button`).
 var _remove_btn: Button
 ## The inspector pane's `VBoxContainer`, created in `setup`; the selected faction's tabs are
 ## rebuilt into it.
@@ -922,7 +925,7 @@ func _rebuild_overview() -> void:
 		return
 	var factions := bridge.get_factions()
 	if factions.is_empty():
-		_overview.text = "Generate a world to see a faction summary here."
+		_overview.text = NO_FACTIONS if bridge.has_world else "Generate a world to see a faction summary here."
 		return
 	var total_pop := 0
 	var total_settle := 0
@@ -964,16 +967,17 @@ func _rebuild_overview() -> void:
 ## outlined. A press commits any pending inspector edit (`_commit_focused_field`), selects that faction,
 ## clears the marked pair, rebuilds list and inspector and, on phone, navigates to the inspector. An empty
 ## world shows a note pointing at `DccShell.new_world_route()`.
-## F2 (owner 2026-11-21): the reference's floor is Unclaimed plus ONE real faction (`FactionRoster::remove_last`
-## refuses at len <= 2; the economy, manpower and collapse models all read faction 1). The button says so on itself
-## instead of a status-bar hint nobody sees. Run from `_rebuild_list`, because the row is built once, before any
+## Ruling GI (owner 2026-11-21) removed F2's floor of one faction: every faction may be deleted
+## (`FactionRoster::remove_last` refuses only Unclaimed). The button is disabled only when none is
+## left, and says so on itself. Run from `_rebuild_list`, because the row is built once, before any
 ## world exists, and the count it reads changes with every Add and Remove.
 func _sync_remove_button() -> void:
 	if _remove_btn == null:
 		return
-	var at_floor: bool = bridge.civ_faction_count() <= 1
-	_remove_btn.disabled = at_floor
-	_remove_btn.tooltip_text = ("The last faction cannot be removed: a world keeps Unclaimed plus at least one faction. " 		+ "Add another first, or rename and edit this one.") if at_floor else "Removes the highest-numbered faction; its settlements and territory become Unclaimed."
+	var none_left: bool = bridge.civ_faction_count() <= 0
+	_remove_btn.disabled = none_left
+	_remove_btn.tooltip_text = ("No faction is left to remove: every settlement is loose and keeps its own garrison. "
+		+ "+ Add faction makes one.") if none_left else "Removes the highest-numbered faction; its settlements and territory become Unclaimed."
 
 
 func _rebuild_list() -> void:
@@ -985,8 +989,11 @@ func _rebuild_list() -> void:
 	_clear(_list_body)
 	var factions := bridge.get_factions()
 	if factions.is_empty():
-		DccWidgets.note(_list_body, "No world generated -- %s to begin."
-			% DccShell.new_world_route())
+		if bridge.has_world:
+			DccWidgets.note(_list_body, NO_FACTIONS)
+		else:
+			DccWidgets.note(_list_body, "No world generated -- %s to begin."
+				% DccShell.new_world_route())
 		return
 	for f in factions:
 		var d: Dictionary = f
@@ -1075,7 +1082,8 @@ func _show_active_tab() -> void:
 		## tab. Cleared with the guard so a stale pane cannot commit into it.
 		_clear(_inspector_body)
 		_tab_panes.clear()
-		DccWidgets.note(_inspector_body, "Select a faction.")
+		## Ruling GI: a world with every faction deleted says what it is, not "select".
+		DccWidgets.note(_inspector_body, NO_FACTIONS if bridge.has_world and bridge.civ_faction_count() <= 0 else "Select a faction.")
 		_style_tab_buttons()
 		return
 	for id in _tab_panes:
@@ -4126,16 +4134,23 @@ func _add_faction() -> void:
 ## ("Any settlements/territory using it will revert to Unclaimed") -- both
 ## kept, because both are the point.
 func _confirm_remove() -> void:
-	if bridge.civ_faction_count() <= 1:
-		app.set_status("hint", "One faction plus Unclaimed is the floor — nothing to remove.", "accent")
+	var n: int = bridge.civ_faction_count()
+	if n <= 0:
+		app.set_status("hint", "No faction is left to remove.", "accent")
 		return
+	## Ruling GI (owner 2026-11-21): the last faction may go too, and its prompt says what the
+	## world becomes -- in the same three lines as the ordinary prompt, because the card does
+	## not grow for more (`_gi_probe`'s confirm_last frame showed a longer text under its buttons).
+	var body := "Remove faction 1, the last one?\n\nIts settlements become loose, each keeping its own garrison."
+	if n > 1:
+		body = "Remove faction %d?\n\nAny settlements and territory using it will revert to Unclaimed." % n
 	## `DccWidgets.confirm()` -- see `right_dock.gd::_confirm_revert` for what a
 	## hand-built `ConfirmationDialog` measures as on a phone. `get_ok_button()
 	## .text` and `ok_button_text` are the same property by two routes; the
 	## helper takes the text and sets it before the window is presented, which
 	## the button-object route cannot guarantee.
 	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Remove the last faction?",
-		"Remove faction %d?\n\nAny settlements and territory using it will revert to Unclaimed." % bridge.civ_faction_count(),
+		body,
 		"Remove",
 		func():
 			if bridge.civ_remove_faction():

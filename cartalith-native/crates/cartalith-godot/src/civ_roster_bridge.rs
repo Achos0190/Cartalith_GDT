@@ -310,9 +310,12 @@ impl FactionRoster {
     /// settlement and every territory cell using it reverts to Unclaimed
     /// (`0`) rather than dangling.
     ///
-    /// Refuses (returns `false`, changing nothing) at the reference's own
-    /// floor — `CIV_FACTIONS.length <= 2`, i.e. Unclaimed plus one real
-    /// faction.
+    /// Refuses (returns `false`, changing nothing) only when no real faction
+    /// is left: Unclaimed (index 0) is never removable. **Ruling GI**
+    /// (owner, 2026-11-21) removed the reference's floor of Unclaimed plus
+    /// one faction (`CIV_FACTIONS.length <= 2`): every faction may be
+    /// deleted, and a world with none is all loose settlements, each with
+    /// its own garrison (`civ_military_bridge::garrisons_for`).
     ///
     /// The reference also splices the removed index out of its
     /// `mapFilter.factionsOff` visibility set; this port's per-faction map
@@ -323,7 +326,7 @@ impl FactionRoster {
         settlements: &mut [NamedSettlement],
         territory: &mut [i32],
     ) -> bool {
-        if self.0.len() <= 2 {
+        if self.0.len() <= 1 {
             return false;
         }
         let idx = (self.0.len() - 1) as i32;
@@ -1142,18 +1145,24 @@ mod tests {
         assert_eq!(rows, vec![cartalith_civ::trade::Tariff { importer: 1, exporter: 2, rate: 0.1 }]);
     }
 
-    /// Protects: removal refuses at the reference's floor of Unclaimed plus one faction and
-    /// succeeds above it.
+    /// Protects Ruling GI (owner, 2026-11-21): the last real faction can be removed, its
+    /// settlement and cells go to Unclaimed (0, never a stand-in faction id), only Unclaimed
+    /// itself is refused, and `add` works again from zero (it gets id 1). MUTATION: restore the
+    /// `len <= 2` floor and the first `assert!` fails.
     #[test]
-    fn remove_faction_refuses_at_the_reference_floor() {
+    fn remove_faction_reaches_zero_factions_and_add_works_again() {
         let mut r = FactionRoster::seeded(1);
-        let mut s: Vec<NamedSettlement> = vec![];
-        let mut t: Vec<i32> = vec![];
-        assert!(!r.remove_last(&mut s, &mut t), "Unclaimed + 1 is the floor");
+        let mut s = vec![settlement(1, 1)];
+        let mut t: Vec<i32> = vec![1, 0, 1];
+        assert!(r.remove_last(&mut s, &mut t), "Ruling GI: the last faction may go");
+        assert_eq!(r.count(), 0);
+        assert_eq!(r.0.len(), 1, "Unclaimed stays");
+        assert_eq!(s[0].placement.faction, 0);
+        assert_eq!(t, vec![0, 0, 0]);
+        assert!(!r.remove_last(&mut s, &mut t), "Unclaimed is never removable");
+        assert_eq!(r.0.len(), 1);
+        assert_eq!(r.add(), 1, "re-adding starts again at id 1");
         assert_eq!(r.count(), 1);
-        let mut r2 = FactionRoster::seeded(2);
-        assert!(r2.remove_last(&mut s, &mut t));
-        assert!(!r2.remove_last(&mut s, &mut t));
     }
 
     /// Protects: `set_field` accepts only keys in each field's reference vocabulary (and a

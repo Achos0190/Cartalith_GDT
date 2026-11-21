@@ -26640,8 +26640,11 @@ impl WorldGen {
     /// reverting every settlement and every territory cell that used it to
     /// Unclaimed rather than leaving a dangling index.
     ///
-    /// Returns `false`, changing nothing, at the reference's own floor
-    /// (Unclaimed plus one real faction) or before any `generate()` call.
+    /// Returns `false`, changing nothing, when no real faction is left
+    /// (Unclaimed is never removed) or before any `generate()` call. Ruling
+    /// GI (owner, 2026-11-21) removed the reference's floor of one faction:
+    /// a world may have none, and then every settlement keeps its own
+    /// garrison (`civ_military_bridge::garrisons_for`).
     /// The caller owns the confirmation prompt, the same split
     /// `civ_run_collapse_simulation`'s `needs_confirm` uses — the
     /// reference's own button asks first, and so should the shell.

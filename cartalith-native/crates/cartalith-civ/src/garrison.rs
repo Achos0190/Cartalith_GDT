@@ -43,6 +43,11 @@
 //! (positive with zero total weight), and every settlement when the territory
 //! raster is not the grid's size. A real zero -- a village whose quota rounded
 //! down and won no remainder -- is `Some` with `garrison == 0`.
+//!
+//! **A world with no faction at all** (Ruling GI, owner 2026-11-21) is the
+//! one place a settlement of no faction gets a figure: its own garrison,
+//! [`loose_garrison`]. [`civ_garrisons`] itself is unchanged and never
+//! produces one; the caller chooses on the roster's count.
 
 use crate::SettlementKind;
 
@@ -324,6 +329,66 @@ pub fn civ_garrisons(input: &GarrisonInput) -> Vec<Option<Garrison>> {
     out
 }
 
+/// Ruling GI (owner, 2026-11-21): the government key a **loose** settlement's
+/// own garrison is read with -- the Unclaimed row's own key in
+/// [`crate::roster::CIV_GOVERNMENTS`] (`"None / Unclaimed"`), so a settlement
+/// with no faction is never read as some faction's government.
+pub const LOOSE_GOVERNMENT: &str = "none";
+
+/// Ruling GI (owner, 2026-11-21): one **loose** settlement's own garrison, in
+/// a world with no faction at all. With no faction there is no faction army to
+/// split, no levy and no war between factions; each settlement keeps its own
+/// defence force, and this is it.
+///
+/// It is the manpower model's own standing army
+/// ([`crate::manpower::civ_military_manpower`], unchanged) for a polity of one
+/// settlement: its population as the nucleated population, the Unclaimed row's
+/// agricultural technology (`farmers_per_urbanite`, the caller reads it from
+/// roster row 0, the row a loose settlement's faction id `0` names), the
+/// [`LOOSE_GOVERNMENT`] key, and its own seat reached in full
+/// (`capital_road_reach = 1`: it is all of itself). Two labelled judgements:
+///
+/// - **land equals its people** (`land_capacity = total population`, so the
+///   ecological factor is exactly `1`): a loose settlement claims no territory
+///   to integrate, and `1` is the world-average anchor Ruling AI's
+///   normalisation puts the average faction at;
+/// - **roads, rivers and sea are `0`**: they enter only the levy and field
+///   chain (logistics), which a loose settlement does not raise. The standing
+///   army does not read them.
+///
+/// The share is `1` (the whole of its own force) and the exposure `0` (with no
+/// faction there is no foreign frontier). `None`, never `Some(0)`, when the
+/// population or the reading is not finite. Must never be used in a world that
+/// still has a faction: that world's unclaimed places keep today's `None`.
+pub fn loose_garrison(place: &GarrisonPlace, farmers_per_urbanite: f64) -> Option<Garrison> {
+    if !place.pop.is_finite() {
+        return None;
+    }
+    let pop = place.pop.max(0.0);
+    let f = if farmers_per_urbanite.is_finite() { farmers_per_urbanite.max(0.0) } else { 0.0 };
+    let m = crate::manpower::civ_military_manpower(&crate::manpower::ManpowerInput {
+        nucleated_pop: pop,
+        farmers_per_urbanite: f,
+        land_capacity: pop * (1.0 + f),
+        government: LOOSE_GOVERNMENT,
+        capital_road_reach: 1.0,
+        road_density: 0.0,
+        navigable_share: 0.0,
+        sea_share: 0.0,
+    });
+    if !m.standing_army.is_finite() {
+        return None;
+    }
+    let mult = standing_multiplier(place);
+    Some(Garrison {
+        garrison: m.standing_army.max(0.0).round() as u64,
+        share: 1.0,
+        weight: pop * mult,
+        exposure: 0.0,
+        standing_multiplier: mult,
+    })
+}
+
 /// Unit tests for the garrison split: the apportionment rule, its
 /// standing/capital/border terms, and the no-value discipline the module
 /// doc requires.
@@ -551,5 +616,27 @@ mod tests {
         // and all four of its cells are nearest the western town (4 against 2).
         let e = border_exposure(&p, &t, 8, 4, true).unwrap();
         assert_eq!(e, vec![0.5, 0.5, 1.0]);
+    }
+
+    /// Protects Ruling GI's loose garrison (a world with no faction): a town of 5 000 on the
+    /// Unclaimed row's `traditionalAgrarian` technology holds a literal headcount (recorded from
+    /// this function, 2026-11-22; a change to the manpower model or to any input here moves it),
+    /// its share is the whole and its exposure zero, walls change the shown multiplier but not
+    /// the headcount, a non-finite population is `None` (never a fabricated `0`), and a real zero
+    /// population is `Some(0)`. MUTATION: `capital_road_reach` 1 -> 0, or `LOOSE_GOVERNMENT` ->
+    /// "monarchy", and the literal goes red.
+    #[test]
+    fn loose_garrison_is_the_settlements_own_standing_army() {
+        let f = crate::roster::civ_ag_tech_by_key("traditionalAgrarian").farmers_per_urbanite;
+        let town = place(0, 5000.0, false, false, SettlementKind::Town, 1.0, 1.0);
+        let g = loose_garrison(&town, f).unwrap();
+        assert_eq!(g.garrison, 308, "recorded 2026-11-22");
+        assert_eq!((g.share, g.exposure, g.standing_multiplier), (1.0, 0.0, 1.0));
+        let walled = loose_garrison(&GarrisonPlace { walled: true, ..town }, f).unwrap();
+        assert_eq!(walled.garrison, g.garrison, "walls weigh a split; a lone place has none");
+        assert!(walled.standing_multiplier > 1.0);
+        assert_eq!(loose_garrison(&GarrisonPlace { pop: f64::NAN, ..town }, f), None);
+        assert_eq!(loose_garrison(&GarrisonPlace { pop: 0.0, ..town }, f).map(|g| g.garrison), Some(0));
+        assert_eq!(LOOSE_GOVERNMENT, "none");
     }
 }

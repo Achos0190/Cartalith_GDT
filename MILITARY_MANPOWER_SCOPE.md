@@ -1329,6 +1329,25 @@ remainder tie. They also check:
   recomputed independently in GDScript, and that the right dock and the
   place editor still agree with it.
 
+**A world with no faction (Ruling GI, owner 2026-11-21).** Every faction may
+be deleted. With none left there is no faction army, levy or war: the manpower
+model returns no rows, and each settlement keeps **its own garrison**,
+`cartalith_civ::garrison::loose_garrison` -- the unchanged
+`civ_military_manpower` standing army for a polity of that one settlement,
+read with the Unclaimed row's agricultural technology and government key
+`none`, its seat reached in full, land equal to its people (ecological factor
+1, Ruling AI's world anchor; labelled judgement) and roads, rivers and sea at 0
+(they feed only the levy chain). A town of 5 000 on `traditionalAgrarian`
+holds 308 (`loose_garrison_is_the_settlements_own_standing_army`). The branch
+is taken in `civ_military_bridge::garrisons_for` on the roster count, so a world
+that keeps a faction is byte-identical, including its unclaimed places (still
+`None`); `civ_settlement_garrison` reports a loose figure with `loose: true`
+and no `faction_garrison`. End-to-end tests: `zero_factions_tests.rs`.
+Open for the owner: whether unclaimed settlements of a world that still has
+factions should also hold their own garrison (today they do not, so adding one
+empty faction to a zero-faction world removes every garrison until it claims
+places).
+
 ### 5.7 Manpower across the year cursor (MM-8)
 
 **Recomputed from the snapshot in force, not stored per snapshot**, because

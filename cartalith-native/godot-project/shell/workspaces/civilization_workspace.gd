@@ -1800,7 +1800,9 @@ func _tool_options_civ_idle() -> void:
 func _faction_choice(row: HBoxContainer, current: int, on_change: Callable) -> void:
 	var factions := bridge.get_factions()
 	if factions.is_empty():
-		row.add_child(DccTheme.label("no world generated -- factions unknown", "text_ghost", DccTheme.FS_MICRO))
+		## Ruling GI: a world can have no faction at all; say which empty this is.
+		row.add_child(DccTheme.label("no factions -- add one in Factions" if bridge.has_world
+			else "no world generated -- factions unknown", "text_ghost", DccTheme.FS_MICRO))
 		return
 	var ids: Array = []
 	var labels: Array = []
@@ -7084,7 +7086,8 @@ func _fill_military(parent: Control) -> void:
 	reading.tooltip_text = _military_basis_text(data)
 	reading.mouse_filter = Control.MOUSE_FILTER_PASS
 	if factions.is_empty():
-		var why := "No factions -- generate a world first."
+		## Ruling GI: with a world and no faction, the empty list is the answer, not a missing world.
+		var why := FactionRosterWindow.NO_FACTIONS if bridge.has_world else "No factions -- generate a world first."
 		match String(data.get("reading", "")):
 			"none_in_force", "unreadable":
 				why = "No reading at this year -- see the line above."
@@ -7249,6 +7252,12 @@ static func garrison_row(g: Dictionary, cursor: int) -> Dictionary:
 	if g.is_empty():
 		return {"value": "—", "ok": false,
 			"why": "No garrison figure: no world yet, or this build's engine has no civ_settlement_garrison()."}
+	## Ruling GI: in a world with no faction the figure is the settlement's own (`loose`), not a share.
+	if g.has("garrison") and bool(g.get("loose", false)):
+		return {"value": _head(float(g["garrison"])), "ok": true,
+			"why": ("Read at %s. Its own garrison: there are no factions, so no faction army is split; "
+				+ "this is the standing army the manpower model gives a polity of this one settlement "
+				+ "(Ruling GI). Where it is quartered, not a deployment.") % when}
 	if g.has("garrison"):
 		return {"value": _head(float(g["garrison"])), "ok": true,
 			"why": ("Read at %s. %.1f%% of its faction's standing army of %s, by population, "
@@ -7283,11 +7292,11 @@ static func _by_garrison(x, y) -> bool:
 	return int((x as Dictionary).get("garrison", 0)) > int((y as Dictionary).get("garrison", 0))
 
 ## Garrisons section: per-faction quartering of the standing army, plus the Border-exposure weight slider, which writes `set_garrison_exposure_scale` (Ruling AZ).
-## Rows pin a settlement in the right dock. Factions empty prints a note and returns.
+## Rows pin a settlement in the right dock. With no faction it lists the loose garrisons instead (`_fill_loose_garrisons`).
 func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 	var sec := DccWidgets.section(parent, "Garrisons")
 	if factions.is_empty():
-		DccWidgets.note(sec, "No factions to garrison at this reading.")
+		_fill_loose_garrisons(sec, places)
 		return
 	DccWidgets.note(sec,
 		"Where each standing army is quartered when no campaign runs. Each place "
@@ -7343,6 +7352,41 @@ func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 				+ "multiplier ×%.2f.%s") % [int(pd.get("pop", 0)), String(pd.get("wall_spec", "none")),
 				float(pd.get("border_exposure", 0.0)), float(pd.get("garrison_multiplier", 1.0)),
 				" Pin it in the right dock." if idx >= 0 else " Not in today's settlement list."]
+
+## Ruling GI (owner 2026-11-21): a world with no faction has no faction army to quarter. Each
+## settlement keeps its own garrison (`garrisons_for` in `civ_military_bridge.rs`: the manpower
+## model's standing army for a polity of one), and the engine sends it on the settlement rows with
+## no faction. Lists those, largest first; a reading with none says so. Rows pin the settlement.
+func _fill_loose_garrisons(sec: Control, places: Array) -> void:
+	var mine: Array = []
+	for p in places:
+		var pd: Dictionary = p
+		if int(pd.get("faction", 0)) == 0 and pd.has("garrison"):
+			mine.append(pd)
+	if mine.is_empty():
+		DccWidgets.note(sec, "No factions to garrison at this reading.")
+		return
+	mine.sort_custom(_by_garrison)
+	var total := 0
+	for pd in mine:
+		total += int((pd as Dictionary)["garrison"])
+	DccWidgets.note(sec,
+		"No factions: every settlement is loose and keeps its own garrison, the standing army "
+		+ "the manpower model gives a polity of that one settlement. There are no faction armies, "
+		+ "levies or wars.")
+	var g := DccWidgets.group(sec, "Loose settlements -- %s in %d places" % [_head(float(total)), mine.size()], false)
+	for p in mine:
+		var pd: Dictionary = p
+		var idx := int(pd["index"]) if pd.has("index") else -1
+		var b := DccWidgets.action(g, "%s -- %s" % [String(pd.get("name", "?")), _head(float(pd["garrison"]))],
+			func():
+				var roster := bridge.settlements()
+				if idx >= 0 and idx < roster.size():
+					app.select("settlement", idx))  ## PC-1: the one selection
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.disabled = idx < 0
+		b.tooltip_text = "Population %d · %s wall.%s" % [int(pd.get("pop", 0)), String(pd.get("wall_spec", "none")),
+			" Pin it in the right dock." if idx >= 0 else " Not in today's settlement list."]
 
 ## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
 ## 2026-08-25 on the owner's own supplied specification).
@@ -7414,7 +7458,8 @@ static func _manpower_tooltip(m: Dictionary) -> String:
 func _fill_manpower(parent: Control, factions: Array) -> void:
 	var sec := DccWidgets.section(parent, "Manpower")
 	if factions.is_empty():
-		DccWidgets.note(sec, "No factions -- generate a world first.")
+		DccWidgets.note(sec, "No faction armies or levies: there are no factions. Each settlement's own garrison is under Garrisons."
+			if bridge.has_world else "No factions -- generate a world first.")
 		return
 
 	DccWidgets.note(sec,

@@ -2164,7 +2164,9 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 
 	var factions := bridge.get_factions()
 	if factions.is_empty():
-		DccWidgets.note(sec, "No factions -- generate a world first.")
+		## Ruling GI: a world may have no faction; then every settlement is loose.
+		DccWidgets.note(sec, "No factions -- this settlement is loose (Unclaimed). Add a faction in Factions to assign it."
+			if bridge.has_world else "No factions -- generate a world first.")
 		return
 	var ids: Array = []
 	var labels: Array = []

@@ -61,7 +61,7 @@ use cartalith_civ::roster::civ_ag_tech_by_key;
 use cartalith_civ::trade::{NavKind, RoadComponents, place_navigability};
 use cartalith_civ::urban_adapter::UrbanWorld;
 use cartalith_civ::campaign::year_in_force;
-use cartalith_civ::garrison::{Garrison, GarrisonInput, GarrisonPlace, civ_garrisons};
+use cartalith_civ::garrison::{Garrison, GarrisonInput, GarrisonPlace, civ_garrisons, loose_garrison};
 use cartalith_civ::timeline::{
     YearFactionInstitutions, YearPlaceOverride, YearRecord, civ_territory_at,
 };
@@ -649,6 +649,68 @@ pub(crate) fn resolve_institutions<'a>(
     (pick(&r.ag_tech, live.0), pick(&r.government, live.1))
 }
 
+/// [`WorldGen::garrisons_of`]'s body: every settlement's garrison in `view`.
+/// `grid` is `(gw, gh, wrap_x)`.
+///
+/// With factions, each faction's parts sum to its rounded standing army from
+/// `rows` (the rows CIVIL > Military prints), so the two never disagree, and an
+/// unclaimed place has none (`civ_garrisons`, unchanged).
+///
+/// **With no faction at all** (Ruling GI, owner 2026-11-21) there is no faction
+/// army to split: every settlement is loose and keeps its own defence force,
+/// [`cartalith_civ::garrison::loose_garrison`], read with roster row 0's
+/// (Unclaimed's) agricultural technology as the view's year recorded it. The
+/// branch is taken on the roster's count, never on an empty `rows`, so a world
+/// that still has factions is untouched by it.
+pub(crate) fn garrisons_for(
+    civ: &CivData,
+    view: &CivView,
+    defences: &[Defence],
+    rows: &[ManpowerRow],
+    grid: (usize, usize, bool),
+    exposure_scale: f64,
+) -> Vec<Option<Garrison>> {
+    if defences.len() != view.settlements.len() {
+        return vec![None; view.settlements.len()];
+    }
+    let places: Vec<GarrisonPlace> = view
+        .settlements
+        .iter()
+        .zip(defences)
+        .map(|(s, d)| GarrisonPlace {
+            faction: s.placement.faction,
+            pop: f64::from(s.pop),
+            walled: d.walled,
+            is_capital: garrison_is_capital(s.placement.faction, s.placement.capital),
+            kind: s.placement.kind,
+            x: s.placement.x as f64,
+            y: s.placement.y as f64,
+        })
+        .collect();
+    if civ.faction_roster.count() == 0 {
+        let Some(unclaimed) = civ.faction_roster.0.first() else {
+            return vec![None; places.len()];
+        };
+        let (ag_tech, _) =
+            resolve_institutions((&unclaimed.ag_tech, &unclaimed.government), view.institutions(), 0);
+        let f = civ_ag_tech_by_key(ag_tech).farmers_per_urbanite;
+        return places.iter().map(|p| loose_garrison(p, f)).collect();
+    }
+    let n_f = civ.faction_roster.0.len();
+    let standing: Vec<Option<f64>> = (0..n_f)
+        .map(|f| if f == 0 { None } else { rows.get(f - 1).map(|r| r.manpower.standing_army) })
+        .collect();
+    civ_garrisons(&GarrisonInput {
+        places: &places,
+        territory: view.territory,
+        gw: grid.0,
+        gh: grid.1,
+        wrap_x: grid.2,
+        standing: &standing,
+        exposure_scale,
+    })
+}
+
 /// What a year-cursor reading is taken from (§5.7, Ruling AT's model).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Reading {
@@ -855,9 +917,8 @@ impl WorldGen {
     }
 
     /// MM-6: every settlement's garrison in `view`, in its settlement order
-    /// (`MILITARY_MANPOWER_SCOPE.md` §5.6). Each faction's parts sum to its
-    /// rounded standing army from `rows` -- the same rows CIVIL ▸ Military
-    /// prints -- so the two can never disagree.
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.6). The body is [`garrisons_for`], so a
+    /// unit test reads the app's own answer.
     fn garrisons_of(
         &self,
         view: &CivView,
@@ -865,36 +926,14 @@ impl WorldGen {
         rows: &[ManpowerRow],
     ) -> Vec<Option<Garrison>> {
         let Some(civ) = self.civ.as_ref() else { return Vec::new() };
-        if defences.len() != view.settlements.len() {
-            return vec![None; view.settlements.len()];
-        }
-        let places: Vec<GarrisonPlace> = view
-            .settlements
-            .iter()
-            .zip(defences)
-            .map(|(s, d)| GarrisonPlace {
-                faction: s.placement.faction,
-                pop: f64::from(s.pop),
-                walled: d.walled,
-                is_capital: garrison_is_capital(s.placement.faction, s.placement.capital),
-                kind: s.placement.kind,
-                x: s.placement.x as f64,
-                y: s.placement.y as f64,
-            })
-            .collect();
-        let n_f = civ.faction_roster.0.len();
-        let standing: Vec<Option<f64>> = (0..n_f)
-            .map(|f| if f == 0 { None } else { rows.get(f - 1).map(|r| r.manpower.standing_army) })
-            .collect();
-        civ_garrisons(&GarrisonInput {
-            places: &places,
-            territory: view.territory,
-            gw: self.gw.max(0) as usize,
-            gh: self.gh.max(0) as usize,
-            wrap_x: self.world,
-            standing: &standing,
-            exposure_scale: self.params.civ.garrison_exposure_scale,
-        })
+        garrisons_for(
+            civ,
+            view,
+            defences,
+            rows,
+            (self.gw.max(0) as usize, self.gh.max(0) as usize, self.world),
+            self.params.civ.garrison_exposure_scale,
+        )
     }
 
     /// Every settlement's garrison in the reading `year` gets, by `tid`, plus
@@ -1293,6 +1332,9 @@ impl WorldGen {
     /// - `garrison`, `garrison_share`, `border_exposure`,
     ///   `garrison_multiplier`, `faction`, `faction_garrison` (the faction's
     ///   whole split, = its rounded standing army) -- or
+    /// - in a world with no faction (Ruling GI), the same four garrison keys,
+    ///   `faction` `0` and `loose: true`: the settlement's own garrison
+    ///   ([`garrisons_for`]), with no `faction_garrison` -- or
     /// - `absent` -- why there is no figure: `"no_reading"` (nothing to read
     ///   at this year), `"not_recorded"` (this settlement is not in the
     ///   recorded year), `"unclaimed"`, `"no_claim_grid"` (a live reading of a
@@ -1325,6 +1367,12 @@ impl WorldGen {
             });
         out.set("faction", *faction as i64);
         match g {
+            // Ruling GI: a loose settlement of a world with no faction holds
+            // its own garrison (`garrisons_for`); there is no faction total.
+            Some(g) if *faction <= 0 => {
+                garrison_keys(&mut out, g);
+                out.set("loose", true);
+            }
             _ if *faction <= 0 => out.set("absent", "unclaimed"),
             None if live_unknown => out.set("absent", "no_claim_grid"),
             None => out.set("absent", "no_standing"),
@@ -1484,3 +1532,8 @@ impl WorldGen {
 pub(crate) const GARRISON_EXPOSURE_SCALE_MIN: f64 = 0.0;
 // Upper bound is this port's own judgement, not a reference figure; see the doc above (`MILITARY_MANPOWER_SCOPE.md` §5.6).
 pub(crate) const GARRISON_EXPOSURE_SCALE_MAX: f64 = 5.0;
+
+/// Ruling GI's end-to-end tests: a world with every faction deleted.
+#[cfg(test)]
+#[path = "zero_factions_tests.rs"]
+mod zero_factions_tests;
