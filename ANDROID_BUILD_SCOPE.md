@@ -754,7 +754,7 @@ STYLO2_PEN_PROPOSAL.md section 6.4/6.5 and section 11 are the design; this is th
    `godot-project/android/build/`, write `4.7.2.stable` into `godot-project/android/.build_version`, and put an empty
    `.gdignore` in `android/build/` so the editor does not scan Godot's own instrumentation-test `project.godot`.
 2. Build the plugin (`cartalith-native/android/pen-plugin/README.md`): JDK 21 (the editor setting
-   `export/android/java_sdk_path` now points at `C:/Program Files/Microsoft/jdk-21.0.13.21-hotspot/`), Gradle 8.13, SDK platform 36.
+   `export/android/java_sdk_path` now points at `C:/Program Files/Microsoft/jdk-21.0.13.102-hotspot/`; a JDK update renames this folder and breaks the export with "Invalid Java SDK path", 2026-11-21), Gradle 8.13, SDK platform 36.
    The first build also let Gradle install SDK Build-Tools 34 into the SDK. Copy the `.aar` to
    `godot-project/addons/cartalith_pen.aar`. It must sit at the root of `addons/`: the template picks up
    `addons/*.aar` with a non-recursive file tree, so a subfolder is silently ignored (found by building once and reading
