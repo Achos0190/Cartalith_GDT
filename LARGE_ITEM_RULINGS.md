@@ -3955,3 +3955,7 @@ On PS-1 (`8a3b33d7`, `PARALLEL_STREETS_SCOPE.md` §10): **Q14 -- river-front sta
 ## Ruling GH: parallel streets after PS-2 step 0 -- judge the footprint against a re-roll (owner, 2026-11-21)
 
 PS-2 step 0 (`ff3de3d8`, `PARALLEL_STREETS_SCOPE.md` §11) was a no-go on FS-1 (18 of 35 towns keep 85 % of today's footprint, bar 28), but a plain re-seed of today's generator keeps only 10 of 35. **Q16: FS-1 is restated against a re-roll** -- PS-2 must keep the footprint at least as well as a re-seed of today's `grow` does (same towns, same measure). **Q17: next**, find why river towns lose a bank (483920 #0, #11, 912345 #2, 246371 #4), fix it, then re-run step 0 under the restated bar (with FS-2's caps and the needle bar as they stand). No third heading variant without a ruling.
+
+## Ruling GI: every faction may be deleted (owner, 2026-11-21)
+
+On F2 (`ae063511` kept a floor of one faction because the economy, manpower and collapse models read faction 1): **it must be possible to delete all factions.** With no faction, the collapse model and the military models work on loose settlements: armies are only each settlement's own garrison, no faction armies, levies or wars between factions. The economy, manpower and timeline paths must handle zero factions explicitly (no faction is never encoded as a plausible faction id). Relates to F26 (city-states that gather loose settlements into a faction).
