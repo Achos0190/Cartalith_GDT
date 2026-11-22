@@ -1,0 +1,53 @@
+{
+  "card_found": true,
+  "events": [
+    {
+      "ms": 10309,
+      "prompt": "Raise the area I painted into a ridge about 300 m high.",
+      "t_ms": 12510,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 300 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“A ~300 m ridge along the stroke”\n1. Smooth the region, strength 0.50, 2 passes (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2323 m, highest 5149 m to 4549 m.\n    2902 cells change; largest rise 324 m, largest fall 600 m.\n    1 cell would have moved more than 600 m, so it is held to 600 m of change.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 88,
+          "prompt": 2431,
+          "total": 2519
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "field_changed": true,
+      "state": "applied",
+      "t_ms": 12994,
+      "undo_groups_added": 1,
+      "what": "applied"
+    },
+    {
+      "field_restored": true,
+      "t_ms": 13461,
+      "what": "undone"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 300 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“A ~300 m ridge along the stroke”\n1. Smooth the region, strength 0.50, 2 passes (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2323 m, highest 5149 m to 4549 m.\n    2902 cells change; largest rise 324 m, largest fall 600 m.\n    1 cell would have moved more than 600 m, so it is held to 600 m of change.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nUndone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+  "preview": {
+    "changed": 2902,
+    "ok": true
+  },
+  "region": "diagonal stroke from (44, 24)",
+  "rejected": [],
+  "scenario": "edit_ridge",
+  "structural": "",
+  "valid": [
+    {
+      "operation": "smooth",
+      "text": "Smooth the region, strength 0.50, 2 passes (smooth falloff, softness 0.50)"
+    }
+  ],
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

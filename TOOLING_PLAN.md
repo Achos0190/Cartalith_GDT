@@ -308,6 +308,29 @@ ridge about 300 m high.") is **one request of 5 163 bytes, 1 863 prompt tokens, 
 8. **One revise turn**: return the preview statistics (cells changed, new max, undo group size) as a tool result and
    allow one more call; bounded by the existing `MAX_TURNS`.
 
+### Built 2026-11-22 (Ruling GP item 4): the eight fixes, and what running them live found
+
+All eight are built. Where: `crates/cartalith-llm/src/edit_actions.rs` (the prompt, the schema, the hint, the examples, the preview feedback), `params_flow.rs` (`ParamsConversation::revise_after_edit`), `crates/cartalith-terrain/src/region_edit.rs` (`stroke_shape`, `profile_along`, `highest_m`), `crates/cartalith-godot/src/region_edit_bridge.rs` (the new facts, and `world_peak_m`, the ONE helper F29 shares: F29 keeps `params.peak_m` equal to the derived peak, so the line follows it) and `llm_stream.rs` (`edit_revise`), and the shell (`llm_region.gd`, `llm_run.gd`, `llm_edit.gd`, `llm_assistant_window.gd`). Evidence: `cartalith-native/docs/evidence/f12-fixes-2026-11-22/` (every request body and reply, the parsed tables, frames).
+
+| # | Fix as built | Pinned by |
+|---|---|---|
+| 1 | A stroke is no longer offered "raise with softness 1" as a ridge (a drawn box, where a ridge is refused, still is) | `f12_1_...` |
+| 2 | `Region kind: a painted stroke (a path of dabs), 464 km long, about 150 km wide, running north-west to south-east.` (or a drawn box, with its size and "no path") | `f12_2_...`, terrain `a_stroke_reports_length_width_direction_and_a_profile_along_it` |
+| 3 | `Matching operation for the user's word "ridge": ridge (it follows the painted stroke).` from a fixed table; a paint word wins; the user's other words are never echoed | `f12_3_...` |
+| 4 | `oneOf` per kind of operation (raise/lower, the stamps, smooth, paint), each closed; on a box the path stamps are not in the enum. **Only `operation` and `region_id` are `required`** (see the first finding below) | `f12_4_...` |
+| 5 | Three examples (ridge, mesa, paint; a plateau raise on a box) built from the real region id, each run through the validator by a test | `f12_5_...` |
+| 6 | `Ground profile, mean metres in 8 equal slices running north-west to south-east: 2072, 2263, ...` (`-` for an empty slice), numbers only | `f12_6_...` |
+| 7 | `Raising stops at 4000 m above sea (the world's height scale); ground already above that stays where it is. The highest cell anywhere in this world is 6776 m.` | `f12_7_...` |
+| 8 | The card gets "Ask the model to revise" (or "...fix this" when nothing was valid): the app's preview, whitelisted to numbers, goes back as the tool result, once per request; the card stays open and its Apply waits until a replacement arrives | `f12_8_...` (both crates), `_f12_card_probe.gd` |
+
+**Prompt size (same world, stroke and request as 2026-11-17, through the recording proxy):** ridge 5 163 B / 1 863 prompt tokens before, 6 860 B / 2 436 after; mesa 1 873 -> 2 451; paint 1 854 -> 2 432; the new raise scenario 2 413. About +570 tokens (+31 %), 2.4 k of the 8 192 window (Ruling FX); the revise's second request is 2 697 to 2 724. Pinned by `the_edit_prompt_stays_inside_its_byte_budget`.
+
+**Live run** (LM Studio, `qwen3.8-27b`, ROCm, `-c 8192 --parallel 1`, thinking off, the real panel and card buttons, scratch world seed 9137; single runs, one machine). Against 2026-11-17: **ridge** 4 of 4 Sends chose `ridge` 300 m (falloff smooth, softness 1) and were valid on the first try, against `raise` 300 m softness 1 with a borrowed `strength` (refused R7) before; **mesa** 3 of 3 `mesa` 250 m; **colour paint** 3 of 3 `paint` red 0.8 (0 height cells, undo restored); **raise 150 m** (new) 4 of 4 `raise` 150 m; **0 validator refusals in 14 Sends** (before: 2 of 2 `raise` calls carried `strength`); Apply was one undo group and Undo restored the field digest in every run that applied. **Revise** (two runs): the second request carried the preview (numbers only) as the tool result and the model answered in words both times ("press Apply if it looks right"), proposing nothing new; the original card stayed open and applied.
+
+**App faults the live run found, mine, fixed before the final runs.** (1) *The first per-operation schema made every Send propose `smooth` (14 of 14, the only edit in 12; `raw/round1_required_amount_m/`).* It required `amount_m` for a raise, lower or stamp; LM Studio compiles the tool schema to a grammar that emits required keys first, alphabetically (`serde_json` sorts), so a raise had to open with `"amount_m"` before the model could name its operation, while `smooth`'s first required key sorts after `operation` and could open with it. The fix makes `operation` the first required key of every branch; the validator still refuses a raise with no `amount_m`. No unit test could have seen this: it exists only when a grammar-compiling server reads the schema. (2) *Revise closed the card it revised*, so a model that answered "it is ready" left the user with nothing to apply. **Not app faults:** one Send stalled 93.7 s ("The server stopped sending", LM Studio's GPU shared with other agents' work), the app's one automatic retry fired and was valid, so the latencies in the evidence are noisy; after a revise the model restated its proposal twice instead of changing it (a model choice; in the first schema round, the one run where the preview showed a wrong `smooth`, it corrected to `raise` 150 m). **Not run live:** tablet and phone (the card probe covered them: 14 checks held on desktop, tablet and phone, mutants red), a drawn box with a live model (unit tests only).
+
+**Mutants, 15 of 15 killed** (exact-literal, restored in a `finally`; `mutants_result.txt`): lazy ridge back for strokes; `amount_m` required again; stroke wording; ridge removed from the hint table; raise branch left open; mesa example over the limit; profile reversed; contradictory peak line restored; highest-cell sentence dropped; second revise allowed; preview claims `applied`; preview whitelist widened; stroke length without the round ends; profile axis sign flipped; compass names swapped. Probe mutants (`--mutate no_stroke|no_profile|no_peakfix`, the revise button doing nothing, the facts whitelist without `stroke`, the card replacement disabled) each turn the probe red.
+
 ### What would help a future trained model (`SMALL_LLM_ADDON_RESEARCH.md`)
 
 * **Task**: (region block + request) -> one `propose_edit_actions` call, plus an honest refusal when impossible. It is narrow
@@ -330,6 +353,5 @@ ridge about 300 m high.") is **one request of 5 163 bytes, 1 863 prompt tokens, 
 ## Order and owners
 
 1. TR-0 needs an owner ruling (a new dependency); M3's skill and M2's launcher are in this commit.
-2. F12 items 1, 2, 3, 7 are small prompt or app changes for the assistant lane (route: `LLM_ASSISTANT_SCOPE.md` s.5c/5i);
-   4, 5, 6, 8 are measured one at a time with the live-run scenarios in `llm-live-2026-11-17/` as the A/B.
+2. F12 items 1-8 were built and run live on 2026-11-22 (see "Built 2026-11-22" above; route: `LLM_ASSISTANT_SCOPE.md` s.5j). They were measured together, not one at a time, so the live table credits the set, not each fix; the schema change alone moved the first run from `smooth` in 14 of 14 Sends (12 of them with no other edit) to the requested operation in 14 of 14 once its `required` list was corrected.
 3. TP-2 and TP-3 are built (see `Using the launcher`); TP-4 only if the owner wants Claude to drive the app without going through a shell.

@@ -1620,6 +1620,25 @@ impl LlmStream {
         }
     }
 
+    /// F12 fix 8: grant the ONE revise turn of a finished edit request. `preview_json` is the app's own preview
+    /// (`region_edit_preview`'s answer without the picture arrays) as JSON text, or empty when none could be made or
+    /// the proposal had nothing valid. Rust whitelists it to numbers ([`cartalith_llm::edit_actions::preview_feedback`]),
+    /// puts it back as the tool result and re-opens the conversation; the shell then continues through
+    /// `prepare_continue`. Answers `{ok: true}` or `{ok: false, code, reason}`. Applies nothing.
+    #[func]
+    fn edit_revise(&self, preview_json: GString) -> VarDictionary {
+        let text = preview_json.to_string();
+        let preview: Option<serde_json::Value> = if text.trim().is_empty() { None } else { serde_json::from_str(&text).ok() };
+        let mut inner = self.lock();
+        let Some(p) = inner.params.as_mut().filter(|p| p.conv.is_edit()) else {
+            return refuse("no_conversation", "There is no edit request to revise.");
+        };
+        match p.conv.revise_after_edit(preview.as_ref()) {
+            Ok(()) => vdict! { "ok" => true },
+            Err(why) => refuse("cannot_revise", why),
+        }
+    }
+
     #[func]
     fn params_preview(&self, args: VarDictionary) -> VarDictionary {
         let Some(current) = args.get("current").and_then(|v| v.try_to::<VarDictionary>().ok()) else {

@@ -19,7 +19,7 @@ const REGION_SCRIPT := preload("res://shell/llm_region.gd")
 const SEED := 9137
 const CANARY := "ZEBRAPRIVATE7731"
 
-var _o := {"scenario": "qa", "model": "qwen3.8-27b", "port": "1235", "vault": "", "out": "", "shots": "", "ctx": "8192", "tag": ""}
+var _o := {"scenario": "qa", "model": "qwen3.8-27b", "port": "1235", "vault": "", "out": "", "shots": "", "ctx": "8192", "tag": "", "revise": "0"}
 var _app: Node
 var _bridge
 var _win
@@ -224,6 +224,8 @@ func _ready() -> void:
 			await _scenario_edit("Turn the area I painted into a mesa, a flat-topped plateau with steep sides, about 250 m high.")
 		"edit_paint":
 			await _scenario_edit("Paint the area I painted red.")
+		"edit_raise":
+			await _scenario_edit("Raise the area I painted by 150 m.")
 		"region_tick":
 			await _scenario_region_tick()
 		_:
@@ -315,6 +317,17 @@ func _scenario_edit(prompt: String) -> void:
 	await _shot("card")
 	if card.is_empty():
 		return
+	## F12 fix 8 (`--revise 1`): press the card's own "Ask the model to revise" button once and take the new card.
+	if String(_o["revise"]) == "1" and card.get("revise") != null and not (card["revise"] as Button).disabled:
+		_rec["first_card_ops"] = (card["info"].get("valid", []) as Array).map(func(v): return String(v["operation"]))
+		var t := Time.get_ticks_msec()
+		(card["revise"] as Button).pressed.emit()
+		await _settle(8)
+		await _until(func(): return not _win.run.busy(), 600000)
+		await _settle(10)
+		_log("revised", {"ms": Time.get_ticks_msec() - t, "old_card_state": String(card["state"]), "usage": _usage(), "transcript_tail": _transcript().right(1800)})
+		card = _card("edit")
+		await _shot("card_revised")
 	var info: Dictionary = card["info"]
 	var valid: Array = []
 	for v in info.get("valid", []):

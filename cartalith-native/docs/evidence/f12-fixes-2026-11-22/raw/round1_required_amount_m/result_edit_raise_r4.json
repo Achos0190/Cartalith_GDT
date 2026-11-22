@@ -1,0 +1,71 @@
+{
+  "card_found": true,
+  "events": [
+    {
+      "ms": 16647,
+      "prompt": "Raise the area I painted by 150 m.",
+      "t_ms": 18748,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted by 150 m.\nMODEL PROPOSAL · TERRAIN EDIT\n“Raise the painted stroke by 150 m”\n1. Smooth the region, strength 0.50, 2 passes (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2323 m, highest 5149 m to 4549 m.\n    2902 cells change; largest rise 324 m, largest fall 600 m.\n    1 cell would have moved more than 600 m, so it is held to 600 m of change.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 88,
+          "prompt": 2408,
+          "total": 2496
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "ms": 12084,
+      "old_card_state": "revised",
+      "t_ms": 30975,
+      "transcript_tail": "out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2323 m, highest 5149 m to 4549 m.\n    2902 cells change; largest rise 324 m, largest fall 600 m.\n    1 cell would have moved more than 600 m, so it is held to 600 m of change.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nSent back to the model for one revision. This card is closed; a new one follows if it changes its proposal.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]\nAssistant\nMODEL-GENERATED\nI made an error — I proposed a smooth instead of the raise you asked for. Let me correct that.\nMODEL PROPOSAL · TERRAIN EDIT\n“Raise the painted stroke by 150 m”\n1. Raise the region by 150 m (smooth falloff, softness 0)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1212 m, mean 2323 m to 2470 m, highest 5149 m to 5149 m.\n    2901 cells change; largest rise 150 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": 1090,
+        "usage": {
+          "completion": 113,
+          "prompt": 2687,
+          "total": 2800
+        }
+      },
+      "what": "revised"
+    },
+    {
+      "field_changed": true,
+      "state": "applied",
+      "t_ms": 31492,
+      "undo_groups_added": 1,
+      "what": "applied"
+    },
+    {
+      "field_restored": true,
+      "t_ms": 31976,
+      "what": "undone"
+    }
+  ],
+  "first_card_ops": [
+    "smooth"
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted by 150 m.\nMODEL PROPOSAL · TERRAIN EDIT\n“Raise the painted stroke by 150 m”\n1. Smooth the region, strength 0.50, 2 passes (smooth falloff, softness 0.50)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1101 m, mean 2323 m to 2323 m, highest 5149 m to 4549 m.\n    2902 cells change; largest rise 324 m, largest fall 600 m.\n    1 cell would have moved more than 600 m, so it is held to 600 m of change.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nSent back to the model for one revision. This card is closed; a new one follows if it changes its proposal.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]\nAssistant\nMODEL-GENERATED\nI made an error — I proposed a smooth instead of the raise you asked for. Let me correct that.\nMODEL PROPOSAL · TERRAIN EDIT\n“Raise the painted stroke by 150 m”\n1. Raise the region by 150 m (smooth falloff, softness 0)   (ramp shape not given, the default is used)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1101 m to 1212 m, mean 2323 m to 2470 m, highest 5149 m to 5149 m.\n    2901 cells change; largest rise 150 m, largest fall 0 m.\n    2 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nUndone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+  "preview": {
+    "changed": 2901,
+    "ok": true
+  },
+  "region": "diagonal stroke from (44, 24)",
+  "rejected": [],
+  "scenario": "edit_raise",
+  "structural": "",
+  "valid": [
+    {
+      "operation": "raise",
+      "text": "Raise the region by 150 m (smooth falloff, softness 0)"
+    }
+  ],
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

@@ -24961,7 +24961,7 @@ impl WorldGen {
             gh,
             world: self.world,
             sea_level: self.sea_level,
-            peak_m: self.params.peak_m,
+            peak_m: self.world_peak_m(),
             map_width_km: self.map_width_km,
             field: &ws.field,
             temperature: &ws.temperature,

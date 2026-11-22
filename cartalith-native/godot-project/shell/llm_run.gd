@@ -337,6 +337,31 @@ func _terminal(notify: Callable) -> void:
 	notify.call()
 
 
+## F12 fix 8: the ONE revise turn of a finished Edit request. `preview_json` is the app's own preview as JSON text (see
+## `llm_edit.gd::preview_json`), or "" when the proposal had nothing valid. Rust refuses a second revise, a revise
+## with no finished edit proposal and one past the turn cap (`ok: false`, `reason`); on success the conversation continues
+## exactly like a setting turn, through `prepare_continue`, and the next proposal arrives as `edit_proposal` again.
+func revise_edit(preview_json: String) -> Dictionary:
+	if stream == null:
+		return {"ok": false, "code": "no_binding", "reason": "The assistant is not available in this version of Cartalith."}
+	if _active:
+		return {"ok": false, "code": "busy", "reason": "A reply is already running. Stop it first."}
+	var g: Dictionary = stream.edit_revise(preview_json)
+	if not bool(g.get("ok", false)):
+		return g
+	_retry_pending = false
+	_continue_pending = false
+	text_so_far = ""
+	first_token_ms = -1
+	last_usage = {}
+	_cancelling = false
+	last_failure_connect = false
+	_active = true
+	set_process(true)
+	_continue_after_join()
+	return {"ok": true}
+
+
 ## The next turn of a setting request (LLM-6a/6b), once the previous socket is closed: the
 ## gate is asked again (`prepare_continue`), with a fresh settings snapshot.
 func _continue_after_join() -> void:

@@ -172,11 +172,23 @@ fn stats_dict(s: &re::RegionStats) -> VarDictionary {
     g
 }
 
+/// Bands in the height profile the assistant is given (F12 fix 6): coarse enough to read in one line.
+const PROFILE_BINS: usize = 8;
+
+impl WorldGen {
+    /// The world's peak altitude in metres for everything the region edit reads or quotes: the preview, Apply and the
+    /// assistant's text. **One helper (F12 fix 7, coordinated with F29, `OUTSTANDING_WORK.md`):** F29 derives the peak
+    /// from tectonics, and when it lands only this body changes.
+    pub(crate) fn world_peak_m(&self) -> f64 {
+        self.params.peak_m
+    }
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// Describe the region `spec` over the open world, for the assistant (read-only). Answers
     /// `{ok: true, id, shape, bbox: [x, y, w, h], cells, clipped, rows, row_step, approximate,
-    /// ground?, area_km2?, bbox_km?, world: {w, h, peak_m}}`, or `{ok: false, reason}`. Absent
+    /// ground?, area_km2?, bbox_km?, stroke?: {length_cells, width_cells, length_km?, width_km?}, axis, profile: [mean m | nil x 8], world: {w, h, peak_m, highest_m?}}`, or `{ok: false, reason}`. Absent
     /// figures are omitted: no `ground` without a readable height field, no km figures without a map
     /// width. `rows` is `[[y, [[x0, x1], ...]], ...]` (see `region_edit::run_rows`).
     #[func]
@@ -226,7 +238,32 @@ impl WorldGen {
                 ]),
             );
         }
-        d.set("world", &vdict! { "w" => f.gw as i64, "h" => f.gh as i64, "peak_m" => f.peak_m });
+        // F12 fixes 2 and 6: the stroke's kind and geometry, and a coarse profile of the ground along it. Numbers
+        // only. A box has no stroke; its profile runs along the bbox's long side.
+        let shape = re::stroke_shape(&mask);
+        if let Some(st) = &shape {
+            let mut sd = vdict! { "length_cells" => st.length_cells, "width_cells" => st.width_cells };
+            if let Some(km) = cell_km {
+                sd.set("length_km", st.length_cells * km);
+                sd.set("width_km", st.width_cells * km);
+            }
+            d.set("stroke", &sd);
+        }
+        let axis = shape.map_or(if mask.w >= mask.h { [1.0, 0.0] } else { [0.0, 1.0] }, |s| s.axis);
+        let prof = re::profile_along(&mask, f.field, f.gw, f.sea_level, f.peak_m, axis, PROFILE_BINS);
+        if !prof.is_empty() {
+            let mut pa = VarArray::new();
+            for v in &prof {
+                pa.push(&v.map_or(Variant::nil(), |m| m.to_variant()));
+            }
+            d.set("profile", &pa);
+            d.set("axis", &VarArray::from(&[axis[0].to_variant(), axis[1].to_variant()]));
+        }
+        let mut wd = vdict! { "w" => f.gw as i64, "h" => f.gh as i64, "peak_m" => self.world_peak_m() };
+        if let Some(h) = re::highest_m(f.field, f.sea_level, self.world_peak_m()) {
+            wd.set("highest_m", h);
+        }
+        d.set("world", &wd);
         d
     }
 
@@ -301,7 +338,7 @@ impl WorldGen {
             return fail(format!("{msg}"));
         }
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let (sea, peak) = (self.sea_level, self.params.peak_m);
+        let (sea, peak) = (self.sea_level, self.world_peak_m());
         let expected_digest = digest_in(&ops);
         let parsed = (|| -> Result<(RegionMask, Vec<EditOp>), String> {
             let spec = spec_from(&spec)?;

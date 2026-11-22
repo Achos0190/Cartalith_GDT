@@ -2675,6 +2675,8 @@ func _refresh_cards() -> void:
 			continue
 		var kind := String(card.get("kind", "params"))
 		var why := _view_blocked(card["info"]) if kind == "view" else (_EDIT.blocked(bridge, card) if kind == "edit" else (_actions_blocked(card) if kind == "actions" else _apply_blocked()))
+		if kind == "edit" and why == "" and bool(card.get("revising", false)) and run.busy():
+			why = "Waiting for the model's revision of this proposal."
 		if b != null:
 			b.disabled = why != ""
 			b.tooltip_text = why
@@ -2819,7 +2821,7 @@ func _close_card(card: Dictionary, state: String, text: String, token: String) -
 	## (tablet probe 2026-11-17: the result line began 28 px above the Ask scroller's top after Apply, the offer below it).
 	if is_docked() and (state == "applied" or state == "undone"):
 		_reveal_card_result.call_deferred(card)
-	for k in ["apply", "dismiss", "undo_regen"]:
+	for k in ["apply", "dismiss", "undo_regen", "revise"]:
 		var b = card.get(k)
 		if b != null and is_instance_valid(b):
 			b.disabled = true
@@ -3444,9 +3446,35 @@ func _on_view_region() -> void:
 ## The edit proposal of a reply (an Edit request's only tool).
 func _on_edit_proposal(info: Dictionary) -> void:
 	_drop_empty_reply()
+	## F12 fix 8: a revised proposal replaces the card it revised.
+	for c in cards:
+		if String(c.get("kind", "")) == "edit" and String(c["state"]) == "new" and bool(c.get("revising", false)):
+			_close_card(c, "revised", "Replaced by the model's revised proposal below.", "text_secondary")
 	_EDIT.draw_card(self, info.get("edit", {}))
 	_watch_undo()
 	_refresh_cards()
+
+
+## F12 fix 8: sends the card's preview (or, with nothing valid, the validator's refusal) back to the model once. **The card
+## stays open** (live run 2026-11-22: a model that answers in words, "it is ready, press Apply", left the user with a closed
+## card and nothing to apply): its Apply waits while the revision is in flight (`_refresh_cards`), and it is closed as
+## "revised" only when a replacement proposal arrives (`_on_edit_proposal`). A refusal from Rust (a second revise, no
+## conversation) is shown on the card and nothing else changes.
+func _revise_edit_card(card: Dictionary) -> void:
+	if card["state"] != "new" or run.busy():
+		return
+	var valid: Array = (card["info"] as Dictionary).get("valid", [])
+	var r: Dictionary = run.revise_edit(_EDIT.preview_json(card.get("preview", {})) if not valid.is_empty() else "")
+	if not bool(r.get("ok", false)):
+		var rl: Label = card["reason"]
+		rl.text = String(r.get("reason", "The model could not be asked again."))
+		rl.visible = true
+		return
+	card["revising"] = true
+	(card["revise"] as Button).disabled = true
+	_reply = ""
+	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
+	_refresh()
 
 
 ## The refused edits or the structural failure, in one line.

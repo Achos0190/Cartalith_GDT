@@ -1,0 +1,10 @@
+edit_mesa
+    {'bytes': 5202, 'msgs': 2, 'prompt': 1873, 'completion': 121, 'first_s': 1.8, 'total_s': 11.0, 'ops': [{'operation': 'mesa', 'amount_m': 250}]}
+    {'valid': ['mesa'], 'rejected': [], 'structural': '', 'preview_changed': 839, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_paint
+    {'bytes': 5137, 'msgs': 2, 'prompt': 1854, 'completion': 101, 'first_s': 1.9, 'total_s': 6.6, 'ops': [{'operation': 'paint', 'colour': 'red', 'opacity': 0.8}]}
+    {'valid': ['paint'], 'rejected': [], 'structural': '', 'preview_changed': 0, 'applied': [False], 'undo_restored': [True], 'first_card_ops': None}
+edit_ridge
+    {'bytes': 5163, 'msgs': 2, 'prompt': 1863, 'completion': 112, 'first_s': 12.8, 'total_s': 19.9, 'ops': [{'operation': 'raise', 'amount_m': 300, 'softness': 1, 'strength': 0.5}]}
+    {'bytes': 5934, 'msgs': 4, 'prompt': 2054, 'completion': 104, 'first_s': 2.1, 'total_s': 9.7, 'ops': [{'operation': 'raise', 'amount_m': 300, 'softness': 1}]}
+    {'valid': ['raise'], 'rejected': [], 'structural': '', 'preview_changed': 2901, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}

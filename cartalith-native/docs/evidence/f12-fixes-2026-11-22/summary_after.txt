@@ -1,0 +1,45 @@
+edit_mesa_r1
+    {'bytes': 6902, 'msgs': 2, 'prompt': 2451, 'completion': 115, 'first_s': 15.3, 'total_s': 32.0, 'ops': [{'operation': 'mesa', 'amount_m': 250}]}
+    {'valid': ['mesa'], 'rejected': [], 'structural': '', 'preview_changed': 839, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_mesa_r2
+    {'bytes': 6902, 'msgs': 2, 'prompt': 2451, 'completion': 116, 'first_s': 3.3, 'total_s': 15.7, 'ops': [{'operation': 'mesa', 'amount_m': 250}]}
+    {'valid': ['mesa'], 'rejected': [], 'structural': '', 'preview_changed': 839, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_mesa_r3
+    {'bytes': 6902, 'msgs': 2, 'prompt': 2451, 'completion': 110, 'first_s': 7.1, 'total_s': 17.2, 'ops': [{'operation': 'mesa', 'amount_m': 250}]}
+    {'valid': ['mesa'], 'rejected': [], 'structural': '', 'preview_changed': 839, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_paint_r1
+    {'bytes': 6848, 'msgs': 2, 'prompt': 2432, 'completion': 97, 'first_s': 12.5, 'total_s': 23.7, 'ops': [{'operation': 'paint', 'colour': 'red', 'opacity': 0.8}]}
+    {'valid': ['paint'], 'rejected': [], 'structural': '', 'preview_changed': 0, 'applied': [False], 'undo_restored': [True], 'first_card_ops': None}
+edit_paint_r2
+    {'bytes': 6848, 'msgs': 2, 'prompt': 2432, 'completion': 97, 'first_s': 1.1, 'total_s': 8.1, 'ops': [{'operation': 'paint', 'colour': 'red', 'opacity': 0.8}]}
+    {'valid': ['paint'], 'rejected': [], 'structural': '', 'preview_changed': 0, 'applied': [False], 'undo_restored': [True], 'first_card_ops': None}
+edit_paint_r3
+    {'bytes': 6848, 'msgs': 2, 'prompt': 2432, 'completion': 97, 'first_s': 1.1, 'total_s': 8.0, 'ops': [{'operation': 'paint', 'colour': 'red', 'opacity': 0.8}]}
+    {'valid': ['paint'], 'rejected': [], 'structural': '', 'preview_changed': 0, 'applied': [False], 'undo_restored': [True], 'first_card_ops': None}
+edit_raise_r1
+    {'bytes': 6749, 'msgs': 2, 'prompt': 2413, 'completion': 93, 'first_s': 5.7, 'total_s': 12.8, 'ops': [{'operation': 'raise', 'amount_m': 150, 'softness': 0.35}]}
+    {'valid': ['raise'], 'rejected': [], 'structural': '', 'preview_changed': 2901, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_raise_r2
+    {'bytes': 6749, 'msgs': 2, 'prompt': 2413, 'completion': 93, 'first_s': 1.1, 'total_s': 7.8, 'ops': [{'operation': 'raise', 'amount_m': 150, 'softness': 0.35}]}
+    {'valid': ['raise'], 'rejected': [], 'structural': '', 'preview_changed': 2901, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_raise_r3
+    {'bytes': 6749, 'msgs': 2, 'prompt': 2413, 'completion': 93, 'first_s': 1.5, 'total_s': 8.0, 'ops': [{'operation': 'raise', 'amount_m': 150, 'softness': 0.35}]}
+    {'valid': ['raise'], 'rejected': [], 'structural': '', 'preview_changed': 2901, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_raise_r4
+    {'bytes': 6749, 'msgs': 2, 'prompt': 2413, 'completion': 93, 'first_s': 2.4, 'total_s': 10.1, 'ops': [{'operation': 'raise', 'amount_m': 150, 'softness': 0.35}]}
+    {'bytes': 7723, 'msgs': 4, 'prompt': 2697, 'completion': 61, 'first_s': 1.5, 'total_s': 10.1, 'ops': ['<unparsed> ']}
+    {'valid': ['raise'], 'rejected': [], 'structural': '', 'preview_changed': 2901, 'applied': [True], 'undo_restored': [True], 'first_card_ops': ['raise']}
+edit_ridge_r1
+    {'bytes': 6860, 'msgs': 2, 'prompt': None, 'completion': None, 'first_s': 93.7, 'total_s': 93.7, 'ops': ['<unparsed> {']}
+    {'bytes': 6860, 'msgs': 2, 'prompt': 2436, 'completion': 98, 'first_s': 38.4, 'total_s': 54.9, 'ops': [{'operation': 'ridge', 'amount_m': 300, 'falloff': 'smooth', 'softness': 1}]}
+    {'valid': ['ridge'], 'rejected': [], 'structural': '', 'preview_changed': 2617, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_ridge_r2
+    {'bytes': 6860, 'msgs': 2, 'prompt': 2436, 'completion': 98, 'first_s': 8.3, 'total_s': 26.5, 'ops': [{'operation': 'ridge', 'amount_m': 300, 'falloff': 'smooth', 'softness': 1}]}
+    {'valid': ['ridge'], 'rejected': [], 'structural': '', 'preview_changed': 2617, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_ridge_r3
+    {'bytes': 6860, 'msgs': 2, 'prompt': 2436, 'completion': 98, 'first_s': 3.0, 'total_s': 16.9, 'ops': [{'operation': 'ridge', 'amount_m': 300, 'falloff': 'smooth', 'softness': 1}]}
+    {'valid': ['ridge'], 'rejected': [], 'structural': '', 'preview_changed': 2617, 'applied': [True], 'undo_restored': [True], 'first_card_ops': None}
+edit_ridge_r4
+    {'bytes': 6860, 'msgs': 2, 'prompt': 2436, 'completion': 98, 'first_s': 5.6, 'total_s': 11.2, 'ops': [{'operation': 'ridge', 'amount_m': 300, 'falloff': 'smooth', 'softness': 1}]}
+    {'bytes': 7852, 'msgs': 4, 'prompt': 2724, 'completion': 61, 'first_s': 0.9, 'total_s': 9.7, 'ops': ['<unparsed> ']}
+    {'valid': ['ridge'], 'rejected': [], 'structural': '', 'preview_changed': 2617, 'applied': [True], 'undo_restored': [True], 'first_card_ops': ['ridge']}

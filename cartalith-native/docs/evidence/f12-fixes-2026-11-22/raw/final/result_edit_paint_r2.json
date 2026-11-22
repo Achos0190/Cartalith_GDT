@@ -1,0 +1,53 @@
+{
+  "card_found": true,
+  "events": [
+    {
+      "ms": 8307,
+      "prompt": "Paint the area I painted red.",
+      "t_ms": 9675,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nPaint the area I painted red.\nMODEL PROPOSAL · REGION EDIT\n“Paint the region red”\n1. Paint the region red (colour blend, 80% opacity)   (ramp shape not given, the default is used)\n    “Colour the painted stroke red; no ground moves.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\nColour: red, colour blend, 80% opacity over the region. 2902 land cells in 1 piece change colour; water inside it keeps its colour, and nothing outside the region is touched.\nBefore\nAfter\nThe colour pictures show the blend on a grey height shading (the real map's lighting and any paint already there are not drawn); cells outside the region are dimmed.\nApplying adds the colour as a colour-paint layer mark inside this region only. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 97,
+          "prompt": 2432,
+          "total": 2529
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "field_changed": false,
+      "state": "applied",
+      "t_ms": 10092,
+      "undo_groups_added": 1,
+      "what": "applied"
+    },
+    {
+      "field_restored": true,
+      "t_ms": 10477,
+      "what": "undone"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nPaint the area I painted red.\nMODEL PROPOSAL · REGION EDIT\n“Paint the region red”\n1. Paint the region red (colour blend, 80% opacity)   (ramp shape not given, the default is used)\n    “Colour the painted stroke red; no ground moves.”  (model's words)\nPreview (worked out by the app on a copy of the region; nothing has changed):\nColour: red, colour blend, 80% opacity over the region. 2902 land cells in 1 piece change colour; water inside it keeps its colour, and nothing outside the region is touched.\nBefore\nAfter\nThe colour pictures show the blend on a grey height shading (the real map's lighting and any paint already there are not drawn); cells outside the region are dimmed.\nApplying adds the colour as a colour-paint layer mark inside this region only. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nUndone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+  "preview": {
+    "changed": 0,
+    "ok": true
+  },
+  "region": "diagonal stroke from (44, 24)",
+  "rejected": [],
+  "scenario": "edit_paint",
+  "structural": "",
+  "valid": [
+    {
+      "operation": "paint",
+      "text": "Paint the region red (colour blend, 80% opacity)"
+    }
+  ],
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

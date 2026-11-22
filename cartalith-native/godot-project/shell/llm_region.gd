@@ -375,7 +375,8 @@ static func facts(bridge) -> Dictionary:
 	if not bool(d.get("ok", false)):
 		return {"withheld": String(d.get("reason", "The region could not be read."))}
 	var region := {}
-	for k in ["id", "shape", "bbox", "cells", "clipped", "rows", "row_step", "approximate", "ground", "area_km2", "bbox_km"]:
+	## F12 fixes 2 and 6: `stroke` (length and width), `axis` and `profile` (mean metres in slices along it) are numbers the engine measured.
+	for k in ["id", "shape", "bbox", "cells", "clipped", "rows", "row_step", "approximate", "ground", "area_km2", "bbox_km", "stroke", "axis", "profile"]:
 		if d.has(k):
 			region[k] = d[k]
 	return {"world": d["world"], "region": region}

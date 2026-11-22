@@ -98,6 +98,21 @@ static func preview(bridge, valid: Array) -> Dictionary:
 	return out
 
 
+## F12 fix 8: the preview as JSON text for `LlmStream.edit_revise`, numbers only (the picture arrays and every text
+## key are left out here, and Rust whitelists again). "" when no preview was made.
+static func preview_json(p: Dictionary) -> String:
+	if not bool(p.get("ok", false)):
+		return ""
+	var out := {}
+	for k in ["changed", "max_up_m", "max_down_m", "became_sea", "became_land", "capped", "floored", "limited", "mean_change_m"]:
+		if p.has(k):
+			out[k] = p[k]
+	for side in ["before", "after"]:
+		if p.has(side):
+			out[side] = p[side]
+	return JSON.stringify(out)
+
+
 ## One figure in metres for the card ("-12 m" style signs are explicit), whole metres.
 static func metres(v: float) -> String:
 	return "%d m" % int(roundf(v))
@@ -312,6 +327,10 @@ static func draw_card(w, v: Dictionary) -> void:
 	var row: Container = w.card_row(col)
 	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "edit", "group_id": 0, "preview": p}
 	card["dismiss"] = w._button(row, "Dismiss", func(): w._dismiss_card(card))
+	## F12 fix 8: one revise turn. The model gets the app's preview (or the validator's refusal) back and may correct
+	## its proposal once; the user still presses Apply on whatever comes next.
+	card["revise"] = w._button(row, "Ask the model to revise" if not valid.is_empty() else "Ask the model to fix this", func(): w._revise_edit_card(card))
+	(card["revise"] as Button).tooltip_text = "Sends the preview above (numbers only) back to the model, which may change its proposal once. Nothing is applied."
 	if not valid.is_empty():
 		card["apply"] = w._button(row, "Apply %d edit%s" % [valid.size(), "" if valid.size() == 1 else "s"], func(): w._apply_edit_card(card), true)
 	w._msgs.add_child(box)

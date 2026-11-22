@@ -310,6 +310,76 @@ pub fn stats(mask: &RegionMask, field: &[f32], gw: usize, gh: usize, sea: f64, p
     })
 }
 
+/// F12 fix 2 and 6 (`TOOLING_PLAN.md`): the geometry of a painted stroke, for the assistant's region text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrokeShape {
+    /// End to end along the painted path plus the two round ends, in cells.
+    pub length_cells: f64,
+    /// The brush's diameter (`2 * path_r`), in cells.
+    pub width_cells: f64,
+    /// Unit direction from the first dab to the last (`y` grows southward); the profile's axis.
+    pub axis: [f64; 2],
+}
+
+/// The stroke the user painted, or `None` for a drawn box or a stroke too short to have a direction (a single
+/// dab: first and last dab closer than one brush radius).
+pub fn stroke_shape(mask: &RegionMask) -> Option<StrokeShape> {
+    if mask.path.len() < 2 || mask.path_r <= 0.0 {
+        return None;
+    }
+    let length: f64 = mask.path.windows(2).map(|w| ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt()).sum();
+    let (a, b) = (mask.path[0], mask.path[mask.path.len() - 1]);
+    let d = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+    if d < mask.path_r {
+        return None;
+    }
+    Some(StrokeShape { length_cells: length + 2.0 * mask.path_r, width_cells: 2.0 * mask.path_r, axis: [(b[0] - a[0]) / d, (b[1] - a[1]) / d] })
+}
+
+/// Mean height in metres of the region's cells in `bins` equal slices along `axis` (a unit vector; the first slice is
+/// at the start of the axis). `None` for a slice holding no cell. The coarse profile F12 fix 6 gives the model so
+/// "about 300 m high" can be judged against the ground. Empty when the field does not fit `gw * gh`.
+pub fn profile_along(mask: &RegionMask, field: &[f32], gw: usize, sea: f64, peak_m: f64, axis: [f64; 2], bins: usize) -> Vec<Option<f64>> {
+    if bins == 0 || field.len() < gw * (mask.y0 + mask.h) || !(sea < 1.0) {
+        return vec![];
+    }
+    let proj = |x: usize, y: usize| (x as f64 + 0.5) * axis[0] + (y as f64 + 0.5) * axis[1];
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for row in 0..mask.h {
+        for col in 0..mask.w {
+            if mask.cells[row * mask.w + col] {
+                let t = proj(mask.x0 + col, mask.y0 + row);
+                lo = lo.min(t);
+                hi = hi.max(t);
+            }
+        }
+    }
+    if !lo.is_finite() {
+        return vec![];
+    }
+    let span = (hi - lo).max(1e-9);
+    let mut acc = vec![(0.0f64, 0usize); bins];
+    for row in 0..mask.h {
+        for col in 0..mask.w {
+            if mask.cells[row * mask.w + col] {
+                let (x, y) = (mask.x0 + col, mask.y0 + row);
+                let i = (((proj(x, y) - lo) / span * bins as f64) as usize).min(bins - 1);
+                acc[i].0 += to_metres(field[y * gw + x] as f64, sea, peak_m);
+                acc[i].1 += 1;
+            }
+        }
+    }
+    acc.iter().map(|(s, n)| (*n > 0).then(|| s / *n as f64)).collect()
+}
+
+/// The highest cell of the whole world in metres above sea: the true ceiling the assistant's text quotes (F12 fix 7).
+pub fn highest_m(field: &[f32], sea: f64, peak_m: f64) -> Option<f64> {
+    if !(sea < 1.0) {
+        return None;
+    }
+    field.iter().copied().filter(|v| v.is_finite()).fold(None, |m: Option<f32>, v| Some(m.map_or(v, |m| m.max(v)))).map(|v| to_metres(v as f64, sea, peak_m))
+}
+
 /// One operation of an edit, as the validator produced it. Every number was range-checked by the
 /// caller and is re-checked by [`check_ops`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1028,6 +1098,32 @@ mod tests {
         assert_eq!((c.x0, c.y0, c.w, c.h, c.count, c.clipped), (0, 0, 5, 5, 25, true));
         assert_eq!(rasterise(&rect_spec(100.0, 100.0, 10.0, 10.0), 64, 64), Err(EditError::OutsideWorld));
         assert_eq!(rasterise(&RegionSpec::default(), 64, 64), Err(EditError::Empty));
+    }
+
+    /// F12 fixes 2 and 6: a painted stroke reports its end-to-end length and width in literal cells and its
+    /// direction; a box and a single dab report none; the profile runs along that direction, rising where the
+    /// ground rises. MUTATION: swap `axis` sign or the `+ 2.0 * path_r` and a literal goes red.
+    #[test]
+    fn a_stroke_reports_length_width_direction_and_a_profile_along_it() {
+        let spec = RegionSpec { rect: None, dabs: (0..=10).map(|i| [10.0 + 4.0 * i as f64, 30.0 - 2.0 * i as f64, 6.0]).collect() };
+        let m = rasterise(&spec, 64, 64).unwrap();
+        let s = stroke_shape(&m).unwrap();
+        assert!((s.length_cells - (44.7214 + 12.0)).abs() < 0.01, "{s:?}");
+        assert_eq!(s.width_cells, 12.0);
+        assert!((s.axis[0] - 0.8944).abs() < 1e-3 && (s.axis[1] + 0.4472).abs() < 1e-3, "{s:?}");
+        // Height rises with x: field = x / 64, sea 0, peak 1000 m.
+        let field: Vec<f32> = (0..64 * 64).map(|i| (i % 64) as f32 / 64.0).collect();
+        let p = profile_along(&m, &field, 64, 0.0, 1000.0, s.axis, 8);
+        assert_eq!(p.len(), 8);
+        let v: Vec<f64> = p.iter().map(|x| x.unwrap()).collect();
+        assert!(v.windows(2).all(|w| w[1] > w[0]), "{v:?}");
+        assert!(v[0] > 100.0 && v[7] < 900.0, "{v:?}");
+        let boxed = rasterise(&rect_spec(5.0, 5.0, 10.0, 10.0), 64, 64).unwrap();
+        assert!(stroke_shape(&boxed).is_none());
+        let dab = rasterise(&RegionSpec { rect: None, dabs: vec![[30.0, 30.0, 8.0]] }, 64, 64).unwrap();
+        assert!(stroke_shape(&dab).is_none());
+        assert_eq!(highest_m(&field, 0.0, 1000.0).map(|h| h.round()), Some(984.0));
+        assert_eq!(highest_m(&[], 0.0, 1000.0), None);
     }
 
     /// Protects the size limits at their edges with literals. MUTATION: change `MAX_REGION_CELLS`
