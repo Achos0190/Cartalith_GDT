@@ -4080,3 +4080,7 @@ Owner: *"The world should follow the highest and lowest value from the vault unt
 ## Ruling HG: settlements sit on the river bank, not in it (owner, 2026-11-22)
 
 Owner, after RR-T1/RR-T2: *"Only thing for on the map is that the settlements detect the edge of a river and sit on the bank, not in it."* On the main map a settlement's marker (and the position the town is laid around) must sit on dry land beside the drawn river's edge -- the edge being the drawn stroke's width (`river_geometry_any` widths), not the cell centre -- never on the water. Measure first how many settlements sit inside the drawn river today; the fix nudges the position to the nearest bank cell on the side the town's market already uses (Ruling HC), and changes generated output behind a §7p switch.
+
+## Ruling HH: a Windows installer (owner, 2026-11-22)
+
+Owner: *"as an exe has extra stuff, I think we should start thinking about an installer."* **Inno Setup, per-user, unsigned for now.** One `Cartalith-Setup-v.YY.MM.DD-NNN.exe` that installs into the user's own folder (no admin), adds Start-menu (and optional desktop) shortcuts and an uninstaller, and upgrades in place, keeping settings and worlds (they live in `%APPDATA%`, never in the install folder; the uninstaller never removes them). The `.iss` script is kept in the repository and built after every Windows export; the setup file goes to the D: drop folder beside the APK. Code signing is revisited before any public release (SmartScreen shows "unknown publisher" until then).
