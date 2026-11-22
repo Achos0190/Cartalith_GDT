@@ -7727,6 +7727,18 @@ func _redo_last_impl() -> void:
 		if right_dock_ctrl != null:
 			right_dock_ctrl.refresh_history()
 		return
+	## F26: a redone "Make this sphere a faction" promoted the sphere again: the polity-move refresh `promote_sphere`
+	## makes, and no height texture changed.
+	if bridge.undo_next_subsystem() == "sphere":
+		if viewport != null:
+			viewport.refresh_faction_colors()
+		place_editor_window.polity_moved.emit()
+		place_editor_window.place_changed.emit()
+		set_status("pass", "redid %s" % label.to_lower(), "text_dim")
+		set_status("hint", "Edit > Undo makes it a city-state again", "text_ghost")
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_history()
+		return
 	if viewport != null:
 		viewport.map_view.texture = bridge.color_texture()
 		## Same third line `undo_last()` above uses, same reason.

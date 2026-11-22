@@ -189,6 +189,21 @@ func run(ctx) -> void:
 	_check(ctx, "undo: the place is a city-state again", String(bridge.civ_settlement_sphere(si).get("role", "")) == "seat")
 	await ctx.capture("undone")
 
+	# (6b) Edit > Redo promotes the same sphere again (2026-11-22); undo and redo walk both ways
+	_check(ctx, "redo offered after the undo, named for the promotion", bridge.redo_available() and bridge.redo_label() == "Make %s a faction" % String(seat["name"]), bridge.redo_label())
+	var redone: bool = await DriveCtx.menu_open(ctx, "Edit", "Redo")
+	await ctx.wait(1.5)
+	_check(ctx, "Edit > Redo pressed", redone)
+	_check(ctx, "redo: one faction again", int(bridge.civ_faction_count()) == 1, str(bridge.civ_faction_count()))
+	ss = bridge.settlements()
+	_check(ctx, "redo: the same city-state and its %d places are the faction" % n, ss.filter(func(s): return int(s.get("faction", 0)) == 1).size() == n + 1 and bool(ss[si].get("capital", false)))
+	_check(ctx, "redo: nothing left to redo", not bridge.redo_available())
+	await ctx.capture("redone")
+	undone = await DriveCtx.menu_open(ctx, "Edit", "Undo")
+	await ctx.wait(1.5)
+	_check(ctx, "redo is undoable again: zero factions", undone and int(bridge.civ_faction_count()) == 0, str(bridge.civ_faction_count()))
+	_check(ctx, "...and redoable again", bridge.redo_available())
+
 	# (7) a world with factions: the sixth deleted, five nations remain
 	await _generate(ctx, 912345)
 	bridge.civ_remove_faction()

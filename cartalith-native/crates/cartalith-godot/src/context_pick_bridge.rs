@@ -1056,6 +1056,7 @@ impl WorldGen {
         // This record is a redo, not a new operation: an undone annotation edit stamped at the
         // previous ledger position stays offered behind it (the mirror of `redo_anno_step`).
         self.anno_undo.restamp_redo(before, self.ledger.last_seq());
+        self.restamp_sphere_redo(before);
         if let Some(t) = self.infra.as_mut() {
             t.way_drag_forget();
         }

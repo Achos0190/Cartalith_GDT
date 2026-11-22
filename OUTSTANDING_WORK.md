@@ -17,7 +17,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 2b. **Self-signed code signing in the build** (owner 2026-11-22: self-signed now, SignPath later): cert `CN=Cartalith (self-signed)` in the user store (non-exportable; public `.cer` in the D: folder); v.26.11.22-002's exe, dll and setup were signed by hand. Left: put the signing step into `tools/build_installer.sh` (Inno `SignTool` or `Set-AuthenticodeSignature`) and `TOOLCHAIN.md`.
 3. **A new APK for both devices and the Windows build to the D: folder** after the town-layout save build (owner; the build itself is in STATUS.md, "Town layouts in the save: TL-0 to TL-8").
 4. **The small open rows** (each under its area below): the way tool's waypoint spacing so Corridor and Pull act (Ruling HJ), the 0-degree bearing disclosure (Ruling HJ), F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
-   leftovers, the docked assistant on a 1000 px tablet.
+   leftovers.
 5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
 6. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
@@ -34,7 +34,6 @@ GUI, then engine, then the LLM interface).
 ### Timeline and story
 - `generate` right after opening a saved project prints "Bug: Invalid call error code 1337" (generation completes; found 2026-11-22 by the HF probe, `3b3fa4a9`; not investigated).
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
-- City-states: no redo of a "Make this sphere a faction" promotion. `cartalith_civ::city_states`, `city_state_bridge`.
 
 ### Towns and urban layout
 - Ruling GB leftovers: 483920 #8 (59 %), #11 (65 %), 912345 #0 (68 %) at 2 048 under 70 % housed; 246371 #0 thins
@@ -119,14 +118,12 @@ GUI, then engine, then the LLM interface).
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
-- Vault window editor toolbar clipped at the right edge at 1600x900 (found 2026-11-22).
+- Vault window editor toolbar "clipped at the right edge at 1600x900" (found 2026-11-22): NOT reproduced on 2026-11-22d. `tools/vault_toolbar_drive.gd` (desktop, tablet; the phone toolbar rides on the keyboard) finds every button inside the editor on the vault window (it wraps: an `HFlowContainer`) and docked in the Note tab; frames in `docs/evidence/small-fixes-2026-11-22d/`. Re-open if the clip is seen again, with the state (note, mode, window size).
 - Ruling GZ's device leg (TL-5): freeze the 64 census towns on x86-64, re-lay them on the 6T or the Pad with the next APK, expect 64 of 64 equal or "same within rounding". `TOWN_LAYOUT_SAVE_SCOPE.md` §8.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
 ### Assistant (LLM) — after GUI and engine
-- Assistant docked on a 1000 px tablet: the Ask tab's form is about 1 300 px tall inside the dock's own scroll (`right_dock.gd` `_ask_scroll`), so Send is below the fold until the dock is scrolled (frame in `docs/evidence/small-fixes-2026-11-22b/`). The window form's action rows are pinned now (`llm_assistant_window.gd` `_foot`); the dock's Ask frame has no footer slot for them. `_llmpanel_probe` scrolls the control into view for the docked legs.
-- The assistant's first attempt after a mock 529 is sometimes worded "The server failed or was lost" instead of "Overloaded" (the mock closes its socket right after the status line and the client occasionally sees the close first; 3 of 10 and 1 of 6 `_llmpanel_probe` desktop 1600x1000 runs under load, none on 900, tablet or phone). The retry still happens; the probe accepts both wordings. The wire (`llm_wire.gd`) could be read for whether a head already received is lost when the close arrives in the same poll.
 - `llm.first_byte` has no probe assertion of its own: it was checked end to end by running `_llmpanel_probe` with `CARTALITH_TRACE=info` and grepping the trace file (10 records, no prompt, key or note text), but renaming it leaves the probes green.
 - Trace on a device (TR-7, `TOOLING_PLAN.md`): the crate and `cartalith-godot` build for Android, but the file under the app directory pulled with `adb` is unproven (no device was used).
 - Live runs on tablet and phone, Describe-place prose, the hosted wire. `LLM_ASSISTANT_SCOPE.md`.

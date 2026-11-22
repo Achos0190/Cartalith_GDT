@@ -622,12 +622,15 @@ func _ready() -> void:
 	_ok(_server.requests.size() - n4 == 2, "exactly two requests for one 529 (%d)" % (_server.requests.size() - n4))
 	var retry_text := _window_text()
 	var at := retry_text.find("Trying once more")
-	## The mock closes the socket right after its 529; under load the client sometimes sees the close before the status
-	## line and words the first failure "...failed or was lost" instead of "Overloaded" (1 of 6 desktop runs,
-	## `OUTSTANDING_WORK.md`). Either way the one automatic retry is announced, which is what this protects.
-	_ok(retry_text.contains("Overloaded. Trying once more;") or retry_text.contains("failed or was lost. Trying once more;"), "the panel says it is trying once more (found: '%s')" % (retry_text.substr(maxi(0, at - 30), 90).replace("\n", " | ") if at >= 0 else "no retry note in the window"))
+	_ok(retry_text.contains("Overloaded. Trying once more;"), "the panel says it is trying once more (found: '%s')" % (retry_text.substr(maxi(0, at - 30), 90).replace("\n", " | ") if at >= 0 else "no retry note in the window"))
 	_ok(_assistant_text() == "The river runs south.", "...and the reply completed: '%s'" % _assistant_text())
 	await _shot("12_retry")
+
+	## The close-before-body race (`llm_wire.gd`): a 4xx/5xx status line that was read survives a reset, so the first
+	## failure is worded from its status ("Overloaded"); a 2xx cut short and a connection with no status stay lost.
+	## Pinned on the pure decision: the race itself needs a TCP reset the mock cannot make on demand.
+	_ok(LlmWire.status_survives_close(true, 529) and LlmWire.status_survives_close(true, 429) and LlmWire.status_survives_close(true, 400), "a status line already read as 4xx/5xx survives a connection reset")
+	_ok(not LlmWire.status_survives_close(true, 200) and not LlmWire.status_survives_close(true, 399) and not LlmWire.status_survives_close(false, 0), "a 2xx cut short, or no status line at all, is still a lost connection")
 
 	# ------------------------------------------------------------------ 8. touch and layout
 	print("== 8. density ==")

@@ -254,6 +254,8 @@ pub(crate) struct SphereCache {
 pub(crate) struct PromoteUndo {
     /// The ledger row's seq (0 until recorded).
     pub seq: u64,
+    /// The seat (city-state) whose sphere was promoted: what a redo promotes again.
+    pub seat: u64,
     /// The faction id the promotion appended.
     pub faction: i32,
     /// Its name, part of the liveness test.
@@ -266,6 +268,24 @@ pub(crate) struct PromoteUndo {
     /// it here survived, 2026-11-22, for that reason, and was deleted).
     pub cells: Vec<(usize, u8)>,
     pub label: String,
+}
+
+/// An undone promotion, offered to `Edit > Redo` (F26 redo, 2026-11-22). One slot, the newest: promoting is
+/// re-run from the seat, never from a held snapshot, so a redo can only ever produce what a click on "Make this
+/// sphere a faction" would produce on the same world. It is offered only while the world is exactly as its undo left
+/// it (see [`WorldGen::sphere_redo_offer`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SphereRedo {
+    /// `undo::next_step_id` of its undo: what `redo_offer_ids` reports and what orders it against the other kinds.
+    pub id: u64,
+    /// The seat to promote again.
+    pub seat: u64,
+    /// The history label ("Make X a faction").
+    pub label: String,
+    /// The height stack's depth when it was undone.
+    pub height_depth: usize,
+    /// The ledger's last seq when it was undone; any later record makes the offer stale.
+    pub mark: u64,
 }
 
 /// Why a promotion was refused, as the stable token the shell reads and a sentence.
@@ -338,7 +358,7 @@ pub(crate) fn promote(
     }
     crate::civ_reprovince(civ, gw, gh);
     let label = format!("Make {} a faction", seat.name);
-    Ok(PromoteUndo { seq: 0, faction: fid, name: seat.name.clone(), members, cells, label })
+    Ok(PromoteUndo { seq: 0, seat: seat_tid, faction: fid, name: seat.name.clone(), members, cells, label })
 }
 
 /// Whether `u` can still be undone: its faction is still the roster's last,
@@ -442,7 +462,60 @@ impl WorldGen {
         unpromote(civ, self.civ_tools.as_mut(), &u, gw, gh);
         self.ledger.remove_seq(u.seq);
         self.civ_dirty = true;
+        self.sphere_redo = Some(SphereRedo { id: crate::undo::next_step_id(), seat: u.seat, label: u.label.clone(), height_depth: self.undo.depth(), mark: self.ledger.last_seq() });
         Some(u.label)
+    }
+
+    /// The undone promotion a redo would re-apply, **only** while the world is as its undo left it: nothing recorded
+    /// since, the height stack at the same depth, and the seat still a city-state with a sphere.
+    pub(crate) fn sphere_redo_offer(&self) -> Option<(u64, String)> {
+        let r = self.sphere_redo.as_ref()?;
+        if r.mark != self.ledger.last_seq() || r.height_depth != self.undo.depth() {
+            return None;
+        }
+        self.sphere_view()?.seat_of(r.seat).filter(|s| s.tid == r.seat)?;
+        Some((r.id, r.label.clone()))
+    }
+
+    /// Promotes the offered seat again, records a new ledger row and re-holds it for undo; the other redo stacks are
+    /// re-stamped to the new ledger position exactly as `redo_anno_step` does. `None` when nothing is offered.
+    pub(crate) fn redo_sphere_step(&mut self) -> Option<String> {
+        self.sphere_redo_offer()?;
+        let seat = self.sphere_redo.take()?.seat;
+        let before = self.ledger.last_seq();
+        let label = self.promote_seat(seat).ok()?;
+        self.restamp_redo_stacks(before);
+        Some(label)
+    }
+
+    /// Re-stamps the sphere offer (and nothing else: the callers restamp their own) from `old` to the ledger's last
+    /// seq, for a redo of another kind that just recorded a row.
+    pub(crate) fn restamp_sphere_redo(&mut self, old: u64) {
+        let now = self.ledger.last_seq();
+        if let Some(r) = self.sphere_redo.as_mut().filter(|r| r.mark == old) {
+            r.mark = now;
+        }
+    }
+
+    fn restamp_redo_stacks(&mut self, before: u64) {
+        let now = self.ledger.last_seq();
+        self.way_undo.restamp_redo(before, now);
+        self.anno_undo.restamp_redo(before, now);
+    }
+
+    /// The whole of "Make this sphere a faction" for seat `tid`: promote, mark the civ layer dirty, record the ledger
+    /// row and hold the undo. Shared by `civ_promote_sphere` and a redo, so the two cannot differ. Returns the label,
+    /// or the refusal key.
+    fn promote_seat(&mut self, tid: u64) -> Result<String, &'static str> {
+        let view = self.sphere_view().ok_or("no_world")?;
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let civ = self.civ.as_mut().ok_or("no_world")?;
+        let mut u = promote(civ, self.civ_tools.as_mut(), &view, tid, gw, gh)?;
+        self.civ_dirty = true;
+        u.seq = self.ledger.record("civ", u.label.clone(), format!("{} places, {} cells", u.members.len(), u.cells.len()), crate::undo::EntryKind::SpherePromote);
+        let label = u.label.clone();
+        self.sphere_undo.push(u);
+        Ok(label)
     }
 
     /// The sphere dictionary of one seat (`civ_spheres`' rows).
@@ -523,27 +596,24 @@ impl WorldGen {
         if !self.params.civ.city_states {
             return fail("off");
         }
-        let Some(view) = self.sphere_view() else { return fail("no_world") };
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let Some(civ) = self.civ.as_mut() else { return fail("no_world") };
+        if self.sphere_view().is_none() {
+            return fail("no_world");
+        }
+        let Some(civ) = self.civ.as_ref() else { return fail("no_world") };
         let Some(tid) = usize::try_from(index).ok().and_then(|i| civ.settlements.get(i)).map(|s| s.tid) else {
             return fail("not_a_seat");
         };
-        let mut u = match promote(civ, self.civ_tools.as_mut(), &view, tid, gw, gh) {
-            Ok(u) => u,
-            Err(k) => return fail(k),
-        };
-        self.civ_dirty = true;
-        u.seq = self.ledger.record("civ", u.label.clone(), format!("{} places, {} cells", u.members.len(), u.cells.len()), crate::undo::EntryKind::SpherePromote);
-        let out = vdict! {
+        if let Err(k) = self.promote_seat(tid) {
+            return fail(k);
+        }
+        let u = self.sphere_undo.last().expect("promote_seat pushed it");
+        vdict! {
             "ok" => true,
             "faction" => u.faction as i64,
             "name" => u.name.as_str(),
             "members" => u.members.len() as i64,
             "cells" => u.cells.len() as i64,
-        };
-        self.sphere_undo.push(u);
-        out
+        }
     }
 }
 

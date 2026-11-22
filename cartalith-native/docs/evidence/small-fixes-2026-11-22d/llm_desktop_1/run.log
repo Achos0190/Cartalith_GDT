@@ -1,0 +1,334 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+  ok    the mock server listens
+Cartalith shell build 52d4913afb1a
+ERROR: Couldn't open directory at path "C:/cw/small4_run/scratch/appdata/Godot/app_userdata/cartalith_small4_scratch/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5366)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2837)
+== mode desktop, viewport (1600.0, 900.0) ==
+  ok    the library has LlmBridge and the shell has the panel
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x153dcb45c40, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x153dcb45c40, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x153dcb45c40, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  ok    the generated world has settlements (217)
+  ok    a probe Vault is connected: 
+== 1. feature off ==
+  ok    Story â–¸ NOTES carries 'Ask the assistant about the selection'
+  ok    the row is enabled (the panel itself says why it cannot send)
+  ok    the row opens the panel
+  ok    the window [P: (1327.0, 155.0), S: (273.0, 695.0)] is inside the viewport (1600.0, 900.0)
+  ok    status: 'The assistant is off. Turn on "Assistant enabled" in Settings. Nothing is sent while it is'
+  ok    while the feature is off the main button offers to turn it on, and sends nothing
+  ok    ...with its reason beside it: 'Turn on Assistant enabled first. Nothing is sent while it is'
+  ok    ...and as its tooltip
+  ok    Save is disabled: 'No reply to save yet.'
+  ok    Stop is hidden when idle
+  ok    Commands is enabled and says nothing changes until Apply
+  ok    no connection was opened (attempts 0, accepted 0)
+  ok    ...and started no thread
+  ok    netstat: 0 non-listening TCP rows for this process with the feature off
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_1_off.png
+  ok    'Turn on Assistant enabled' turns it on and sends nothing
+== 2. sources ==
+  ok    the place line names the selected settlement: 'Place: Sevjuniana'
+  ok    Describe place is sendable with the entity switch off (the place's data is the subject)
+  ok    ...while Story with the entity source off says which switch: 'Story needs the place's timeline events. Select a place and turn on "Send: curre'
+  ok    with the gate open, Send is enabled
+  ok    the sent line names the request and the place's generated data: 'This will send: your request (18 characters), the generated world data for Sevjuniana (4089 characters: The place (11), '
+  ok    ...and no named note's text
+  ok    status names the endpoint: 'http://127.0.0.1:50247 (this computer or network) Â· model mock-model Â·'
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_2_ready.png
+== 3. stream ==
+  ok    the picker lists the Vault's notes (3 rows)
+  ok    picking a note reads it and remembers its hash
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_3_streaming.png
+  ok    a PARTIAL reply was visible while the server was still sending (streamed, not buffered)
+  ok    Stop was visible while the reply ran
+  ok    the finished reply equals what the server sent
+  ok    the request carried the key
+  ok    the request body holds the place's generated data (world_data fence) and no named note
+  ok    the counter shows what the server reported: 'Tokens 42 in / 12 out Â· no cap'
+  ok    the reply carries the MODEL-GENERATED chip
+  ok    the Vault note is UNCHANGED after the reply finished (nothing writes without a click)
+  ok    Save is now enabled
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_4_reply.png
+  ok    after the click the note keeps its own text as a prefix
+  ok    ...and gained exactly one marked block
+  ok    ...with the visible line and today's date
+  ok    a machine-owned block forged by the model is defused
+  ok    ...and the prose is there
+  ok    the panel confirms the save
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_5_saved.png
+== 4. a note edited after it was picked ==
+  ok    the conflicting write was REFUSED: the file is exactly what the other editor left
+  ok    ...and no second block was added
+  ok    the panel says so in words
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_6_conflict.png
+  ok    after Reload, Save succeeds and appends (2 blocks, the external edit intact)
+== 5. cancel ==
+  ok    tokens are arriving
+  ok    positive control: a worker thread and an open socket exist mid-stream (netstat rows 2)
+  ok    Stop is visible and enabled
+  ok    the panel says 'Stopped.'
+  ok    the server saw the socket close
+  ok    no token was added after Stop
+  ok    the worker is joined
+  ok    the panel is usable again
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_7_stopped.png
+== 5b. consent on Send ==
+  ok    no consent: the button still says Send (no hunt for a review button)
+  ok    Send with no consent opens the consent card at once
+  ok    ...and sent nothing
+  ok    Not now: nothing sent, nothing recorded
+  ok    declining does not loop
+  ok    Allow carries on: the request the user started is sent (1 new)
+== 6. story and note ==
+  ok    Story sends the events source only
+  ok    ...under the story system prompt
+  ok    with the notes source off, Note assist is disabled saying which switch: 'Note assist needs a note. Pick one and turn on "Send: named Vault notes" in Sett'
+  ok    with it ticked the sent line names the note: 'This will send: your request (10 characters), the note's text (620 characters).'
+  ok    Note assist sends the chosen note's text and its name only
+  ok    ...under the summarise prompt
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_8_note_task.png
+== 7. closing the window ==
+  ok    hiding the window joined the worker
+  ok    ...and closed the socket
+== 7b. counter, cap and retry (LLM-4) ==
+  ok    Reset empties the counter line: 'Tokens: not reported yet Â· no cap'
+  ok    the status line says where the endpoint is: 'http://127.0.0.1:50247 (this computer or network) Â· model mock-model Â· key is read from th'
+  ok    Send is enabled on the Anthropic style
+  ok    the Anthropic reply is shown: 'The river runs south.'
+  ok    it went to /v1/messages with x-api-key
+  ok    the counter shows usage and 'no cap': 'Tokens 30 in / 4 out Â· no cap'
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm4_desktop_10_counter.png
+  ok    a reached cap disables Send saying why: 'Your token cap is reached: 34 tokens reported this session against a c'
+  ok    ...and the counter line says 'cap 10': 'Tokens 30 in / 4 out Â· cap 10'
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm4_desktop_11_cap_reached.png
+  ok    Reset lifts it: 'Tokens: not reported yet Â· cap 10'
+  ok    exactly two requests for one 529 (2)
+  ok    the panel says it is trying once more (found: 'error (code 529): Overloaded. Trying once more; this is the only automatic retry. |  |  |  |  | Grou')
+  ok    ...and the reply completed: 'The river runs south.'
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm4_desktop_12_retry.png
+  ok    a status line already read as 4xx/5xx survives a connection reset
+  ok    a 2xx cut short, or no status line at all, is still a lost connection
+== 8. density ==
+  ok    desktop: the whole form fits the window with no scrolling (567 of 567)
+  ok    'send' ends above the Close row without scrolling (697 against 771)
+  ok    'save' ends above the Close row without scrolling (731 against 771)
+  ok    'tokens_reset' ends above the Close row without scrolling (697 against 771)
+  ok    'send' sits inside the window width
+  ok    'save' sits inside the window width
+  ok    'tokens_reset' sits inside the window width
+  ok    'note_reload' sits inside the window width
+  ok    'settings' sits inside the window width
+  ok    'task_prose' sits inside the window width
+  ok    'task_story' sits inside the window width
+  ok    'task_note' sits inside the window width
+  ok    'note' sits inside the window width
+  ok    'input' sits inside the window width
+SHOT C:\cw\small4\cartalith-native\docs\evidence\small-fixes-2026-11-22d\llm_desktop_1/llm3_desktop_9_layout.png
+== 9. the key is nowhere it should not be ==
+  ok    cartalith_settings.cfg (1224 bytes) holds no key
+  ok    the note holds no key
+  ok    no label, button, tooltip or field in the window holds the key
+  ok    godot.log (9009 bytes) holds no key
+  ok    a project was saved after the session
+  ok    the archive opens
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+ERROR: Could not open file within zip archive.
+   at: read_file (modules/zip/zip_reader.cpp:101)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://_llmpanel_probe.gd:689)
+       [1] _shot (res://_llmpanel_probe.gd:88)
+       [2] _settle (res://_llmpanel_probe.gd:65)
+  ok    none of the archive's 41 entries holds the key
+  ok    no worker thread is live at the end
+RESULT: PASS (0 failed)
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

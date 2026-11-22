@@ -136,6 +136,13 @@ func drain() -> Array:
 
 ## Cancels and joins EVERY live wire, blocking until all threads are gone. The library-unload
 ## hook: `app.gd` calls it when the shell exits, and the probes call it in place of an unload.
+## Whether a connection that failed (reset, or closed before the body) still carries a status the failure is worded
+## from: a status line was read and it is a 4xx/5xx (`_run`'s connection-error branch). A 2xx cut short is a lost
+## connection, and so is no status line at all. Pure, so `_llmpanel_probe.gd` pins it without a socket.
+static func status_survives_close(has_response: bool, code: int) -> bool:
+	return has_response and code >= 400
+
+
 static func shutdown_all() -> void:
 	for w in _live.duplicate():
 		(w as LlmWire).shutdown()
@@ -259,6 +266,18 @@ func _run(host: String, port: int, tls: bool, path: String, headers: PackedStrin
 				return
 		elif st == HTTPClient.STATUS_CONNECTION_ERROR or st == HTTPClient.STATUS_TLS_HANDSHAKE_ERROR \
 				or st == HTTPClient.STATUS_CANT_CONNECT or st == HTTPClient.STATUS_CANT_RESOLVE:
+			## A server that answers and closes at once (the probe's mock 529; real proxies do it too) can show the
+			## close to the poll before the status line, or before the body, is delivered. A 4xx/5xx status line
+			## that WAS read classifies the failure by its code (529 "Overloaded", 429, ...), whether or not the
+			## error body arrived: reporting "failed or was lost" threw the status away and (1 of 6 `_llmpanel_probe`
+			## desktop runs) worded the first attempt wrongly. A 2xx cut short stays a lost connection.
+			if status_survives_close(client.has_response(), client.get_response_code()):
+				var code := client.get_response_code()
+				client.close()
+				if not got_head:
+					_push({"kind": "head", "status": code})
+				_push({"kind": "end"})
+				return
 			client.close()
 			_push({"kind": "error", "text": "The connection to the server failed or was lost."})
 			return

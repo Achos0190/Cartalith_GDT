@@ -7566,6 +7566,8 @@ struct WorldGen {
     /// row (a sphere made a faction), newest last. Session-only, cleared with
     /// the other held stacks on generate, load and `clear_undo`.
     sphere_undo: Vec<city_state_bridge::PromoteUndo>,
+    /// The undone promotion `Edit > Redo` offers (one slot; `city_state_bridge::SphereRedo`). Cleared with `sphere_undo`.
+    sphere_redo: Option<city_state_bridge::SphereRedo>,
     /// F26 / Ruling GL: the rebuilt territory cost and the last sphere view
     /// (`city_state_bridge`'s module doc prices it). Empty with the switch off.
     sphere_cache: std::cell::RefCell<city_state_bridge::SphereCache>,
@@ -8147,6 +8149,7 @@ impl IRefCounted for WorldGen {
             way_undo: context_pick_bridge::WayUndo::new(),
             anno_undo: annotation_undo::AnnoUndo::new(),
             sphere_undo: Vec::new(),
+            sphere_redo: None,
             sphere_cache: Default::default(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
@@ -8611,6 +8614,7 @@ impl WorldGen {
         self.way_undo.clear();
         self.anno_undo.clear();
         self.sphere_undo.clear();
+        self.sphere_redo = None;
         // F12: memory hygiene only. The cache carries its own fingerprint and
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
@@ -8881,6 +8885,7 @@ impl WorldGen {
         self.way_undo.clear();
         self.anno_undo.clear();
         self.sphere_undo.clear();
+        self.sphere_redo = None;
         // ED-02: a generate is the ledger's **floor**, and clears it for the
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
@@ -11602,6 +11607,7 @@ impl WorldGen {
         self.way_undo.clear();
         self.anno_undo.clear();
         self.sphere_undo.clear();
+        self.sphere_redo = None;
         // ED-02: a load is the ledger's other floor, for the same reason.
         self.ledger.record(
             "world",
@@ -28360,6 +28366,7 @@ impl WorldGen {
         let drag = self.redo_offers().len();
         self.way_undo.clear_redo();
         self.anno_undo.clear_redo();
+        self.sphere_redo = None;
         (discard_tail(&mut self.redo, self.undo.depth()) + drag) as i64
     }
 
@@ -28390,6 +28397,8 @@ impl WorldGen {
         match self.redo_offers().first().map(|o| o.kind) {
             Some(annotation_bridge::RedoKind::Drag) => return self.redo_drag_step().is_some(),
             Some(annotation_bridge::RedoKind::Annotation) => return self.redo_anno_step().is_some(),
+            // F26: an undone "Make this sphere a faction" is promoted again from its seat.
+            Some(annotation_bridge::RedoKind::Sphere) => return self.redo_sphere_step().is_some(),
             None => {}
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
@@ -28407,6 +28416,7 @@ impl WorldGen {
         // at the previous ledger position stay offered behind it.
         self.way_undo.restamp_redo(seq_before, self.ledger.last_seq());
         self.anno_undo.restamp_redo(seq_before, self.ledger.last_seq());
+        self.restamp_sphere_redo(seq_before);
         let n = self.stages.tile_count();
         self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "redo");
         true
@@ -28683,6 +28693,7 @@ impl WorldGen {
         self.way_undo.clear();
         self.anno_undo.clear();
         self.sphere_undo.clear();
+        self.sphere_redo = None;
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.

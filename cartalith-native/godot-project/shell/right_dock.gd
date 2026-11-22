@@ -1082,6 +1082,8 @@ var _ask_body: VBoxContainer
 ## touch tablet at 1600x1000: its 44 px rows put the chips below the window's edge). When it fits, the
 ## body fills the height (expand), so the transcript's own scroll takes the slack.
 var _ask_scroll: ScrollContainer
+## Below `_ask_scroll`: the assistant's pinned action rows (see `_ensure_ask_frame`).
+var _ask_foot: VBoxContainer
 
 ## PC-5. The Note tab's frame, a sibling of Inspect's scroll exactly as `_ask_frame` is, and for the same
 ## reason: the vault editor is persistent (it holds the user's unsaved text and its own scroll), so it cannot
@@ -1412,6 +1414,12 @@ func _ensure_ask_frame(scroll: Control) -> void:
 	## Focus in the input (Ctrl+J, Ctrl+3) scrolls it into view when the conversation is taller than the dock.
 	_ask_scroll.follow_focus = true
 	_ask_frame.add_child(_ask_scroll)
+	## The pinned footer (2026-11-22): the assistant's reason / token / Send / Save rows, outside the scroll, so Send is in
+	## view on a 1000 px tablet where the conversation is about 1 300 px (`LlmAssistantWindow.present_in`'s `foot_slot`).
+	_ask_foot = VBoxContainer.new()
+	_ask_foot.name = "ContextAskFoot"
+	_ask_foot.add_theme_constant_override("separation", 0)
+	_ask_frame.add_child(_ask_foot)
 	_ask_body = VBoxContainer.new()
 	_ask_body.name = "ContextAskBody"
 	_ask_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1525,7 +1533,7 @@ func refresh_ask(present := false) -> void:
 			c.queue_free()
 	if not present and not aw.visible and aw.is_docked() and aw.get("_host") != null 			and (aw.get("_host") as Node).get_parent() == _ask_body:
 		return
-	if not aw.present_in(_ask_body):
+	if not aw.present_in(_ask_body, _ask_foot):
 		var pad := DccWidgets.pad(_ask_body, 10, 10, 10, 10)
 		pad.name = "AskInWindow"
 		var col := VBoxContainer.new()

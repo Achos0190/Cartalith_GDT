@@ -392,6 +392,7 @@ func open() -> void:
 ## window cancels a running reply, as it always did, and the content goes back to the tab.
 func open_window() -> void:
 	_ensure_built()
+	_foot_home()
 	if _host.get_parent() != self:
 		_host.get_parent().remove_child(_host)
 		add_child(_host)
@@ -425,13 +426,24 @@ func _show_dialog() -> void:
 ## cursor goes to the input (§3.5: "Ctrl+J opens Ask from anywhere and focuses the input"). Builds the
 ## content the first time only. While the window form is open the content stays there and this
 ## returns false; the tab then says so (`RightDock.refresh_ask()`).
-func present_in(parent: Control) -> bool:
+##
+## `foot_slot` (2026-11-22): the Ask tab's pinned footer. The reason, token and Reset / Stop / Send rows and the Save rows
+## (`_foot_pad`) are drawn there, below the dock's own scroll, so Send stays in view when the conversation is taller than
+## the dock (the 1000 px tablet: the form measured about 1 300 px and Send sat below the fold). Without a slot they
+## stay in the host, as in the window form. `_foot_home()` puts them back whenever the content leaves the tab.
+func present_in(parent: Control, foot_slot: Control = null) -> bool:
 	if visible:
 		return false
 	_ensure_built()
 	if _host.get_parent() != parent:
 		_host.get_parent().remove_child(_host)
 		parent.add_child(_host)
+	if foot_slot != null:
+		if _foot_pad.get_parent() != foot_slot:
+			_foot_pad.get_parent().remove_child(_foot_pad)
+			foot_slot.add_child(_foot_pad)
+	else:
+		_foot_home()
 	_sync_scroll_floor()
 	_on_reopen()
 	if _input != null:
@@ -447,10 +459,20 @@ func present_in(parent: Control) -> bool:
 func release_dock() -> void:
 	if _host == null or not is_instance_valid(_host):
 		return
+	_foot_home()
 	var par := _host.get_parent()
 	if par != null and par != self:
 		par.remove_child(_host)
 		add_child(_host)
+
+
+## Returns the pinned action rows to the end of the host (their place in the window form and on the phone), from the Ask
+## tab's footer slot. Never rebuilds anything; a no-op when they are already home.
+func _foot_home() -> void:
+	if _foot_pad != null and is_instance_valid(_foot_pad) and _foot_pad.get_parent() != _host:
+		if _foot_pad.get_parent() != null:
+			_foot_pad.get_parent().remove_child(_foot_pad)
+		_host.add_child(_foot_pad)
 
 
 ## PC-6. True when the content is drawn somewhere the user can see: the window or sheet, or the Ask

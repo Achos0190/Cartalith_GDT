@@ -27,6 +27,8 @@ pub(crate) enum RedoKind {
     Drag,
     /// An undone label, icon or landmark-name edit.
     Annotation,
+    /// An undone "Make this sphere a faction" (`city_state_bridge::SphereRedo`).
+    Sphere,
 }
 
 /// One ready redo offer that is not the height tail.
@@ -43,13 +45,16 @@ pub(crate) struct RedoOffer {
 /// Orders the ready drag and annotation offers: the one undone **later** (the
 /// larger step id) is redone first, which is last-in first-out across the two
 /// stacks. Pure so the order is unit-tested without a live engine.
-pub(crate) fn order_offers(drag: Option<(u64, String)>, anno: Option<(u64, String)>) -> Vec<RedoOffer> {
+pub(crate) fn order_offers(drag: Option<(u64, String)>, anno: Option<(u64, String)>, sphere: Option<(u64, String)>) -> Vec<RedoOffer> {
     let mut v: Vec<RedoOffer> = Vec::new();
     if let Some((id, label)) = drag {
         v.push(RedoOffer { kind: RedoKind::Drag, id, label });
     }
     if let Some((id, label)) = anno {
         v.push(RedoOffer { kind: RedoKind::Annotation, id, label });
+    }
+    if let Some((id, label)) = sphere {
+        v.push(RedoOffer { kind: RedoKind::Sphere, id, label });
     }
     v.sort_by(|a, b| b.id.cmp(&a.id));
     v
@@ -315,7 +320,7 @@ impl WorldGen {
     pub(crate) fn redo_offers(&self) -> Vec<RedoOffer> {
         let manual = self.infra.as_ref().map(|t| t.ways.as_slice());
         let drag = crate::context_pick_bridge::drag_redo_ready(&self.way_undo, &self.ledger, manual, self.undo.depth()).map(|r| (r.id, r.label.clone()));
-        order_offers(drag, self.anno_redo_offer())
+        order_offers(drag, self.anno_redo_offer(), self.sphere_redo_offer())
     }
 
     /// Re-applies the top undone annotation edit if it is offered: writes its
@@ -343,6 +348,7 @@ impl WorldGen {
         self.anno_undo.push(AnnoEntry { seq, stream: None, ..entry });
         self.anno_undo.restamp_redo(before, self.ledger.last_seq());
         self.way_undo.restamp_redo(before, self.ledger.last_seq());
+        self.restamp_sphere_redo(before);
         Some(label)
     }
 }
@@ -410,10 +416,14 @@ mod tests {
         let d = || Some((3u64, "Draw road".to_string()));
         let a = |id: u64| Some((id, "Move label".to_string()));
         let kinds = |v: Vec<RedoOffer>| v.into_iter().map(|o| o.kind).collect::<Vec<_>>();
-        assert_eq!(kinds(order_offers(d(), a(4))), vec![RedoKind::Annotation, RedoKind::Drag]);
-        assert_eq!(kinds(order_offers(d(), a(2))), vec![RedoKind::Drag, RedoKind::Annotation]);
-        assert_eq!(kinds(order_offers(d(), None)), vec![RedoKind::Drag]);
-        assert_eq!(kinds(order_offers(None, a(9))), vec![RedoKind::Annotation]);
-        assert!(order_offers(None, None).is_empty());
+        assert_eq!(kinds(order_offers(d(), a(4), None)), vec![RedoKind::Annotation, RedoKind::Drag]);
+        assert_eq!(kinds(order_offers(d(), a(2), None)), vec![RedoKind::Drag, RedoKind::Annotation]);
+        assert_eq!(kinds(order_offers(d(), None, None)), vec![RedoKind::Drag]);
+        assert_eq!(kinds(order_offers(None, a(9), None)), vec![RedoKind::Annotation]);
+        assert!(order_offers(None, None, None).is_empty());
+        // F26: an undone sphere promotion orders with the others by step id, like any offer.
+        let sp = |id: u64| Some((id, "Make Ash a faction".to_string()));
+        assert_eq!(kinds(order_offers(d(), a(2), sp(9))), vec![RedoKind::Sphere, RedoKind::Drag, RedoKind::Annotation]);
+        assert_eq!(kinds(order_offers(d(), None, sp(1))), vec![RedoKind::Drag, RedoKind::Sphere]);
     }
 }
