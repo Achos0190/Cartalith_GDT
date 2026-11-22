@@ -4052,3 +4052,7 @@ Owner: *"how we can save town layouts without it being graphics (I'm think a has
 3. **Frozen layout**: a town freezes automatically the first time the user places a pin or POI in it (or edits it); its streets, plots and buildings are stored as compact vector data (integer coordinates, Zstandard), never images; a frozen town never changes with later rules. The City Viewer offers "regenerate with current rules" with a before/after.
 4. **Anchors**: a pin also records what it sits on (building, street, plot) so it re-attaches after a regenerate.
 New slot `entities/town_layouts.json` (format 3, no version bump); a save without it regenerates as today.
+
+## Ruling HA: the town-layout save scope's answers (owner, 2026-11-22)
+
+`TOWN_LAYOUT_SAVE_SCOPE.md` (`b37692e6`, Ruling GZ): every default (Q1 deflated JSON, §3.3 unchanged; Q2 freeze on a pin in any settlement; Q3 one frozen layout through the timeline with a chip at a 2x population gap; Q4 and Q5 ask first, never automatic, and the City Viewer's "Regenerate" becomes "New variant"; Q7 "Check frozen towns" and "Re-lay all frozen towns"; Q8 an unmatched pin stays and is listed, nothing deleted; Q9 no lock glyph; Q10 a manual "Freeze this town"; Q11 keep a row whose settlement is gone) **except Q6: labels, icons and measurements inside a town anchor to it too, not only POIs.** Build TL-0...TL-8 after PS-4 and the river-through-town smoothing land (TL-0 pins the rules version after them); then a new APK for both devices (owner).
