@@ -64,6 +64,8 @@ mod sea_site_census;
 // `BORDER_FORMATION_RESEARCH.md` §1.4, an ignored measurement that pins nothing.
 #[cfg(test)]
 mod border_harness;
+#[cfg(test)]
+mod junction_census;
 // Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
 // the way join off and on, and the river stretches offered along them; an
 // ignored measurement through the real pipeline.
@@ -2678,6 +2680,7 @@ mod civ_pipeline_tests {
     fn seeding_villages_after_generation_adds_only_villages_and_is_deterministic_and_reversible() {
         let mut p = world().1.clone();
         p.civ.villages = false;
+        p.civ.junction_settlements = false; // F27 founds village-flagged hamlets itself; the premise is about the village pass
         let base = civ(&p, &[]);
         assert!(base.village_tids.is_empty(), "premise: no village exists before the action");
         let n0 = base.settlements.len();
@@ -3042,9 +3045,12 @@ mod civ_pipeline_tests {
     fn every_drawn_river_crossing_costs_the_road_network() {
         let (ws, base) = world();
         assert!(base.civ.map_crossings, "premise: the app charges every drawn crossing");
-        let mut off_p = base.clone();
+        // F27's junction hamlets sit on the roads this rule re-prices, so they are held off: the claim is about placement.
+        let mut on_p = base.clone();
+        on_p.civ.junction_settlements = false;
+        let mut off_p = on_p.clone();
         off_p.civ.map_crossings = false;
-        let (on, off) = (civ(base, &[]), civ(&off_p, &[]));
+        let (on, off) = (civ(&on_p, &[]), civ(&off_p, &[]));
         let cells = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
         assert_eq!(cells(&on), cells(&off), "the crossing rule moves no town");
         let paths = |c: &CivData| c.ways.iter().map(|w| w.pts.clone()).collect::<Vec<_>>();
@@ -5716,6 +5722,33 @@ fn compute_civilisation(
     // assigned further down. Rebuilt through the recovery pass below, which
     // can drop entries and so invalidates any index range captured here.
     let mut is_village = vec![false; settlements.len()];
+    // Ruling EU item 1: a merged network is consolidated without the
+    // extend-back pass, which would draw each shared trunk twice
+    // (`civ_consolidate_merged_ways`' doc). The reference's network keeps it.
+    let consolidate = if opts.merge_ways {
+        cartalith_civ::civ_consolidate_merged_ways
+    } else {
+        cartalith_civ::civ_consolidate_and_smooth_ways
+    };
+    // Owner finding F27 / Ruling GL (`civ.junction_settlements`): hamlets founded where the roads
+    // converge, likelier near a river and between larger settlements. Found BEFORE the village pass,
+    // from the base network's ways, so they claim their sites first and the villages then keep their
+    // spacing from them: after it, the ten-kilometre village spacing had already filled every
+    // junction's surroundings (measured: 0-1 founded in six worlds). Appended like villages (flagged
+    // `is_village`: the connector below joins them and they carry the village `tid` set). Never on
+    // the SG-02 keep path, which would author settlements twice. Own stream, so no other draw moves.
+    // Off: control flow skips it.
+    if opts.junction_settlements && !keeping {
+        let ways0 = consolidate(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+        let (field, class, flow) = (&ws.field, &wb.classification, &ws.flow_discharge);
+        let dry = |x: usize, y: usize| field[y * gw + x] as f64 >= sea_level && class[y * gw + x] == 0;
+        let river = |x: usize, y: usize| flow[y * gw + x] as f64 >= flow_thresh;
+        let jw = cartalith_civ::junction::JunctionWorld { gw, gh, map_width_km, dry: &dry, river: &river, cultures: faction_cultures };
+        let mut jrng = cartalith_rng::Mulberry32::new(cartalith_civ::junction::JUNCTION_STREAM_SEED ^ settlements.len() as u32);
+        let founded = cartalith_civ::junction::civ_junction_settlements(&ways0, &settlements, &jw, 1.0, &mut jrng);
+        is_village.resize(settlements.len() + founded.len(), true);
+        settlements.extend(founded.into_iter().map(junction_hamlet));
+    }
     if seeding_villages {
         // `civ_seed_villages` needs the downsampled routing grid's
         // (rw, sc) that `civ_hierarchical_network_topology` builds
@@ -5789,14 +5822,6 @@ fn compute_civilisation(
     // the old indices (`remap_after_recovery`). With recovery at its default
     // (`Stable`, a strict no-op) `settlements` is the same list at both
     // points, so the default path is unchanged.
-    // Ruling EU item 1: a merged network is consolidated without the
-    // extend-back pass, which would draw each shared trunk twice
-    // (`civ_consolidate_merged_ways`' doc). The reference's network keeps it.
-    let consolidate = if opts.merge_ways {
-        cartalith_civ::civ_consolidate_merged_ways
-    } else {
-        cartalith_civ::civ_consolidate_and_smooth_ways
-    };
     let mut ways = consolidate(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
     // Where the network's ways end and the village connectors begin, for the
     // recovery remap below.
@@ -25370,8 +25395,33 @@ impl WorldGen {
             world_wrap,
             map_width_km,
         };
-        let outcome =
-            timeline_bridge::run_collapse_simulation(&mut civ.timeline, active_year, &civ.settlements, &civ.ways, &civ.territory, &world, &req);
+        // Owner finding F27 / Ruling GL: in recovery, roads that have returned found hamlets at their
+        // junctions as the years pass (`cartalith_civ::junction`), each step a share of a century of
+        // the generation chance, on its own stream per year. Off: `None`, by control flow.
+        let found_on = self.params.civ.junction_settlements && req.mode == cartalith_civ::timeline::SimulateMode::Recovery;
+        let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+        let mut next_tid = civ.next_tid;
+        let step_scale = (req.step_years.max(1) as f64 / 100.0).min(1.0);
+        let (field, flow) = (&ws.field, &ws.flow_discharge);
+        let dry = |x: usize, y: usize| field[y * gw + x] as f64 >= sea_level;
+        let river = |x: usize, y: usize| flow[y * gw + x] as f64 >= flow_thresh;
+        let jw = cartalith_civ::junction::JunctionWorld { gw, gh, map_width_km, dry: &dry, river: &river, cultures: &[] };
+        let mut found = |year: i64, standing: &[cartalith_civ::NamedSettlement], ways: &[cartalith_civ::Way]| {
+            let mut rng = cartalith_rng::Mulberry32::new(cartalith_civ::junction::JUNCTION_STREAM_SEED ^ (year as u32).wrapping_mul(2_654_435_761));
+            cartalith_civ::junction::civ_junction_settlements(ways, standing, &jw, step_scale, &mut rng)
+                .into_iter()
+                .map(|v| {
+                    let mut h = junction_hamlet(v);
+                    h.tid = cartalith_civ::timeline::civ_assign_tid(0, &mut next_tid);
+                    h
+                })
+                .collect::<Vec<_>>()
+        };
+        let outcome = timeline_bridge::run_collapse_simulation_with(
+            &mut civ.timeline, active_year, &civ.settlements, &civ.ways, &civ.territory, &world, &req,
+            if found_on { Some(&mut found) } else { None },
+        );
+        civ.next_tid = civ.next_tid.max(next_tid);
         match outcome {
             timeline_bridge::CollapseSimOutcome::NoSettlements => {
                 fail("No settlements to simulate. Auto-populate the world first.")
@@ -25409,6 +25459,25 @@ impl WorldGen {
                 }
             }
         }
+    }
+}
+
+/// A founded junction hamlet as a settlement: a village's shape (`pop` 0, no suitability, hamlet tier),
+/// so the map and every consumer treat it as the villages are treated.
+pub(crate) fn junction_hamlet(v: cartalith_civ::VillageSettlement) -> cartalith_civ::NamedSettlement {
+    cartalith_civ::NamedSettlement {
+        tid: 0,
+        placement: cartalith_civ::SettlementPlacement {
+            x: v.x,
+            y: v.y,
+            suit: 0.0,
+            faction: v.faction,
+            capital: false,
+            kind: cartalith_civ::SettlementKind::Hamlet,
+            coastal: false,
+        },
+        name: v.name,
+        pop: 0,
     }
 }
 

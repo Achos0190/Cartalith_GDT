@@ -147,6 +147,9 @@ pub mod way_audit;
 /// toward its destination and is drawn on the way's own line. Port-only; called
 /// only when the shell's join switch is on. See the module doc.
 pub mod way_join;
+/// Owner finding F27 / Ruling GL (2026-11-22): a settlement founded where roads converge, more
+/// likely near a river and between larger settlements. Port-only; behind `civ.junction_settlements`.
+pub mod junction;
 /// Owner Ruling EU item 3 (2026-11-12): river stretches offered per stretch,
 /// each with a recommended hull, and accepted stretches spliced into the plan as
 /// river legs. Port-only; a plan with no legs is unchanged. See the module doc.

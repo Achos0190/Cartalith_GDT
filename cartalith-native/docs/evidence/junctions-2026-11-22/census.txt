@@ -1,0 +1,6 @@
+JUNC 483920@384 junctions=6 near_river=3 (50%) | founded=6 near_river=5 (83%) | nearest_larger_km mean=41.8 min=12.1 | midness founded=0.57 all_junctions=0.60 | spacing_violations=0 moved=2 | settlements off=233 on=237
+JUNC 912345@384 junctions=4 near_river=3 (75%) | founded=2 near_river=1 (50%) | nearest_larger_km mean=72.9 min=60.8 | midness founded=0.85 all_junctions=0.43 | spacing_violations=0 moved=0 | settlements off=233 on=235
+JUNC 246371@384 junctions=6 near_river=4 (67%) | founded=5 near_river=5 (100%) | nearest_larger_km mean=55.0 min=23.8 | midness founded=0.60 all_junctions=0.39 | spacing_violations=0 moved=2 | settlements off=233 on=236
+JUNC 483920@2048 junctions=13 near_river=10 (77%) | founded=3 near_river=2 (67%) | nearest_larger_km mean=32.1 min=22.1 | midness founded=0.69 all_junctions=0.64 | spacing_violations=0 moved=1 | settlements off=240 on=242
+JUNC 912345@2048 junctions=20 near_river=11 (55%) | founded=8 near_river=4 (50%) | nearest_larger_km mean=47.4 min=15.2 | midness founded=0.63 all_junctions=0.52 | spacing_violations=0 moved=1 | settlements off=240 on=247
+JUNC 246371@2048 junctions=12 near_river=10 (83%) | founded=4 near_river=2 (50%) | nearest_larger_km mean=56.6 min=16.0 | midness founded=0.39 all_junctions=0.34 | spacing_violations=0 moved=1 | settlements off=240 on=243

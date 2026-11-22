@@ -1092,6 +1092,14 @@ pub struct CivParams {
     /// **`false` here, `true` in the shipped app**, the same section 7p split.
     /// A save without the key loads it off.
     pub site_map_terms: bool,
+    /// Owner finding F27 / Ruling GL (2026-11-22): a hamlet is **founded where roads converge**
+    /// (`cartalith_civ::junction`), at generation (after the roads and the village pass) and in
+    /// each recovery step of the timeline. The chance is higher near a river and midway between
+    /// larger settlements. New worlds only; never on the SG-02 keep path.
+    ///
+    /// **`false` here, `true` in the shipped app**, the same section 7p split. A save without the
+    /// key loads it off.
+    pub junction_settlements: bool,
     /// Owner Ruling FO item 1 (2026-11-16, `LARGE_ITEM_RULINGS.md`): every settlement a generation places
     /// is given a **founding year**, stored beside its place-editor extras (`PlaceExtras::founded`, saved
     /// as `extras.founded`, `SAVEFILE_COMPAT.md` 9.1). The year is `-um_infer_age(population)`: the
@@ -1898,6 +1906,7 @@ impl WorldParams {
                 port_shore: false,
                 sea_lanes: false,
                 site_map_terms: false,
+                junction_settlements: false,
                 // Ruling FI item 2: the reference charges a crossing only above the flow threshold.
                 map_crossings: false,
                 // Ruling FK item 2: the reference badges ports within its own radius.

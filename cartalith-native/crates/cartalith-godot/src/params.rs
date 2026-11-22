@@ -407,6 +407,9 @@ pub fn defaults() -> WorldParams {
     // in the siting ranking. Off in `WorldParams::defaults` (section 7p). See
     // `CivParams::site_map_terms`.
     p.civ.site_map_terms = true;
+    // Owner finding F27 / Ruling GL (2026-11-22): a hamlet founded where roads converge. Off in
+    // `WorldParams::defaults` (section 7p). See `CivParams::junction_settlements`.
+    p.civ.junction_settlements = true;
     // Ruling FI item 2 (owner 2026-11-16): every crossing of a river the map
     // draws is charged as a ford or bridge. Off in `WorldParams::defaults`
     // (section 7p). See `CivParams::map_crossings`.
@@ -1193,6 +1196,12 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.site_map_terms", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Towns favour river confluences and coasts", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.site_map_terms), set_fn: |p, v| p.civ.site_map_terms = v != 0.0 },
+    // Owner finding F27 / Ruling GL (2026-11-22): settlements founded at road junctions. ON at the
+    // app boundary, OFF in `WorldParams::defaults`; no reference control. A save without the key
+    // loads OFF. Read by `compute_civilisation` and the recovery timeline.
+    ParamSpec { key: "civ.junction_settlements", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Hamlets arise where roads meet", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.junction_settlements), set_fn: |p, v| p.civ.junction_settlements = v != 0.0 },
     // Ruling FI item 2 (owner 2026-11-16): every drawn river crossing charged.
     // ON at the app boundary, OFF in `WorldParams::defaults`; no reference
     // control. A save without the key loads OFF. Read by `compute_civilisation`'s
@@ -1547,6 +1556,7 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Findings F16/F39/F36: no reference control; the reference has neither.
     ("civ.sea_lanes", ""),
     ("civ.site_map_terms", ""),
+    ("civ.junction_settlements", ""),
     ("civ.map_crossings", ""),
     // Ruling FK item 2: no reference control; the reference badges ports within
     // its own radius.
@@ -1830,6 +1840,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // lanes pair by pair and ranked sites without the terms.
     ("civ.sea_lanes", Value::Bool(false)),
     ("civ.site_map_terms", Value::Bool(false)),
+    // Finding F27 / Ruling GL (2026-11-22): every save without the key founded no junction hamlets.
+    ("civ.junction_settlements", Value::Bool(false)),
     ("civ.map_crossings", Value::Bool(false)),
     // Ruling FK item 2 (2026-11-16): every save without the key badged its
     // port candidates within the reference's radius.

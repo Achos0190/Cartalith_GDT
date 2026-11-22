@@ -341,6 +341,30 @@ pub fn run_collapse_simulation(
     world: &SimulateWorldParams,
     req: &CollapseSimRequest,
 ) -> CollapseSimOutcome {
+    run_collapse_simulation_with(timeline, active_year, live_settlements, live_ways, live_territory, world, req, None)
+}
+
+/// What a recovery step may found: called once per recovery step with the step's year, the
+/// settlements standing then (junction hamlets already founded included) and the ways carried
+/// forward, it returns the settlements founded that year.
+pub type FoundAtStep<'a> = &'a mut dyn FnMut(i64, &[NamedSettlement], &[Way]) -> Vec<NamedSettlement>;
+
+/// [`run_collapse_simulation`] plus owner finding F27 / Ruling GL's timeline half: in recovery mode
+/// `found` (the junction rule, `civ.junction_settlements`) adds the hamlets that arise where the
+/// carried-forward roads converge, each step, and they stay in every later step's list. `None` is
+/// [`run_collapse_simulation`] by control flow. Collapse mode never founds anything.
+#[allow(clippy::too_many_arguments)]
+pub fn run_collapse_simulation_with(
+    timeline: &mut Vec<TimelineSnapshot>,
+    active_year: i64,
+    live_settlements: &[NamedSettlement],
+    live_ways: &[Way],
+    live_territory: &[i32],
+    world: &SimulateWorldParams,
+    req: &CollapseSimRequest,
+    mut found: Option<FoundAtStep>,
+) -> CollapseSimOutcome {
+    let mut founded: Vec<NamedSettlement> = Vec::new();
     if live_settlements.is_empty() {
         return CollapseSimOutcome::NoSettlements;
     }
@@ -420,11 +444,20 @@ pub fn run_collapse_simulation(
     let mut report = CollapseSimReport { steps, ..Default::default() };
     for (t, snap) in snapshots.iter().enumerate() {
         let year = step_year(req, t as i64 + 1, step_years);
-        let named: Vec<NamedSettlement> = snap
+        let mut named: Vec<NamedSettlement> = snap
             .places
             .iter()
             .filter_map(|p| named_settlement_from_collapse_place(live_settlements, p))
             .collect();
+        if req.mode == SimulateMode::Recovery {
+            if let Some(f) = found.as_mut() {
+                let mut standing = named.clone();
+                standing.extend(founded.iter().cloned());
+                let new = f(year, &standing, &ways0);
+                founded.extend(new);
+            }
+            named.extend(founded.iter().cloned());
+        }
         report.final_settlement_count = named.len();
         match snap.stats {
             TimelineStepStats::Collapse(s) => {
@@ -738,6 +771,38 @@ mod tests {
             assert_eq!(snap.settlements[0].pop, 500, "zero severity must not change population, year {y}");
             assert_eq!(snap.settlements[0].name, "Alpha", "name must survive the round trip, year {y}");
         }
+    }
+
+    /// Protects owner finding F27 / Ruling GL's timeline half: in recovery mode the `found` hook is
+    /// called once per step with that step's year and what founds there appears in that step's
+    /// snapshot AND every later one (never an earlier one); collapse mode never calls it; `None` is
+    /// the plain run.
+    #[test]
+    fn recovery_steps_found_settlements_that_stay_and_collapse_steps_do_not() {
+        let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
+        let dens = vec![5.0f32; GW * GH];
+        let field = vec![0.6f32; GW * GH];
+        let world = world_params(&dens, &field);
+        let mut calls: Vec<i64> = Vec::new();
+        let mut found = |year: i64, standing: &[NamedSettlement], _: &[Way]| {
+            calls.push(year);
+            if year == 20 { vec![settlement(99, 9, 9, SettlementKind::Hamlet, 0, "Junction")] } else { assert!(standing.len() <= 2); Vec::new() }
+        };
+        let mut timeline = Vec::new();
+        let req = CollapseSimRequest { mode: SimulateMode::Recovery, rate: 0.0, start_year: 0, duration: 30, step_years: 10, ..CollapseSimRequest::default() };
+        let CollapseSimOutcome::Ran(r) = run_collapse_simulation_with(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &req, Some(&mut found)) else { panic!("ran") };
+        assert_eq!(calls, vec![10, 20, 30]);
+        assert_eq!(r.final_settlement_count, 2);
+        let n = |y: i64| timeline.iter().find(|s| s.year == y).unwrap().settlements.len();
+        assert_eq!((n(10), n(20), n(30)), (1, 2, 2));
+        let mut none = Vec::new();
+        run_collapse_simulation_with(&mut none, 0, &settlements, &[], &[0; GW * GH], &world, &req, None);
+        assert_eq!(none.iter().map(|s| s.settlements.len()).max(), Some(1), "no hook, no founding");
+        let mut calls2 = 0;
+        let mut counting = |_: i64, _: &[NamedSettlement], _: &[Way]| { calls2 += 1; Vec::new() };
+        let col = CollapseSimRequest { severity: 0.0, ..CollapseSimRequest { start_year: 0, duration: 30, step_years: 10, ..CollapseSimRequest::default() } };
+        run_collapse_simulation_with(&mut Vec::new(), 0, &settlements, &[], &[0; GW * GH], &world, &col, Some(&mut counting));
+        assert_eq!(calls2, 0, "collapse mode founds nothing");
     }
 
     /// Protects: a run that would overwrite a recorded year returns `NeedsConfirmation` listing
