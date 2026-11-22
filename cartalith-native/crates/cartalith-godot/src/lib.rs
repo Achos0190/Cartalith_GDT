@@ -27,6 +27,7 @@ mod annotation_bridge;
 mod poi_bridge;
 mod annotation_undo;
 mod asset_bridge;
+mod world_art;
 mod bake_bridge;
 // Found-bug sweep 2026-10-11, R8: an ignored measurement over the real pipeline.
 #[cfg(test)]
@@ -7775,6 +7776,10 @@ struct WorldGen {
     /// Empty for a generated world, which is the honest answer: nothing was
     /// read, so nothing is being carried.
     carried_foreign: std::collections::BTreeMap<String, Vec<u8>>,
+    /// Ruling GW: the `library/art/<key>.png` pictures the opened archive carried, by key, waiting for
+    /// `asset_library_restore_document` to add the missing ones to the device library. Kept apart from `carried_foreign` on purpose:
+    /// a save writes the art its world uses *now*, so carrying the old entries would re-emit pictures nothing places.
+    world_art: std::collections::BTreeMap<String, Vec<u8>>,
 
     /// Why the last `landmark_run()` refused, empty when it did not.
     ///
@@ -8150,6 +8155,7 @@ impl IRefCounted for WorldGen {
             custom_pins: Vec::new(),
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
+            world_art: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
             landmark_refine_error: String::new(),
             region_error: String::new(),
@@ -8613,6 +8619,7 @@ impl WorldGen {
         // them here would write another project's payloads into this world's
         // first save. See the field's own doc comment.
         self.carried_foreign.clear();
+        self.world_art.clear();
         // The project-scoped half of the Markdown Vault, for the same reason
         // every editor above is dropped: a knowledge link binds a note to an
         // `entity_id` in the *outgoing* civ layer, and `absorb()` replaces
@@ -11514,6 +11521,7 @@ impl WorldGen {
         // files *this* archive's own foreign entries on top, so the field is
         // never empty when it should not be, and never the last file's.
         self.carried_foreign.clear();
+        self.world_art.clear();
         // The project-scoped half of the Markdown Vault. A knowledge link
         // binds a *note* to an `entity_id` in **this** world's civ layer, and
         // `self.civ` was set to `None` a few lines above -- keeping the links

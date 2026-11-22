@@ -110,7 +110,7 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
 
     let back = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("a saved project should reopen");
     assert_eq!(back.layout, cartalith_io::Layout::Tree);
-    assert_eq!(back.format_version, 2, "SAVEFILE_COMPAT.md §7: this build writes version 2");
+    assert_eq!(back.format_version, 3, "SAVEFILE_COMPAT.md §7: this build writes version 3");
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
 
@@ -201,17 +201,17 @@ fn the_tree_is_the_tree_the_specification_publishes() {
             "project.json",
             // `SAVEFILE_COMPAT.md` §8.2 (format_version 2): every 4-byte
             // raster under its `.shuffled.` name; the `u8` keeps its own.
-            "rasters/heightmap.shuffled.f32",
-            "rasters/impact_field.shuffled.f32",
-            "rasters/rainfall.shuffled.f32",
+            "rasters/heightmap.delta-shuffled.f32",
+            "rasters/impact_field.delta-shuffled.f32",
+            "rasters/rainfall.delta-shuffled.f32",
             "rasters/strahler_order.u8",
-            "rasters/temperature.shuffled.f32",
-            "rasters/volcanic_field.shuffled.f32",
+            "rasters/temperature.delta-shuffled.f32",
+            "rasters/volcanic_field.delta-shuffled.f32",
         ]
     );
     // Every raster entry is exactly gw*gh*element bytes -- no header, no
     // length prefix (§8); the §8.2 shuffle reorders bytes, never adds any.
-    assert_eq!(archive.by_name("rasters/heightmap.shuffled.f32").unwrap().size(), (n * 4) as u64);
+    assert_eq!(archive.by_name("rasters/heightmap.delta-shuffled.f32").unwrap().size(), (n * 4) as u64);
     assert_eq!(archive.by_name("rasters/strahler_order.u8").unwrap().size(), n as u64);
     // `project.json` is first, so a truncated transfer is diagnosable (§3.1).
     assert_eq!(archive.by_index(0).unwrap().name(), "project.json");

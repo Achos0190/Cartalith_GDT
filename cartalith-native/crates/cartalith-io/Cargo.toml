@@ -26,7 +26,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 # Feature unification makes this the parse for the whole build, which is the
 # point: V8's `JSON.parse` is correctly rounded too.
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
-zip = { version = "8.6.0", features = ["deflate"] }
+zip = { version = "8.6.0", features = ["deflate", "zstd"] }
 # UNIFIED_TOOL_PLAN.md milestone E2: gzip for the region export's `.bin`
 # tiles (the reference's `gzipBytes`, a one-liner over the browser's own
 # CompressionStream). Crate work, not a hand-port -- PROVENANCE.md's "take a

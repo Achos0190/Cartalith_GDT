@@ -22,10 +22,10 @@ note about what the HTML app's `exportZip()` happened to produce.
   imports from one (owner Ruling AU).
 - **§16** — what is deliberately not stored, and why.
 - **§17** — notes specific to this port's own implementation (non-normative).
-- **§18** — why the container is deflate, measured. Non-normative, but it is
-  the reason §3.3 says what it says. Its two levers were open owner decisions
-  until 2026-09-23 (Ruling AJ): the shuffle was taken (§8.2, measured on
-  shipping in §18.6) and quantisation was declined.
+- **§18** — the compression measurements. Non-normative. §18.1-§18.6 are why
+  deflate was the container's codec until 2026-11-22 (Ruling AJ took the shuffle,
+  §8.2, and declined quantisation); **§18.7 is the measurement behind format 3**
+  (Ruling GX: delta + shuffle + Zstandard for the rasters, §3.3 and §8.5).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used in the
 RFC 2119 sense.
@@ -183,18 +183,36 @@ wrong.
 
 ### 3.3 Compression methods, and the one a reader cannot decode
 
-**A writer MUST use only method 0 (store) and method 8 (deflate).** No other
-method may appear in a conforming archive — in particular not method 93
-(Zstandard, standardised by APPNOTE 6.3.8), nor 12 (bzip2), 14 (LZMA) or 95
-(XZ). All four are legal PKZIP; none of them is decodable in a browser
-without shipping a decoder alongside the page. §18 records what was measured
-before this rule was written, and why the obvious workaround — deflate for the
-small documents, something denser for the big rasters — does not work.
+**Format 3 (Ruling GX, 2026-11-22) changes this rule, and only for rasters.** A
+writer MUST use method 0 (store), method 8 (deflate) and, **for raster entries
+only** (everything under `rasters/` and `history/territory/`), method 93
+(Zstandard, APPNOTE 6.3.8). Every other entry (`project.json`, `params.json`,
+every JSON document, `README.md`, the art PNGs) stays method 8 or 0, so a plain
+zip tool can still list the archive and a person can read `project.json` out of
+it. No other method (12 bzip2, 14 LZMA, 95 XZ) may appear. The rule below is
+what format 1 and 2 said, and it is still how a format-1 or format-2 archive
+reads:
 
-**A reader MUST support method 0 and method 8. Nothing more is required.** A
-reader MAY support more; because no conforming writer emits more, supporting
-more changes nothing about the format and is never a substitute for the rule
-above.
+> A writer MUST use only method 0 (store) and method 8 (deflate). No other
+> method may appear in a conforming archive — in particular not method 93
+> (Zstandard), nor 12 (bzip2), 14 (LZMA) or 95 (XZ). All four are legal PKZIP;
+> none of them is decodable in a browser without shipping a decoder alongside
+> the page. §18 records what was measured before this rule was written, and why
+> the obvious workaround — deflate for the small documents, something denser
+> for the big rasters — does not work.
+
+**The price of format 3 is accepted and is not a defect** (owner, Ruling GX): the
+HTML app's `unzipAny` and JSZip reject an archive holding any method-93 entry
+(§18.3), so **the HTML app cannot open a format-3 save.** It still opens
+formats 1 and 2, and this port still reads them. A format-3 archive is a valid zip
+container, and a reader that implements method 93 (zstd is in every language's
+standard tooling) reads it.
+
+**A reader MUST support method 0 and method 8, and method 93 to read a format-3
+archive.** A reader that supports only 0 and 8 reads formats 1 and 2 and, on a
+format-3 archive, meets §6.4's "recognised entry it cannot decode" for every
+raster: `rasters/heightmap.delta-shuffled.f32` is then unreadable-not-absent and
+the archive is refused, naming the entry and method 93.
 
 **An entry whose compression method the reader cannot decode is intact and
 unreadable, which is not the same thing as absent. A reader MUST NOT conflate
@@ -229,7 +247,7 @@ guess from the presence or absence of any other entry.
 `project.json` carries the version:
 
 ```json
-{ "format": "cartalith-project", "format_version": 2 }
+{ "format": "cartalith-project", "format_version": 3 }
 ```
 
 - A reader MUST check `format`. If it is present and is not the string
@@ -242,11 +260,20 @@ guess from the presence or absence of any other entry.
     archive was written by a newer program and that parts of it were not
     understood. It MUST NOT silently discard the file.
   - Less than the reader's own version: read according to that older version's
-    rules. Versions 1 and 2 are defined; nothing is older than 1.
+    rules. Versions 1, 2 and 3 are defined; nothing is older than 1.
 - A writer MUST write both members.
 
-**Version 2 is the version this document defines, and §8.2 is the whole of
-what separates it from version 1.** Version 1 said `1` from 2026-08-25 to
+**Version 3 is the version this document defines (Ruling GX and Ruling GW,
+2026-11-22), and it is version 2 plus two things: Zstandard for the raster entries
+with a row delta ahead of the byte-plane shuffle (§3.3, §8.5), and the used asset
+library art embedded under `library/art/` (§16.5).** A format-3 writer is what this
+port writes, every save from 2026-11-22. A format-3 reader reads formats 1 and 2
+exactly as before, because the decode of a raster is decided by its **entry name**
+and nothing else (§8.5). The next paragraphs are what separated 2 from 1, and are
+still true of it.
+
+**Version 2 was the version this document defined until then, and §8.2 is the whole of
+what separated it from version 1.** Version 1 said `1` from 2026-08-25 to
 2026-09-23; version 2 (owner Ruling AJ, 2026-09-23) adds the byte-plane
 shuffle, which stores a 4-byte raster's bytes reordered under a **different
 entry name**. Every other rule in this document is the same for both, and a
@@ -465,9 +492,10 @@ Write a zip containing exactly two entries:
 2. `rasters/heightmap.f32` — `grid_width × grid_height` little-endian 32-bit
    floats, row-major (§8).
 
-That archive is valid, at `format_version` `1` or `2` — the shuffle of §8.2 is
-what a writer SHOULD do, not what it must, so a minimal writer can still skip
-it. Every other entry is optional enrichment. A writer that
+That archive is valid, at `format_version` `1`, `2` or `3` — the shuffle of §8.2
+and the delta and Zstandard of §8.5 are what a writer SHOULD do, not what it
+must, so a minimal writer can still skip them (a plain dump under the §8.1 name,
+deflate, reads in every version). Every other entry is optional enrichment. A writer that
 also emits `rasters/temperature.f32` and `rasters/rainfall.f32` produces
 something a renderer can colour without inventing a climate, which is why those
 two are SHOULD rather than MAY.
@@ -631,7 +659,7 @@ the grid every raster is measured against.
 ```json
 {
   "format": "cartalith-project",
-  "format_version": 2,
+  "format_version": 3,
   "generator": "cartalith-native 0.1.0",
   "created": "2026-08-25T14:03:11Z",
   "world": {
@@ -649,7 +677,7 @@ the grid every raster is measured against.
 | Member | Type | Required | Meaning |
 |---|---|---|---|
 | `format` | string | MUST | Always `"cartalith-project"`. §4. |
-| `format_version` | integer | MUST | `2` (`1` before 2026-09-23). §4. |
+| `format_version` | integer | MUST | `3` (`2` from 2026-09-23 to 2026-11-21, `1` before). §4. |
 | `generator` | string | SHOULD | Free-form name and version of the writing program. Provenance only; no reader may branch on it. |
 | `created` | string | MAY | RFC 3339 UTC timestamp. Provenance only. |
 | `world.grid_width` | integer ≥ 1 | MUST | `GW`. Cells across. |
@@ -838,8 +866,8 @@ shuffled[k × N + i] = dump[4i + k]        for k in 0..4, i in 0..N
 dump[4i + k]        = shuffled[k × N + i] (the inverse, which a reader applies)
 ```
 
-The entry is still exactly `N × 4` bytes, still compressed with method 8
-(§3.3), and still validated against `GW × GH × 4` (§8) — the length check
+The entry is still exactly `N × 4` bytes, still compressed with method 8 at
+format 2 (§3.3; format 3 compresses it with Zstandard, §8.5), and still validated against `GW × GH × 4` (§8) — the length check
 happens before the inverse and is identical for both encodings. This is the
 HDF5/Blosc "shuffle" filter, and it is the transform §18.1 measured.
 
@@ -905,9 +933,69 @@ symmetric:
   treat it by the rules above.
 
 **What it deliberately does not do.** It is not a new compression method
-(§3.3 is unchanged: store and deflate only, and the container still opens in
-any zip tool). It is not quantisation (§8.1's last paragraph). It does not
+(at format 2 §3.3 was unchanged: store and deflate only, and the container still
+opened in any zip tool; format 3 adds Zstandard for rasters, §3.3 and §8.5). It is not quantisation (§8.1's last paragraph). It does not
 touch any JSON document, `preview.png`, a history raster or a tile.
+
+### 8.5 Row delta and Zstandard — `format_version` 3, owner Ruling GX, 2026-11-22
+
+**What a format-3 writer does to a 4-byte raster, in order.** Take the §8 dump as
+`N = GW × GH` 32-bit words (an `f32`'s IEEE-754 bit pattern, an `i32`'s
+two's-complement pattern, both little-endian). **(1) Row delta:** replace each word
+by its wrapping difference from the word to its left in the same row; the first word
+of every row is kept as it is.
+
+```
+d[y*GW + 0] = v[y*GW + 0]
+d[y*GW + x] = (v[y*GW + x] - v[y*GW + x - 1]) mod 2^32        for x in 1..GW
+v[y*GW + x] = (d[y*GW + x] + v[y*GW + x - 1]) mod 2^32        (the inverse, a running sum per row)
+```
+
+**(2) The §8.2 byte-plane shuffle**, applied to `d` as if it were the dump.
+**(3) Zstandard** (zip method 93) over the result. The delta is integer arithmetic
+on bit patterns, never on the floats, so it is exact for every value: NaN payloads,
+infinities, subnormals and negative zero come back bit for bit. It is not a
+predictor beyond "the left neighbour" (the owner declined any other).
+
+**The marker is the entry name, as for the shuffle.** A delta-shuffled raster is
+stored under its slot's name with `.delta-shuffled` inserted before the extension:
+
+| Slot | Format-1 name | Format-2 name | **Format-3 name** |
+|---|---|---|---|
+| heightmap | `rasters/heightmap.f32` | `rasters/heightmap.shuffled.f32` | `rasters/heightmap.delta-shuffled.f32` |
+| territory | `rasters/territory.i32` | `rasters/territory.shuffled.i32` | `rasters/territory.delta-shuffled.i32` |
+| every other 4-byte slot of §8.1 | plain | `.shuffled` | `.delta-shuffled` |
+
+`.u8` rasters keep their §8.1 name and have no delta or shuffle; they are still
+Zstandard. `history/territory/<year>.i32` (§10.2) keeps its plain dump under its own
+name and is Zstandard. Every `rasters/` and `history/territory/` entry of a format-3
+archive is method 93; every other entry is method 8 or 0 (§3.3).
+
+**Why a new name and not "method 93 means delta".** The decode of a raster must be
+readable from the entry's own name and nothing else, as §8.2 argued: not from
+`format_version` (which an archive can contradict) and not from the zip method
+(which a tool can rewrite). So a format-2 reader that meets a format-3 archive
+finds neither `rasters/heightmap.f32` nor `rasters/heightmap.shuffled.f32`, and
+refuses it under §6.4 rather than reading deltas as heights.
+
+**Obligations.**
+
+- A format-3 writer SHOULD write every 4-byte raster as `.delta-shuffled` and MUST
+  NOT write two names for one slot. It MAY write a raster plain or `.shuffled`
+  instead (a reader accepts all three).
+- A reader MUST accept all three names for a 4-byte slot and undo exactly the
+  steps its name says: `.delta-shuffled` the running sum then the un-shuffle,
+  `.shuffled` the un-shuffle only, plain neither. It MUST decide by the name that
+  was found, never by `format_version`.
+- A reader that finds more than one name for a slot MUST read the newest
+  (`.delta-shuffled`, then `.shuffled`, then plain) and MUST report that it ignored
+  the others (§8.2's rule, extended).
+- The length check of §8 happens before any inverse and is identical for all
+  three encodings.
+
+**Level.** The writer in this port uses Zstandard level **3**, chosen by the
+measurement in §18.7. The level is not stored and a reader needs none: any level
+decodes with any Zstandard decoder.
 
 ### 8.3 The world substrate — owner Ruling AR, 2026-09-24 (`format_version` stays 2)
 
@@ -2293,7 +2381,7 @@ any of them; none is required to display a world.
 
 | Slot | Carries | Notes |
 |---|---|---|
-| `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items. **Since Ruling FR (2026-11-17) the shell MERGES this record into the device's library instead of replacing it** (`AssetDB::merge_library_file`: it creates slots the library lacks, fills only default metadata, unions collections, never removes or replaces an item), so an opening world no longer presents an empty library, and the old "reader MUST report zero items" duty is met by there being nothing to report: the library's pictures are the device's own (`ASSET_LIBRARY_SCOPE.md` §12). A reader that has no device library of its own still rebuilds slots with zero items and MUST say so. |
+| `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **Since format 3 (Ruling GW) the pictures the world uses are in the archive, under `library/art/<key>.png`, not in this document (§16.5); an item that has one carries `"h": "<key>"`.** The rest of this cell is what formats 1 and 2 said, and is still how a save without `library/art/` reads. **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items. **Since Ruling FR (2026-11-17) the shell MERGES this record into the device's library instead of replacing it** (`AssetDB::merge_library_file`: it creates slots the library lacks, fills only default metadata, unions collections, never removes or replaces an item), so an opening world no longer presents an empty library, and the old "reader MUST report zero items" duty is met by there being nothing to report: the library's pictures are the device's own (`ASSET_LIBRARY_SCOPE.md` §12). A reader that has no device library of its own still rebuilds slots with zero items and MUST say so. |
 | `library/travel.json` | every **custom** animal, vehicle, vessel and party preset | Stock entries are deliberately absent: they are read-only by construction and rebuilt identically on every launch, so storing them would store one build's constants. A restore replaces the custom half and leaves stock alone. |
 | `library/settlement_types.json` | the user's settlement types: `{"types": [{"id", "name", "kind", "specialisation", "traits": [...], "walls", "age_mode", "age_years", "name_pool", "usage_count"}], "faction_defaults": {"<faction index>": "<type id>"}}` | Written by the shell's `SettlementTypeStore.document()`, only when there is at least one type or faction default. An **absent** slot means "no types" and clears the outgoing project's on open; so does a document that does not parse. A type row with no `id` is skipped. |
 | `drafts/paint.json` | the three committed paint layers, each a sparse `[index, value, …]` pair list, plus `gw`/`gh` | An index means nothing without the grid: a reader MUST refuse a document whose `gw`/`gh` are not the world's, because a layer decoded against a different grid is a scrambled picture, not a smaller one. |
@@ -3142,24 +3230,63 @@ discarded after use in the current implementation; there is no live value to
 write. They are named in §8.1 so the second implementation does not choose
 `rasters/biomes.u8` or `climate/koppen.u8` instead.
 
-### 16.5 `library/` — the **binary** half, still not stored
+### 16.5 `library/` — the **binary** half, stored from format 3 (Ruling GW, 2026-11-22)
 
-**This subsection said "reserved, empty today" and that is no longer the
-whole truth.** Both library documents are written and restored (§12). What is
-still deliberately absent is the part the old reasoning was actually about:
-the asset library's **art**. `library/assets.json` carries each item's image
-*index*, name and transform; the pixels those indices address are not in the
-archive, because embedding them is its own design question and answering it
-badly would put images somewhere the tree would later have to move them out
-of. A restored library therefore comes back as slot definitions with zero
-items, and a reader that does not say so is presenting an empty library as a
-complete one.
+**Until format 3 this subsection said the library's art was deliberately not stored, and
+that was the case for formats 1 and 2.** `library/assets.json` carries each item's image
+*index*, name and transform; the pixels live per device (§12; the app's
+`user://asset_library/`, Ruling FR), so a world opened on another device drew from a
+library that lacked its pictures. The owner's ruling (GW): *embed only the images the
+world actually places.*
 
-**Ruling FR (2026-11-17) did not change the archive.** The per-device library (`user://asset_library/`: `index.json` plus
-`img/<key>.png`, `ASSET_LIBRARY_SCOPE.md` §12) is not a world file and is not in the archive; what changed is the *reader*: an
-opening world merges `library/assets.json` into that library rather than replacing it, so a restored library no longer has to be
-described as slot definitions with zero items. The store's `index.json` is the same record plus `store_version` and a per-item
-`h`, and is private to the app (no other reader is expected).
+**The entries.** A format-3 writer MAY add, for each picture the world uses,
+
+```
+library/art/<key>.png
+```
+
+- `<key>` is `<16 lower-case hex digits>-<w>x<h>` (`w`, `h` decimal, at most six digits
+  each): a 64-bit hash of the decoded RGBA pixels with the size mixed in, then the size.
+  Two pictures with the same key are the same pixels; this port's hash is a
+  multiply-xorshift over the pixel bytes, **not cryptographic**, and is the same key
+  the device library files its pictures under. A reader that cannot recompute the hash
+  MUST NOT rely on it for anything but naming.
+- The entry is a PNG (method 0 or 8, never 93; a PNG is already compressed).
+- **Only used art.** The picture of an item is written only if the world places a slot
+  that holds it: a slot named by a row of `annotations/icons.json` (§11.2: family, slot
+  and, for `custom`, set), or a custom pin used by a point of `annotations/pois.json`
+  (§11.2a). A library item in no used slot is not embedded.
+- **The link from record to picture** is an optional member of each item in
+  `library/assets.json`'s `slots[].items[]`: `"h": "<key>"`, the same member the device
+  store's own index uses. An item without `h`, or whose key has no entry, has no
+  embedded picture. A reader that does not know `h` ignores it (§14.3).
+
+**Opening.** The reader merges `library/assets.json` into the device library first
+(§12, Ruling FR), then, for each `h`-tagged item whose picture is present:
+
+1. Decode the PNG and recompute its key. A picture whose key is not the one it is
+   filed under, or that does not decode, is **refused and reported**, never added.
+2. If the slot already holds a picture with that key, do nothing. If the slot is a
+   pin slot (custom set `Pins`) and already holds any picture, do nothing: the
+   device's pin is the device's own, and the world draws its pin from
+   `annotations/pois.json`'s copy (Ruling FP).
+3. Otherwise add the picture to the slot with the record's name and transform.
+
+**A reader never replaces, edits or removes a picture the device already holds.** There
+is therefore nothing to ask the user: because a key is a hash of the pixels, "an existing
+key with different bytes" can arise only by a 64-bit collision or a damaged file, which
+step 1 refuses. This port shows no prompt for it.
+
+**A save without `library/art/` opens as before**: the record merges, no picture is
+added, and nothing is reported. A writer that embeds nothing writes `library/assets.json`
+without any `h` and no `library/art/` entry, byte for byte as format 2 did.
+A conforming reader of formats 1 and 2 that meets `library/art/*.png` treats them as
+unknown entries (§6.3).
+
+**Re-saving.** The pictures are written from the world as it is at save time. An opened
+archive's `library/art/` entries are **not** carried through (§6.2's foreign-entry rule
+does not apply to them): the next save embeds what the world then uses, and a picture
+no longer used is dropped.
 
 The travel library has no binary payload and is stored in full.
 
@@ -3316,14 +3443,16 @@ weaker answer to a question two existing mechanisms already answer.
   syntax error fails the save rather than being silently repaired.
 - `strahler_order` is 8-bit in the archive and wider in memory; it saturates at
   255 on the way out, matching the reference exporter's own `o > 255 ? 255 : o`.
-- **This build decodes far more compression methods than the format uses.**
-  The `zip` crate is taken with its default features, which bring in
-  Zstandard (93), bzip2 (12), LZMA (14), XZ (95), PPMd (98) and Deflate64 (9)
-  decoders. That is incidental, not a promise: §3.3 is what a second
-  implementation must satisfy, and this port still writes only method 8 (and
-  method 0 for `preview.png`, which is already-compressed PNG). The methods
-  it genuinely cannot decode are the legacy PKZIP ones (1-6), which is why
-  §3.3's own round-trip test uses method 1.
+- **Which compression methods this build handles.** The `zip` crate is taken with
+  its `deflate` and `zstd` features (`cartalith-io` and `cartalith-godot`
+  `Cargo.toml`, 2026-11-22, Ruling GX). The `zstd` crate wraps the C Zstandard
+  library, built by `zstd-sys`; `cargo ndk -t arm64-v8a build --release -p
+  cartalith-godot` was run and builds it with the NDK's clang. This port writes
+  method 93 (level 3, `RASTER_ZSTD_LEVEL`) for rasters, method 8 for documents and
+  method 0 for `preview.png` and the `library/art/` PNGs. §3.3 is what a second
+  implementation must satisfy. A reader built without the `zstd` feature meets
+  method 93 as an undecodable entry (§6.4); the legacy PKZIP methods (1-6) are
+  never decodable here, which is why §3.3's round-trip test uses method 1.
 - **§8.2's shuffle** is `project.rs`'s `write_planes` / `Raster::from_planes`,
   with `raster_entry_name` deciding the stored name and `SHUFFLED_INFIX` the
   infix. The reader tries the shuffled name first and the plain one second,
@@ -3332,9 +3461,16 @@ weaker answer to a question two existing mechanisms already answer.
   as a second whole copy in memory; the reader decodes the planes straight
   into the element vector. `history/territory/<year>.i32` goes through
   `write_dump`, the plain §8 encoding. The shell's gallery thumbnail
-  (`open_project_dialog.gd`'s `_render_thumbnail`) reads the heightmap entry
-  directly with `ZIPReader` rather than through the engine, so it carries the
-  same two-name rule and gathers only the cells it samples. Backward
+  (`open_project_dialog.gd`'s `_render_thumbnail`) used to read the heightmap
+  entry directly with `ZIPReader`, carrying the same two-name rule. **Format 3
+  broke that, and it is the kind of break `cargo test` cannot see:** Godot's
+  `ZIPReader` cannot decode method 93, so every new save would have drawn the
+  placeholder. A tree-layout archive is now sampled by the engine
+  (`cartalith_io::project::read_height_samples`, bound as
+  `WorldGen.project_height_samples`: one inflate of the heightmap entry, the row
+  delta summed only along the sampled rows); the `ZIPReader` walk remains for
+  the flat layout, whose entries are deflate. The shell's reads of `project.json`
+  and `params.json` through `ZIPReader` (method 8) are unaffected. Backward
   compatibility is pinned by `a_version_1_archive_reads_exactly_as_it_always_did`
   over `crates/cartalith-io/tests/fixtures/project_v1_7x5.ctl`, an archive the
   unmodified version-1 writer produced before the shuffle existed; the stored
@@ -3422,7 +3558,7 @@ refuse to overwrite. Both halves now take the first option:
 
 ---
 
-## 18. Why the container is deflate — measured, 2026-08-25
+## 18. Why the container was deflate, and what replaced it — measured, 2026-08-25 and 2026-11-22
 
 **Non-normative.** This section is the evidence behind §3.3, and it exists
 because the question it answers ("a dedicated application does not need the
@@ -3619,6 +3755,62 @@ and that is the one entry it costs anything on.
 The before and after runs were separate invocations minutes apart on the same
 machine, each run alone; they are not interleaved, so the timing columns are a
 direction and a magnitude, not a controlled comparison.
+
+### 18.7 Format 3: Zstandard with a row delta — measured, 2026-11-22
+
+**Non-normative.** The evidence behind §3.3's method-93 exception and §8.5, written when owner Ruling GX
+(*"update the underlying compression algorithm, keep it backwards compatible, but saves from today
+should use the new compression"*) shipped it. Harness:
+`crates/cartalith-godot/tests/save_compression_measure.rs` (`#[ignore]`d),
+`CARTALITH_SAVE_SIZES=2048x1311,4096x4096 CARTALITH_SAVE_SEEDS=24601,7,424242 cargo test -p cartalith-godot --release --test save_compression_measure -- --ignored --nocapture`.
+
+**What was measured.** Real generated worlds (the shell's generator defaults, seeds 24601, 7 and 424242) at
+2048×1311 and 4096², zipping the six core raster payloads (heightmap, temperature, rainfall, volcanic field,
+impact field as `f32`, strahler order as `u8`: the entries that hold essentially all of an archive's bytes,
+§18.1), each variant read back and **every `f32` bit pattern compared**, so a codec that loses a bit prints no
+number. "delta" is §8.5's wrapping integer difference of the bit patterns along a row, then the §8.2 shuffle.
+Size is the mean over the three seeds (range in brackets); write and read are the median of the three seeds'
+own medians-of-three, in ms, on the owner's PC, release build, single-threaded. **The savings columns are
+against format 2 (shuffle + deflate) and against format 1 (plain deflate).** Not interleaved, and the first 4096² seed
+ran while a debug compile shared the machine, so timings are a direction and a magnitude, not a controlled comparison.
+
+| Grid | Variant | Size, MiB (range) | Write ms | Read ms | Smaller than format 2 | Smaller than format 1 |
+|---|---|---|---|---|---|---|
+| 2048×1311 | deflate, no shuffle (format 1) | 23.55 (21.08-24.94) | 473 | 78 | -48.7% | +0.0% |
+| 2048×1311 | shuffle+deflate (format 2) | 15.84 (13.62-17.11) | 371 | 59 | +0.0% | +32.7% |
+| 2048×1311 | shuffle+zstd-3 | 15.78 (13.45-17.09) | 83 | 34 | +0.4% | +33.0% |
+| 2048×1311 | shuffle+zstd-9 | 15.14 (12.57-16.53) | 307 | 49 | +4.5% | +35.7% |
+| 2048×1311 | shuffle+zstd-15 | 15.04 (12.49-16.42) | 1302 | 45 | +5.1% | +36.1% |
+| 2048×1311 | **delta+shuffle+zstd-3** | **14.22** (11.34-15.71) | **137** | **56** | +10.2% | +39.6% |
+| 2048×1311 | delta+shuffle+zstd-9 | 13.61 (10.81-15.06) | 450 | 56 | +14.1% | +42.2% |
+| 2048×1311 | delta+shuffle+zstd-15 | 13.40 (10.63-14.84) | 1821 | 43 | +15.4% | +43.1% |
+| 4096×4096 | deflate, no shuffle (format 1) | 144.40 (128.29-154.72) | 3906 | 585 | -57.2% | +0.0% |
+| 4096×4096 | shuffle+deflate (format 2) | 91.85 (77.94-100.77) | 2353 | 391 | +0.0% | +36.4% |
+| 4096×4096 | shuffle+zstd-3 | 90.98 (75.70-100.68) | 574 | 309 | +0.9% | +37.0% |
+| 4096×4096 | shuffle+zstd-9 | 85.45 (68.78-96.04) | 1786 | 261 | +7.0% | +40.8% |
+| 4096×4096 | shuffle+zstd-15 | 84.17 (67.47-94.79) | 7854 | 240 | +8.4% | +41.7% |
+| 4096×4096 | **delta+shuffle+zstd-3** | **79.42** (62.13-90.53) | **616** | **301** | +13.5% | +45.0% |
+| 4096×4096 | delta+shuffle+zstd-9 | 75.09 (58.66-85.68) | 1971 | 284 | +18.2% | +48.0% |
+| 4096×4096 | delta+shuffle+zstd-15 | 73.64 (57.13-84.24) | 9543 | 274 | +19.8% | +49.0% |
+
+**Chosen default: delta + shuffle + Zstandard level 3** (`RASTER_ZSTD_LEVEL`). Against today's format 2 it is
+**10.2% smaller at 2048×1311 and 13.5% smaller at 4096², and writes 2.7× faster (137 against 371 ms) and 3.8×
+faster (616 against 2353 ms)**; against format 1 it is **39.6% and 45.0% smaller**. Reading is no slower (56 against
+59 ms; 301 against 391 ms). Why this cell:
+
+- **The delta is worth having**: at levels 3 and 9 it saves a further 10% over shuffle + zstd at 2048×1311 and 12-13%
+  at 4096² (the owner allowed it "if measured better"), for +40-55 ms of write at level 3. It is exact (above) and
+  it is the only predictor built: the owner declined any other.
+- **Shuffle + zstd without the delta** is only 0.4% (2048) and 0.9% (4096²) smaller than format 2 at level 3. Zstandard's
+  gain over deflate is time, as §18.2 found, and the size gain is the delta's.
+- **Level 3 over 9 and 15.** Level 9 is a further 4.3% (2048) and 5.4% (4096²) smaller but writes 3.3× and 3.2×
+  slower than level 3, which is no faster than today's format 2 at 2048×1311 (450 against 371 ms); level 15 saves 1.5-1.9%
+  more again, at 1.8 s and 9.5 s to write. A save is a thing a person waits for, and the archive carries more than these six
+  rasters, so the cheap level wins. A later build may raise the level without a format change: the level is not stored.
+- **JSON stays deflate.** Every document together is under 5 KiB (§18.1): a codec moves nothing there, and deflate
+  keeps `project.json` readable in any zip tool.
+
+**What it costs: the HTML app cannot open a format-3 save** (§3.3, §18.3), accepted by Ruling GX.
 
 ## Lake basin-area floor (2026-10-11, Ruling CC)
 

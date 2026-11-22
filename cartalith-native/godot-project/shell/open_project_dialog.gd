@@ -1600,6 +1600,12 @@ static func thumbnail(path: String) -> Texture2D:
 ## archive"*). None of them is an error here, because a picker that throws
 ## instead of drawing a tile is worse than one drawing a gradient.
 static func _render_thumbnail(path: String) -> Image:
+	## Format 3 (Ruling GX) stores every raster as Zstandard, which `ZIPReader` cannot decode, so a tree-layout archive is
+	## sampled by the engine (`project_height_samples`, which reads formats 1, 2 and 3 alike); only a flat-layout archive, or
+	## a build without the binding, reaches the `ZIPReader` walk below.
+	var sampled := _thumbnail_from_engine(path)
+	if sampled != null:
+		return sampled
 	var zip := ZIPReader.new()
 	if zip.open(path) != OK:
 		return null
@@ -1691,6 +1697,34 @@ static func _render_thumbnail(path: String) -> Image:
 				h = bytes.decode_float(i * 4)
 			img.set_pixel(tx, ty, _hypso(h, sea))
 	return img
+
+## The engine's own object for the static thumbnail path (a static function has no bridge); made on first use.
+static var _peek: Object = null
+
+
+## The thumbnail of a tree-layout archive from `WorldGen.project_height_samples`, or `null` when the engine will not sample it
+## (a flat or foreign archive, a bad grid or sea level, no heightmap, or a cdylib without the binding): the caller then reads
+## the archive itself.
+static func _thumbnail_from_engine(path: String) -> Image:
+	if _peek == null:
+		if not ClassDB.class_exists("WorldGen"):
+			return null
+		_peek = ClassDB.instantiate("WorldGen")
+	if _peek == null or not _peek.has_method("project_height_samples"):
+		return null
+	var r: Dictionary = _peek.project_height_samples(path, THUMB_W, THUMB_H)
+	if not bool(r.get("ok", false)):
+		return null
+	var heights: PackedFloat32Array = r["heights"]
+	var sea := float(r["sea_level"])
+	if heights.size() != THUMB_W * THUMB_H:
+		return null
+	var img := Image.create(THUMB_W, THUMB_H, false, Image.FORMAT_RGB8)
+	for ty in THUMB_H:
+		for tx in THUMB_W:
+			img.set_pixel(tx, ty, _hypso(heights[ty * THUMB_W + tx], sea))
+	return img
+
 
 ## `cartalith_terrain::tile_render::hypso` (reference 8332): a normalised
 ## height to its map colour. Below `sea`, a two-segment ramp through

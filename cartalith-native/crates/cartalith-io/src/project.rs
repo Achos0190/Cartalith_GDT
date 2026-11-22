@@ -57,15 +57,29 @@ pub const PROJECT_MANIFEST: &str = "project.json";
 /// different is not a Cartalith project and is refused rather than guessed.
 pub const PROJECT_FORMAT: &str = "cartalith-project";
 
-/// `project.json`'s `format_version`. `2` since 2026-09-23 (owner Ruling AJ):
-/// version 2 is version 1 plus `SAVEFILE_COMPAT.md` §8.2's byte-plane
-/// shuffle. Both are read; only 2 is written.
+/// `project.json`'s `format_version`. `3` since 2026-11-22 (owner Ruling GX): version 3 is
+/// version 2 plus Zstandard (zip method 93) for every raster entry, with a row delta
+/// ahead of the byte-plane shuffle for the 4-byte ones (`SAVEFILE_COMPAT.md` §8.5), and
+/// the used library art under `library/art/` (Ruling GW, §16.5). Versions 1, 2 and 3
+/// are all read; only 3 is written.
 ///
-/// The version is the *declaration*; it is not what decides whether a raster
-/// is un-shuffled. That is [`SHUFFLED_INFIX`] in the entry name, so a
-/// version-1 archive's bytes cannot be un-shuffled by mistake whatever its
-/// manifest says.
-pub const PROJECT_FORMAT_VERSION: i64 = 2;
+/// The version is the *declaration*; it is not what decides how a raster is decoded.
+/// That is the entry's **name** ([`DELTA_INFIX`], [`SHUFFLED_INFIX`], or neither) and
+/// the zip method the entry itself carries, so no archive's bytes can be decoded the
+/// wrong way whatever its manifest says.
+pub const PROJECT_FORMAT_VERSION: i64 = 3;
+
+/// The Zstandard level every format-3 raster is written at (zip method 93). Chosen by
+/// measurement, `SAVEFILE_COMPAT.md` §18.7; a reader needs no level (it is not stored).
+pub const RASTER_ZSTD_LEVEL: i64 = 3;
+
+/// Inserted before a 4-byte raster's extension when its bytes are stored **row-delta
+/// then byte-plane shuffled** (`SAVEFILE_COMPAT.md` §8.5, format 3):
+/// `rasters/heightmap.f32` -> `rasters/heightmap.delta-shuffled.f32`. The delta is the
+/// wrapping integer difference of each element's 32-bit pattern from its left
+/// neighbour in the same row (the first of a row stays as it is): exact, and its own
+/// name for the same fail-loud reason [`SHUFFLED_INFIX`] has one.
+pub const DELTA_INFIX: &str = ".delta-shuffled";
 
 /// Inserted before a 4-byte raster's extension when its bytes are stored
 /// byte-plane shuffled (`SAVEFILE_COMPAT.md` §8.2):
@@ -164,11 +178,11 @@ impl Raster {
     /// 4-byte element (`SAVEFILE_COMPAT.md` §8.2), verbatim for `u8`, which
     /// has one plane and nothing to reorder. Goes under
     /// [`raster_entry_name`], which agrees with this on which is which.
-    fn write_to<W: Write>(&self, sink: &mut W) -> std::io::Result<()> {
+    fn write_to<W: Write>(&self, sink: &mut W, gw: usize) -> std::io::Result<()> {
         match self {
             Raster::U8(v) => sink.write_all(v),
-            Raster::F32(v) => write_planes(sink, v, f32::to_le_bytes),
-            Raster::I32(v) => write_planes(sink, v, i32::to_le_bytes),
+            Raster::F32(v) => write_planes(sink, v, f32::to_le_bytes, gw),
+            Raster::I32(v) => write_planes(sink, v, i32::to_le_bytes, gw),
         }
     }
 
@@ -177,9 +191,25 @@ impl Raster {
     /// straight into the element vector, so un-shuffling costs no second
     /// `4n`-byte buffer on top of the one the entry inflated into. The caller
     /// has already checked `bytes.len() == n * 4`.
-    fn from_planes(element: Element, bytes: &[u8]) -> Raster {
+    ///
+    /// `delta_gw` is `Some(grid width)` for a [`DELTA_INFIX`] entry: every element is
+    /// then the wrapping difference from its left neighbour, and the running sum along
+    /// each row (the first of a row is its own value) restores it exactly (§8.5).
+    fn from_planes(element: Element, bytes: &[u8], delta_gw: Option<usize>) -> Raster {
         let n = bytes.len() / 4;
         let word = |i: usize| [bytes[i], bytes[n + i], bytes[2 * n + i], bytes[3 * n + i]];
+        if let (Some(gw), true) = (delta_gw, element != Element::U8) {
+            let mut w: Vec<u32> = (0..n).map(|i| u32::from_le_bytes(word(i))).collect();
+            for row in w.chunks_mut(gw.max(1)) {
+                for x in 1..row.len() {
+                    row[x] = row[x].wrapping_add(row[x - 1]);
+                }
+            }
+            return match element {
+                Element::F32 => Raster::F32(w.into_iter().map(f32::from_bits).collect()),
+                _ => Raster::I32(w.into_iter().map(|v| v as i32).collect()),
+            };
+        }
         match element {
             Element::F32 => Raster::F32((0..n).map(|i| f32::from_le_bytes(word(i))).collect()),
             Element::I32 => Raster::I32((0..n).map(|i| i32::from_le_bytes(word(i))).collect()),
@@ -894,7 +924,7 @@ fn is_own_entry(name: &str) -> bool {
         || name == LOD_TILE_INDEX
         || DOCUMENT_SLOTS.contains(&name)
         || raster_slot(name).is_some()
-        || RASTER_SLOTS.iter().any(|&s| raster_entry_name(s) == name)
+        || RASTER_SLOTS.iter().any(|&s| raster_entry_name(s) == name || infixed_name(s, SHUFFLED_INFIX) == name)
         || (name.starts_with(HISTORY_TERRITORY_PREFIX) && name.ends_with(".i32"))
         || lod_tile_id(name).is_some()
 }
@@ -1246,6 +1276,16 @@ fn zip_opts() -> zip::write::SimpleFileOptions {
     zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)
 }
 
+/// The options a **raster** entry is written with (format 3, Ruling GX): Zstandard, zip method 93, at
+/// [`RASTER_ZSTD_LEVEL`]. JSON documents, `README.md` and the rest stay deflate ([`zip_opts`]): they are
+/// a few KiB in total (`SAVEFILE_COMPAT.md` §18.1), so their codec moves nothing, and keeping them
+/// deflate means any zip tool can still list the archive and read `project.json`.
+fn raster_opts() -> zip::write::SimpleFileOptions {
+    zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Zstd)
+        .compression_level(Some(RASTER_ZSTD_LEVEL))
+}
+
 /// Writes one project archive in the tree layout.
 ///
 /// Takes a seekable sink rather than a path so a round-trip test can hand
@@ -1401,16 +1441,16 @@ pub fn write_project<W: Write + Seek>(
         (CORE_RASTERS[4], f.impact_field.as_slice()),
     ] {
         let slot = raster_slot(path).expect("every core raster is a registered slot");
-        writer.start_file(raster_entry_name(slot), opts)?;
-        write_planes(&mut writer, values, f32::to_le_bytes)?;
+        writer.start_file(raster_entry_name(slot), raster_opts())?;
+        write_planes(&mut writer, values, f32::to_le_bytes, project.params.gw)?;
     }
-    writer.start_file(CORE_RASTERS[5], opts)?;
+    writer.start_file(CORE_RASTERS[5], raster_opts())?;
     writer.write_all(&f.strahler_order)?;
 
     for (path, raster) in &project.rasters {
         let slot = raster_slot(path).expect("validated above");
-        writer.start_file(raster_entry_name(slot), opts)?;
-        raster.write_to(&mut writer)?;
+        writer.start_file(raster_entry_name(slot), raster_opts())?;
+        raster.write_to(&mut writer, project.params.gw)?;
     }
 
     for (slot, text) in &project.documents {
@@ -1419,7 +1459,7 @@ pub fn write_project<W: Write + Seek>(
     }
 
     for (year, values) in &project.history_territory {
-        writer.start_file(format!("{HISTORY_TERRITORY_PREFIX}{year}.i32"), opts)?;
+        writer.start_file(format!("{HISTORY_TERRITORY_PREFIX}{year}.i32"), raster_opts())?;
         write_dump(&mut writer, values, i32::to_le_bytes)?;
     }
 
@@ -1537,12 +1577,19 @@ fn write_dump<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8; 4
 /// Streamed a plane at a time, so the shuffled entry never exists as a whole
 /// second copy of the raster in memory; the price is four passes over
 /// `values`, which is cheap beside deflating them.
-fn write_planes<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8; 4]) -> std::io::Result<()> {
+fn write_planes<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8; 4], gw: usize) -> std::io::Result<()> {
     let mut buf: Vec<u8> = Vec::with_capacity(WRITE_CHUNK);
+    let gw = gw.max(1);
+    // §8.5: each element is replaced by its wrapping difference from the element to its left in the
+    // same row (a row's first element is kept), computed on the fly from `values` so the delta
+    // array never exists as a second copy. The inverse is `Raster::from_planes`' running sum.
+    let word = |i: usize| u32::from_le_bytes(le(values[i]));
+    let delta = |i: usize| if i % gw == 0 { word(i) } else { word(i).wrapping_sub(word(i - 1)) };
     for plane in 0..4 {
-        for chunk in values.chunks(WRITE_CHUNK) {
+        for (c, chunk) in values.chunks(WRITE_CHUNK).enumerate() {
             buf.clear();
-            buf.extend(chunk.iter().map(|&v| le(v)[plane]));
+            let base = c * WRITE_CHUNK;
+            buf.extend((0..chunk.len()).map(|j| delta(base + j).to_le_bytes()[plane]));
             sink.write_all(&buf)?;
         }
     }
@@ -1550,15 +1597,21 @@ fn write_planes<W: Write, T: Copy>(sink: &mut W, values: &[T], le: fn(T) -> [u8;
 }
 
 /// The archive entry this writer stores a registered raster under:
-/// [`SHUFFLED_INFIX`] before the extension for a 4-byte element, the slot's
-/// own path for `u8`. [`Raster::write_to`] makes the same split, so the name
-/// and the bytes cannot disagree.
+/// [`DELTA_INFIX`] before the extension for a 4-byte element (format 3's row delta then
+/// byte-plane shuffle), the slot's own path for `u8`. [`Raster::write_to`] makes the same
+/// split, so the name and the bytes cannot disagree. The reader also knows the format-2
+/// [`SHUFFLED_INFIX`] name and the plain one (`read_tree`).
 fn raster_entry_name(slot: RasterSlot) -> String {
+    infixed_name(slot, DELTA_INFIX)
+}
+
+/// `slot`'s entry name with `infix` before the extension; a `u8` slot has one plane and never carries one.
+fn infixed_name(slot: RasterSlot, infix: &str) -> String {
     if slot.element.size() == 1 {
         return slot.path.to_string();
     }
     let stem = &slot.path[..slot.path.len() - slot.element.ext().len() - 1];
-    format!("{stem}{SHUFFLED_INFIX}.{}", slot.element.ext())
+    format!("{stem}{infix}.{}", slot.element.ext())
 }
 
 /// `project.json` for one project (`SAVEFILE_COMPAT.md` §7). Public so a
@@ -1670,6 +1723,90 @@ pub fn read_project<R: Read + Seek>(reader: R) -> Result<ProjectData, LoadError>
         Some(bytes) => read_tree(&mut archive, bytes?),
         None => read_flat(&mut archive),
     }
+}
+
+/// A `tw` x `th` nearest-neighbour sample of an archive's heightmap, for the gallery's world thumbnail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeightSamples {
+    /// The world's grid, so the caller can say what it sampled.
+    pub gw: usize,
+    pub gh: usize,
+    /// `world.sea_level`, `[0, 1]` (checked).
+    pub sea_level: f64,
+    /// `tw * th` heights, row-major: the cell at `(min(tx*gw/tw, gw-1), min(ty*gh/th, gh-1))`, the same cell choice the shell's
+    /// old `ZIPReader` thumbnail made.
+    pub heights: Vec<f32>,
+}
+
+/// Reads only `project.json` and the heightmap of a **tree-layout** archive (not the world: a gallery lists many saves) and
+/// samples it `tw` x `th`. It exists because the shell's own reader of this entry, Godot's `ZIPReader`, cannot decode
+/// Zstandard (zip method 93), which format 3 uses for every raster (`SAVEFILE_COMPAT.md` §3.3): it would have left every
+/// new save with a placeholder thumbnail. Which of the three heightmap names was found decides the decode (§8.5), as
+/// everywhere; the row delta is summed only along the sampled rows, so a 4096² world costs one inflate and 72 row sums.
+///
+/// Refuses what the thumbnail used to refuse and the loader refuses: a flat or foreign archive (no `project.json`, or a
+/// different `format`), a non-positive grid, a `sea_level` outside `[0, 1]` or absent (never a default: §7), no heightmap,
+/// or one whose length is not `GW x GH x 4` (§8). `tw` and `th` must be at least 1.
+pub fn read_height_samples<R: Read + Seek>(reader: R, tw: usize, th: usize) -> Result<HeightSamples, LoadError> {
+    let mut archive = zip::ZipArchive::new(reader)?;
+    let manifest_bytes = read_entry_bytes(&mut archive, PROJECT_MANIFEST)
+        .ok_or(LoadError::MissingEntry(PROJECT_MANIFEST))?
+        .map_err(LoadError::Io)?;
+    let manifest: serde_json::Value = serde_json::from_slice(strip_bom(&manifest_bytes)).map_err(LoadError::Json)?;
+    match manifest.get("format").and_then(|v| v.as_str()) {
+        Some(PROJECT_FORMAT) => {}
+        Some(other) => return Err(LoadError::NotAProject(other.to_string())),
+        None => return Err(LoadError::NotAProject(String::new())),
+    }
+    let dim = |key: &'static str| -> Result<usize, LoadError> {
+        let v = json_num(&manifest, &["world", key]).ok_or(LoadError::MissingField(key))?;
+        if v >= 1.0 && v <= 1.0e6 && v.fract() == 0.0 { Ok(v as usize) } else { Err(LoadError::OutOfRange { field: key, value: v }) }
+    };
+    let (gw, gh) = (dim("grid_width")?, dim("grid_height")?);
+    let sea_level = json_num(&manifest, &["world", "sea_level"]).ok_or(LoadError::MissingField("world.sea_level"))?;
+    if !(0.0..=1.0).contains(&sea_level) {
+        return Err(LoadError::OutOfRange { field: "world.sea_level", value: sea_level });
+    }
+    let slot = raster_slot(CORE_RASTERS[0]).expect("the heightmap is a registered slot");
+    let (found, planar, delta) = [
+        (infixed_name(slot, DELTA_INFIX), true, true),
+        (infixed_name(slot, SHUFFLED_INFIX), true, false),
+        (slot.path.to_string(), false, false),
+    ]
+    .into_iter()
+    .find_map(|(name, planar, delta)| read_entry_bytes(&mut archive, &name).map(|r| (r, planar, delta)))
+    .ok_or(LoadError::MissingEntry("rasters/heightmap.f32"))?;
+    let bytes = found.map_err(LoadError::Io)?;
+    let n = gw * gh;
+    if bytes.len() != n * 4 {
+        return Err(LoadError::RasterLength(format!("heightmap: expected {} bytes for this grid, got {}", n * 4, bytes.len())));
+    }
+    let word = |i: usize| -> u32 {
+        if planar { u32::from_le_bytes([bytes[i], bytes[n + i], bytes[2 * n + i], bytes[3 * n + i]]) } else { u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().expect("4 bytes")) }
+    };
+    let mut heights = Vec::with_capacity(tw * th);
+    for ty in 0..th {
+        let sy = (ty * gh / th).min(gh - 1);
+        let row = sy * gw;
+        // A delta row is a running sum from its first cell, so each sampled row is summed once, left to right, and the
+        // sampled columns (non-decreasing in `tx`) are read off it.
+        let mut x = 0usize;
+        let mut acc = if delta { word(row) } else { 0 };
+        for tx in 0..tw {
+            let sx = (tx * gw / tw).min(gw - 1);
+            let bits = if delta {
+                while x < sx {
+                    x += 1;
+                    acc = acc.wrapping_add(word(row + x));
+                }
+                acc
+            } else {
+                word(row + sx)
+            };
+            heights.push(f32::from_bits(bits));
+        }
+    }
+    Ok(HeightSamples { gw, gh, sea_level, heights })
 }
 
 /// One document's JSON text, read straight out of an archive **without
@@ -1851,28 +1988,37 @@ fn read_tree(
     // --- rasters ---------------------------------------------------------
     let mut rasters: BTreeMap<String, Raster> = BTreeMap::new();
     for &slot in RASTER_SLOTS {
-        // §8.2: the shuffled name first, then the plain one. Which decode
-        // applies is decided by **which name was found** and by nothing else
-        // -- not by `format_version` -- so a plain entry is never
-        // un-shuffled, in an archive of any version.
-        let shuffled_name = raster_entry_name(slot);
-        let shuffled = shuffled_name != slot.path;
-        let (name, found, planar) = match shuffled.then(|| read_entry_bytes(archive, &shuffled_name)).flatten() {
-            Some(found) => {
-                if archive.index_for_name(slot.path).is_some() {
-                    warnings.push(format!(
-                        "{} and {shuffled_name} are both present; read {shuffled_name} and ignored the other \
-                         (SAVEFILE_COMPAT.md §8.2), which a re-save will not keep",
-                        slot.path
-                    ));
-                }
-                (shuffled_name.as_str(), found, true)
-            }
-            None => match read_entry_bytes(archive, slot.path) {
-                Some(found) => (slot.path, found, false),
-                None => continue,
-            },
+        // §8.5 / §8.2: the entry's decode is decided by **which name was found** and by nothing else -- not by
+        // `format_version`, not by the zip method -- so a plain entry is never un-shuffled and a shuffled one is
+        // never delta-decoded, in an archive of any version. Names are tried newest first; the first found is read
+        // and any other for the same slot is reported as ignored (a re-save will not keep it).
+        let candidates: Vec<(String, bool, bool)> = if slot.element.size() == 1 {
+            vec![(slot.path.to_string(), false, false)]
+        } else {
+            vec![
+                (infixed_name(slot, DELTA_INFIX), true, true),
+                (infixed_name(slot, SHUFFLED_INFIX), true, false),
+                (slot.path.to_string(), false, false),
+            ]
         };
+        let mut chosen: Option<(String, Result<Vec<u8>, std::io::Error>, bool, bool)> = None;
+        for (cand, planar_c, delta_c) in &candidates {
+            if archive.index_for_name(cand).is_none() {
+                continue;
+            }
+            match &chosen {
+                None => {
+                    if let Some(found) = read_entry_bytes(archive, cand) {
+                        chosen = Some((cand.clone(), found, *planar_c, *delta_c));
+                    }
+                }
+                Some((first, ..)) => warnings.push(format!(
+                    "{cand} and {first} are both present; read {first} and ignored the other                      (SAVEFILE_COMPAT.md §8.2), which a re-save will not keep"
+                )),
+            }
+        }
+        let Some((name, found, planar, delta)) = chosen else { continue };
+        let name = name.as_str();
         let bytes = match found {
             Ok(b) => b,
             // Present but unreadable. Fatal only for the terrain, exactly as
@@ -1898,7 +2044,7 @@ fn read_tree(
             continue;
         }
         let raster = if planar {
-            Raster::from_planes(slot.element, &bytes)
+            Raster::from_planes(slot.element, &bytes, delta.then_some(gw))
         } else {
             Raster::from_bytes(slot.element, &bytes)
         };
@@ -3322,7 +3468,7 @@ mod tests {
         for name in [
             "entities/settlements.json",
             "rasters/heightmap.f32",
-            "rasters/heightmap.shuffled.f32",
+            "rasters/heightmap.delta-shuffled.f32",
             "project.json",
             "history/territory/1200.i32",
         ] {
@@ -3336,7 +3482,7 @@ mod tests {
             .collect();
         for name in [
             "entities/settlements.json",
-            "rasters/heightmap.shuffled.f32",
+            "rasters/heightmap.delta-shuffled.f32",
             "project.json",
         ] {
             assert_eq!(
@@ -3455,12 +3601,12 @@ mod tests {
         // The entry names are the §8.2 shuffled ones this writer produces;
         // the warning names the entry as stored, which is what a person
         // opening the archive in a zip tool will find.
-        let odd = set_compression_method(&buf, "rasters/territory.shuffled.i32", 1);
+        let odd = set_compression_method(&buf, "rasters/territory.delta-shuffled.i32", 1);
         let back = read_project(Cursor::new(&odd)).expect("one odd entry must not cost the world");
         assert!(back.raster("rasters/territory.i32").is_none());
         assert_eq!(back.warnings.len(), 1, "{:?}", back.warnings);
         assert!(
-            back.warnings[0].contains("rasters/territory.shuffled.i32") && back.warnings[0].contains('1'),
+            back.warnings[0].contains("rasters/territory.delta-shuffled.i32") && back.warnings[0].contains('1'),
             "the warning must name the entry and the method: {:?}",
             back.warnings
         );
@@ -3469,7 +3615,7 @@ mod tests {
         // it is reported as unreadable, not as missing, so the user is told
         // what is actually wrong. Undecodable under its shuffled name must
         // NOT fall back to looking for the plain one and report "missing".
-        let odd = set_compression_method(&buf, "rasters/heightmap.shuffled.f32", 1);
+        let odd = set_compression_method(&buf, "rasters/heightmap.delta-shuffled.f32", 1);
         let err =
             read_project(Cursor::new(&odd)).expect_err("an undecodable heightmap is not a world");
         assert!(
@@ -3505,11 +3651,11 @@ mod tests {
         };
 
         assert!(matches!(
-            read_project(Cursor::new(rebuild("rasters/heightmap.shuffled.f32"))),
+            read_project(Cursor::new(rebuild("rasters/heightmap.delta-shuffled.f32"))),
             Err(LoadError::MissingEntry("rasters/heightmap.f32"))
         ));
 
-        let back = read_project(Cursor::new(rebuild("rasters/temperature.shuffled.f32")))
+        let back = read_project(Cursor::new(rebuild("rasters/temperature.delta-shuffled.f32")))
             .expect("climate is not fatal");
         assert_eq!(*back.save.fields.temperature, vec![0.0f32; 16]);
         assert_eq!(
@@ -3520,7 +3666,7 @@ mod tests {
         );
 
         // Volcanic/impact zero really is the true value, so no warning.
-        let back = read_project(Cursor::new(rebuild("rasters/volcanic_field.shuffled.f32"))).unwrap();
+        let back = read_project(Cursor::new(rebuild("rasters/volcanic_field.delta-shuffled.f32"))).unwrap();
         assert_eq!(back.save.fields.volcanic_field, vec![0.0f32; 16]);
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
     }
@@ -3965,9 +4111,9 @@ mod tests {
         let m = manifest_json(&p);
         assert_eq!(m["format"], PROJECT_FORMAT);
         // A literal, not `PROJECT_FORMAT_VERSION`: this test's name is a claim
-        // about the specification, and §7 says `2`. Asserting the constant
+        // about the specification, and §7 says `3`. Asserting the constant
         // against itself would hold for every value of it.
-        assert_eq!(m["format_version"], 2);
+        assert_eq!(m["format_version"], 3);
         assert_eq!(m["world"]["grid_width"], 11);
         assert_eq!(m["world"]["grid_height"], 7);
         assert_eq!(m["world"]["wrap_x"], true);
@@ -4211,14 +4357,14 @@ mod tests {
         assert_eq!(back.history_territory.get(&7), Some(&i32s(10)));
         assert_eq!(back.text_of("vault.json"), Some(r#"{"version":1,"links":[]}"#));
 
-        // Opening an old save and saving it writes version 2 -- and loses
+        // Opening an old save and saving it writes version 3 -- and loses
         // nothing on the way: the re-saved archive reopens to the same bits.
         let mut again = ProjectWrite::new(&back.save.params, &back.save.fields);
         again.rasters = back.rasters.clone();
         again.history_territory = back.history_territory.clone();
         let buf2 = write_to_vec(&again);
         let back2 = read_project(Cursor::new(&buf2)).unwrap();
-        assert_eq!(back2.format_version, 2);
+        assert_eq!(back2.format_version, 3);
         assert_eq!(bits_of(&back2.save.fields.heightmap), f32s(1));
         assert_eq!(bits_of(&back2.save.fields.rainfall), f32s(3));
         assert_eq!(back2.raster("rasters/territory.i32"), Some(&Raster::I32(i32s(7))));
@@ -4274,7 +4420,7 @@ mod tests {
         p.history_territory.insert(9, terr.clone());
         let buf = write_to_vec(&p);
 
-        // Every 4-byte raster under its shuffled name and NOT its plain one --
+        // Every 4-byte raster under its delta-shuffled name and NOT its plain one --
         // the absence of `rasters/heightmap.f32` is what makes a version-1
         // reader refuse this archive instead of drawing noise. `u8` and
         // history keep their plain names (§8.2, §10.2).
@@ -4292,20 +4438,38 @@ mod tests {
         assert!(names.iter().any(|x| x == "history/territory/9.i32"), "{names:?}");
         assert_eq!(
             raster_entry_name(raster_slot("rasters/heightmap.f32").unwrap()),
-            "rasters/heightmap.shuffled.f32"
+            "rasters/heightmap.delta-shuffled.f32"
         );
 
-        let raw = raw_entry(&buf, "rasters/heightmap.shuffled.f32");
+        // §8.5, re-derived here and independently of `write_planes`: stored[k*n + i] is byte k of the wrapping
+        // difference between element i's bit pattern and its left neighbour's in the same row (a row of 7).
+        let delta = |bits: &[u32], i: usize| if i % 7 == 0 { bits[i] } else { bits[i].wrapping_sub(bits[i - 1]) };
+        let raw = raw_entry(&buf, "rasters/heightmap.delta-shuffled.f32");
         assert_eq!(raw.len(), n * 4);
-        for (i, v) in hm.iter().enumerate() {
+        let hm_bits: Vec<u32> = hm.iter().map(|v| v.to_bits()).collect();
+        for i in 0..n {
             for k in 0..4 {
-                assert_eq!(raw[k * n + i], v.to_le_bytes()[k], "heightmap byte {k} of cell {i}");
+                assert_eq!(raw[k * n + i], delta(&hm_bits, i).to_le_bytes()[k], "heightmap byte {k} of cell {i}");
             }
         }
-        let raw = raw_entry(&buf, "rasters/territory.shuffled.i32");
-        for (i, v) in terr.iter().enumerate() {
+        let raw = raw_entry(&buf, "rasters/territory.delta-shuffled.i32");
+        let terr_bits: Vec<u32> = terr.iter().map(|v| *v as u32).collect();
+        for i in 0..n {
             for k in 0..4 {
-                assert_eq!(raw[k * n + i], v.to_le_bytes()[k], "territory byte {k} of cell {i}");
+                assert_eq!(raw[k * n + i], delta(&terr_bits, i).to_le_bytes()[k], "territory byte {k} of cell {i}");
+            }
+        }
+        // Format 3's codec: every raster is Zstandard (method 93), every document stays deflate.
+        {
+            let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            for i in 0..r.len() {
+                let e = r.by_index_raw(i).unwrap();
+                let want = if e.name().starts_with("rasters/") || e.name().starts_with("history/") {
+                    zip::CompressionMethod::Zstd
+                } else {
+                    zip::CompressionMethod::Deflated
+                };
+                assert_eq!(e.compression(), want, "{}", e.name());
             }
         }
         // History stays the plain dump.
@@ -4313,7 +4477,7 @@ mod tests {
         assert_eq!(raw_entry(&buf, "history/territory/9.i32"), dump);
 
         let back = read_project(Cursor::new(&buf)).unwrap();
-        assert_eq!(back.format_version, 2);
+        assert_eq!(back.format_version, 3);
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
         assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
         assert_eq!(bits_of(&back.save.fields.heightmap), bits_of(&hm));
@@ -4321,6 +4485,143 @@ mod tests {
         assert_eq!(bits_of(&back.save.fields.volcanic_field), bits_of(&fields.volcanic_field));
         assert_eq!(back.raster("rasters/territory.i32"), Some(&Raster::I32(terr.clone())));
         assert_eq!(back.history_territory.get(&9), Some(&terr));
+    }
+
+    /// **Format 2 still opens, to the same bits.** The fixture was written by the unmodified format-2 writer (byte-plane
+    /// shuffle + deflate, `.shuffled.` names, `format_version` 2) from the content `project_v1_7x5.ctl` holds, on 2026-11-22
+    /// before the format-3 writer existed, and committed as bytes: the format an existing save actually has.
+    ///
+    /// Protects: a real format-2 archive opens with no warnings, every raster bit-identical to the format-1 fixture's values,
+    /// is genuinely shuffled-and-deflated (checked from the zip headers, not through the reader), and re-saves as format 3.
+    #[test]
+    fn a_version_2_archive_reads_exactly_as_it_always_did() {
+        let buf: &[u8] = include_bytes!("../tests/fixtures/project_v2_7x5.ctl");
+        let n = 7 * 5;
+        let f32s = |k: u32| (0..n).map(|i| fixture_bits(i, k)).collect::<Vec<u32>>();
+        let i32s = |k: u32| (0..n).map(|i| fixture_bits(i, k) as i32).collect::<Vec<i32>>();
+        let u8s = |k: u32| (0..n).map(|i| fixture_bits(i, k) as u8).collect::<Vec<u8>>();
+
+        let names = entry_names(buf);
+        assert!(names.iter().any(|n| n == "rasters/heightmap.shuffled.f32"), "{names:?}");
+        assert!(!names.iter().any(|n| n.contains("delta")), "{names:?}");
+        {
+            let mut r = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
+            for i in 0..r.len() {
+                let e = r.by_index_raw(i).unwrap();
+                assert_eq!(e.compression(), zip::CompressionMethod::Deflated, "{}", e.name());
+            }
+        }
+        let planes: Vec<u8> = {
+            let v = f32s(1);
+            (0..4).flat_map(|k| v.iter().map(move |b| b.to_le_bytes()[k])).collect()
+        };
+        assert_eq!(raw_entry(buf, "rasters/heightmap.shuffled.f32"), planes, "plain planes, no delta");
+
+        let back = read_project(Cursor::new(buf)).expect("a format-2 archive opens");
+        assert_eq!(back.format_version, 2);
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
+        let f = &back.save.fields;
+        assert_eq!(bits_of(&f.heightmap), f32s(1));
+        assert_eq!(bits_of(&f.temperature), f32s(2));
+        assert_eq!(bits_of(&f.rainfall), f32s(3));
+        assert_eq!(bits_of(&f.volcanic_field), f32s(4));
+        assert_eq!(bits_of(&f.impact_field), f32s(5));
+        assert_eq!(f.strahler_order, u8s(6));
+        assert_eq!(back.raster("rasters/territory.i32"), Some(&Raster::I32(i32s(7))));
+        match back.raster("rasters/agrarian_density.f32") {
+            Some(Raster::F32(v)) => assert_eq!(bits_of(v), f32s(8)),
+            other => panic!("agrarian_density: {other:?}"),
+        }
+        assert_eq!(back.raster("rasters/water_bodies.u8"), Some(&Raster::U8(u8s(9))));
+        assert_eq!(back.history_territory.get(&7), Some(&i32s(10)));
+        assert_eq!(back.text_of("vault.json"), Some(r#"{"version":1,"links":[]}"#));
+
+        let mut again = ProjectWrite::new(&back.save.params, &back.save.fields);
+        again.rasters = back.rasters.clone();
+        again.history_territory = back.history_territory.clone();
+        let back3 = read_project(Cursor::new(write_to_vec(&again))).unwrap();
+        assert_eq!(back3.format_version, 3);
+        assert_eq!(bits_of(&back3.save.fields.heightmap), f32s(1));
+        assert_eq!(back3.raster("rasters/territory.i32"), Some(&Raster::I32(i32s(7))));
+        assert_eq!(back3.history_territory.get(&7), Some(&i32s(10)));
+    }
+
+    /// Protects §8.5's row delta at the grid shapes where an off-by-one in "the first of a row" would show: one column
+    /// (every element starts a row), two, a width that does not divide the 64 Ki write chunk, and one chunk boundary
+    /// crossed mid-row (width 301 x 300 = 90 300 cells > 65 536), each with bit patterns that wrap on subtraction.
+    #[test]
+    fn the_row_delta_round_trips_at_every_row_width() {
+        for (gw, gh) in [(1usize, 40usize), (2, 33), (5, 7), (301, 300)] {
+            let (params, mut fields) = sample(gw, gh);
+            let n = gw * gh;
+            fields.heightmap = Arc::new((0..n).map(|i| f32::from_bits(fixture_bits(i, 21))).collect());
+            let terr: Vec<i32> = (0..n).map(|i| fixture_bits(i, 22) as i32).collect();
+            let mut p = ProjectWrite::new(&params, &fields);
+            p.raster("rasters/territory.i32", Raster::I32(terr.clone()));
+            let back = read_project(Cursor::new(write_to_vec(&p))).unwrap();
+            assert!(back.warnings.is_empty(), "{gw}x{gh}: {:?}", back.warnings);
+            assert_eq!(bits_of(&back.save.fields.heightmap), bits_of(&fields.heightmap), "{gw}x{gh} heightmap");
+            assert_eq!(back.raster("rasters/territory.i32"), Some(&Raster::I32(terr)), "{gw}x{gh} territory");
+        }
+    }
+
+    /// Protects the gallery thumbnail's reader (`read_height_samples`): for each of the three heightmap encodings (format 1 plain,
+    /// format 2 shuffled, format 3 delta-shuffled, the last at a width where a row spans two write chunks) the samples are exactly
+    /// the cells the full reader decodes at the documented indices, and a flat, foreign or sea-less archive is refused.
+    #[test]
+    fn height_samples_equal_the_full_reader_for_every_format() {
+        let (tw, th) = (11usize, 9usize);
+        let (params, mut fields) = sample(301, 300);
+        fields.heightmap = Arc::new((0..301 * 300).map(|i| f32::from_bits(fixture_bits(i, 31))).collect());
+        let v3 = write_to_vec(&ProjectWrite::new(&params, &fields));
+        let v1: &[u8] = include_bytes!("../tests/fixtures/project_v1_7x5.ctl");
+        let v2: &[u8] = include_bytes!("../tests/fixtures/project_v2_7x5.ctl");
+        for (name, buf) in [("v1", v1.to_vec()), ("v2", v2.to_vec()), ("v3", v3)] {
+            let full = read_project(Cursor::new(&buf)).unwrap();
+            let (gw, gh) = (full.save.params.gw, full.save.params.gh);
+            let got = read_height_samples(Cursor::new(&buf), tw, th).unwrap();
+            assert_eq!((got.gw, got.gh, got.heights.len()), (gw, gh, tw * th), "{name}");
+            assert_eq!(got.sea_level, full.save.params.sea_level, "{name}");
+            for ty in 0..th {
+                for tx in 0..tw {
+                    let (sy, sx) = ((ty * gh / th).min(gh - 1), (tx * gw / tw).min(gw - 1));
+                    assert_eq!(got.heights[ty * tw + tx].to_bits(), full.save.fields.heightmap[sy * gw + sx].to_bits(), "{name} ({tx},{ty})");
+                }
+            }
+        }
+        // Refusals: no manifest (a flat archive), a foreign `format`, and a manifest with no sea level.
+        let mut flat = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut flat));
+            w.start_file("params.json", zip_opts()).unwrap();
+            w.write_all(b"{}").unwrap();
+            w.finish().unwrap();
+        }
+        assert!(read_height_samples(Cursor::new(&flat), tw, th).is_err());
+        let (p2, f2) = sample(4, 4);
+        let ok = write_to_vec(&ProjectWrite::new(&p2, &f2));
+        let rewrite = |from: &str, to: &str| -> Vec<u8> {
+            let mut out = Vec::new();
+            let mut r = zip::ZipArchive::new(Cursor::new(&ok)).unwrap();
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut out));
+            for i in 0..r.len() {
+                let is_manifest = r.by_index_raw(i).unwrap().name() == "project.json";
+                if is_manifest {
+                    let mut t = String::new();
+                    r.by_index(i).unwrap().read_to_string(&mut t).unwrap();
+                    assert!(t.contains(from), "{from} not in manifest");
+                    w.start_file("project.json", zip_opts()).unwrap();
+                    w.write_all(t.replace(from, to).as_bytes()).unwrap();
+                } else {
+                    w.raw_copy_file(r.by_index_raw(i).unwrap()).unwrap();
+                }
+            }
+            w.finish().unwrap();
+            out
+        };
+        assert!(matches!(read_height_samples(Cursor::new(rewrite("\"cartalith-project\"", "\"other\"")), 2, 2), Err(LoadError::NotAProject(_))));
+        assert!(read_height_samples(Cursor::new(rewrite("\"sea_level\"", "\"sea_levelx\"")), 2, 2).is_err());
     }
 
     /// The other half of §8.2's marker: the reader decides by NAME. A plain
@@ -4343,7 +4644,7 @@ mod tests {
                 let mut w = zip::ZipWriter::new(Cursor::new(&mut out));
                 for i in 0..r.len() {
                     let e = r.by_index_raw(i).unwrap();
-                    if drop_shuffled && e.name() == "rasters/heightmap.shuffled.f32" {
+                    if drop_shuffled && e.name() == "rasters/heightmap.delta-shuffled.f32" {
                         continue;
                     }
                     w.raw_copy_file(e).unwrap();
@@ -4357,7 +4658,7 @@ mod tests {
         };
 
         let only_plain = read_project(Cursor::new(rebuild(true, &fields.heightmap))).unwrap();
-        assert_eq!(only_plain.format_version, 2);
+        assert_eq!(only_plain.format_version, 3);
         assert!(only_plain.warnings.is_empty(), "{:?}", only_plain.warnings);
         assert_eq!(bits_of(&only_plain.save.fields.heightmap), bits_of(&fields.heightmap));
 
@@ -4371,7 +4672,7 @@ mod tests {
         assert_eq!(both.warnings.len(), 1, "{:?}", both.warnings);
         assert!(
             both.warnings[0].contains("rasters/heightmap.f32")
-                && both.warnings[0].contains("rasters/heightmap.shuffled.f32"),
+                && both.warnings[0].contains("rasters/heightmap.delta-shuffled.f32"),
             "{:?}",
             both.warnings
         );

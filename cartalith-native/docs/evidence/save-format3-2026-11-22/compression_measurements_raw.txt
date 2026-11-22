@@ -1,0 +1,55 @@
+344 |     let mut err = |line: usize, m: String, issues: &mut Vec<StyleIssue>| issues.push(StyleIssue { line, error: true, message: m });
+== 2048x1311 seed 24601
+ROW|2048x1311|24601|deflate, no shuffle (format 1)|24.64|478|74
+ROW|2048x1311|24601|shuffle+deflate (format 2)|16.80|397|60
+ROW|2048x1311|24601|shuffle+zstd-3|16.80|94|34
+ROW|2048x1311|24601|shuffle+zstd-9|16.31|315|42
+ROW|2048x1311|24601|shuffle+zstd-15|16.21|1218|45
+ROW|2048x1311|24601|delta+shuffle+zstd-3|15.62|137|47
+ROW|2048x1311|24601|delta+shuffle+zstd-9|14.97|410|52
+ROW|2048x1311|24601|delta+shuffle+zstd-15|14.72|1832|42
+== 2048x1311 seed 7
+ROW|2048x1311|7|deflate, no shuffle (format 1)|24.94|473|78
+ROW|2048x1311|7|shuffle+deflate (format 2)|17.11|314|54
+ROW|2048x1311|7|shuffle+zstd-3|17.09|83|38
+ROW|2048x1311|7|shuffle+zstd-9|16.53|307|89
+ROW|2048x1311|7|shuffle+zstd-15|16.42|1302|34
+ROW|2048x1311|7|delta+shuffle+zstd-3|15.71|113|56
+ROW|2048x1311|7|delta+shuffle+zstd-9|15.06|450|56
+ROW|2048x1311|7|delta+shuffle+zstd-15|14.84|1559|43
+== 2048x1311 seed 424242
+ROW|2048x1311|424242|deflate, no shuffle (format 1)|21.08|465|97
+ROW|2048x1311|424242|shuffle+deflate (format 2)|13.62|371|59
+ROW|2048x1311|424242|shuffle+zstd-3|13.45|73|34
+ROW|2048x1311|424242|shuffle+zstd-9|12.57|296|49
+ROW|2048x1311|424242|shuffle+zstd-15|12.49|1309|51
+ROW|2048x1311|424242|delta+shuffle+zstd-3|11.34|157|69
+ROW|2048x1311|424242|delta+shuffle+zstd-9|10.81|630|111
+ROW|2048x1311|424242|delta+shuffle+zstd-15|10.63|1821|51
+== 4096x4096 seed 24601
+ROW|4096x4096|24601|deflate, no shuffle (format 1)|150.18|3906|608
+ROW|4096x4096|24601|shuffle+deflate (format 2)|96.83|2353|391
+ROW|4096x4096|24601|shuffle+zstd-3|96.56|574|309
+ROW|4096x4096|24601|shuffle+zstd-9|91.52|1786|261
+ROW|4096x4096|24601|shuffle+zstd-15|90.24|7854|240
+ROW|4096x4096|24601|delta+shuffle+zstd-3|85.59|616|301
+ROW|4096x4096|24601|delta+shuffle+zstd-9|80.93|1971|284
+ROW|4096x4096|24601|delta+shuffle+zstd-15|79.54|9543|274
+== 4096x4096 seed 7
+ROW|4096x4096|7|deflate, no shuffle (format 1)|154.72|4091|585
+ROW|4096x4096|7|shuffle+deflate (format 2)|100.77|2385|556
+ROW|4096x4096|7|shuffle+zstd-3|100.68|750|359
+ROW|4096x4096|7|shuffle+zstd-9|96.04|2209|290
+ROW|4096x4096|7|shuffle+zstd-15|94.79|7891|271
+ROW|4096x4096|7|delta+shuffle+zstd-3|90.53|771|359
+ROW|4096x4096|7|delta+shuffle+zstd-9|85.68|2539|284
+ROW|4096x4096|7|delta+shuffle+zstd-15|84.24|15556|332
+== 4096x4096 seed 424242
+ROW|4096x4096|424242|deflate, no shuffle (format 1)|128.29|2214|438
+ROW|4096x4096|424242|shuffle+deflate (format 2)|77.94|1423|298
+ROW|4096x4096|424242|shuffle+zstd-3|75.70|438|216
+ROW|4096x4096|424242|shuffle+zstd-9|68.78|1339|219
+ROW|4096x4096|424242|shuffle+zstd-15|67.47|5030|225
+ROW|4096x4096|424242|delta+shuffle+zstd-3|62.13|506|266
+ROW|4096x4096|424242|delta+shuffle+zstd-9|58.66|1574|256
+ROW|4096x4096|424242|delta+shuffle+zstd-15|57.13|6838|244

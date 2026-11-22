@@ -1,0 +1,48 @@
+tools/save_art_drive.gd, desktop 1600x900, scratch APPDATA per device (fennara_drive.py --shell desktop), 2026-11-22.
+
+== device A (fresh root, empty library)
+ok    A starts with an empty library
+ok    the pin is added to A's library  -- { "ok": true, "uid": "custom:pins/drive_beacon" }
+ok    A's pin catalog holds it
+ok    the world registers the pin
+ok    the pin is placed
+ok    the world saves  -- { "ok": true, "bytes": 1163634, "entries": 43, "substrate": true, "geology": true }
+ok    the zip embeds exactly the one picture the world uses  -- ["library/art/e1f810e49e892fd7-64x64.png"]
+ok    project.json says format_version 3
+ok    a format-3 save: the gallery thumbnail is a rendered map, not a placeholder  -- distinct colours=799
+ok    the rasters are delta-shuffled entries
+ok    an old format-2 save is in place for device B
+RESULT PASS
+
+== device B (separate fresh root, EMPTY library; opens A's save, then the committed 2026-09-24 format-2 save)
+ok    positive control: B's library starts EMPTY
+ok    B holds no pin of its own before opening
+ok    B's library folder holds no picture yet
+ok    a format-2 save: the gallery thumbnail is a rendered map, not a placeholder  -- distinct colours=828
+ok    B opens A's format-3 save
+ok    the opening overlay is gone before the frame is taken
+ok    the pin is now in B's library  -- 1
+ok    the world holds its pin
+ok    library pin and world pin are the same kind id
+ok    the pin draws its picture, not the missing marker  -- { "name": "Drive Beacon", "color": (0.902, 0.102, 0.8, 1.0), "missing": false }
+ok    B's library picture is A's magenta disc  -- magenta px=4749
+ok    B's library store is in step with its library
+ok    an img/<key>.png file is on B's disk  -- ["e1f810e49e892fd7-64x64.png"]
+ok    an old format-2 save opens
+ok    the file really is format 2 (its own project.json says so)
+ok    and has a world
+ok    the device library is unchanged by it
+RESULT PASS
+
+== mutant (open-side: the embedded art is not handed to the library merge), same device-B steps
+FAIL  the pin is now in B's library  -- 0
+FAIL  an img/<key>.png file is on B's disk  -- []
+RESULT FAIL: 2 check(s)   (the pass turns red, as it must)
+
+== mutant 2 (the gallery thumbnail's engine path disabled: _thumbnail_from_engine returns null, so format 3 falls to Godot's ZIPReader, which cannot read method 93)
+FAIL  a format-3 save: the gallery thumbnail is a rendered map, not a placeholder  -- distinct colours=0
+RESULT FAIL: 1 check(s)   (this is the regression the format-3 change would have shipped without project_height_samples)
+
+Frames: deviceA_pin_placed.png (magenta pin at the map centre on A), deviceB_empty_library_opened_format3.png (B, the live framebuffer after
+the open: status line "world_a.zip -- 256 x 192 cells", the same magenta pin), deviceB_old_format2_opened.png (the format-2 save opened, "old_format2.zip -- 96 x 72 cells").
+Note: the helper's capture() for the B-after-open step returned a stale frame (the busy overlay still drawn after dump_ui showed it gone); the evidence frame is ctx.frame()'s live image.

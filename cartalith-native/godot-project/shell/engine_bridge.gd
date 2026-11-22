@@ -9654,8 +9654,9 @@ func paint_restore_document(text: String) -> Dictionary:
 		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.paint_restore_document(text)
 
-## Merges a `library/assets.json` into the device's library (Ruling FR): returns `{ok, error, slots, created, items}`. It never
-## replaces or drops an entry; `items` is `0` (a record carries no pixels and no item is added or removed).
+## Merges a `library/assets.json` into the device's library (Ruling FR): returns `{ok, error, slots, created, items, art_present,
+## art_refused}`. It never replaces or drops an entry; `items` is the number of pictures added from the archive's `library/art/`
+## (Ruling GW; `0` for a save without any), `art_present` the embedded pictures the library already had.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func asset_library_restore_document(text: String) -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.

@@ -169,7 +169,7 @@
 
 use crate::{
     civ_military_bridge, civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge,
-    label_bridge, lod_bridge, params, poi_bridge, CivData, WorldGen, WorldSource,
+    label_bridge, lod_bridge, params, poi_bridge, world_art, CivData, WorldGen, WorldSource,
 };
 use cartalith_io::project::{self, ProjectWrite, Raster};
 use godot::prelude::*;
@@ -235,6 +235,13 @@ const SLOT_PAINT: &str = "drafts/paint.json";
 const SLOT_SCULPT: &str = "drafts/sculpt.json";
 /// The asset-library document; caller-owned.
 const SLOT_ASSETS: &str = "library/assets.json";
+
+/// Ruling GW: the library slots `g`'s placed icons and custom pins draw from (`world_art::used_slots`); the pictures of these,
+/// and no others, are embedded in a save.
+fn used_art_slots(g: &WorldGen) -> std::collections::HashSet<String> {
+    let icons = g.icons.as_ref().map_or(&[][..], |i| i.icons.as_slice());
+    world_art::used_slots(&g.asset_library, icons, &g.pois)
+}
 /// The travel-library document of custom entries; caller-owned.
 const SLOT_TRAVEL: &str = "library/travel.json";
 
@@ -3896,6 +3903,11 @@ impl WorldGen {
         // Empty for a generated world, and for one opened in the flat layout
         // (`read_flat`'s own comment says why it censuses nothing).
         write.foreign = self.carried_foreign.clone();
+        // Ruling GW: the pictures this world's placed icons and pins use, so it opens with its art on another device.
+        let (_, art) = world_art::art_of(&self.asset_library, &used_art_slots(self));
+        for (key, png) in art {
+            write.foreign.insert(format!("{}{key}.png", world_art::ART_PREFIX), png);
+        }
 
         let mut buf: Vec<u8> = Vec::new();
         if let Err(e) = project::write_project(std::io::Cursor::new(&mut buf), &write) {
@@ -4073,6 +4085,14 @@ impl WorldGen {
         // the project they came from. Moved, not cloned -- `data` is dropped
         // at the end of this function and nothing else reads them.
         self.carried_foreign = std::mem::take(&mut data.foreign);
+        // Ruling GW: the embedded art is not carried back out (the next save writes what the world uses then); it waits for
+        // the library merge, `asset_library_restore_document`.
+        let art_names: Vec<String> = self.carried_foreign.keys().filter(|k| k.starts_with(world_art::ART_PREFIX)).cloned().collect();
+        for name in art_names {
+            if let Some(bytes) = self.carried_foreign.remove(&name) {
+                self.world_art.insert(name[world_art::ART_PREFIX.len()..].trim_end_matches(".png").to_string(), bytes);
+            }
+        }
 
         // Ruling AZ (2026-09-28) plus the fold-in that followed it: `load_save`
         // above already restored `self.params.civ.garrison_exposure_scale`
@@ -4834,6 +4854,31 @@ impl WorldGen {
         out
     }
 
+    /// The gallery thumbnail's data (`cartalith_io::project::read_height_samples`): `{ok, error, gw, gh, sea_level, heights}` where
+    /// `heights` is a `tw` x `th` nearest-neighbour sample (row-major `PackedFloat32Array`) of the archive's heightmap, read without
+    /// decoding the rest of the world. `{ok: false, error}` for a flat or foreign archive, a bad grid or sea level, or no heightmap
+    /// (the caller then falls back to its own reader or a placeholder). **Why the shell calls this and not `ZIPReader`:** format 3
+    /// stores rasters as Zstandard (zip method 93), which Godot's `ZIPReader` cannot decode. Needs no open world (`&self` only).
+    #[func]
+    fn project_height_samples(&self, path: GString, tw: i64, th: i64) -> VarDictionary {
+        let (tw, th) = (usize::try_from(tw).unwrap_or(0).clamp(1, 1024), usize::try_from(th).unwrap_or(0).clamp(1, 1024));
+        let file = match std::fs::File::open(path.to_string()) {
+            Ok(f) => std::io::BufReader::new(f),
+            Err(e) => return err(e),
+        };
+        match project::read_height_samples(file, tw, th) {
+            Ok(h) => {
+                let mut out = vdict! { "ok" => true, "error" => "" };
+                out.set("gw", h.gw as i64);
+                out.set("gh", h.gh as i64);
+                out.set("sea_level", h.sea_level);
+                out.set("heights", &PackedFloat32Array::from(h.heights.as_slice()));
+                out
+            }
+            Err(e) => err(e),
+        }
+    }
+
     /// Every document slot the project format defines, in the order
     /// `SAVEFILE_COMPAT.md` §5 lists them. Lets a caller validate a slot
     /// name before handing it to `project_save_with_documents` rather than
@@ -5440,15 +5485,10 @@ impl WorldGen {
     /// empty library, matching that builder's own `None` (the reference's
     /// `if(AssetDB.totalItems()===0) return null`).
     ///
-    /// **Item pixels are not in it, and cannot be.** The record carries each
-    /// item's `img` index, name and transform; the bytes those indices point
-    /// at live at `assetlib/img/<idx>.png`, and `cartalith-io`'s project
-    /// writer has no channel for a binary entry that is not a registered
-    /// raster. Restoring therefore rebuilds pack info, collections, custom
-    /// slots and every slot's metadata and scatter rules, and restores no
-    /// items -- which is exactly what
-    /// `AssetDB::apply_library_file_with_items` does when handed no bytes,
-    /// rather than something this boundary invented.
+    /// **Item pixels are not in it** -- the record carries each item's `img` index, name and transform. Since format 3
+    /// (Ruling GW, `world_art.rs`) the pictures of the slots the world *uses* travel as `library/art/<key>.png` archive
+    /// entries, written by `project_save_with_documents`, and an item that has one carries `"h": "<key>"` here (added by
+    /// this function). A world that uses no library art writes the record exactly as before.
     ///
     /// `&mut self`: `to_library_json` lazily attaches a scatterable slot's
     /// preset the first time its rule is read, and the reference does the
@@ -5457,18 +5497,24 @@ impl WorldGen {
     /// `&self` -- see that function's own doc comment.
     #[func]
     fn asset_library_document_json(&mut self) -> GString {
+        // Ruling GW: the items of the slots this world uses carry `"h": "<key>"`, the key of the picture embedded under
+        // `library/art/` (`world_art.rs`). A world that uses none keeps the exact bytes it always wrote.
+        let (keys, _) = world_art::art_of(&self.asset_library, &used_art_slots(self));
         match self.asset_library.db.to_library_json() {
-            Some(file) => {
+            Some(file) if keys.is_empty() => {
                 serde_json::to_string(&file).map_or_else(|_| GString::new(), |t| GString::from(&t))
             }
+            Some(file) => serde_json::to_value(&file)
+                .map_or_else(|_| GString::new(), |v| GString::from(&world_art::tag_record(v, &keys).to_string())),
             None => GString::new(),
         }
     }
 
     /// Merges a `library/assets.json` into the device's library (Ruling FR; before it, this cleared the library and
     /// applied the record). Returns `{ok, error, slots, created, items}`: `slots` the record's slot count, `created` how many
-    /// of them the library did not yet have, `items` always `0` (a record carries no pixels and this call never adds or
-    /// removes an item, so the library's own pictures are untouched).
+    /// of them the library did not yet have, `items` the pictures added from the archive's `library/art/` (Ruling GW, `0`
+    /// for a save without any; this call never replaces or removes a picture the library holds), `art_present` how many
+    /// embedded pictures the library already had, `art_refused` one sentence per picture refused.
     ///
     /// Goes through `parse_library_json`, so an unresolvable record (an unknown family, or an id outside a frozen family's
     /// vocabulary) is dropped as the reference's own `if(!uid) continue` drops it, and a scatter rule is normalised on load
@@ -5487,8 +5533,14 @@ impl WorldGen {
         let mut out = vdict! { "ok" => true, "error" => "" };
         out.set("slots", file.slots.len() as i64);
         out.set("created", created as i64);
-        // Always 0 since Ruling FR: a world's record restores no pixels and no item (the library's own items are untouched).
-        out.set("items", 0_i64);
+        // Ruling GW: add the pictures the archive embedded that the device lacks (never replacing one). 0 for a save without
+        // `library/art/`, which is what every save before format 3 is. Taken, so a second restore of the same open adds none.
+        let art = std::mem::take(&mut self.world_art);
+        let r = world_art::restore_art(&mut self.asset_library, &raw, &art);
+        out.set("items", r.added as i64);
+        out.set("art_present", r.present as i64);
+        let refused: PackedStringArray = r.refused.iter().map(GString::from).collect();
+        out.set("art_refused", &refused);
         out
     }
 

@@ -557,7 +557,7 @@ impl AssetLibrarySession {
     /// same item out of differently-sourced pixels.
     ///
     /// Returns the new item's content hash, which the colour notes key on.
-    fn insert_decoded(&mut self, uid: &str, name: String, decoded: DecodedImage) -> Result<String, String> {
+    pub(crate) fn insert_decoded(&mut self, uid: &str, name: String, decoded: DecodedImage) -> Result<String, String> {
         let Some(slot) = self.db.get(uid) else {
             return Err(format!("no such slot: {uid}"));
         };

@@ -33,6 +33,7 @@ its rule before you start.
 | **Time a cache's cold path through the app** | **Find who called first.** The shell may already have paid it: 2026-11-17 a probe timed `urban_layout_boxes`' "cold" call at 41 ms because `ViewportHost.refresh_urban_boxes` had judged every town at world apply; with fresh keys through `WorldGen.set_params` it was 4.9-13.3 s on the main thread, and the design was changed | Force new keys on the engine directly (not through the bridge's setter, which re-asks inside its own call) and time that |
 | **Write "measured" anywhere** | Only for a number you **just produced**; elsewhere-figures are cited | Reproduce it from the command shown before it enters a decision record |
 | **Declare the work green** | `cargo test --workspace` (never a crate subset) **and** parse-check every `.gd` touched plus `shell/app.gd` | The Rust suite cannot see a broken shell; both required |
+| **Change a file format's codec, names or layout** | **Grep every reader outside the crate that owns it**, in every language: the shell reads archives itself with Godot's `ZIPReader` (minizip, deflate only: it cannot decode Zstandard), and tools read them too. Route what they read through the engine's reader | Open a saved file in the real shell on the gallery path, and make a mutant of the new path turn the check red |
 | **Test behaviour a unit test cannot reach** | Probe scene: `godot --headless <probe>.tscn`. `WorldGen` is a cdylib `GodotClass`, not constructible in a unit test | The probe runs and asserts, not just parses |
 | **Run `godot --headless --import`** | It strips `project.godot`'s `;` comments. Avoid if you can | `git diff …/project.godot` empty; `git checkout --` if deletions only |
 | **Mutation-test** | Python only: exact literal replace, occurs-exactly-once assert, BUILD_ERROR separate from SURVIVED, **restore in a `finally`**. Never `sed`, never a whole-file backup | Zero MUTANT residue; hash file against pre-run value |
@@ -231,6 +232,9 @@ its rule before you start.
 `; a text read hides the file's own), so a hash-checked restore failed and a multi-line literal missed a CRLF file. Read and write **bytes**, normalise endings only to match, write the file's own endings back. 2026-11-16, ×2: the mutation harness and an edit script | `git diff --stat` shows only the intended lines; the file's hash after a restore equals the hash before |
 
 ## Why each rule exists
+
+### [2026-11-22] A new codec that a second reader inside the shell cannot decode
+Format 3 (Ruling GX) made every raster Zstandard. `cargo test --workspace` was green, and so was the windowed pass for the save and open paths, while the open-project gallery's thumbnail (`open_project_dialog.gd`'s `_render_thumbnail`) still read the heightmap with Godot's own `ZIPReader`, which cannot decode method 93: every new save would have drawn the placeholder. Found by reading the shell for who else opens the archive, before the push. Rule: when a format's bytes change, grep every reader of it in every language, not only the crate's own. The thumbnail now asks the engine (`WorldGen.project_height_samples`). Verified by `tools/save_art_drive.gd`'s gallery check, which turns red when the engine path is disabled.
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×16
 

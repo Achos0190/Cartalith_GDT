@@ -184,7 +184,7 @@ cartalith-erosion = { path = "../cartalith-erosion" }
 # shares the writer's code. `cartalith-io` (a dependency above) has
 # declared the same version since the MVP; this only makes it visible to
 # this crate's test targets.
-zip = { version = "8.6.0", features = ["deflate"] }
+zip = { version = "8.6.0", features = ["deflate", "zstd"] }
 
 # The Android half of the logger above -- the half that reaches logcat, which
 # is the only place an `ANDROID_BUILD_SCOPE.md` device pass can read a `wgpu`
