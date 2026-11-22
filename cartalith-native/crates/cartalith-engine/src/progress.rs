@@ -202,6 +202,49 @@ static STAGE: AtomicU32 = AtomicU32::new(0);
 pub fn begin_run() {
     RUN_TOKEN.fetch_add(1, Ordering::Relaxed);
     STAGE.store(PLANET as u32, Ordering::Relaxed);
+    trace_open(PLANET);
+}
+
+/// `TOOLING_PLAN.md` M1 (TR-3): the stage counter doubles as the trace's stage boundaries, so the
+/// ten spans cost one hook here and not ten edits in `generate_terrain_inner`. A `gen::run` span
+/// holds the whole run and one `gen::<stage>` span the current stage, both entered on the
+/// generating thread (which is the one that calls `advance`). With no trace subscriber
+/// (the default) `info_span!` returns a disabled span after one cached atomic load, per stage, never
+/// per cell. Must never be given a field that holds user text.
+struct TraceRun {
+    /// Declared first so it exits before `run` does (fields drop in declaration order).
+    stage: Option<tracing::span::EnteredSpan>,
+    run: tracing::span::EnteredSpan,
+}
+
+thread_local! {
+    static TRACE_RUN: std::cell::RefCell<Option<TraceRun>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Span name for a stage index (names must be literals, hence the match).
+fn stage_span(stage: usize) -> tracing::Span {
+    match stage {
+        PLANET => tracing::info_span!("gen::planet", idx = 0u64),
+        EXTENT_SCALE => tracing::info_span!("gen::extent_scale", idx = 1u64),
+        WORLD_STRUCTURE => tracing::info_span!("gen::world_structure", idx = 2u64),
+        TECTONICS => tracing::info_span!("gen::tectonics", idx = 3u64),
+        VOLCANISM => tracing::info_span!("gen::volcanism", idx = 4u64),
+        EROSION => tracing::info_span!("gen::erosion", idx = 5u64),
+        HYDROLOGY => tracing::info_span!("gen::hydrology", idx = 6u64),
+        CLIMATE => tracing::info_span!("gen::climate", idx = 7u64),
+        ECOLOGY_BIOMES => tracing::info_span!("gen::ecology_biomes", idx = 8u64),
+        _ => tracing::info_span!("gen::resources_soils", idx = 9u64),
+    }
+}
+
+/// Opens the run span and the span of `stage` (replacing any run left open by a panic).
+fn trace_open(stage: usize) {
+    TRACE_RUN.with(|t| {
+        let mut t = t.borrow_mut();
+        *t = None;
+        let run = tracing::info_span!("gen::run").entered();
+        *t = Some(TraceRun { stage: Some(stage_span(stage).entered()), run });
+    });
 }
 
 /// Move the counter forward to `stage`. A no-op if the counter is already at
@@ -211,13 +254,21 @@ pub fn begin_run() {
 /// backward, whichever branch a given run actually takes.
 pub fn advance(stage: usize) {
     debug_assert!(stage < STAGE_COUNT, "stage {stage} out of range (0..{STAGE_COUNT})");
-    STAGE.fetch_max(stage as u32, Ordering::Relaxed);
+    if STAGE.fetch_max(stage as u32, Ordering::Relaxed) < stage as u32 {
+        TRACE_RUN.with(|t| {
+            if let Some(r) = t.borrow_mut().as_mut() {
+                r.stage = None;
+                r.stage = Some(stage_span(stage).entered());
+            }
+        });
+    }
 }
 
 /// Marks the run complete: one past the last valid stage index, so a reader
 /// can tell "on the last stage" (`STAGE_COUNT - 1`) apart from "finished".
 pub fn finish() {
     STAGE.store(STAGE_COUNT as u32, Ordering::Relaxed);
+    TRACE_RUN.with(|t| *t.borrow_mut() = None);
 }
 
 /// `(run_token, stage)` -- `stage` is `0..STAGE_COUNT` mid-run and

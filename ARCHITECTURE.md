@@ -45,6 +45,8 @@ cartalith-native/                 (workspace root, new repository)
 │   │                             redaction, mock transport; no sockets      [vault]
 │   ├── cartalith-llm-loopback/   test-only: cartalith-llm over a real loopback
 │   │                             socket; nothing depends on it              [llm]
+│   ├── cartalith-trace/          opt-in JSON-lines trace of spans/events, allowlisted
+│   │                             fields only; off by default (TOOLING_PLAN.md M1)
 │   ├── cartalith-spatial/        tiling, dirty-tracking, draft stack, geometry [jsmath]
 │   ├── cartalith-urban/          urban morphology (UME engine)        [jsmath, rng]
 │   ├── cartalith-assets/         asset packs, library, PNG            [jsmath, noise]

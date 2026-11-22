@@ -89,6 +89,13 @@ cartalith-vault = { path = "../cartalith-vault" }
 # `Cargo.lock` before this change, unmoved by it). This only makes it direct.
 log = "0.4"
 
+# TOOLING_PLAN.md M1 (Ruling GP item 3): opt-in structured trace. The compile-time level cap is set
+# here, once, for the whole build (features unify): a release build deletes `debug!`/`trace!`
+# callsites outright; a debug build keeps up to `debug`. Off at run time unless the shell calls
+# `Trace.start` (env `CARTALITH_TRACE`), so the default cost is one cached atomic load per span.
+cartalith-trace = { path = "../cartalith-trace" }
+tracing = { version = "0.1", default-features = false, features = ["std", "max_level_debug", "release_max_level_info"] }
+
 # `EXPORT_SCOPE.md` §7 milestone E2, `export_stream.rs`: a 16K/32K raster is
 # written band by band and never held whole, so the encoder must take rows
 # incrementally. `image`'s `PngEncoder` takes a whole buffer; `png`'s

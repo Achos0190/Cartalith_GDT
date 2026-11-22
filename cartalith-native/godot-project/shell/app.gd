@@ -1849,6 +1849,10 @@ func _ready() -> void:
 		set_process(false)
 		get_tree().change_scene_to_file.call_deferred("res://_llmandroid_probe.tscn")
 		return
+	## TOOLING_PLAN.md M1: `CARTALITH_TRACE=info` switches the opt-in trace on at boot (off by default;
+	## JSON lines in user://logs/). The shell's Preferences switch is TR-4's remaining half.
+	if OS.get_environment("CARTALITH_TRACE") != "":
+		Trace.start(OS.get_environment("CARTALITH_TRACE"), ProjectSettings.globalize_path("user://logs"))
 	super._ready()
 	undo_groups.app = self
 	year_history.app = self

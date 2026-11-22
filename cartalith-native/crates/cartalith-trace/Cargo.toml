@@ -1,0 +1,18 @@
+[package]
+name = "cartalith-trace"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Opt-in structured trace output (JSON lines) for the generation pipeline and the shell; TOOLING_PLAN.md M1. Off by default."
+
+[dependencies]
+# TOOLING_PLAN.md M1 / Ruling GP: the owner approved `tracing` and `tracing-subscriber` (MIT). Only
+# the `registry` half of the subscriber crate is used (no `fmt`, no `json`, so no serde here): the
+# layer below writes its own allowlisted JSON, which is what makes the privacy rule enforceable.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-core = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+# Bridges `log` records (wgpu's) into the same stream; `format_trace` is the entry the desktop logger calls.
+tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"] }
+log = "0.4"

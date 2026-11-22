@@ -128,6 +128,8 @@ mod substrate;
 /// GF-8's save slice: the geology column in a project archive (`SAVEFILE_COMPAT.md` §8.4).
 mod geology_save;
 mod timeline_bridge;
+/// TOOLING_PLAN.md M1: the shell's hook onto `cartalith-trace` (`Trace.start/stop/event`).
+mod trace_bridge;
 mod travel_bridge;
 mod undo;
 mod undo_group_bridge;
@@ -256,6 +258,11 @@ impl log::Log for StderrLogger {
     /// `eprintln!` only: see [`StderrLogger`]'s doc for why it may never reach Godot.
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
+            // Tracing on: the record joins the JSON stream (wgpu's adapter lines included) instead.
+            if cartalith_trace::is_on() {
+                cartalith_trace::forward_log(record);
+                return;
+            }
             eprintln!("[{} {}] {}", record.level(), record.target(), record.args());
         }
     }
@@ -8660,6 +8667,9 @@ impl WorldGen {
         seed: i32,
         origin: &'static str,
     ) {
+        // TOOLING_PLAN.md M1: the post-generation work (ocean/wind fields, civilisation) is where the
+        // bridge call spends the time `gen::run` does not cover.
+        let _span = tracing::info_span!("bridge::absorb", gw = p.gw as u64, gh = p.gh as u64).entered();
         // SP-2: the import path reaches here without `release_world`, so
         // take the outgoing journeys now (a no-op when that already did).
         self.stash_journeys_for_resnap();
@@ -8682,6 +8692,7 @@ impl WorldGen {
             Some(k) => vec![k; p.civ.factions.max(1) as usize + 1],
             None => Vec::new(),
         };
+        let civ_span = tracing::info_span!("bridge::compute_civilisation").entered();
         self.civ = Some(compute_civilisation(
             &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &default_cultures, None, (&ocean_f, &wind_f),
             // A new world: nothing has been forced on it yet (`absorb` resets
@@ -8689,6 +8700,7 @@ impl WorldGen {
             None,
             p.lake_balance,
         ));
+        drop(civ_span);
         if let (Some(k), Some(civ)) = (default_key.as_deref(), self.civ.as_mut()) {
             for e in civ.faction_roster.0.iter_mut().skip(1) {
                 e.culture = k.to_string();
@@ -10114,6 +10126,7 @@ impl WorldGen {
             return;
         }
         let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
+        let _span = tracing::info_span!("bridge::generate_sized", gw = gw as u64, gh = gh as u64, seed = seed as i64).entered();
         let mut p = self.call_params(seed, width_km, gw, gh);
         // Ruling GL / F29: derive the peak from the plates when `peak_auto` (a no-op off), and
         // keep the stored dial equal to what generated the world, as every metres reader uses it.

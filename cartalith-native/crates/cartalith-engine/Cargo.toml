@@ -10,6 +10,8 @@ description = "orchestrator: owns WorldState, runs the pipeline stages in order"
 name = "cartalith_engine"
 
 [dependencies]
+# TOOLING_PLAN.md M1: span macros only (no subscriber); a disabled callsite is one cached atomic load.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-climate = { path = "../cartalith-climate" }

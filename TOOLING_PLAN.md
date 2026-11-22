@@ -132,7 +132,9 @@ costs about one relaxed atomic load).
 *Ponytail check:* a hand-rolled `span!` of ~100 lines is the alternative and loses `tracing-log` (wgpu's records join
 the same stream), thread ids and the ecosystem; `tracing` wins by the third rung, and it is MIT.
 
-### Design: a new crate `cartalith-trace` (design only; not built)
+### Design: a new crate `cartalith-trace` (built 2026-11-22 as TR-0..TR-3, TR-5, TR-6; deviations below)
+
+**As built (2026-11-22; progress is `STATUS.md`'s).** Three deliberate departures from the text beneath: (1) the layer is our own (~300 lines over `tracing-subscriber`'s `registry` only), not `fmt().json()`, because an allowlist on field *keys* and a charset check on string values cannot be expressed through the stock formatter, and it drops `serde`; (2) `tracing` carries no `log` feature (with it, a disabled span would still emit `log` records into the stderr logger); wgpu's records instead enter through `StderrLogger::log` calling `cartalith_trace::forward_log` while tracing is on; (3) the ten generation stage spans are opened from `cartalith_engine::progress` (`begin_run`/`advance`/`finish`), one hook, since that counter already marks every stage boundary; `gen::ecology_biomes` and `gen::resources_soils` read 0 ms because the engine ticks them at the end with no work of their own. Bridge spans: `bridge::generate_sized`, `bridge::absorb`, `bridge::compute_civilisation`. The runtime switch is `cartalith_trace::start/stop` (a stopped trace leaves the subscriber installed but disabled), driven by `Trace.start` from `app.gd` when `CARTALITH_TRACE` is set. `tools/trace_report.py` has `top`, `tree`, `diff`, `grep`.
 
 * **Instrumentation** goes in the existing crates with the macro, not through the new crate: `tracing = { version =
   "0.1", default-features = false, features = ["std", "log"] }` in the crates that emit. Only `cartalith-trace` (and the
@@ -173,7 +175,7 @@ the same stream), thread ids and the ecosystem; `tracing` wins by the third rung
   same seed, `--grep field=value`. The same file is what `cartalith-playtest` attaches to a bug report; an assistant
   tool could read it later (out of scope).
 
-### Milestones (design bars, none built)
+### Milestones (design bars; TR-0..TR-3, TR-5, TR-6 and the shell hook built 2026-11-22, see `STATUS.md`)
 
 | # | Milestone | Bar |
 |---|---|---|
