@@ -89,9 +89,8 @@ Burn rivers / Micro-erode passes are not ported (off by default there, and two d
 - **Ruling FH** (2026-11-16): refine as deep as the LOD goes; **on save, ask how many refined levels to include, with a
   size estimate**; the disk cap is a Preferences setting (defaults 2 GB desktop, 512 MB phone); ZR-0 first (done: no-go).
 - **Ruling GV** (2026-11-22, after `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md`): three cut-out modes (§9). Keep
-  **New world from selection** (fidelity A), add the constrained **Regenerate region from source**, and also a free
-  **Re-simulate region** (fidelity B, §9a), labelled honestly and, for now, a proof of concept behind a default-off
-  setting. Also: a `region_source` manifest on region worlds, a generation-rules version and a field digest in every
+  **New world from selection** (fidelity A), add the constrained **Regenerate region from source**. (A free **Re-simulate region**, fidelity B, was
+  added and then **dropped** by the owner the same day: *"Drop it"*; §9a records why.) Also: a `region_source` manifest on region worlds, a generation-rules version and a field digest in every
   save (§8); cell-unit parameters in ground units for new worlds, behind a switch, with the tiled-pipeline scope
   (§6); the cut-out is a mode, not a third save type; Generate on a region world warns. All of it stays parked behind
   the refactor.
@@ -188,7 +187,6 @@ selected heights; civ is cleared.
 |---|---|---|---|
 | **New world from selection** (shipped) | A: `amplify_region` + `infer_tectonics` | the parent's, upsampled, plus noise | cleared, as today |
 | **Regenerate region from source** (below) | constrained: real landforms grown inside the parent's geography | pinned by the parent's inflow, outlets and water levels | copied 1-to-1 |
-| **Re-simulate region** (§9a, proof of concept, off by default) | B: a free re-simulation | knowingly allowed to move | re-sited by the generator, not copied |
 
 **Regenerate region from source does not re-run the substrate.** The plates, stress, flexure, age, crust and the
 global normalisers come from the parent's stored rasters, upsampled. Their supports (stress ±33, flexure ±102 parent
@@ -214,47 +212,13 @@ Proposed (Regenerate region from source):
 
 Cost: about 16 M cells for 400 × 400 km at 98 m -- about the size of today's 4k map, a minute or two on PC.
 
-### 9a. Re-simulate region (fidelity B, Ruling GV): a proof of concept
+### 9a. ~~Re-simulate region (fidelity B)~~: dropped (owner, 2026-11-22)
 
-The owner's answer to the review's Q1: *"Also offer free B"*, then *"Do note for now it's proof of concept and check
-how it sits with your research"*. A free re-simulation of the cut-out at the finer grid, which knowingly lets rivers,
-lakes and coasts move. It is **a new world inspired by the region**, and the UI says so in those words before it runs;
-the parent's towns are not carried over.
-
-**It is a proof of concept, not a product mode:**
-
-- **harness only for now** (owner addendum to Ruling GV, 2026-11-22: *"It should not yet be implemented into cartalith as a full thing"*): an ignored test and scratch frames, with no menu entry, setting, save field or shell code; a default-off setting is the shape it would take only if a later ruling promotes it;
-- **no save-format promises**: it adds no `project.json` member, raster or `format_version` rule of its own, and a
-  world it makes may be saved only as an ordinary world (with `world.region_source` where §8's provenance exists,
-  which is §8's promise, not this mode's);
-- a **measured PoC bar** (below), not a product bar. Promotion to a product mode is a separate owner ruling on the
-  PoC's numbers (review §8).
-
-What it re-runs: the height composition at the fine grid, volcanism and craters inside the block, erosion, depression
-filling, drainage and rivers over the whole block plus the margin, with no river inflow pinned at the edges; then the
-civilisation generator over the new block (towns re-sited, roads and borders rebuilt).
-
-What it must still keep, and the PoC bar (thresholds are labelled judgements anchored on review §4.1, where a
-corrected free re-run reached medians of 98.6 % land agreement and height r 0.994, worst 90.7 % and 0.72):
-
-1. **The parent's plate layout**: the parent's plate list and boundaries (replayed from the parent's seed and
-   parameters at the parent's grid, or its stored `plate_id`/`boundary_*` rasters), never a new plate set in the
-   cut-out's frame. Measured: `plate_id` block-reduced to the parent grid against the parent's (expected 100 % by
-   construction; anything less is a bug).
-2. **The parent's coarse climate**: temperature and rainfall interpolated from the parent's grids as the large-scale
-   field; the block never runs as a stand-alone climate with ocean-humid edges.
-3. **The parent's normalisers and sea level** (§6), not the block's own.
-4. **The coarse geography**, measured at the parent's resolution over the cropped block: land/ocean agreement (PoC
-   bar at least 95 %) and sea-relative height r (at least 0.95). Rivers carry no bar; the share of the parent's major
-   river cells within one parent cell is reported.
-5. **Landforms**: the PoC must show what the mode is for, real sub-cell landforms. Measured against a native map at
-   equal km per pixel with the ZR-0 metric (`bind_r` within 0.15 of native; land luma gradient at least 0.6 of
-   native), on frames looked at side by side.
-6. **It never overwrites the parent**: it opens as a new, unsaved world; the parent's project is untouched (the
-   parent's save hashes identically before and after).
-
-It stays parked behind the refactor with the rest of this plan. The cheapest PoC and what would justify promoting it
-are in review §8.
+Briefly added under Ruling GV as a harness-only proof of concept, then dropped by the owner: *"Drop it"*, after
+*"our original thesis still stands and the chatgpt one we can reject"*. The reason is measured in
+`WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §3 and §8: a free re-simulation at a finer grid moves about half the major
+river cells even with the cell-unit terms corrected, so it is not the same region. It is not built, not planned and
+not a PoC. The constrained mode above is the plan's only regeneration path.
 
 ## 10. Cheaper ways to the same result
 
