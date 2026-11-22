@@ -15,7 +15,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 2. ~~**Builds**~~ done: v.26.11.22-001 on the 6T and in the D: folder, Windows export rebuilt. Pad installed too. Next APK after the GZ save build (owner).
 3. **Parallel streets PS-4 (running), then PS-5 with the back-street tier** (PS-3 no-go `4d540795`; Ruling GY: depth bar by area, tier built with PS-5's platting, spindle dropped, PS-2 baseline 58.5 % quads). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-15; switch `urban_parallel_streets` (off).
 4. **River smoothing inside town layouts** (Ruling FE item 4, running). Owner `RIVER_REALISM_SCOPE.md`.
-   - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md`, then build.
+   - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md` (written; build not started).
 5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
    map streaks, the trace leftovers, Ruling GB's leftover towns, name-style
    leftovers, the `_llmpanel` desktop and tablet leg, seed 483920's 3 km threaded strait.
@@ -124,7 +124,7 @@ GUI, then engine, then the LLM interface).
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
-- **Ruling GZ: town layouts in the save without graphics** (recipe + rules version, layout hash, auto-freeze as vector data on first pin/POI, pin anchors; `entities/town_layouts.json`). Scope `TOWN_LAYOUT_SAVE_SCOPE.md` first (not written), then build. Queued next.
+- **Ruling GZ: town layouts in the save without graphics** (recipe + rules version, layout hash, auto-freeze as vector data on first pin/POI, pin anchors; `entities/town_layouts.json`). Scope `TOWN_LAYOUT_SAVE_SCOPE.md`: **scope written; build not started** (milestones TL-0…TL-8, owner questions Q1-Q11 with defaults; TL-0 lands after PS-4 and river smoothing). Queued next.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
