@@ -4088,3 +4088,9 @@ Owner: *"as an exe has extra stuff, I think we should start thinking about an in
 ## Ruling HI: self-signed now, SignPath later (owner, 2026-11-22)
 
 Owner: *"Let's do a self signed for now and in due time we'll go for signpath."* The Windows exe, engine DLL and setup are signed with a self-signed code-signing certificate (`CN=Cartalith (self-signed)`, CurrentUser store, private key non-exportable, never in the repository); SignPath Foundation's free open-source signing replaces it before any public release (requires the source to be public).
+
+## Ruling HJ: three old owner questions (owner, 2026-11-22)
+
+- **Ruling FF's crossings:** keep the flow-based crossing rule; do not gate road crossings on the map's drawn river order (no road moves).
+- **Way tool:** fix the waypoint spacing so the Corridor and Pull sliders act (the Waypoints slider stays).
+- **Saved 0-degree bearings:** disclose only; never migrate saved data (note it where the save notes and About list such things).

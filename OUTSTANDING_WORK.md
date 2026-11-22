@@ -16,7 +16,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 2a. **Ruling HG (running): settlements sit on the river bank, not in it** -- measure how many markers sit inside the drawn river, then nudge to the bank on the market's side, behind a §7p switch.
 2b. **Self-signed code signing in the build** (owner 2026-11-22: self-signed now, SignPath later): cert `CN=Cartalith (self-signed)` in the user store (non-exportable; public `.cer` in the D: folder); v.26.11.22-002's exe, dll and setup were signed by hand. Left: put the signing step into `tools/build_installer.sh` (Inno `SignTool` or `Set-AuthenticodeSignature`) and `TOOLCHAIN.md`.
 3. **Town layouts in the save (running)** (Rulings GZ, HA): TL-0..TL-8 of `TOWN_LAYOUT_SAVE_SCOPE.md`; then a new APK for both devices and the Windows build to the D: folder (owner).
-4. **The small open rows** (each under its area below): F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
+4. **The small open rows** (each under its area below): the way tool's waypoint spacing so Corridor and Pull act (Ruling HJ), the 0-degree bearing disclosure (Ruling HJ), F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
    leftovers, the docked assistant on a 1000 px tablet.
 5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
@@ -207,18 +207,15 @@ GUI, then engine, then the LLM interface).
 
 ## Owner questions still owed
 
-Checked against `LARGE_ITEM_RULINGS.md` through Ruling GU (2026-11-22).
+Checked against `LARGE_ITEM_RULINGS.md` through Ruling HJ (2026-11-22); numbering kept from the rebuild, answered items removed.
 
 1. **Zoom refinement after ZR-0's no-go:** close ZR, or scope a coarse-level landform process? (`ZOOM_REFINEMENT_SCOPE.md` §8.)
 2. **Deep plots Q5-Q8** (`TOWN_GENERATOR_JUDGEMENT.md`): default drop.
 3. **Ruling GB's 1.6 cap** on 246371 #0: keep or raise.
-4. **Ruling FF:** gate road crossings on the map's river order (moves every road) or keep flow.
 5. **Ruling FC's reading** of "the map view" as the City Viewer: confirm.
 6. **3D-3's CDLOD morph:** keep or drop.
 7. **Ruling EH item 1 follow-ups:** phone slider `+`/`-` fine-adjust.
-8. **Way tool:** keep the Waypoints slider, or fix the spacing so Corridor and Pull act.
 9. **`ramp_strength` default 0:** keep (ramp edits invisible until Colour relief is raised).
-10. **Saved 0-degree bearings:** migrate or disclose.
 11. **16k/32k:** raise the page file, or run 32k only after tiling.
 12. **Small LLM Q-SL-1 to Q-SL-10** (held until after the rest).
 13. **Peak law re-fit:** only if taller defaults are wanted.
