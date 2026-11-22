@@ -33,6 +33,10 @@ GUI, then engine, then the LLM interface).
 ## Open work by area
 
 ### Timeline and story
+- Ladder on a real vault: 217 of 243 events are "off the axis" (the track follows the vault's 3000-4769 while the world's own events sit at -640..-60), so the world's events are counted, not drawn. Decide: a split or broken axis, or two tracks. `chronos_lanes.gd`, `tl_range` (found 2026-11-22, `2e4d4f38`).
+- Phone: with the transport panel open at L0, Back goes straight to "Exit Cartalith"; the back chain in `dcc_shell.gd` does not close the transport panel (predates the ladder).
+- Phone: the ladder's count line, Back and Filter text is about 10 px on the 6T's 1080 px screen.
+- Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
 - Chronos view: vertical streak artefacts on white/ice areas of the map (renderer; cause not found). `CHRONOS_TIMELINE_DESIGN.md` §10.
 - City-states: no redo of a "Make this sphere a faction" promotion. `cartalith_civ::city_states`, `city_state_bridge`.
 
@@ -122,6 +126,7 @@ GUI, then engine, then the LLM interface).
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
+- Vault window editor toolbar clipped at the right edge at 1600x900 (found 2026-11-22).
 - **Ruling GZ: town layouts in the save without graphics** (recipe + rules version, layout hash, auto-freeze as vector data on first pin/POI, pin anchors; `entities/town_layouts.json`). Scope `TOWN_LAYOUT_SAVE_SCOPE.md`: **scope written; Ruling HA answered (all defaults, plus labels, icons and measurements anchored); build TL-0..TL-8 after PS-4 and the river smoothing, then an APK** (milestones TL-0…TL-8, owner questions Q1-Q11 with defaults; TL-0 lands after PS-4 and river smoothing). Queued next.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
