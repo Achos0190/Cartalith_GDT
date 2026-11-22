@@ -282,20 +282,23 @@ fn request(sys: String, cat: &ActionCatalogue) -> ChatRequest {
 }
 
 /// Protects the guard with literals: a request over the window is refused with the numbers; one that
-/// fits passes; a window below the 8 192 design passes with a warning; window 0 is refused; the
+/// fits passes; a window below the 12 288 design passes with a warning; window 0 is refused; the
 /// answer reserve counts. MUTATION: drop the reserve from the sum and the 1100-token case passes.
 #[test]
 fn the_guard_refuses_with_numbers_and_never_truncates() {
     let c = cat();
     let small = request("You help.".into(), &c);
     let ok = check_budget(&small, 8192).unwrap();
-    assert_eq!((ok.window, ok.reserve, ok.warning.clone()), (8192, 1024, None));
+    assert_eq!((ok.window, ok.reserve), (8192, 1024));
+    assert!(ok.warning.unwrap().contains("designed for 12288"), "8 192 is now below the design window");
+    assert_eq!(DESIGN_WINDOW_TOKENS, 12288, "the preset's contextLength; change both together (Ruling FX)");
+    assert!(check_budget(&small, 12288).unwrap().warning.is_none());
     assert!(ok.prompt_tokens > 300 && ok.prompt_tokens < 2000, "the four tools alone are well under the fixed target: {}", ok.prompt_tokens);
     let big = request("x".repeat(30_000), &c);
     let err = check_budget(&big, 8192).unwrap_err();
     assert!(err.contains("not sent") && err.contains("8192-token window") && err.contains("1024 kept"), "{err}");
     assert!(check_budget(&big, 32_768).is_ok(), "the same request fits a 32k window");
-    assert!(check_budget(&small, 4096).unwrap().warning.unwrap().contains("designed for 8192"));
+    assert!(check_budget(&small, 4096).unwrap().warning.unwrap().contains("designed for 12288"));
     assert!(check_budget(&small, 0).unwrap_err().contains("context size is not known"));
     assert!(check_budget(&small, 1100).is_err(), "prompt plus the answer reserve must fit");
 }

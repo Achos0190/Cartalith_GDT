@@ -1519,7 +1519,7 @@ const LLM_DEFAULTS := {
 	## Not a profile key: a profile switch never changes it.
 	"actions_pre": true,
 	## The model's context window in tokens, for the request-size guard (`action_tools::check_budget`): 0 means
-	## "not set", and Rust then assumes the 8 192 design window (AQ6), never "unlimited". There is no control for
+	## "not set", and Rust then assumes the 12 288 design window (Ruling FX; the preset's context), never "unlimited". There is no control for
 	## it yet; a profile that runs smaller sets it here (`_ac4_probe.gd` does, to exercise the guard).
 	"context_tokens": 0,
 	## Ruling DQ (profiles): the live values a profile writes. They are ordinary settings, so every

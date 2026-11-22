@@ -1,0 +1,37 @@
+rc=0 params r1 ctx 8192
+rc=0 edit_ridge r1 ctx 8192
+rc=0 params r2 ctx 8192
+rc=0 edit_ridge r2 ctx 8192
+rc=0 params r3 ctx 8192
+rc=0 edit_ridge r3 ctx 8192
+rc=0 params r4 ctx 8192
+rc=0 edit_ridge r4 ctx 8192
+rc=0 params r5 ctx 8192
+rc=0 edit_ridge r5 ctx 8192
+Unloading "qwen3.8-27b"...
+Unloaded 1 model.
+rc=0 params r1 ctx 12288
+rc=0 edit_ridge r1 ctx 12288
+rc=0 params r2 ctx 12288
+rc=0 edit_ridge r2 ctx 12288
+rc=0 params r3 ctx 12288
+rc=0 edit_ridge r3 ctx 12288
+rc=0 params r4 ctx 12288
+rc=0 edit_ridge r4 ctx 12288
+rc=0 params r5 ctx 12288
+rc=0 edit_ridge r5 ctx 12288
+Unloading "qwen3.8-27b"...
+Unloaded 1 model.
+rc=0 params r1 ctx 16384
+rc=0 edit_ridge r1 ctx 16384
+rc=0 params r2 ctx 16384
+rc=0 edit_ridge r2 ctx 16384
+rc=0 params r3 ctx 16384
+rc=0 edit_ridge r3 ctx 16384
+rc=0 params r4 ctx 16384
+rc=0 edit_ridge r4 ctx 16384
+rc=0 params r5 ctx 16384
+rc=0 edit_ridge r5 ctx 16384
+Unloading "qwen3.8-27b"...
+Unloaded 1 model.
+SWEEPDONE

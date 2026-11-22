@@ -1,0 +1,9 @@
+keep step KILLED
+keep float type KILLED
+always send default KILLED
+keep advanced desc KILLED
+advanced string back KILLED
+repeat re-sends KILLED
+repeat note dropped KILLED
+design window 8192 KILLED
+design window 16384 KILLED

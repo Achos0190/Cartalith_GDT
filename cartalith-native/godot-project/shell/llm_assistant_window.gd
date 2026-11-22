@@ -1418,7 +1418,7 @@ func _gate() -> Dictionary:
 ## own getter; the snapshot while a generate runs). Rust builds the catalogue from these.
 func _params_args(request: String) -> Dictionary:
 	var a := {"request": request, "current": bridge.param_snapshot(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
-	## AC-4: the window the guard checks against, when one was set (0 = the 8 192 design window).
+	## AC-4: the window the guard checks against, when one was set (0 = the 12 288 design window).
 	if int(DccSettings.llm_value("context_tokens")) > 0:
 		a["context_tokens"] = int(DccSettings.llm_value("context_tokens"))
 	## PC-6: the selection and the year ride with a Commands request too (questions about the world).

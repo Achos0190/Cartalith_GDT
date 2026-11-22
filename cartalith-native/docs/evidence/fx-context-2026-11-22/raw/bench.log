@@ -1,0 +1,10 @@
+ctx 8192 rep 0 prompt 5122 completion 200 first_s 18.0 prefill_tps 285 gen_tps 31.5
+ctx 8192 rep 1 prompt 5122 completion 200 first_s 19.0 prefill_tps 269 gen_tps 31.9
+ctx 8192 rep 2 prompt 5123 completion 200 first_s 18.8 prefill_tps 273 gen_tps 21.6
+ctx 12288 rep 0 prompt 5122 completion 200 first_s 27.7 prefill_tps 185 gen_tps 26.6
+ctx 12288 rep 1 prompt 5122 completion 200 first_s 27.8 prefill_tps 184 gen_tps 20.6
+ctx 12288 rep 2 prompt 5123 completion 200 first_s 28.3 prefill_tps 181 gen_tps 24.6
+ctx 16384 rep 0 prompt 5122 completion 200 first_s 18.1 prefill_tps 282 gen_tps 40.7
+ctx 16384 rep 1 prompt 5122 completion 200 first_s 18.7 prefill_tps 274 gen_tps 38.2
+ctx 16384 rep 2 prompt 5123 completion 200 first_s 18.4 prefill_tps 279 gen_tps 36.1
+BENCHDONE

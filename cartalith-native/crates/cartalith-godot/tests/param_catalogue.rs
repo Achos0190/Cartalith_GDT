@@ -152,12 +152,12 @@ fn the_generated_schema_is_valid_and_small() {
         println!("schema group {g:<16} {:>3} keys {bytes:>6} bytes", keys.len());
         assert!(bytes <= 12_000, "{g}: {bytes} bytes");
         for e in v["settings"].as_array().unwrap() {
-            let ty = e["type"].as_str().unwrap();
+            let ty = e.get("type").and_then(|t| t.as_str()).unwrap_or("float");
             assert!(["bool", "int", "float"].contains(&ty));
-            assert!(!e["label"].as_str().unwrap().is_empty() && !e["desc"].as_str().unwrap().is_empty());
-            assert!(e.get("current").is_some() && e.get("default").is_some(), "{e}");
+            assert!(!e["label"].as_str().unwrap().is_empty() && (e.get("advanced").is_some() || !e["desc"].as_str().unwrap().is_empty()));
+            assert!(e.get("current").is_some(), "{e}");
             if ty != "bool" {
-                let (lo, hi, d) = (e["min"].as_f64().unwrap(), e["max"].as_f64().unwrap(), e["default"].as_f64().unwrap());
+                let (lo, hi, d) = (e["min"].as_f64().unwrap(), e["max"].as_f64().unwrap(), e.get("default").unwrap_or(&e["current"]).as_f64().unwrap());
                 assert!(lo.is_finite() && hi.is_finite() && lo <= d && d <= hi, "{e}");
             }
         }
@@ -532,4 +532,30 @@ fn query_results_contain_only_registry_vocabulary() {
     let fixed = ["read fresh", "the climate refresh", "the settlements refresh", "only a full Generate", "ruled behaviour", "Will have no effect"];
     let foreign: Vec<&String> = got.iter().filter(|s| !allowed.contains(*s) && !fixed.iter().any(|f| s.starts_with(f))).collect();
     assert!(foreign.is_empty(), "strings outside the registry vocabulary: {foreign:?}");
+}
+
+/// Protects Ruling FX's trim on the REAL rows: the schema result carries no `step`, drops `default`
+/// only where it equals `current`, tags advanced rows with the bare literal `true`, and the three
+/// groups of the live run (climate, weather, world) stay under a literal byte ceiling (11 782 bytes
+/// before the trim, measured 2026-11-22). MUTATION: put `step` back, or the advanced string, or
+/// widen the ceiling past 8 000 (see the evidence for the figure after the trim).
+#[test]
+fn the_schema_result_is_trimmed() {
+    let c = fresh();
+    let (_, v, _) = c.schema_for(Some(&json!(["climate", "weather", "world"]))).unwrap();
+    let bytes = v.to_string().len();
+    println!("TRIO {bytes} bytes");
+    assert!(bytes <= 8_000, "{bytes}");
+    let rows = v["settings"].as_array().unwrap();
+    let mut adv = 0;
+    for e in rows {
+        assert!(e.get("step").is_none() && e.get("type") != Some(&json!("float")), "{e}");
+        assert!(e.get("default").is_none() || e["default"] != e["current"], "{e}");
+        if let Some(a) = e.get("advanced") {
+            assert_eq!(a, &json!(true));
+            adv += 1;
+        }
+        assert!(e.get("current").is_some() && (e.get("desc").is_some() != e.get("advanced").is_some()), "desc XOR advanced: {e}");
+    }
+    assert!(adv >= 5, "the world group has ruled-behaviour rows");
 }

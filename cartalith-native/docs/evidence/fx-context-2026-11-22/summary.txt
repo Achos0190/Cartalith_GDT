@@ -1,0 +1,9 @@
+ctx 8192 vram max dedicated GB 15.71 shared GB 6.18
+  params     ok 5/5  reqs/run 2  peak prompt tok med 6148 max 6148  first-byte s med 2.1 max 23.0  gen tok/s med 57.3  prefill tok/s med 1877.5
+  edit_ridge ok 5/5  reqs/run 1  peak prompt tok med 2475 max 2475  first-byte s med 2.4 max 9.2  gen tok/s med 68.5  prefill tok/s med 1022.0
+ctx 12288 vram max dedicated GB 15.75 shared GB 6.55
+  params     ok 5/5  reqs/run 2  peak prompt tok med 6148 max 6148  first-byte s med 2.6 max 14.6  gen tok/s med 29.9  prefill tok/s med 1815.9
+  edit_ridge ok 5/5  reqs/run 1  peak prompt tok med 2475 max 2475  first-byte s med 2.6 max 6.7  gen tok/s med 53.4  prefill tok/s med 949.4
+ctx 16384 vram max dedicated GB 15.66 shared GB 7.97
+  params     ok 5/5  reqs/run 2  peak prompt tok med 6148 max 6148  first-byte s med 2.6 max 40.9  gen tok/s med 30.5  prefill tok/s med 1649.8
+  edit_ridge ok 5/5  reqs/run 1  peak prompt tok med 2475 max 2475  first-byte s med 3.9 max 26.0  gen tok/s med 25.4  prefill tok/s med 639.0

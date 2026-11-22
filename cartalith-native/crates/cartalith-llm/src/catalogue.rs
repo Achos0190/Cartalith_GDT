@@ -505,6 +505,32 @@ impl Catalogue {
         Value::Object(e)
     }
 
+    /// [`Catalogue::entry`] trimmed for the `get_param_schema` RESULT only (Ruling FX): the same
+    /// fields minus what the model does not need to propose a change and the checks do not need to
+    /// be told. `step` is dropped (the validator rounds, and `min`/`max` bound the value); `type` is dropped for a float (the common case; `int` and `bool` stay named);
+    /// `default` is sent only when it differs from `current` (the tool description says so); the
+    /// advanced tag is `true`, its meaning stated once in the tool description instead of 70
+    /// characters on each of the dozen rows. Queries (`get_parameters`) keep the full [`entry`].
+    /// MUST NEVER drop `current`, `min`, `max`, `desc` or `inert_now`: those decide a proposal.
+    pub fn schema_entry(r: &Row) -> Value {
+        let Value::Object(mut e) = Self::entry(r) else { unreachable!("entry builds an object") };
+        e.remove("step");
+        if e.get("type") == Some(&json!("float")) {
+            e.remove("type"); // a number with min/max and no `type` is a float; `int` and `bool` stay named
+        }
+        if e.get("default") == e.get("current") {
+            e.remove("default");
+        }
+        if e.contains_key("advanced") {
+            // Ruled-behaviour switches (a dozen of the `world` group's 21 rows) are rarely what a request
+            // touches; the label and current value are enough to flip one, and the long `desc` is the
+            // biggest single item of the three-group flow (Ruling FX, measured: 9 753 -> see the test).
+            e.insert("advanced".into(), json!(true));
+            e.remove("desc");
+        }
+        Value::Object(e)
+    }
+
     /// The schema for `groups` (the `get_param_schema` arguments' `groups`), as
     /// the tool result and the list of keys it showed; or the error text the
     /// model is told, which names every valid group.
@@ -527,7 +553,7 @@ impl Catalogue {
         }
         let shown: Vec<&Row> = self.rows.iter().filter(|r| chosen.contains(&r.group)).collect();
         let keys: Vec<String> = shown.iter().map(|r| r.key.clone()).collect();
-        let settings: Vec<Value> = shown.iter().map(|r| Self::entry(r)).collect();
+        let settings: Vec<Value> = shown.iter().map(|r| Self::schema_entry(r)).collect();
         Ok((chosen.clone(), json!({"groups": chosen, "settings": settings}), keys))
     }
 
@@ -537,7 +563,9 @@ impl Catalogue {
         ToolSpec {
             name: GET_SCHEMA_TOOL.into(),
             description: "Step one. Returns the settings (key, type, label, unit, range, current value, default and a \
-                description of which way each one works) of up to three setting groups. Call this before proposing any change."
+                description of which way each one works) of up to three setting groups. Call this before proposing any change. \
+                A setting with no `default` is at its default. `advanced` marks ruled behaviour: flipping it reproduces older output on purpose, so leave it unless asked; it shows its label only. \
+                Asking again for a group already shown returns nothing new."
                 .into(),
             parameters: json!({"type": "object", "properties": {
                 "groups": {"type": "array", "items": {"type": "string", "enum": self.group_names()},

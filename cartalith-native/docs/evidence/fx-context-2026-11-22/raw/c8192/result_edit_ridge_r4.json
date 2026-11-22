@@ -1,0 +1,53 @@
+{
+  "card_found": true,
+  "events": [
+    {
+      "ms": 4170,
+      "prompt": "Raise the area I painted into a ridge about 300 m high.",
+      "t_ms": 5821,
+      "transcript_tail": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 300 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“A ~300 m ridge along the stroke”\n1. Ridge along the painted stroke, crest 300 m high (smooth falloff, softness 1)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1300 m to 1300 m, mean 2260 m to 2315 m, highest 6594 m to 6594 m.\n    2616 cells change; largest rise 299 m, largest fall 0 m.\n    11 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+      "usage": {
+        "first_token_ms": -1,
+        "usage": {
+          "completion": 101,
+          "prompt": 2475,
+          "total": 2576
+        }
+      },
+      "what": "proposal"
+    },
+    {
+      "field_changed": true,
+      "state": "applied",
+      "t_ms": 6272,
+      "undo_groups_added": 1,
+      "what": "applied"
+    },
+    {
+      "field_restored": true,
+      "t_ms": 6722,
+      "what": "undone"
+    }
+  ],
+  "guard_window_tokens": 8192,
+  "model": "qwen3.8-27b",
+  "panel_final": "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.\nYou\nRaise the area I painted into a ridge about 300 m high.\nMODEL PROPOSAL · TERRAIN EDIT\n“A ~300 m ridge along the stroke”\n1. Ridge along the painted stroke, crest 300 m high (smooth falloff, softness 1)\nPreview (worked out by the app on a copy of the region; nothing has changed):\n    Heights in the region (metres above sea): lowest 1300 m to 1300 m, mean 2260 m to 2315 m, highest 6594 m to 6594 m.\n    2616 cells change; largest rise 299 m, largest fall 0 m.\n    11 cells would be stopped at the world's ceiling, so they rise less than asked.\nBefore\nAfter\nBoth pictures use one height scale; cells outside the region are dimmed, blue is below sea level.\nApplying edits the terrain inside this region only and re-runs rivers and climate for the area, as a sculpt commit does. It is one undo step (Edit ▸ Undo). It does not regenerate, erode or change settings.\nUndone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it.\n[Dismiss]\n[Ask the model to revise]\n[Apply 1 edit]",
+  "preview": {
+    "changed": 2616,
+    "ok": true
+  },
+  "region": "diagonal stroke from (80, 24)",
+  "rejected": [],
+  "scenario": "edit_ridge",
+  "structural": "",
+  "valid": [
+    {
+      "operation": "ridge",
+      "text": "Ridge along the painted stroke, crest 300 m high (smooth falloff, softness 1)"
+    }
+  ],
+  "world": {
+    "grid": "(256, 164)",
+    "seed": 9137
+  }
+}

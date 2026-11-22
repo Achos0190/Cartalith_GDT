@@ -1015,7 +1015,7 @@ impl LlmStream {
         // AC-2's request-size guard: with the catalogue tools in the request, refuse (with the numbers,
         // before anything is sent, never truncating) a request that would not fit a LOCAL model's window.
         // A hosted model's window is far larger and its own server refuses an overlong one, so the guard
-        // is for the owner's local setups (AQ6: designed for 8 192). `context_tokens` comes from the shell
+        // is for the owner's local setups (Ruling FX: designed for 12 288). `context_tokens` comes from the shell
         // when it knows the server's context; absent, the design window is assumed, not "unlimited".
         if conv.actions_offered() && auth.local {
             let window = args.get("context_tokens").and_then(|v| v.try_to::<i64>().ok()).filter(|w| *w > 0).map_or(DESIGN_WINDOW_TOKENS, |w| w.min(u32::MAX as i64) as u32);

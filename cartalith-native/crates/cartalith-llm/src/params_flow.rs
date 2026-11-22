@@ -973,6 +973,16 @@ When one fits, propose it directly with propose_actions. When none fits, browse 
                                 self.shown_groups.join(", "))})
                             .to_string()
                         } else {
+                            // Ruling FX: send only what the model has not been shown. A repeated
+                            // round (live run 1, 2026-11-17: the model asked for `weather` again)
+                            // used to re-send the whole schema and be refused by the size guard.
+                            let mut value = value;
+                            let fresh = |e: &Value| e["key"].as_str().is_some_and(|key| !self.shown_keys.iter().any(|s| s == key));
+                            let settings: Vec<Value> = value["settings"].as_array().map(|a| a.iter().filter(|e| fresh(e)).cloned().collect()).unwrap_or_default();
+                            if settings.is_empty() {
+                                value["note"] = json!("already shown earlier in this conversation; propose with set_generation_params now");
+                            }
+                            value["settings"] = Value::Array(settings);
                             self.shown_groups = g;
                             self.shown_keys = k;
                             value.to_string()
@@ -1163,6 +1173,28 @@ mod tests {
         let v = cat.validate(&bad, c.shown_groups());
         assert_eq!(v.rejected.len(), 1);
         assert_eq!(v.rejected[0].rule, crate::catalogue::Rule::V6);
+    }
+
+    /// Protects Ruling FX: a repeated schema round re-sends nothing (an empty `settings` and a note),
+    /// an overlapping one sends only the groups' new keys, and either way the offered key enum is
+    /// unchanged by the repeat. MUTATION: drop the `fresh` filter and the repeat carries 4 settings.
+    #[test]
+    fn a_repeated_schema_round_sends_only_what_is_new() {
+        let cat = fixture();
+        let mut c = ParamsConversation::new(&cat, "x").unwrap();
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        let last = |c: &ParamsConversation| -> Value { serde_json::from_str(&c.messages().last().unwrap().content).unwrap() };
+        assert_eq!(last(&c)["settings"].as_array().unwrap().len(), 4);
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["weather"]}))]);
+        let again = last(&c);
+        assert_eq!(again["settings"].as_array().unwrap().len(), 0, "{again}");
+        assert!(again["note"].as_str().unwrap().contains("already shown"));
+        c.on_reply(&cat, "", vec![call(None, GET_SCHEMA_TOOL, json!({"groups": ["weather", "tectonics"]}))]);
+        let mixed = last(&c);
+        assert_eq!(mixed["settings"].as_array().unwrap().len(), 4, "only tectonics' four: {mixed}");
+        assert!(mixed.get("note").is_none());
+        let en = req(&c, &cat).tools[1].parameters["properties"]["changes"]["items"]["properties"]["key"]["enum"].as_array().unwrap().len();
+        assert_eq!(en, 8);
     }
 
     /// Protects the budget: a call that would push the union over

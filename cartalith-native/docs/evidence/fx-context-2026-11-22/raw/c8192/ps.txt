@@ -1,0 +1,4 @@
+
+IDENTIFIER     MODEL          STATUS    SIZE        CONTEXT    PARALLEL    LOAD CONFIG    DEVICE    TTL
+qwen3.8-27b    qwen3.8-27b    IDLE      14.08 GB    8192       1           LM Studio      Local        
+

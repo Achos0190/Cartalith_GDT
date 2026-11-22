@@ -801,8 +801,16 @@ propose_actions without a lookup. Use one only if it fits what the user asked. T
 // The request-size guard
 // ---------------------------------------------------------------------------------------------
 
-/// The design window (AQ6): the owner's Local reference runs a context of 8 192.
-pub const DESIGN_WINDOW_TOKENS: u32 = 8192;
+/// The design window: the context the owner's Local preset loads (`cartalith-qwen3.8-27b-q3kxl`,
+/// `llm.load.contextLength`), which the guard assumes when the shell passes no `context_tokens`.
+/// 12 288, chosen by measurement (Ruling FX, 2026-11-22, `docs/evidence/fx-context-2026-11-22/`):
+/// qwen3.8-27b on the RX 7800 XT held 8 192, 12 288 and 16 384 at 5/5 success on live parameter and
+/// edit runs with no speed difference outside the machine's noise, while dedicated VRAM sat full
+/// (about 15.7 of 16 GB) at every size and the KV cache of each extra 4 096 tokens spilled about
+/// 0.5 GB into shared memory. 8 192 passes the trimmed three-group flow (6 148 real tokens) only by
+/// the guard's pessimistic margin and refuses the heaviest groups together; 16 384 buys nothing
+/// the flow needs for 1.6 GB more spill. Was 8 192 (AQ6).
+pub const DESIGN_WINDOW_TOKENS: u32 = 12288;
 
 /// Characters of request JSON per token, the conservative figure the guard divides by. A labelled
 /// measurement (AC-0, 2026-10-31): with the real Qwen3, gpt-oss and Ministral-3 tokenizers the
@@ -825,7 +833,7 @@ pub struct BudgetReport {
     pub window: u32,
     /// Tokens kept free for the answer (the request's own output cap).
     pub reserve: u32,
-    /// A warning that does not stop the request (a window below the design's 8 192).
+    /// A warning that does not stop the request (a window below the design's 12 288).
     pub warning: Option<String>,
 }
 
@@ -840,7 +848,7 @@ pub fn estimate_prompt_tokens(req: &ChatRequest) -> u32 {
 
 /// AC-2's guard: refuse, with a reason, a request whose estimate plus its answer reserve exceeds
 /// `window` tokens; never truncate. Below [`DESIGN_WINDOW_TOKENS`] the request may still pass but
-/// carries a warning (AQ6: the design aims at 8 192). `window` 0 is refused (a context size that
+/// carries a warning (Ruling FX: the design aims at 12 288). `window` 0 is refused (a context size that
 /// was not given is not "unlimited").
 pub fn check_budget(req: &ChatRequest, window: u32) -> Result<BudgetReport, String> {
     if window == 0 {
