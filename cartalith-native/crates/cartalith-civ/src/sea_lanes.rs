@@ -1,4 +1,4 @@
-//! Sea lanes that call at ports, have their big arcs reined in and share trunks
+//! Sea lanes that call at ports, stop running side by side and share trunks
 //! (owner findings F16 and F39, 2026-11-21, and Rulings GR and GS, 2026-11-22;
 //! `civ.sea_lanes`).
 //!
@@ -14,16 +14,21 @@
 //! **What this does, in order.** (a) *Calls*: a lane whose path passes within
 //! [`CALL_RADIUS_CELLS`] of a port that is not one of its ends is split at that
 //! port (a -> p -> b), the cabotage pattern: a ship passing a harbour on its way
-//! calls there. (b) *Swing*: a cell far from the lane's own direct course costs a
-//! little more ([`swing_mult`]), which reins in only the big arc. (c) *Trunks*:
-//! every lane is re-traced [`PASSES`] times, busiest ports first, with the cells
-//! earlier lanes use costing [`REUSE_FACTOR`], the same trail-reinforcement
-//! `way_merge` uses (Helbing, Keltsch and Moln\u{e1}r 1997).
+//! calls there. (b) *Trunks*: every lane is re-traced [`PASSES`] times, busiest
+//! ports first, with the cells earlier lanes use costing [`REUSE_FACTOR`], the
+//! same trail-reinforcement `way_merge` uses (Helbing, Keltsch and Moln\u{e1}r
+//! 1997), but only where the cell is at least [`REUSE_OFFSHORE_SHARE`] of the
+//! lane's own median distance from land (Ruling GU), so a long lane is not drawn
+//! onto a coastal trunk. (c) *Threading*: a cell beside another lane costs
+//! [`THREAD_FACTOR`] times, and [`snap_parallel`] merges near-parallel lanes after
+//! smoothing.
 //!
 //! **Distance from the coast is left as it was** (owner, Ruling GS, 2026-11-22:
 //! *"just keep it as it originally was for the distance from the coast"*). The
 //! first build pulled lanes onto the coast (a 0.85 discount) and the second kept
-//! them off it (a 2.5 km standoff cost); the owner rejected both, so neither term
+//! them off it (a 2.5 km standoff cost); a third, a swing cost on cells far from a
+//! lane's own chord, also pulled the seed-83744 arc onto the coast (Ruling GU: *"keep
+//! the long lane's own open-sea course"*); the owner rejected all three, so no term
 //! exists: no cell is priced for being near land.
 //!
 //! **What it must never do.** Cross land (the search reads the same cost grid,
@@ -42,17 +47,6 @@ use std::collections::{BinaryHeap, HashSet};
 /// water (the port is snapped to the nearest ocean cell within 10), and small
 /// enough that a lane across open water is not pulled into a distant bay.
 pub const CALL_RADIUS_CELLS: f64 = 6.0;
-
-/// A cell further than this share of the lane's chord from the chord is "swung
-/// out" and costs more ([`swing_mult`]). A labelled judgement: a lane may bow
-/// 35 % of its length off its direct course for free; the owner's seed-83744 arc
-/// bows about 40 %, and at 15 % the arc was replaced by a coast route (Ruling GS).
-pub const SWING_FREE: f64 = 0.35;
-
-/// The cost added per chord-length of swing beyond [`SWING_FREE`]: a mild limit
-/// (a cell half a chord off costs 1.15 times). A labelled judgement; the owner
-/// asked for the big arc to be reeled in "a little bit".
-pub const SWING_K: f64 = 1.0;
 
 /// Cost multiplier on a cell an earlier lane already uses: `way_merge`'s own
 /// value, the reference's `_CIV_EXISTING_WAY_DISCOUNT`.
@@ -89,6 +83,14 @@ pub const THREAD_JUNCTION_CELLS: f64 = 8.0;
 /// cells come out 1 to 2 cells apart; 3 closes that and stays inside
 /// [`THREAD_RADIUS_CELLS`].
 pub const SNAP_CELLS: f64 = 3.0;
+
+/// A lane's trunk discount applies only to cells at least this share of the lane's
+/// own median distance from land (Ruling GU, owner 2026-11-22: *"keep the long
+/// lane's own open-sea course"*). A long lane that sails well offshore is not
+/// pulled onto a coastal trunk, because the coastal cells are closer to land than
+/// half its own course and so earn no discount; a lane that already hugs the coast
+/// has a small median, so nothing is withheld from it. A labelled judgement: half.
+pub const REUSE_OFFSHORE_SHARE: f64 = 0.5;
 
 /// Re-trace passes, as `way_merge::PASSES`.
 pub const PASSES: usize = 3;
@@ -128,37 +130,6 @@ fn path_base_cost(p: &[usize], inp: &LaneIn) -> f64 {
         .sum()
 }
 
-/// The cost multiplier for a cell `share` of its lane's chord away from the chord:
-/// 1 up to [`SWING_FREE`], then rising by [`SWING_K`] per chord length. This is the
-/// "mild limit on how far a lane may swing beyond its direct course".
-pub fn swing_mult(share: f64) -> f64 {
-    1.0 + SWING_K * (share - SWING_FREE).max(0.0)
-}
-
-/// How far, as a share of the chord `s`-`t`, cell `g` is from that segment.
-fn swing_share(g: usize, s: usize, t: usize, rw: usize, world: bool) -> f64 {
-    let at = |c: usize, rx: f64| -> (f64, f64) {
-        let mut x = (c % rw) as f64;
-        if world {
-            let d = x - rx;
-            if d.abs() > rw as f64 / 2.0 {
-                x -= d.signum() * rw as f64;
-            }
-        }
-        (x, (c / rw) as f64)
-    };
-    let a = ((s % rw) as f64, (s / rw) as f64);
-    let b = at(t, a.0);
-    let p = at(g, a.0);
-    let (vx, vy) = (b.0 - a.0, b.1 - a.1);
-    let l2 = vx * vx + vy * vy;
-    if l2 == 0.0 {
-        return 0.0;
-    }
-    let u = (((p.0 - a.0) * vx + (p.1 - a.1) * vy) / l2).clamp(0.0, 1.0);
-    ((p.0 - a.0 - u * vx).hypot(p.1 - a.1 - u * vy)) / l2.sqrt()
-}
-
 /// The ports (not `a`, not `b`; a port on an end's own cell counts as that end) a routing-cell `path` passes within
 /// [`CALL_RADIUS_CELLS`] of, in path order, each once.
 fn calls(path: &[usize], a: usize, b: usize, inp: &LaneIn) -> Vec<usize> {
@@ -190,22 +161,22 @@ fn calls(path: &[usize], a: usize, b: usize, inp: &LaneIn) -> Vec<usize> {
 }
 
 /// Windowed least-cost search from `s` to `t`: the step is the unchanged
-/// sailing-time step times the mean of the two cells' multipliers (swing
-/// [`REUSE_FACTOR`] on cells in `laid` and [`THREAD_FACTOR`] on cells in another
+/// sailing-time step times the mean of the two cells' multipliers
+/// ([`REUSE_FACTOR`] on cells in `laid` and [`THREAD_FACTOR`] on cells in another
 /// lane's `zone` away from ports, `free`).
-fn search(inp: &LaneIn, laid: &[u16], zone: &[u16], free: &[bool], win: Window, s: usize, t: usize) -> Option<Vec<usize>> {
+#[allow(clippy::too_many_arguments)]
+fn search(inp: &LaneIn, laid: &[u16], zone: &[u16], free: &[bool], land: &[u16], reuse_min: u16, win: Window, s: usize, t: usize) -> Option<Vec<usize>> {
     let rw = inp.rw;
     let n = win.w * win.h;
     let local = |g: usize| (g / rw - win.y0) * win.w + (g % rw - win.x0);
     let global = |l: usize| (win.y0 + l / win.w) * rw + win.x0 + l % win.w;
     let mult = |g: usize| -> f64 {
-        let m = swing_mult(swing_share(g, s, t, rw, inp.world));
-        if laid[g] > 0 {
-            m * REUSE_FACTOR
+        if laid[g] > 0 && land[g] >= reuse_min {
+            REUSE_FACTOR
         } else if zone[g] > 0 && !free[g] {
-            m * THREAD_FACTOR
+            THREAD_FACTOR
         } else {
-            m
+            1.0
         }
     };
     let (ls, lt) = (local(s), local(t));
@@ -289,6 +260,47 @@ fn stamp_path(laid: &mut [u16], zone: &mut [u16], path: &[usize], inp: &LaneIn, 
     }
 }
 
+/// The lowest land distance at which a lane's trunk discount applies: [`REUSE_OFFSHORE_SHARE`]
+/// of the median land distance of its own `path`.
+fn reuse_floor(path: &[usize], land: &[u16]) -> u16 {
+    let mut d: Vec<u16> = path.iter().map(|&c| land[c]).collect();
+    d.sort_unstable();
+    (d[d.len() / 2] as f64 * REUSE_OFFSHORE_SHARE) as u16
+}
+
+/// Per routing cell, the 8-neighbour step distance to the nearest land cell (a cell
+/// of infinite cost), capped at 4095. A multi-source breadth-first search; land is 0.
+fn land_distance(inp: &LaneIn) -> Vec<u16> {
+    let (rw, rh) = (inp.rw, inp.rh);
+    let mut d = vec![u16::MAX; rw * rh];
+    let mut q = std::collections::VecDeque::new();
+    for (i, c) in inp.cost.iter().enumerate() {
+        if !c.is_finite() {
+            d[i] = 0;
+            q.push_back(i);
+        }
+    }
+    while let Some(i) = q.pop_front() {
+        let (x, y) = ((i % rw) as isize, (i / rw) as isize);
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                let nx = if inp.world { (x + dx).rem_euclid(rw as isize) } else { x + dx };
+                let ny = y + dy;
+                if nx < 0 || ny < 0 || nx >= rw as isize || ny >= rh as isize {
+                    continue;
+                }
+                let j = ny as usize * rw + nx as usize;
+                if d[j] == u16::MAX && d[i] < 4095 {
+                    d[j] = d[i] + 1;
+                    q.push_back(j);
+                }
+            }
+        }
+    }
+    // A map with no land has no distance: treat every cell as far.
+    d.iter().map(|&v| if v == u16::MAX { 4095 } else { v }).collect()
+}
+
 /// Per routing cell, whether it lies within [`THREAD_JUNCTION_CELLS`] of a port.
 fn junction_cells(inp: &LaneIn) -> Vec<bool> {
     let mut f = vec![false; inp.rw * inp.rh];
@@ -312,7 +324,7 @@ fn junction_cells(inp: &LaneIn) -> Vec<bool> {
 }
 
 /// The lanes for `edges` (port pairs, source first) as routing-cell paths
-/// source..=target: split at calls, then re-traced onto shared trunks with big arcs reined in.
+/// source..=target: split at calls, then re-traced onto shared trunks and kept clear of each other.
 /// A pair whose path cannot be traced is dropped, as the reference's loop drops it.
 pub fn lane_paths(edges: &[(usize, usize)], inp: &LaneIn) -> Vec<(usize, usize, Vec<usize>)> {
     let trace = |x: usize, y: usize| civ_trace_path(inp.prev[x], inp.rp[x], inp.rp[y]);
@@ -338,7 +350,7 @@ pub fn lane_paths(edges: &[(usize, usize)], inp: &LaneIn) -> Vec<(usize, usize, 
         .map(|(a, b)| (a, b, trace(a, b)))
         .filter(|(a, b, p)| p.len() >= 2 && p[0] == inp.rp[*a] && p[p.len() - 1] == inp.rp[*b])
         .collect();
-    // (b) + (c): swing and trunk reuse, busiest trade first.
+    // (b) + (c): trunk reuse and the thread zone, busiest trade first.
     let orig: Vec<f64> = lanes.iter().map(|l| path_base_cost(&l.2, inp)).collect();
     let mut order: Vec<usize> = (0..lanes.len()).collect();
     order.sort_by(|&i, &j| {
@@ -348,6 +360,10 @@ pub fn lane_paths(edges: &[(usize, usize)], inp: &LaneIn) -> Vec<(usize, usize, 
     let mut laid = vec![0u16; inp.rw * inp.rh];
     let mut zone = vec![0u16; inp.rw * inp.rh];
     let free = junction_cells(inp);
+    let land = land_distance(inp);
+    // Each lane's trunk discount floor: a share of the median land distance of its own
+    // original course (`REUSE_OFFSHORE_SHARE`).
+    let reuse_min: Vec<u16> = lanes.iter().map(|l| reuse_floor(&l.2, &land)).collect();
     for pass in 0..PASSES {
         for &k in &order {
             if pass > 0 {
@@ -355,7 +371,7 @@ pub fn lane_paths(edges: &[(usize, usize)], inp: &LaneIn) -> Vec<(usize, usize, 
             }
             let win = window_for(&lanes[k].2, inp.rw, inp.rh, inp.world);
             let (s, t) = (lanes[k].2[0], *lanes[k].2.last().unwrap());
-            if let Some(p) = search(inp, &laid, &zone, &free, win, s, t)
+            if let Some(p) = search(inp, &laid, &zone, &free, &land, reuse_min[k], win, s, t)
                 && path_base_cost(&p, inp) <= orig[k] * (1.0 + DETOUR_TOL)
             {
                 lanes[k].2 = p;
@@ -407,13 +423,52 @@ mod tests {
         assert!(shared >= 60, "shared cells {shared}");
     }
 
-    /// Protects the swing limit's literal shape: free to 35 % of the chord, then
-    /// 1.0 per chord length. Mutating `SWING_FREE` or `SWING_K` turns it red.
+    /// Protects Ruling GU's floor: half the median land distance of the lane's own
+    /// course (median 20 here, floor 10; a coast-hugging lane's floor is 0). Mutating
+    /// `REUSE_OFFSHORE_SHARE`, or taking the minimum instead of the median, turns it red.
     #[test]
-    fn swing_costs_nothing_inside_the_free_share_and_a_little_beyond() {
-        assert_eq!(swing_mult(0.0), 1.0);
-        assert_eq!(swing_mult(0.35), 1.0);
-        assert!((swing_mult(0.5) - 1.15).abs() < 1e-12);
+    fn the_trunk_discount_floor_is_half_the_lanes_median_land_distance() {
+        let land: Vec<u16> = vec![1, 10, 20, 30, 40];
+        assert_eq!(reuse_floor(&[0, 1, 2, 3, 4], &land), 10);
+        assert_eq!(reuse_floor(&[0, 0, 1], &land), 0, "a coast-hugging lane keeps every trunk");
+    }
+
+    /// Protects the floor's use in the search: a laid trunk along the coast (row 3, land
+    /// rows 0-2) pulls a lane from (2,20) to (87,20) onto it with floor 0, and does not
+    /// with floor 8 (the trunk's cells are 1 from land). Dropping the floor test in the
+    /// search turns the second half red.
+    #[test]
+    fn a_lane_far_offshore_is_not_pulled_onto_a_coastal_trunk() {
+        let (w, h) = (90usize, 40usize);
+        let cost: Vec<f32> = (0..w * h).map(|i| if i / w < 3 { f32::INFINITY } else { 1.0 }).collect();
+        let rp = [20 * w + 2, 20 * w + 87];
+        let prevs: Vec<Vec<i32>> = rp.iter().map(|&r| crate::road_dijkstra(&cost, w, h, r % w, r / w, false, None, true).1).collect();
+        let prev: Vec<&[i32]> = prevs.iter().map(|v| v.as_slice()).collect();
+        let c = cost.clone();
+        let base = move |i: usize, j: usize, dx: isize, dy: isize| -> f64 {
+            if !c[i].is_finite() || !c[j].is_finite() { f64::INFINITY } else if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 }
+        };
+        let inp = LaneIn { cost: &cost, rw: w, rh: h, world: false, rp: &rp, prev: &prev, weight: &[1.0, 1.0], base: &base };
+        let land = land_distance(&inp);
+        let laid: Vec<u16> = (0..w * h).map(|c| (c / w == 3) as u16).collect();
+        let zone = vec![0u16; w * h];
+        let free = vec![false; w * h];
+        let win = window_for(&[20 * w + 2, 20 * w + 87], w, h, false);
+        let mid = |floor: u16| search(&inp, &laid, &zone, &free, &land, floor, win, rp[0], rp[1]).unwrap().into_iter().find(|c| c % w == 45).unwrap() / w;
+        assert_eq!(mid(0), 3, "with no floor the lane joins the coastal trunk");
+        assert_eq!(mid(8), 20, "with the floor it keeps its open-sea course");
+    }
+
+    /// Protects the land distance: the steps to the nearest land cell, 0 on land.
+    #[test]
+    fn land_distance_counts_steps_to_the_nearest_land() {
+        let (w, h) = (10usize, 6usize);
+        let cost: Vec<f32> = (0..w * h).map(|i| if i / w == 0 { f32::INFINITY } else { 1.0 }).collect();
+        let prev: Vec<&[i32]> = vec![];
+        let base = |_: usize, _: usize, _: isize, _: isize| 1.0;
+        let inp = LaneIn { cost: &cost, rw: w, rh: h, world: false, rp: &[], prev: &prev, weight: &[], base: &base };
+        let d = land_distance(&inp);
+        assert_eq!((d[3], d[w + 3], d[3 * w + 3], d[5 * w + 3]), (0, 1, 3, 5));
     }
 
     /// A `w` x `h` all-sea grid with the given ports, for the thread-zone tests.
@@ -471,7 +526,7 @@ mod tests {
         let win = window_for(&[22 * w + 2, 22 * w + 87], w, h, false);
         let rows = |free: bool| -> Vec<usize> {
             let f = vec![free; w * h];
-            search(&inp, &laid, &zone, &f, win, rp[0], rp[1]).unwrap().iter().filter(|&&c| (30..60).contains(&(c % w))).map(|c| c / w).collect()
+            search(&inp, &laid, &zone, &f, &vec![4095; w * h], 0, win, rp[0], rp[1]).unwrap().iter().filter(|&&c| (30..60).contains(&(c % w))).map(|c| c / w).collect()
         };
         assert!(rows(false).iter().all(|&r| !(18..=24).contains(&r)), "{:?}", rows(false));
         assert!(rows(true).iter().all(|&r| r == 22), "free cells are not penalised");

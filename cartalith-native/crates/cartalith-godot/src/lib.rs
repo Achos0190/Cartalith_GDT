@@ -6106,7 +6106,7 @@ fn compute_civilisation(
     let ports: Vec<cartalith_civ::NamedSettlement> =
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     // Findings F16 and F39 (`civ.sea_lanes`): lanes call at ports,
-    // lose their big arcs and share trunks. Off: `civ_sea_routes`' own lanes, by control flow.
+    // stop running side by side and share trunks. Off: `civ_sea_routes`' own lanes, by control flow.
     let sea_routes = cartalith_civ::civ_sea_routes_lanes(
         &ports, &ws.field, &wb.classification, gw, gh, world, map_width_km,
         Some(ocean_wind.0), Some(ocean_wind.1), opts.sea_lanes,

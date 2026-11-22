@@ -1076,7 +1076,7 @@ pub struct CivParams {
     /// save without the key loads it off.
     pub planner_dominant_biome: bool,
     /// Owner findings F16 and F39 (2026-11-21): sea lanes call at the ports they
-    /// sail past, lose their big arcs, and merge into
+    /// sail past, stop running side by side, and merge into
     /// shared trunks (`cartalith_civ::sea_lanes`), the treatment
     /// [`merge_ways`](Self::merge_ways) gave the land ways.
     ///

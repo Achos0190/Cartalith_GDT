@@ -10805,7 +10805,7 @@ pub fn civ_sea_routes(
 
 /// [`civ_sea_routes`] with `civ.sea_lanes` (owner findings F16 and F39,
 /// 2026-11-21): `lanes` true splits a lane at the ports it sails past, keeps it
-/// reins in a big arc and shares trunks between lanes (`sea_lanes`). `false` is
+/// stops lanes running side by side and shares trunks between lanes (`sea_lanes`). `false` is
 /// [`civ_sea_routes`] exactly, by control flow.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_sea_routes_lanes(
