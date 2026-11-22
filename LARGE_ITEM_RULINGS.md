@@ -3963,3 +3963,7 @@ On F2 (`ae063511` kept a floor of one faction because the economy, manpower and 
 ## Ruling GJ: PS-2 -- try a lower heading strength (owner, 2026-11-22)
 
 After step 0b (`f0ba5f2b`, `PARALLEL_STREETS_SCOPE.md` §12: FS-1 against the re-roll, quads, housing and the new wall bar pass; FS-2's delta 0.398 / 0.274 and needle lots 12.6 % fail), owner on Q18: **(a), the third heading variant -- a lower heading gain**, keeping step 0b's fixes (`PARALLEL_FAR_BANK_SLACK`, `wallhug::ring_is_jagged`), re-measured against every step-0 bar with frames. FS-2's caps and the needle bar stay as they are.
+
+## Ruling GK: loose settlements always keep their own garrison, at the world's base tech (owner, 2026-11-22)
+
+After Ruling GI (`4f803210`): (1) **an unclaimed settlement always keeps its own garrison** (`garrison::loose_garrison`), also in a world that has factions -- a §7p switch, new worlds only, since it changes output for worlds with factions; (2) **loose settlements read the world's base agricultural tech** (`civ.base_ag_tech`), not the Unclaimed row's default.
