@@ -598,8 +598,12 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	_place = _current_place()
 
 	# -- status line + settings -------------------------------------------------
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 6)
+	## F4 (owner finding of 2026-11-21): a flow on every form. The phone's HBox of dot, status (160 px floor), Settings,
+	## New and the saved note was wider than the 412 dp sheet, so Settings and the controls past it ran off the right
+	## edge; a flow wraps the buttons to a second line instead (`_fgui4_probe.gd`, leg `assist`).
+	var top := HFlowContainer.new()
+	top.add_theme_constant_override("h_separation", 6)
+	top.add_theme_constant_override("v_separation", 6)
 	_body.add_child(top)
 	_status_dot = DccTheme.label("●", "text_ghost", DccTheme.FS_SMALL)
 	top.add_child(_status_dot)
@@ -796,8 +800,8 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## PC-6: docked, the transcript's floor is 80 px (it expands into every free pixel, see above).
-	_scroll.custom_minimum_size.y = 100 if _phone else 80
+	## PC-6: docked, the transcript's floor is DOCKED_REPLY_MIN (200 px; F4) (it expands into every free pixel, see above).
+	_scroll.custom_minimum_size.y = 100 if _phone else DOCKED_REPLY_MIN
 	_body.add_child(_scroll)
 	if kept_msgs != null:
 		_msgs = kept_msgs
@@ -888,12 +892,13 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	## enabled" while the switch is off, wider than the dock beside Reset); the phone keeps its one row.
 	## Made once for the form: the first version built an HBox and replaced it with a flow off the phone, leaving one parentless
 	## node per build (found by `_ms1swap_probe.gd --leg assistant`, whose rebuilds count orphans).
-	var ctl: Container = HBoxContainer.new() if _phone else HFlowContainer.new()
+	## F4: a flow on the phone too (Reset, Stop and "Turn on Assistant enabled" beside a 160 px token line ran past
+	## the sheet's right edge); the buttons wrap under the token line instead.
+	var ctl: Container = HFlowContainer.new()
+	ctl.add_theme_constant_override("h_separation", 8)
+	ctl.add_theme_constant_override("v_separation", 6)
 	if not _phone:
-		ctl.add_theme_constant_override("h_separation", 8)
-		ctl.add_theme_constant_override("v_separation", 6)
 		ctl.alignment = FlowContainer.ALIGNMENT_END
-	ctl.add_theme_constant_override("separation", 8)
 	_tok_label = DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
 	_tok_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tok_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -915,8 +920,7 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	controls["send"] = _send
 
 	## PC-6: docked, Save and its reason flow (one row of both measured 287 px against the 304 px dock).
-	var save_row: Container = HBoxContainer.new() if _phone else HFlowContainer.new()
-	save_row.add_theme_constant_override("separation", 8)
+	var save_row: Container = HFlowContainer.new()
 	save_row.add_theme_constant_override("h_separation", 8)
 	_body.add_child(save_row)
 	_save = _button(save_row, "Save to note", _on_save)
@@ -2688,9 +2692,13 @@ func _refresh_cards() -> void:
 ## card scrolls inside, from its top). The floor only ever raises the minimum: the Ask tab's own scroller takes the extra
 ## height, and 380 is below the 577 px that scroller measures on the 1700x1000 tablet.
 const PENDING_CARD_SCROLL_MIN := 380.0
+## F4 (owner finding of 2026-11-21): the docked transcript's idle floor. It was 80 px, so the reply and its sources card
+## showed through a slot barely taller than the Send button; 200 px shows a few lines and the dock's own scroll takes
+## the rest (`_fgui4_probe.gd`, leg `assist`: the reply area measured at least 160 px).
+const DOCKED_REPLY_MIN := 200.0
 
 
-## Sets the transcript's floor from what it holds now: 100 on the phone and 80 docked when idle (the values `_rebuild` and the
+## Sets the transcript's floor from what it holds now: 100 on the phone and DOCKED_REPLY_MIN (200) docked when idle (the values `_rebuild` and the
 ## save card's answer used to write), `CARD_SCROLL_MIN` while the first-use save question is shown, and
 ## `PENDING_CARD_SCROLL_MIN` while a card is waiting or the newest one has just been applied or undone, docked only (the phone's and the window form's transcript already
 ## expands into the free space, and a raised floor there would push Send off the sheet's edge). Called after every change
@@ -2698,7 +2706,7 @@ const PENDING_CARD_SCROLL_MIN := 380.0
 func _sync_scroll_floor() -> void:
 	if _scroll == null or not is_instance_valid(_scroll):
 		return
-	var want := 100.0 if _phone else 80.0
+	var want := 100.0 if _phone else DOCKED_REPLY_MIN
 	if controls.has("conv_save_card") and is_instance_valid(controls["conv_save_card"]):
 		want = maxf(want, CARD_SCROLL_MIN)
 	if is_docked():

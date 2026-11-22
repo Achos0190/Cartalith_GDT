@@ -239,9 +239,9 @@ func _ready() -> void:
 	print("== 2/3. browse, describe, propose ==")
 	var script := [
 		{"calls": [{"name": "list_actions", "args": {"path": "carto/layers"}}, {"name": "search_actions", "args": {"query": "factions window"}}]},
-		{"name": "describe_action", "args": {"ids": ["view.layer.rivers", "window.factions"]}},
+		{"name": "describe_action", "args": {"ids": ["view.layer.conflict", "window.factions"]}},
 		{"name": "propose_actions", "args": {"summary": "Hide rivers, open the roster", "actions": [
-			{"id": "view.layer.rivers", "args": {"visible": false}, "reason": "declutter"}, {"id": "window.factions"}]}},
+			{"id": "view.layer.conflict", "args": {"visible": false}, "reason": "declutter"}, {"id": "window.factions"}]}},
 	]
 	var n := await _ask(script, "hide the rivers and open the faction roster")
 	_ok(n == 3, "browse (2 calls in one reply), describe and propose took 3 requests (%d)" % n)
@@ -258,13 +258,13 @@ func _ready() -> void:
 	for m in b1.get("messages", []):
 		if String((m as Dictionary).get("role", "")) == "tool":
 			tool_results += String((m as Dictionary).get("content", ""))
-	_ok(tool_results.contains("view.layer.rivers") and tool_results.contains("window.factions"), "the second request carries the list and search results with the ids")
+	_ok(tool_results.contains("view.layer.conflict") and tool_results.contains("window.factions"), "the second request carries the list and search results with the ids")
 	var card := _action_card()
 	_ok(not card.is_empty(), "a catalogue card was drawn")
 	if not card.is_empty():
 		var info: Dictionary = card["info"]
 		var valid: Array = info.get("valid", [])
-		_ok(valid.size() == 2 and String((valid[0] as Dictionary)["id"]) == "view.layer.rivers", "the card holds the two validated actions (%d)" % valid.size())
+		_ok(valid.size() == 2 and String((valid[0] as Dictionary)["id"]) == "view.layer.conflict", "the card holds the two validated actions (%d)" % valid.size())
 		_ok(card["apply"] != null and not (card["apply"] as Button).disabled, "the card has an Apply button (AC-3 runs it; _ac3_probe presses it); here nothing is pressed")
 		_ok(bool((valid[0] as Dictionary)["args"].get("visible", true)) == false, "the layer argument is the typed false")
 	_ok(JSON.stringify(_snap()) == JSON.stringify(idle_digest), "NOTHING moved: layers, camera and world are as before the proposal")

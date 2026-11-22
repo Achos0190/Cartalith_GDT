@@ -628,7 +628,7 @@ fn synthesize_tile_rgba_with_z_base(
     conform: u8,
     parent: Option<(&[u8], usize, usize)>,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    let t = tile_heights(ctx, tf, z, col, row, seed, zb, conform)?;
+    let t = tile_heights(ctx, tf, z, col, row, seed, zb, conform, 1.0)?;
     let mut rgba = colour_tile_heights(ctx, tf, &t, rivers, fans, paint)?;
     // EF-9.4, the colour half of the geomorph (2026-10-18): conformed heights
     // alone left two thirds of the mixed-level colour jump, because the
@@ -696,8 +696,29 @@ fn colour_tile_heights(
     (rgba.len() == t.w * t.h * 4).then_some(rgba)
 }
 
+/// The pyramid level up to which the 3D view keeps the zoom-detail octaves whole (a labelled judgement from the
+/// 2026-11-21 frames: x4 at levels 3..5 read well, x16 at 5..7 was lumpy).
+pub const VIEW3D_DETAIL_FULL_Z: f64 = 4.0;
+/// The level from which the 3D view's relief tiles carry no zoom-detail octaves at all.
+pub const VIEW3D_DETAIL_NONE_Z: f64 = 7.0;
+
+/// **F20 (owner, 2026-11-21): "turn off the embossing effect at deeper zooms" in the 3D view.** The factor on the
+/// kilometre zoom-detail law's strength for a 3D relief tile at pyramid level `z`: `1` up to
+/// [`VIEW3D_DETAIL_FULL_Z`], smoothly to `0` at [`VIEW3D_DETAIL_NONE_Z`]. Why: the deep tiles' octaves were tuned to be
+/// shaded in 2D; displaced as geometry and shaded into the drape they read as embossed, spiky lumps (the x16 and x64
+/// frames in `docs/evidence/f20-3d-2026-11-21/`). Only the 3D relief tile uses it, so no 2D pixel moves. Must never
+/// leave `[0, 1]` and must never rise with `z` (a level cannot carry more detail than a coarser one).
+pub fn view3d_detail_scale(z: i32) -> f64 {
+    let t = ((z as f64 - VIEW3D_DETAIL_FULL_Z) / (VIEW3D_DETAIL_NONE_Z - VIEW3D_DETAIL_FULL_Z)).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
 /// **One plain tile's colour and the relief it was coloured from, from one
 /// synthesis** -- `3D_VIEWPORT_SCOPE.md` §3.1, for the 3D view (3D-2).
+///
+/// **F20 (owner, 2026-11-21): from level [`VIEW3D_DETAIL_FULL_Z`] the heights, and so the colour shaded from them,
+/// carry progressively fewer zoom-detail octaves ([`view3d_detail_scale`]), none from [`VIEW3D_DETAIL_NONE_Z`], so the
+/// "plain 2D tile" below is exact only up to that level.**
 ///
 /// What it returns: [`TileRelief`], whose `rgba` is the plain 2D tile at
 /// `(z, col, row)` (the same [`tile_heights`] and [`colour_tile_heights`] calls
@@ -725,7 +746,7 @@ pub fn synthesize_tile_rgba_and_relief(
     fans: Option<&crate::river_stroke::RiverGeometry>,
     paint: Option<&crate::river_field::PaintSource>,
 ) -> Option<TileRelief> {
-    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0)?;
+    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0, view3d_detail_scale(z))?;
     let rgba = colour_tile_heights(ctx, tf, &t, rivers, fans, paint)?;
     let mask = render::tile_water_mask(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf);
     if mask.len() != t.w * t.h {
@@ -853,7 +874,7 @@ struct TileHeights {
 /// mouths, and every tile of a world without a valley field -- is amplified
 /// once, as before.
 #[allow(clippy::too_many_arguments)]
-fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, seed: i32, zb: i32, conform: u8) -> Option<TileHeights> {
+fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, seed: i32, zb: i32, conform: u8, detail_scale: f64) -> Option<TileHeights> {
     let (gw, gh) = (ctx.gw, ctx.gh);
     if ctx.field.len() < gw.checked_mul(gh)? {
         return None;
@@ -863,7 +884,14 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
     // kilometre zoom detail when the look asks for it and the context knows
     // its map width (the info tiles and the zoom-ladder harness ask the same
     // function, so they cannot disagree with this tile).
-    let opts = render::tile_amplify_opts(ctx, seed, zb);
+    let mut opts = render::tile_amplify_opts(ctx, seed, zb);
+    // F20 (owner, 2026-11-21): the 3D view's relief tiles fade the kilometre law's octaves out at depth
+    // (`view3d_detail_scale`); every 2D caller passes 1.0, which leaves `opts` untouched by control flow.
+    if detail_scale < 1.0 {
+        if let Some(km) = opts.km.as_mut() {
+            km.strength *= detail_scale;
+        }
+    }
     // `pyramid_tile` sizes itself with the same `tile_dims` call; taking the
     // dimensions from `tile_size_px` and checking rather than reading them
     // off the result is what lets a caller (`viewport_host.gd`'s tile rect,
@@ -895,10 +923,10 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
     // so the two stay the same function of their own fields. A no-op by
     // control flow unless the look's `edifice_furrows` is above zero and the
     // context carries the world's edifice frame (`render::add_tile_furrows`).
-    render::add_tile_furrows(ctx, &mut tile, out_w, out_h, pad, tb);
+    render::add_tile_furrows_scaled(ctx, &mut tile, out_w, out_h, pad, tb, detail_scale);
     let mut water = if render::tile_water_differs(ctx, tf, tb, out_w, out_h, pad) {
         let (ww, wh, mut wt) = pyramid_tile_padded_rough(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts, rough);
-        render::add_tile_furrows(ctx, &mut wt, out_w, out_h, pad, tb);
+        render::add_tile_furrows_scaled(ctx, &mut wt, out_w, out_h, pad, tb, detail_scale);
         ((ww, wh) == (out_w, out_h)).then_some(wt)
     } else {
         None
@@ -924,7 +952,7 @@ fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, se
 /// the drawn shoreline did not move; `None` exactly where synthesis refuses.
 #[allow(dead_code)]
 pub fn synthesize_tile_water_mask(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, seed: i32) -> Option<Vec<u8>> {
-    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0)?;
+    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0, 1.0)?;
     Some(render::tile_water_mask(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf))
 }
 
@@ -1696,7 +1724,7 @@ mod tests {
         assert_eq!((r.w, r.h), (plain.1, plain.2));
         assert_eq!(r.rgba, plain.0, "the relief tile's colour must be the 2D tile");
         assert_eq!(r.height.len(), r.w * r.h);
-        let t = tile_heights(&c, &tf, z, col, row, 7, z_base(), 0).expect("heights");
+        let t = tile_heights(&c, &tf, z, col, row, 7, z_base(), 0, view3d_detail_scale(z)).expect("heights");
         let mask = synthesize_tile_water_mask(&c, &tf, z, col, row, 7).expect("mask");
         let pw = t.w + 2 * t.pad;
         let (mut sea, mut land) = (0usize, 0usize);
@@ -1716,6 +1744,44 @@ mod tests {
         let again = synthesize_tile_rgba_and_relief(&c, &tf, z, col, row, 7, None, None, None).expect("relief tile");
         assert_eq!(again.height, r.height);
         assert_eq!(again.rgba, r.rgba);
+    }
+
+    /// Protects owner finding F20: the 3D relief tile's detail fades out with depth. Literal pins on the curve (1 to
+    /// level 4, 0 from level 7, never rising), and over a world whose map width is known (so the kilometre law is
+    /// on) a level-7 tile built with the 3D scale is strictly smoother -- less summed neighbour step -- than the
+    /// same tile at scale 1, while a level-2 tile is identical (the scale is 1 there). Mutating either end level or
+    /// the multiplication in `tile_heights` turns it red.
+    #[test]
+    fn the_3d_relief_tile_loses_its_zoom_detail_with_depth() {
+        assert_eq!(view3d_detail_scale(0), 1.0);
+        assert_eq!(view3d_detail_scale(4), 1.0);
+        assert_eq!(view3d_detail_scale(7), 0.0);
+        assert_eq!(view3d_detail_scale(12), 0.0);
+        assert_eq!(view3d_detail_scale(5) + view3d_detail_scale(6), 1.0, "symmetric smoothstep about level 5.5");
+        assert!((0..=12).all(|z| view3d_detail_scale(z + 1) <= view3d_detail_scale(z)), "never rises with depth");
+        let (gw, gh) = (128usize, 96usize);
+        let w = TestWorld::new(synthetic_field(gw, gh), gw, gh);
+        let a = TestWorld::appearance();
+        let pre = render::GridPrecompute::build(&w.field, &w.temp, &w.rain, Some(&w.field), gw, gh, TEST_SEA, false, &a, Some(1200.0));
+        let c = render::RenderCtx::from_precomputed(&w.field, &w.temp, &w.rain, Some(&w.field), gw, gh, TEST_SEA, false, 55.0, 5.0, TestWorld::appearance(), &pre).expect("ctx");
+        let tf = TileFields::new(&c, None);
+        let roughness = |t: &TileHeights| -> f64 {
+            let pw = t.w + 2 * t.pad;
+            let mut sum = 0.0;
+            for y in 0..t.h {
+                for x in 0..t.w - 1 {
+                    sum += (t.tile[(y + t.pad) * pw + x + t.pad + 1] - t.tile[(y + t.pad) * pw + x + t.pad]).abs() as f64;
+                }
+            }
+            sum
+        };
+        let (z, col, row) = (7, 80, 50);
+        let full = tile_heights(&c, &tf, z, col, row, 7, z_base(), 0, 1.0).expect("full");
+        let fade = tile_heights(&c, &tf, z, col, row, 7, z_base(), 0, view3d_detail_scale(z)).expect("faded");
+        assert!(roughness(&full) > 0.0 && roughness(&fade) < roughness(&full) * 0.8, "level 7 must be smoother: {} vs {}", roughness(&fade), roughness(&full));
+        let shallow_a = tile_heights(&c, &tf, 2, 1, 1, 7, z_base(), 0, 1.0).expect("z2");
+        let shallow_b = tile_heights(&c, &tf, 2, 1, 1, 7, z_base(), 0, view3d_detail_scale(2)).expect("z2");
+        assert_eq!(shallow_a.tile, shallow_b.tile, "level 2 is untouched");
     }
 
     /// Protects: Ruling CO item 3's wiring -- `tile_heights` runs the volcano
@@ -1763,6 +1829,13 @@ mod tests {
             synthesize_tile_rgba(&c, &w.fields(&c), z, col, row, 7).expect("tile")
         };
         assert_eq!(zero.0, plain0.0, "strength 0 must be the frame-less tile");
+        // F20 (2026-11-21): the 3D relief tile's scale takes the furrows out -- scale 0 is the frame-less height,
+        // scale 1 the furrowed one, and they differ (positive control).
+        let c_f = w.ctx().with_edifice_frame(&frame, 4000.0);
+        let c_p = w.ctx();
+        let hs = |c: &RenderCtx, s: f64| tile_heights(c, &w.fields(c), z, col, row, 7, z_base(), 0, s).expect("heights").tile;
+        assert_ne!(hs(&c_f, 1.0), hs(&c_f, 0.0), "scale 1 must carry the furrows");
+        assert_eq!(hs(&c_f, 0.0), hs(&c_p, 0.0), "scale 0 must carry none");
     }
 
     /// Protects: a context whose field is shorter than `gw * gh` yields `None`, not

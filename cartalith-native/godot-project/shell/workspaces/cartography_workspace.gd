@@ -124,17 +124,8 @@ const LIVE_LAYERS: Array = [
 	## row's reason: a conflict is something the user deliberately authored,
 	## and the layer draws nothing until one is active in the cursor's year.
 	{"id": "conflict", "label": "Conflict", "on": true},
-	## The rivers: `WorldGen.get_rivers()`' traced, smoothed vector strokes
-	## (RV-2), drawn in the style's own river colour below the deep-zoom
-	## switch and rasterized into every deep-zoom tile above it, since
-	## 2026-09-27 so the style preset reaches them (`river_stroke.rs::
-	## rasterize`). Switching this row is a re-render, not an overlay flag --
-	## `viewport_host.gd::set_layer_visible("rivers")`.
-	##
-	## **On by default**: owner ruling 2026-09-22 made these strokes the map's
-	## only rivers, so this row is the plain "show rivers" switch, and off
-	## means no rivers are drawn.
-	{"id": "rivers", "label": "Rivers", "on": true},
+	## **Rivers have no row any more** (owner finding F23, 2026-11-21): they always draw, solid, so there is nothing to
+	## switch. `viewport_host.gd::set_layer_visible("rivers")` still answers and ignores an off.
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]

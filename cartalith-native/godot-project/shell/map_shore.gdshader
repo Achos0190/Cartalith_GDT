@@ -104,13 +104,13 @@ const float WHITEWATER = 0.25;
 const float FALL_LIP = 0.7;
 const vec3 FOAM_RGB = vec3(236.0 / 255.0, 243.0 / 255.0, 240.0 / 255.0);
 const float FLOODPLAIN_GREEN_EXCESS = 0.06;
-// `river_realism::volume_alpha`: small water is translucent.
+// `river_realism::volume_alpha` and `head_alpha`: retired by owner finding F23 (2026-11-21), rivers are solid at every
+// zoom. The functions stay so the `am` line below keeps its shape, and return 1.
 float volume_alpha(float u) {
-	return 1.0 - clamp(river_translucency, 0.0, 1.0) * (1.0 - VOLUME_ALPHA_HEAD) * clamp(u, 0.0, 1.0);
+	return 1.0;
 }
-// `river_realism::head_alpha`: a true head fades in from x1 to x4.
 float head_alpha(float h, float z) {
-	return 1.0 - smoothstep(HEAD_GATE_LO_Z, HEAD_GATE_HI_Z, z) * (1.0 - clamp(h, 0.0, 1.0));
+	return 1.0;
 }
 // `river_realism::detail_tint`: white water and a fall's lip, nothing below x8.
 vec3 detail_tint(vec3 rgb, float white, float lip, float z) {

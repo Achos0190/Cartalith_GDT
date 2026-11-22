@@ -708,6 +708,11 @@ content changed. Rule: re-measure children when a sheet's content changes, and c
 An agent restored a file to clear a diff and discarded uncommitted work. Rule: never `git checkout`/`restore` a path that
 has uncommitted changes you did not make; copy it aside or `git stash` first, and name the explicit path in commits.
 
+**Again, 2026-11-21 (own work, owner-findings batch 4):** `git checkout -- river_field.rs` to drop a temporary probe test
+also dropped the same file's earlier real edit (a test rename) and the cost was a re-edit found only by a later diff
+check. Rule: remove a scratch test by editing it out, or copy the file aside first; and `git diff --stat` the file
+after any revert. (The `git stash` half of the old advice is superseded: briefs forbid `git stash`, copy aside instead.)
+
 ## 15. A probe with a parse error hangs while holding the lock
 
 A GDScript probe with a parse error never exits, and the `C:/cw/.win_lock` directory stayed held. Rule: run

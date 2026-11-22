@@ -268,19 +268,19 @@ func _ready() -> void:
 	_ok(preset_id != "", "a style preset other than the active one exists (%s)" % preset_id)
 	var pre2 := _plan()
 	n = await _ask([{"calls": [{"name": "list_actions", "args": {"path": "carto/layers"}}, {"name": "list_actions", "args": {"path": "carto/style"}}]},
-		{"name": "propose_actions", "args": {"summary": "Old look", "actions": [{"id": "view.layer.rivers", "args": {"visible": false}}, {"id": "view.style_preset", "args": {"preset": preset_id}}]}}], "hide rivers, old look")
+		{"name": "propose_actions", "args": {"summary": "Old look", "actions": [{"id": "view.layer.conflict", "args": {"visible": false}}, {"id": "view.style_preset", "args": {"preset": preset_id}}]}}], "hide rivers, old look")
 	var c2 := _action_card()
 	var t2 := _texts(c2["box"]) if not c2.is_empty() else ""
 	_ok(t2.contains("MODEL PROPOSAL · VIEW") and t2.contains("Hide the") and t2.contains("Style: "), "the VIEW card words the layer and the style: %s" % t2.left(160).replace("\n", " | "))
 	_ok(t2.contains("The style is one Undo step; layers and the camera are session state"), "the section says the style is one Undo step and the layer is session state")
 	_ok(await _click(c2.get("apply")), "Apply clicked")
 	var post2 := _plan()
-	_ok(post2["layers"]["rivers"] == false and int(post2["preset"]) != int(pre2["preset"]), "the layer is hidden and the preset changed")
+	_ok(post2["layers"]["conflict"] == false and int(post2["preset"]) != int(pre2["preset"]), "the layer is hidden and the preset changed")
 	_app.undo_last()
 	await _settle(8)
 	var undone2 := _plan()
-	_ok(int(undone2["preset"]) == int(pre2["preset"]) and undone2["layers"]["rivers"] == false, "Undo restored the preset only; the layer stays hidden, as the card said")
-	(_app.viewport as Node).call("set_layer_visible", "rivers", true)
+	_ok(int(undone2["preset"]) == int(pre2["preset"]) and undone2["layers"]["conflict"] == false, "Undo restored the preset only; the layer stays hidden, as the card said")
+	(_app.viewport as Node).call("set_layer_visible", "conflict", true)
 
 	# ---------------------------------------------------------------- 3. SELECT
 	print("== 3. a selection card ==")

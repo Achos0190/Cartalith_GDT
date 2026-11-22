@@ -1761,7 +1761,7 @@ mod tests {
     /// (`river_realism::tests::the_shader_mirrors_the_realism_law`). Under a
     /// held law (fit 1 px a cell, every river visible) so `z` is the ppc.
     #[test]
-    fn the_raster_paints_white_water_from_x16_and_fades_a_head_from_x4() {
+    fn the_raster_paints_white_water_from_x16_and_draws_a_head_solid() {
         let _law = crate::river_stroke::ScaleGuard::hold(Some((1.0, 1.0)));
         let a = look();
         let with = |d: [f32; 3]| {
@@ -1786,7 +1786,8 @@ mod tests {
         assert!(cw > cc * 1.02, "white water lightens the water at x16 ({cw} vs {cc})");
         let head = with([0.0, 0.0, 0.0]);
         assert_eq!(paint(&head, 1.0), paint(&calm, 1.0), "a head is at full weight at x1");
-        assert_eq!(paint(&head, 4.0).1, 0.0, "and gone at x4 where its ramp is 0");
+        // F23 (owner, 2026-11-21): the head fade is retired -- a true head draws as solid at x4 as the calm river.
+        assert_eq!(paint(&head, 4.0).1, paint(&calm, 4.0).1, "a head is no longer faded out at x4 (F23)");
         assert!(paint(&calm, 4.0).1 > 1.0, "positive control: the calm river is drawn at x4");
     }
 

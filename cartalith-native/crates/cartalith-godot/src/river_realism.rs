@@ -134,13 +134,16 @@ pub fn tone_order(u: f32) -> f64 {
 /// (§2.2, CONFIRMED read).
 pub const VOLUME_ALPHA_HEAD: f32 = 0.65;
 
-/// **RR-2: the alpha multiplier of small water**, `1 - s·(1 - VOLUME_ALPHA_HEAD)·u`
-/// with `s` the look's `river_translucency` (0 = every river opaque, the old
-/// look; 1 = the full term). Mirrored in `map_shore.gdshader` as
-/// `volume_alpha`. A NaN rank reads opaque.
-pub fn volume_alpha(u: f32, strength: f32) -> f32 {
-    let u = if u.is_nan() { 0.0 } else { u.clamp(0.0, 1.0) };
-    1.0 - strength.clamp(0.0, 1.0) * (1.0 - VOLUME_ALPHA_HEAD) * u
+/// **RR-2's alpha multiplier of small water -- retired by owner finding F23
+/// (2026-11-21): rivers are solid at every zoom.** The law was `1 - s·(1 -
+/// VOLUME_ALPHA_HEAD)·u` (a headwater at 65 % opacity); the owner saw it as
+/// rivers "slightly see-through when zoomed in" and asked for solid, so every
+/// river is opaque whatever `strength` (the look's `river_translucency`, kept as
+/// a key so saved looks still load) or `u` say. Mirrored in `map_shore.gdshader`
+/// as `volume_alpha`. Must never return below 1: a see-through river is the
+/// defect (`small_water_is_always_solid`).
+pub fn volume_alpha(_u: f32, _strength: f32) -> f32 {
+    1.0
 }
 
 /// The warm silt tint turbid water is pulled toward, straight RGB `0..=1`:
@@ -258,11 +261,15 @@ pub fn head_ramp(arc: f64) -> f32 {
     (arc.max(0.0) / HEAD_FADE_CELLS).min(1.0) as f32
 }
 
-/// **RR-3's alpha multiplier**: a point whose head ramp is `h` at zoom `z`,
-/// `1 - gate(HEAD_GATE_LO_Z, HEAD_GATE_HI_Z, z)·(1 - h)`. Mirrored in
-/// `map_shore.gdshader` (`head_alpha`).
-pub fn head_alpha(h: f32, z: f32) -> f32 {
-    1.0 - gate(HEAD_GATE_LO_Z, HEAD_GATE_HI_Z, z) * (1.0 - h.clamp(0.0, 1.0))
+/// **RR-3's head alpha multiplier -- retired by owner finding F23 (2026-11-21):
+/// rivers are solid at every zoom.** It was `1 - gate(HEAD_GATE_LO_Z,
+/// HEAD_GATE_HI_Z, z)·(1 - h)`, which faded the first [`HEAD_FADE_CELLS`] of a
+/// true headwater in from nothing as the map zoomed past x1: the river read
+/// see-through at its tip. A head is now drawn at full alpha; `h` and `z` are
+/// still read by the width and detail channels. Mirrored in `map_shore.gdshader`
+/// (`head_alpha`).
+pub fn head_alpha(_h: f32, _z: f32) -> f32 {
+    1.0
 }
 
 // ---------------------------------------------------------------------------
@@ -728,14 +735,20 @@ mod tests {
         assert_eq!(TONE_GAMMA, 1.5);
     }
 
-    /// Protects the translucency law: opaque trunk, 65 % head at full
-    /// strength, opaque everywhere at strength 0.
+    /// Protects owner finding F23: no river is see-through at any rank, any
+    /// strength of the old translucency key, or any zoom -- literals, so
+    /// restoring the 65 % law (0.65) or the head fade (0.0 at x4) goes red.
     #[test]
-    fn small_water_is_translucent_and_the_switch_turns_it_off() {
-        assert_eq!(volume_alpha(0.0, 1.0), 1.0);
-        assert!((volume_alpha(1.0, 1.0) - 0.65).abs() < 1e-6);
-        assert!((volume_alpha(0.5, 1.0) - 0.825).abs() < 1e-6);
-        assert_eq!(volume_alpha(1.0, 0.0), 1.0);
+    fn small_water_is_always_solid() {
+        for u in [0.0f32, 0.25, 0.5, 1.0] {
+            for s in [0.0f32, 0.5, 1.0] {
+                assert_eq!(volume_alpha(u, s), 1.0, "rank {u} strength {s}");
+            }
+            for z in [1.0f32, 4.0, 16.0, 64.0] {
+                assert_eq!(head_alpha(0.0, z), 1.0, "a true head at x{z}");
+                assert_eq!(head_alpha(0.5, z), 1.0);
+            }
+        }
     }
 
     /// Protects the turbidity law: a steep humid river is clear, a flat desert
@@ -760,9 +773,6 @@ mod tests {
     /// nothing at x4 or x8 for white water, complete at x4 and x16.
     #[test]
     fn the_gates_open_at_the_ruled_zooms() {
-        assert_eq!(head_alpha(0.0, 1.0), 1.0);
-        assert_eq!(head_alpha(0.0, 4.0), 0.0);
-        assert_eq!(head_alpha(0.5, 4.0), 0.5);
         assert_eq!(detail_tint([0.1, 0.2, 0.3], 1.0, 1.0, 4.0), [0.1, 0.2, 0.3]);
         assert_eq!(detail_tint([0.1, 0.2, 0.3], 1.0, 1.0, 8.0), [0.1, 0.2, 0.3]);
         let t = detail_tint([0.0, 0.0, 0.0], 0.0, 1.0, 16.0);

@@ -220,7 +220,7 @@ func _ready() -> void:
 	_app.select("settlement", 0)
 	_app.clear_selection()
 	var pre := _plan()
-	_ok(String(pre["selection"].get("kind", "")) == "" and pre["layers"]["rivers"] == true, "before: nothing selected, rivers shown")
+	_ok(String(pre["selection"].get("kind", "")) == "" and pre["layers"]["conflict"] == true, "before: nothing selected, rivers shown")
 	var script := [
 		{"calls": [{"name": "search_actions", "args": {"query": "peak altitude"}}, {"name": "list_actions", "args": {"path": "carto/layers"}},
 			{"name": "list_actions", "args": {"path": "carto/style"}}, {"name": "search_actions", "args": {"query": "factions window"}},
@@ -228,7 +228,7 @@ func _ready() -> void:
 		{"name": "propose_actions", "args": {"summary": "Mixed card", "actions": [
 			{"id": "param:peak_m", "args": {"value": peak1}, "reason": "taller"},
 			{"id": "view.style_preset", "args": {"preset": preset_id}},
-			{"id": "view.layer.rivers", "args": {"visible": false}},
+			{"id": "view.layer.conflict", "args": {"visible": false}},
 			{"id": "window.factions"},
 			{"id": "select.settlement", "args": {"id": 3}}]}},
 	]
@@ -244,7 +244,7 @@ func _ready() -> void:
 	var post := _plan()
 	_ok(is_equal_approx(float(post["peak"]), peak1), "the setting changed through write_param: %s -> %s" % [str(pre["peak"]), str(post["peak"])])
 	_ok(int(post["preset"]) != int(pre["preset"]), "the style preset changed (index %d -> %d)" % [int(pre["preset"]), int(post["preset"])])
-	_ok(post["layers"]["rivers"] == false, "the rivers layer is hidden")
+	_ok(post["layers"]["conflict"] == false, "the rivers layer is hidden")
 	_ok(bool(post["roster"]), "the faction roster window is open")
 	_ok(post["selection"] == {"kind": "settlement", "id": 3}, "settlement 3 is selected: %s" % str(post["selection"]))
 	_ok(card["state"] == "applied" and int(card["group_id"]) > 0, "the card is applied and owns undo group %d" % int(card["group_id"]))
@@ -256,13 +256,13 @@ func _ready() -> void:
 	var undone := _plan()
 	_ok(is_equal_approx(float(undone["peak"]), peak0), "ONE Edit > Undo restored the setting (%s)" % str(undone["peak"]))
 	_ok(int(undone["preset"]) == int(pre["preset"]), "and the SAME undo restored the style (index %d)" % int(undone["preset"]))
-	_ok(undone["layers"]["rivers"] == false and undone["selection"] == post["selection"], "the session-state members (layer, selection) stay, as the card said")
+	_ok(undone["layers"]["conflict"] == false and undone["selection"] == post["selection"], "the session-state members (layer, selection) stay, as the card said")
 	_ok(card["state"] == "undone", "the card follows its group: undone")
 	_app.undo_last()
 	await _settle(4)
 	_ok(is_equal_approx(float(_plan()["peak"]), peak0), "a second Undo does not touch this card's members again")
 	_app.faction_roster_window.hide()
-	(_app.viewport as Node).call("set_layer_visible", "rivers", true)
+	(_app.viewport as Node).call("set_layer_visible", "conflict", true)
 
 	# ---------------------------------------------------------------- 2. year, zoom, tool, selection, menu row
 	print("== 2. the year, a zoom, a tool, select nothing and a menu row ==")
@@ -317,7 +317,7 @@ func _ready() -> void:
 	# Session mode on a card that carries a setting
 	var mixed := [
 		{"calls": [{"name": "search_actions", "args": {"query": "peak altitude"}}, {"name": "list_actions", "args": {"path": "carto/layers"}}]},
-		{"name": "propose_actions", "args": {"summary": "session test", "actions": [{"id": "param:peak_m", "args": {"value": peak1}}, {"id": "view.layer.rivers", "args": {"visible": false}}]}},
+		{"name": "propose_actions", "args": {"summary": "session test", "actions": [{"id": "param:peak_m", "args": {"value": peak1}}, {"id": "view.layer.conflict", "args": {"visible": false}}]}},
 	]
 	n = await _ask(mixed, "session test")
 	var cs := _action_card()

@@ -3655,6 +3655,9 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		## base texture holds no river, so it is not re-rendered, and the
 		## camera does not move.
 		"rivers":
+			## F23 (2026-11-21): rivers always draw -- there is no Layers row, and an off from an old caller (the
+			## assistant's layer tool, a probe) is ignored, so the engine's switch can never be left off.
+			shown = true
 			_bridge.set_rivers_in_map(shown)
 			_apply_river_paint()
 			overlay.queue_redraw()

@@ -1004,10 +1004,10 @@ pub fn river_px_width(p: RiverPoint, px_per_cell: f32, a: &render::TerrainAppear
     if am <= 0.0 {
         return None;
     }
-    // RR-2/RR-3 (Ruling ES): small water is translucent (`volume_alpha` of the
-    // rank, at the look's `river_translucency`) and a true head fades in from
-    // x4 (`head_alpha`); both multiply the alpha only, so a point's
-    // visibility -- and whether it can be picked -- is still the law's alone.
+    // RR-2/RR-3 (Ruling ES) once made small water translucent (`volume_alpha`) and faded a true head in from x4
+    // (`head_alpha`); owner finding F23 (2026-11-21) retired both, so both return 1 and rivers are solid at every
+    // zoom. They still multiply the alpha only, so a point's visibility -- and whether it can be picked -- is the
+    // law's alone.
     let am = am * crate::river_realism::volume_alpha(p.rank, a.river_translucency as f32) * crate::river_realism::head_alpha(p.head, crate::river_realism::zoom_of(px_per_cell, scale().0));
     let wm = 1.0 + (headwater_deemphasis(px_per_cell) - 1.0) * headwater_weight(p.rank);
     let k = px_per_cell * wm * river_width_factor(a);
@@ -3565,9 +3565,9 @@ mod tests {
         assert!(river_px_width(pt(0.75), 1.0, &a).is_none());
         let (w1, a1) = river_px_width(pt(0.75), 30.0, &a).expect("drawn");
         assert!((w1 - 4.0 * k * 30.0).abs() < 1e-2, "{w1}");
-        // RR-2 (Ruling ES): the default look's translucency draws rank 0.75 at
-        // 1 - 0.35 * 0.75 = 0.7375 alpha; the visibility law alone gives 1.
-        assert!((a1 - 0.7375).abs() < 1e-6, "{a1}");
+        // F23 (owner, 2026-11-21): rivers are solid, so the default look draws rank 0.75 at alpha 1 (it was 0.7375
+        // under RR-2's translucency); the visibility law alone gives 1 there.
+        assert_eq!(a1, 1.0, "a river must not be see-through at x30 (0.7375 was RR-2's)");
         // The least river at a zoomed-out density is not drawn at all.
         assert!(river_px_width(pt(1.0), 0.3, &a).is_none());
         // And no order-1 alpha any more: an order-1 point of rank 0 stays opaque.

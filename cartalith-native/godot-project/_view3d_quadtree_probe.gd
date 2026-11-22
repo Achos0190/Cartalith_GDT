@@ -509,8 +509,15 @@ func _leg_b() -> void:
 			mean += d
 		mean /= maxf(dl.size(), 1)
 		var p99 := dl[mini(dl.size() - 1, int(dl.size() * 0.99))]
-		_ok("B1 x%d: mean |dL*| <= 1.0" % k, mean <= 1.0, "mean %.3f, p99 %.3f, %d px" % [mean, p99, dl.size()])
-		_ok("B1 x%d: p99 |dL*| <= 4.0" % k, p99 <= 4.0, "p99 %.3f" % p99)
+		## F20 (owner, 2026-11-21): from level 4 the 3D relief tile carries fewer zoom-detail octaves than 2D's tile
+		## (`lod_bridge::view3d_detail_scale`), so the colour agreement with 2D holds only where the drawn level's
+		## scale is 1; deeper it is printed, not barred, and B6 below keeps a floor instead.
+		var faded := _detail_scale(_q().level_max) < 1.0
+		if faded:
+			print("B1 x%d colour agreement not barred (F20, level %d scale %.2f): mean %.3f, p99 %.3f" % [k, _q().level_max, _detail_scale(_q().level_max), mean, p99])
+		else:
+			_ok("B1 x%d: mean |dL*| <= 1.0" % k, mean <= 1.0, "mean %.3f, p99 %.3f, %d px" % [mean, p99, dl.size()])
+			_ok("B1 x%d: p99 |dL*| <= 4.0" % k, p99 <= 4.0, "p99 %.3f" % p99)
 		own.sort()
 		var om := 0.0
 		for d in own:
@@ -518,7 +525,12 @@ func _leg_b() -> void:
 		print("B1 x%d own-level pixels only (2D weight 1, no blend partner): %d px, mean %.3f, p99 %.3f" % [k, own.size(), om / maxf(own.size(), 1), own[mini(own.size() - 1, int(own.size() * 0.99))] if own.size() > 0 else -1.0])
 		var d2 := _detail(a)
 		var d3 := _detail(b)
-		_ok("B6 x%d: 3D detail >= 2D detail at the same px per cell" % k, d3 >= d2 * 0.98, "3D %.3f vs 2D %.3f" % [d3, d2])
+		if faded:
+			## The floor under F20's fade: the ground is not blank (measured 0.97, 0.70 and 0.47 of 2D's at x4, x16 and
+			## x64 on seed 483920; a labelled bar of 0.4).
+			_ok("B6 x%d: 3D detail >= 0.4 x 2D detail (F20 fade)" % k, d3 >= d2 * 0.4, "3D %.3f vs 2D %.3f" % [d3, d2])
+		else:
+			_ok("B6 x%d: 3D detail >= 2D detail at the same px per cell" % k, d3 >= d2 * 0.98, "3D %.3f vs 2D %.3f" % [d3, d2])
 		var q = _q()
 		_ok("B6 x%d: the deepest drawn level rises with the zoom" % k, q.level_max > prev_deep, "levels %d..%d" % [q.level_min, q.level_max])
 		prev_deep = q.level_max
@@ -537,6 +549,12 @@ func _leg_b() -> void:
 			"%.4f away from ties (%.4f raw) of %d px, decode %s; misses %s" % [fr_away, agree.x, int(agree.y), "srgb" if agree.z > 0.5 else "linear", JSON.stringify(_miss)])
 		print("B1 x%d level share away from ties %.4f" % [k, away])
 	vp.overlay.visible = true
+
+## Mirrors `lod_bridge::view3d_detail_scale` (literals 4 and 7, the smoothstep between): the factor on the 3D relief
+## tile's zoom-detail law at pyramid level `z`. A GDScript copy because the function is not a `#[func]`.
+static func _detail_scale(z: int) -> float:
+	var t := clampf((float(z) - 4.0) / 3.0, 0.0, 1.0)
+	return 1.0 - t * t * (3.0 - 2.0 * t)
 
 ## The boost field at a screen point of the B1 crop (`BoostField::sample`).
 func _boost_at(img: Image, sp: Vector2, r2: Rect2, expect: Dictionary) -> float:

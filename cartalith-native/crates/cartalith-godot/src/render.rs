@@ -2443,8 +2443,9 @@ pub struct TerrainAppearance {
     /// the tiles and the export agree. Render only; never moves a generated value.
     pub river_turbidity: f64,
     /// **RR-2: how translucent small water is**, 0..1, the strength of
-    /// `river_realism::volume_alpha` (a headwater at 65 % opacity at 1, every
-    /// river opaque at 0). `1.0` in [`Self::default`], `0.0` in
+    /// `river_realism::volume_alpha`. **Inert since owner finding F23 (2026-11-21):
+    /// every river is opaque at any value** (the key stays so saved looks load).
+    /// It once gave a headwater 65 % opacity at 1. `1.0` in [`Self::default`], `0.0` in
     /// [`Self::js_reference`]. One seam on every path (`river_px_width`,
     /// `river_field::edge_px`, `map_shore.gdshader`'s `volume_alpha`). Render only.
     pub river_translucency: f64,
@@ -13051,7 +13052,15 @@ pub fn tile_river_seeds(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds)
 /// info tiles (none of them calls it), and never on the parity look
 /// (`js_reference()` pins `0.0`).
 pub fn add_tile_furrows(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, pad: usize, bounds: TileBounds) {
-    let strength = ctx.appearance.edifice_furrows;
+    add_tile_furrows_scaled(ctx, data, w, h, pad, bounds, 1.0);
+}
+
+/// [`add_tile_furrows`] with the look's strength multiplied by `scale` (`0..=1`): the 3D relief tile's fade
+/// (`lod_bridge::view3d_detail_scale`, owner finding F20, 2026-11-21), which takes the grooves out of the 3D
+/// geometry and its drape at depth where they read as combed, spiky streaks. `1.0` is [`add_tile_furrows`] exactly
+/// (every 2D caller); `0.0` adds nothing.
+pub fn add_tile_furrows_scaled(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, pad: usize, bounds: TileBounds, scale: f64) {
+    let strength = ctx.appearance.edifice_furrows * scale.clamp(0.0, 1.0);
     let (Some((frame, peak_m)), Some(km)) = (ctx.edifice_frame, ctx.map_width_km) else { return };
     // A zero or NaN strength returns inside `add_edifice_furrows_padded`, and
     // a non-positive width inside `edifice_furrow_at`; only the division
