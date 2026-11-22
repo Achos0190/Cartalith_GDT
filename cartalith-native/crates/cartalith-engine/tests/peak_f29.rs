@@ -20,9 +20,8 @@ fn law_anchors_are_literal_and_monotone() {
     // (cm/yr, km) -> metres: Alps-like 1 cm/yr and Himalaya-like 5 cm/yr on a continent-sized map.
     let near = |a: f64, b: f64| (a - b).abs() < 1.0;
     assert!(near(peak_from_energy(0.0, 1e9), 2000.0));
-    assert!(near(peak_from_energy(1.0, 1e9), 2000.0 + 7000.0 * (1.0 - (-1.0f64 / 3.0).exp())));
-    assert!((3900.0..4100.0).contains(&peak_from_energy(1.0, 1e9)), "slow, old belt ~4 km");
-    assert!((7600.0..7750.0).contains(&peak_from_energy(5.0, 1e9)), "Himalaya-class 7.5-8.8 km");
+    assert!((3150.0..3250.0).contains(&peak_from_energy(1.0, 1e9)), "slow, old belt ~3.2 km");
+    assert!((7200.0..7400.0).contains(&peak_from_energy(5.0, 1e9)), "fast collision ~7.3 km");
     assert!(peak_from_energy(1e6, 1e9) < 9000.5, "saturates near 9 km");
     assert!(peak_from_energy(5.0, 200.0) < peak_from_energy(5.0, 800.0) && peak_from_energy(5.0, 800.0) < peak_from_energy(5.0, 8000.0));
     let mut last = 0.0;
@@ -63,14 +62,14 @@ fn derived_peak_is_deterministic_and_grid_independent_and_responds_to_velocity()
 #[ignore]
 fn measure_f29() {
     for seed in [483920, 912345, 246371] {
-        for (plates, vel, km) in [(8, 1.0, 3000.0), (14, 0.5, 3000.0), (14, 1.0, 800.0), (14, 1.0, 3000.0), (14, 2.0, 3000.0), (30, 1.0, 3000.0), (14, 1.0, 12000.0)] {
+        for (plates, vel, km) in [(8, 1.0, 3000.0), (14, 0.5, 3000.0), (14, 1.0, 800.0), (14, 1.0, 3000.0), (14, 2.0, 3000.0), (14, 2.0, 800.0), (14, 3.0, 800.0), (30, 1.0, 3000.0), (14, 1.0, 12000.0)] {
             let q = p(seed, plates, vel, km);
             let e = collision_energy_cm_yr(&q);
             println!("PEAK seed {seed} plates {plates} vel {vel} km {km}: E {e:.2} cm/yr -> {:.0} m", derived_peak_m(&q));
         }
         // before / after shares on a land-and-climate world at the app-like size
-        for auto in [false, true] {
-            let mut q = p(seed, 14, 1.0, 3000.0);
+        for (auto, km) in [(false, 800.0), (true, 800.0), (false, 3000.0), (true, 3000.0)] {
+            let mut q = p(seed, 14, 1.0, km);
             q.peak_auto = auto;
             resolve_peak(&mut q);
             let ws = generate_terrain(&q);
@@ -89,7 +88,7 @@ fn measure_f29() {
                 let _ = &mut ice_t;
             }
             let f = |n: usize| 100.0 * n as f64 / land as f64;
-            println!("SHARE seed {seed} auto {auto} peak {:.0} m: land {:.1}% | T<0 {:.1}% T<5 {:.1}% T<-10 {:.1}% | above 0.65 snowline {:.1}% | top {:.0} m", q.peak_m, 100.0 * land as f64 / ws.field.len() as f64, f(sub0), f(sub5), f(subm10), f(snow), high_m);
+            println!("SHARE seed {seed} km {km} auto {auto} peak {:.0} m: land {:.1}% | T<0 {:.1}% T<5 {:.1}% T<-10 {:.1}% | above 0.65 snowline {:.1}% | top {:.0} m", q.peak_m, 100.0 * land as f64 / ws.field.len() as f64, f(sub0), f(sub5), f(subm10), f(snow), high_m);
         }
     }
 }
@@ -98,10 +97,32 @@ fn measure_f29() {
 fn resolve_writes_the_derived_peak_when_on_and_pins_a_literal_world() {
     let mut q = p(483920, 14, 1.0, 3000.0);
     resolve_peak(&mut q);
-    assert!((5550.0..5700.0).contains(&q.peak_m), "483920 at 14 plates, drift 1, 3000 km: {}", q.peak_m);
+    assert!((4900.0..5020.0).contains(&q.peak_m), "483920 at 14 plates, drift 1, 3000 km: {}", q.peak_m);
     let mut off = p(483920, 14, 1.0, 3000.0);
     off.peak_auto = false;
     off.peak_m = 4321.0;
     resolve_peak(&mut off);
     assert_eq!(off.peak_m, 4321.0, "the override is used as typed");
+}
+
+/// Ruling GQ's fit data: land share below 0 C against a fixed peak, per seed (ignored; prints).
+#[test]
+#[ignore]
+fn sweep_cold_share() {
+    for seed in [483920, 912345, 246371] {
+        for pk in [3500.0, 4000.0, 4250.0, 4500.0, 4750.0, 5000.0, 5500.0] {
+            let mut q = p(seed, 14, 1.0, 3000.0);
+            q.peak_auto = false;
+            q.peak_m = pk;
+            let ws = generate_terrain(&q);
+            let (mut land, mut cold) = (0usize, 0usize);
+            for i in 0..ws.field.len() {
+                if (ws.field[i] as f64) > ws.sea_level {
+                    land += 1;
+                    if (ws.temperature[i] as f64) < 0.0 { cold += 1 }
+                }
+            }
+            println!("COLD seed {seed} peak {pk}: {:.1}%", 100.0 * cold as f64 / land as f64);
+        }
+    }
 }

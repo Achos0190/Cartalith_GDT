@@ -2855,10 +2855,17 @@ pub const PEAK_RANGE_M: f64 = 7000.0;
 /// default world (14 plates, drift 1) put 7-8 km summits everywhere and 50 % of land below 0 C (14 % at the old 4 000 m),
 /// so the typical convergent margin (2-4 cm/yr, 90th percentile of the unit speeds ~1-1.5) is 2 cm/yr per unit.
 pub const PEAK_CM_PER_UNIT: f64 = 2.0;
-/// e-folding convergence rate of the saturation, cm/yr: 1 cm/yr -> 4.0 km, 5 cm/yr -> 7.7 km (the Alps are older and slower than their height implies). Fitted to the anchors above.
-pub const PEAK_DECAY_CM: f64 = 3.0;
-/// e-folding map width, km: a range needs a belt (Himalaya ~250 km wide, ~2 400 km long) to hold its relief. Labelled judgement.
-pub const PEAK_SIZE_KM: f64 = 1000.0;
+/// Scale of the saturation, cm/yr (Ruling GQ re-fit, 2026-11-22; F29 had a plain exponential with scale 3). The law is
+/// `1 - exp(-(E / scale)^PEAK_SHAPE)`: 1 cm/yr -> 3.2 km, 5 cm/yr -> 7.3 km. Fitted by `sweep_cold_share` and `measure_f29`
+/// in `tests/peak_f29.rs` so a default world (14 plates, drift 1) lands at 4.5-5 km on 800 and 3 000 km maps, with its
+/// land share below 0 C within a few points of the 4 000 m figure, and drift 2 on a 3 000 km map reaches 7 km.
+pub const PEAK_SCALE_CM: f64 = 3.8;
+/// Exponent of the saturation (Ruling GQ): above 1 the curve starts convex, so a weak collision stays low (drift 0.5 is
+/// about 3.2 km) while a strong one still climbs toward the ~9 km ceiling. Fitted, a labelled judgement.
+pub const PEAK_SHAPE: f64 = 1.25;
+/// e-folding map width, km: a range needs a belt (Himalaya ~250 km wide, ~2 400 km long) to hold its relief. Ruling GQ
+/// moved it from 1 000 to 400 so the 800 km default map is not penalised (0.86 of full, 3 000 km is 1.0). Fitted.
+pub const PEAK_SIZE_KM: f64 = 400.0;
 /// The proxy grid's width in cells (see [`collision_energy_cm_yr`]).
 const PEAK_PROXY_W: usize = 256;
 
@@ -2903,11 +2910,11 @@ pub fn collision_energy_cm_yr(p: &WorldParams) -> f64 {
     closing[(closing.len() - 1) * 9 / 10] * PEAK_CM_PER_UNIT
 }
 
-/// The peak law: `base + range * (1 - e^(-E/decay)) * (1 - e^(-W/size))`, metres. Monotone in both
+/// The peak law: `base + range * (1 - e^(-(E/scale)^shape)) * (1 - e^(-W/size))`, metres. Monotone in both
 /// arguments; saturating at ~9 km, not clamped at any user-facing number.
 pub fn peak_from_energy(energy_cm_yr: f64, map_width_km: f64) -> f64 {
     PEAK_BASE_M
-        + PEAK_RANGE_M * (1.0 - (-energy_cm_yr.max(0.0) / PEAK_DECAY_CM).exp()) * (1.0 - (-map_width_km.max(0.0) / PEAK_SIZE_KM).exp())
+        + PEAK_RANGE_M * (1.0 - (-(energy_cm_yr.max(0.0) / PEAK_SCALE_CM).powf(PEAK_SHAPE)).exp()) * (1.0 - (-map_width_km.max(0.0) / PEAK_SIZE_KM).exp())
 }
 
 /// The highest summit this world's tectonics and size support, metres.

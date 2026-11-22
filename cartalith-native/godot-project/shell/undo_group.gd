@@ -178,7 +178,13 @@ func write_param(key: String, value) -> bool:
 	if old == null:
 		abort("unknown setting %s" % key)
 		return false
+	## Ruling GQ: typing `peak_m` also clears `peak_auto` (`WorldGen.set_params`), so that switch is a
+	## member too -- noted BEFORE `peak_m`, because undo writes members in reverse and `peak_auto`
+	## must be restored after `peak_m` (writing `peak_m` clears it again).
+	var old_auto = b.param_get("peak_auto") if key == "peak_m" else null
 	var r: Dictionary = b.param_write(key, value)
+	if old_auto != null and bool(r.get("ok", false)):
+		_note_param("peak_auto", old_auto, b.param_get("peak_auto"))
 	if not bool(r.get("ok", false)) or bool(r.get("clamped", false)):
 		## A clamped write landed a different value; it is in the table now,
 		## so record it as a member before rolling back, or the rollback would

@@ -146,7 +146,7 @@ func _plan() -> Dictionary:
 	var layers := {}
 	for l in CartographyWorkspace.LIVE_LAYERS:
 		layers[String(l["id"])] = bool(vp.layer_visible(String(l["id"])))
-	return {"peak": _bridge.param_get("peak_m"), "preset": int(rw._active_preset), "layers": layers, "selection": (_app.selection as Dictionary).duplicate(),
+	return {"peak": _bridge.param_get("peak_m"), "auto": _bridge.param_get("peak_auto"), "preset": int(rw._active_preset), "layers": layers, "selection": (_app.selection as Dictionary).duplicate(),
 		"year": int(_app.tl_year()), "tool": String(_app.armed_tool), "zoom": snappedf(float(vp.zoom()), 0.001), "roster": bool(_app.faction_roster_window.visible)}
 
 
@@ -243,6 +243,7 @@ func _ready() -> void:
 	_ok(got_click, "Apply was clicked with a real mouse press")
 	var post := _plan()
 	_ok(is_equal_approx(float(post["peak"]), peak1), "the setting changed through write_param: %s -> %s" % [str(pre["peak"]), str(post["peak"])])
+	_ok(pre["auto"] == true and post["auto"] == false, "Ruling GQ: typing a peak ends the derivation (peak_auto %s -> %s)" % [str(pre["auto"]), str(post["auto"])])
 	_ok(int(post["preset"]) != int(pre["preset"]), "the style preset changed (index %d -> %d)" % [int(pre["preset"]), int(post["preset"])])
 	_ok(post["layers"]["conflict"] == false, "the rivers layer is hidden")
 	_ok(bool(post["roster"]), "the faction roster window is open")
@@ -255,6 +256,7 @@ func _ready() -> void:
 	await _settle(8)
 	var undone := _plan()
 	_ok(is_equal_approx(float(undone["peak"]), peak0), "ONE Edit > Undo restored the setting (%s)" % str(undone["peak"]))
+	_ok(undone["auto"] == pre["auto"], "Ruling GQ: the SAME undo restored peak_auto (%s)" % str(undone["auto"]))
 	_ok(int(undone["preset"]) == int(pre["preset"]), "and the SAME undo restored the style (index %d)" % int(undone["preset"]))
 	_ok(undone["layers"]["conflict"] == false and undone["selection"] == post["selection"], "the session-state members (layer, selection) stay, as the card said")
 	_ok(card["state"] == "undone", "the card follows its group: undone")
