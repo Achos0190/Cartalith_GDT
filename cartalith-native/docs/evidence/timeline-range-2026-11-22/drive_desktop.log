@@ -1,0 +1,39 @@
+{'captures': [{'height': 720, 'image_path': 'C:/cw/hf_final_desktop/captures/r1_l2_default_desktop_13802.png', 'image_res_path': 'C:/cw/hf_final_desktop/captures/r1_l2_default_desktop_13802.png', 'label': 'L2_default_desktop', 'original_height': 900, 'original_width': 1600, 'success': True, 'width': 1280}, {'height': 720, 'image_path': 'C:/cw/hf_final_desktop/captures/r1_l2_override_notes_desktop_15664.png', 'image_res_path': 'C:/cw/hf_final_desktop/captures/r1_l2_override_notes_desktop_15664.png', 'label': 'L2_override_notes_desktop', 'original_height': 900, 'original_width': 1600, 'success': True, 'width': 1280}, {'height': 720, 'image_path': 'C:/cw/hf_final_desktop/captures/r1_l1_override_desktop_16118.png', 'image_res_path': 'C:/cw/hf_final_desktop/captures/r1_l1_override_desktop_16118.png', 'label': 'L1_override_desktop', 'original_height': 900, 'original_width': 1600, 'success': True, 'width': 1280}], 'scene_closed': False, 'script_run_id': 'r1', 'session_active': True, 'session_id': 's1', 'status': 'completed', 'updated_at_ms': 25236}
+form: desktop
+ok    a world exists
+ok    no override on a fresh world  -- {  }
+ok    the override reads back (4200, 4700)  -- { "start": 4200, "end": 4700 }
+ok    the sim form's span is the override  -- [4200, 4700]
+ok    the track is 4200..4700 before any run  -- { "min": 4200, "max": 4700, "from_world": true }
+sim out: Simulated 10 steps (50 yr each), 4200 AD -> 4700 AD. 0 settlements remain. 110927 died, 14242 migrated (33918 lost in transit/diaspora), 217 settlements failed/abandoned.
+ok    the simulation ran over 4200 -> 4700 (not 4200 + 4700 = 8900)  -- Simulated 10 steps (50 yr each), 4200 AD -> 4700 AD. 0 settlements remain. 110927 died, 14242 migrated (33918 lost in transit/diaspora), 217 settlements failed/abandoned.
+ok    the track still ends on 4700 after the run  -- { "min": 4200, "max": 4700, "from_world": true }
+ok    the first recorded year is 4200 (the run started where the user's Start says)  -- [4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650, 4700]
+ok    the last recorded year is 4700  -- [4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650, 4700]
+ok    clearing the override empties it
+ok    the scratch vault connects  -- { "ok": true, "error": "", "vault_id": "vault_f8579a72ec202c30" }
+ok    Hist.md is linked  -- { "ok": true, "error": "", "link_id": "link_7d7ad2e57b490490" }
+ok    the ladder is on the strip
+ok    no override: the track is the vault's 3000..4769 (the sim's recorded years do not widen it)  -- { "min": 3000, "max": 4769, "from_world": true }
+ok    the sim form defaults to the vault range  -- [3000, 4769]
+ok    L2 lists the world's founding events before the range, with the note  -- before 217 of 222
+ok    the note is the ladder's own off-axis count  -- 217 vs 217
+ok    no vault event carries a note while the track is the vault's
+ok    the user's 3100..4600 wins over the vault  -- { "min": 3100, "max": 4600, "from_world": true }
+ok    'Dawn' (3000) is now before the range  -- ["Islaavenmirareach founded  (before the range)", "Thorndunthornbaldstone founded  (before the range)", "Ennethalmiradell founded  (before the range)"]
+ok    'Beacon' (4769) is now after the range
+ok    an event inside is not noted
+ok    every event keeps its year in the table
+ok    start only: the end follows the vault again (4769)  -- { "min": 3100, "max": 4769, "from_world": true }
+ok    the project saved
+ok    another world carries no override  -- {  }
+ok    the project reopens
+ok    the override came back with the world  -- { "start": 3100, "end": 4600 }
+ok    save with none
+step A
+SCRIPT ERROR: Bug: Invalid call error code 1337.
+step B
+step C
+ok    reopen a world saved with none
+ok    it has no override (a stale one does not survive the open)  -- {  }
+RESULT desktop: 0 failed

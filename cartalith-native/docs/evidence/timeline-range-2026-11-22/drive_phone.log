@@ -1,0 +1,52 @@
+{'captures': [{'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_l2_default_phone_14836.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_l2_default_phone_14836.png', 'label': 'L2_default_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}, {'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_l2_override_notes_phone_15826.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_l2_override_notes_phone_15826.png', 'label': 'L2_override_notes_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}, {'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_l1_override_phone_16330.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_l1_override_phone_16330.png', 'label': 'L1_override_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}, {'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_l1_transport_phone_27282.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_l1_transport_phone_27282.png', 'label': 'L1_transport_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}, {'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_l0_transport_phone_27890.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_l0_transport_phone_27890.png', 'label': 'L0_transport_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}, {'height': 975, 'image_path': 'C:/cw/hf_final_phone/captures/r1_after_back_phone_28706.png', 'image_res_path': 'C:/cw/hf_final_phone/captures/r1_after_back_phone_28706.png', 'label': 'after_back_phone', 'original_height': 975, 'original_width': 450, 'success': True, 'width': 450}], 'scene_closed': False, 'script_run_id': 'r1', 'session_active': True, 'session_id': 's1', 'status': 'completed', 'updated_at_ms': 28790}
+form: phone
+ok    a world exists
+ok    no override on a fresh world  -- {  }
+ok    the override reads back (4200, 4700)  -- { "start": 4200, "end": 4700 }
+ok    the sim form's span is the override  -- [4200, 4700]
+ok    the track is 4200..4700 before any run  -- { "min": 4200, "max": 4700, "from_world": true }
+sim out: Simulated 10 steps (50 yr each), 4200 AD -> 4700 AD. 0 settlements remain. 113968 died, 15898 migrated (34726 lost in transit/diaspora), 220 settlements failed/abandoned.
+ok    the simulation ran over 4200 -> 4700 (not 4200 + 4700 = 8900)  -- Simulated 10 steps (50 yr each), 4200 AD -> 4700 AD. 0 settlements remain. 113968 died, 15898 migrated (34726 lost in transit/diaspora), 220 settlements failed/abandoned.
+ok    the track still ends on 4700 after the run  -- { "min": 4200, "max": 4700, "from_world": true }
+ok    the first recorded year is 4200 (the run started where the user's Start says)  -- [4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650, 4700]
+ok    the last recorded year is 4700  -- [4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650, 4700]
+ok    clearing the override empties it
+ok    the scratch vault connects  -- { "ok": true, "error": "", "vault_id": "vault_f8579a72ec202c30" }
+ok    Hist.md is linked  -- { "ok": true, "error": "", "link_id": "link_7d7ad2e57b490490" }
+ok    the ladder is on the strip
+ok    no override: the track is the vault's 3000..4769 (the sim's recorded years do not widen it)  -- { "min": 3000, "max": 4769, "from_world": true }
+ok    the sim form defaults to the vault range  -- [3000, 4769]
+ok    L2 lists the world's founding events before the range, with the note  -- before 220 of 225
+ok    the note is the ladder's own off-axis count  -- 220 vs 220
+ok    no vault event carries a note while the track is the vault's
+ok    the user's 3100..4600 wins over the vault  -- { "min": 3100, "max": 4600, "from_world": true }
+ok    'Dawn' (3000) is now before the range  -- ["â—� Islaavenmirareach founded  (before the range)", "â—� Ennethalmiradell founded  (before the range)", "â—� Mornulveness founded  (before the range)"]
+ok    'Beacon' (4769) is now after the range
+ok    an event inside is not noted
+ok    every event keeps its year in the table
+ok    start only: the end follows the vault again (4769)  -- { "min": 3100, "max": 4769, "from_world": true }
+ok    the project saved
+ok    another world carries no override  -- {  }
+ok    the project reopens
+ok    the override came back with the world  -- { "start": 3100, "end": 4600 }
+ok    save with none
+step A
+step B
+step C
+ok    reopen a world saved with none
+ok    it has no override (a stale one does not survive the open)  -- {  }
+font px: count 12, Back 12, Filter 12 (phone body text 12); phone_scale 1.092
+ok    the count line is the phone's body size  -- 12
+ok    Back is the phone's body size  -- 12
+ok    Filter is the phone's body size  -- 12
+ok    LadderDown is 44 dp or more tall  -- 44.9 dp
+ok    FilterToggle is 44 dp or more tall  -- 44.9 dp
+ok    LadderUp is 44 dp or more tall  -- 44.9 dp
+ok    LadderCount is on screen
+ok    LadderDown is on screen
+ok    FilterToggle is on screen
+ok    the transport panel stays inside the screen at the larger text (count line included)  -- strip right 439.0, count right 394.0, screen 450.0
+ok    the transport panel is open at L0
+ok    Back at L0 closes the transport panel
+ok    and does not raise 'Exit Cartalith'
+RESULT phone: 0 failed

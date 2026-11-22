@@ -1,0 +1,10 @@
+Each mutant is a literal edit; every one turned its check red (tools/tlrange_drive.gd, or cargo test where stated).
+end_ignored      dcc_shell.gd  `if ov.has("end"):` -> `if false and ov.has("end"):`            desktop RED (track 4200..4300; 3100..4769; Beacon not after the range)
+vault_ignored    dcc_shell.gd  vault extent -> []                                                desktop RED (track 4200..4700 not 3000..4769)
+no_note          chronos_items.gd  "(before the range)" -> ""                                    desktop RED (0 of 222 noted; count mismatch)
+sim_start_zero   civilization_workspace.gd  "start_year": app.tl_sim_span()[0] -> 0              desktop RED (first recorded year 0, not 4200)
+back_chain       dcc_shell.gd  the added set_phone_sim_strip_open(false) block removed           phone RED (panel stays open, Exit card raised)
+small_font       chronos_items.gd  _fs() phone FS_BODY -> 10                                      phone RED (count/Back/Filter 10)
+long_count       chronos_items.gd  phone short count text -> long form                            phone RED (strip right 470 of 450)
+links_is_empty   cartalith-vault links.rs  is_empty ignores tl_start                              cargo test timeline_range RED
+restore_skipped  project_bridge.rs  `self.vault.store.tl_start = store.tl_start;` -> `let _ = ...` desktop RED ("override came back with the world": {end: 4600})
