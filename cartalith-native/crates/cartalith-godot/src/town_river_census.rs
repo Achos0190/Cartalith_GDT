@@ -3244,13 +3244,13 @@ fn river_smooth_audit() {
         // at its default wavelength. `river_draws` itself needs a live `WorldGen` (the in-app probe checks
         // the real one); this is the proxy both the OFF measurement and the ON overrides use here.
         let ends: std::collections::HashSet<(i64, i64)> = river_polys.iter().filter_map(|r| r.last()).map(|q| (q.0.floor() as i64, q.1.floor() as i64)).collect();
-        let proxy_runs: Vec<Vec<(f64, f64)>> = river_polys
+        let proxy_runs: Vec<cartalith_civ::urban_adapter::DrawnRiver> = river_polys
             .iter()
             .map(|r| {
                 let pinned = |q: (f64, f64)| ends.contains(&(q.0.floor() as i64, q.1.floor() as i64));
                 let mut rp = crate::river_render_polyline(r, pinned);
                 crate::river_meander::display_meander(&mut rp, r, &[], pinned);
-                rp
+                cartalith_civ::urban_adapter::DrawnRiver { pts: rp, ranks: Vec::new() }
             })
             .collect();
         for s in civ.settlements.iter() {
@@ -3261,7 +3261,7 @@ fn river_smooth_audit() {
             let marker = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
             let Some(pl) = bound_river(&river_polys, marker.0, marker.1) else { continue };
             let Some(bi) = river_polys.iter().position(|q| std::ptr::eq(q, pl)) else { continue };
-            let curve = &proxy_runs[bi];
+            let curve = &proxy_runs[bi].pts;
             let mut side = [0.0f64; 2];
             // The settlement's own position (`l.pin`, where the map draws its marker) as a signed distance to the layout's river.
             let mut pin_sd = [0.0f64; 2];

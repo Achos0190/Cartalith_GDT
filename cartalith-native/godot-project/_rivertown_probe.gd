@@ -73,6 +73,7 @@ func _measure(layout: Dictionary, s: Dictionary, runs: Array, gpm: float) -> Dic
 	var segs: Array = []
 	var near_d := INF
 	var near_drawn := false
+	var near_run: Dictionary = {}
 	for r in runs:
 		var rp: PackedVector2Array = r["render_points"]
 		var drawn: bool = r.has("widths") and not r.has("parallel_of")
@@ -83,6 +84,7 @@ func _measure(layout: Dictionary, s: Dictionary, runs: Array, gpm: float) -> Dic
 				if dd < near_d:
 					near_d = dd
 					near_drawn = drawn
+					near_run = r
 	var inside: Array = []
 	var worst := 0.0
 	for v in river:
@@ -106,7 +108,21 @@ func _measure(layout: Dictionary, s: Dictionary, runs: Array, gpm: float) -> Dic
 		turn = maxf(turn, t)
 		if t > TURN_BAR_DEG:
 			stairs += 1
-	return {"near_drawn": near_drawn, "near_d": near_d, "offset": worst, "turn": turn, "stairs": stairs, "n": inside.size(), "segs": segs.size()}
+	return {"near_run": near_run, "near_drawn": near_drawn, "near_d": near_d, "offset": worst, "turn": turn, "stairs": stairs, "n": inside.size(), "segs": segs.size()}
+
+func _drawn_count(rs: Array) -> Array:
+	var d := 0
+	var bad := 0
+	for r in rs:
+		if r.has("widths") and not r.has("parallel_of"):
+			d += 1
+		elif r.has("widths") and r.has("parallel_of"):
+			bad += 1
+	return [d, bad]
+
+func _quays(l: Dictionary) -> int:
+	var q = (l.get("streets", {}) as Dictionary).get("quay", PackedVector2Array())
+	return (q as PackedVector2Array).size()
 
 func _median(v: Array) -> float:
 	if v.is_empty():
@@ -166,10 +182,22 @@ func _ready() -> void:
 	_ok(runs.size() > 0, "the world has drawn rivers (%d)" % runs.size())
 	var gs: Vector2i = bridge.grid_size()
 	var gpm := float(gs.x) / 800000.0
+	## RR-T2: how many strokes the map draws with the switch on and off, and that no parallel duplicate came back.
+	var drawn_on := _drawn_count(runs)
+	bridge.param_set("urban_river_smooth", false)
+	var drawn_off := _drawn_count(bridge.rivers(1))
+	bridge.param_set("urban_river_smooth", true)
+	print("  drawn strokes (widths, not parallel_of): off %d, on %d (new %d); runs with parallel_of AND widths: off %d, on %d" % [drawn_off[0], drawn_on[0], drawn_on[0] - drawn_off[0], drawn_off[1], drawn_on[1]])
+	_ok(drawn_on[1] == drawn_off[1] and drawn_on[1] == 0, "NO PARALLEL DOUBLES: no parallel_of run carries a width, on or off (%d, %d)" % [drawn_off[1], drawn_on[1]])
+	_ok(drawn_on[0] >= drawn_off[0], "the switch only adds strokes (%d -> %d)" % [drawn_off[0], drawn_on[0]])
+	var qmax := 0.0
+	for r0 in runs:
+		qmax = maxf(qmax, float(r0.get("discharge", 0.0)))
 	var on_state := _mutate != "off"
 
 	print("\n== 2-4. one curve, smooth, nothing lost (every river town) ==")
 	var rows: Array = []
+	var stream_rows: Array = []
 	for k in places.size():
 		bridge.param_set("urban_river_smooth", false)
 		var off_l: Array = bridge.urban_layouts(PackedInt32Array([k]))
@@ -190,7 +218,35 @@ func _ready() -> void:
 			continue
 		if rows.size() < 12 or OS.get_environment("RTOWN_LIST") != "":
 			print("  town #%d (%d,%d) nearest run drawn=%s at %.2f cells: offset off %.1f on %.1f m | turn off %.1f on %.1f | river vertices in box off %d on %d | river[0] off %s on %s" % [k, int(places[k]["x"]), int(places[k]["y"]), ma["near_drawn"], float(ma["near_d"]), float(ma["offset"]), float(mb["offset"]), float(ma["turn"]), float(mb["turn"]), int(ma["n"]), int(mb["n"]), (a["river"] as PackedVector2Array)[0], (b["river"] as PackedVector2Array)[0]])
+		if not bool(ma["near_drawn"]):
+			## The owner's question (2026-11-22): why does the map not draw this town's river? Order, discharge against
+			## the largest river's, and which gate dropped it (`widths` absent = no discharge reading on its own cells;
+			## `parallel_of` = a run beside a heavier one).
+			var nr: Dictionary = ma["near_run"]
+			print("  UNDRAWN town #%d (%d,%d): run order %s own_order %s discharge %.2f (Q/Q_max %.5f) cells %s keys widths=%s parallel_of=%s" % [k, int(places[k]["x"]), int(places[k]["y"]), nr.get("order"), nr.get("own_order"), float(nr.get("discharge", 0.0)), float(nr.get("discharge", 0.0)) / maxf(1e-9, qmax), nr.get("cells"), nr.has("widths"), nr.get("parallel_of", "none")])
+		stream_rows.append({"k": k, "wa": float(a.get("river_w", 0.0)), "wb": float(b.get("river_w", 0.0)), "qa": _quays(a), "qb": _quays(b), "ha": a.has("harbour"), "hb": b.has("harbour")})
 		rows.append({"k": k, "off": ma, "on": mb, "bo": (a.get("buildings", []) as Array).size(), "bn": (b.get("buildings", []) as Array).size()})
+	## RR-T2 (Ruling HE): towns whose river is laid at stream width with the switch on.
+	var st := 0
+	var quay_off := 0
+	var quay_on := 0
+	var harb_off := 0
+	var harb_on := 0
+	var w_off: Array = []
+	var w_on: Array = []
+	for r in stream_rows:
+		if float(r["wb"]) <= 5.5:
+			st += 1
+			quay_off += 1 if int(r["qa"]) > 0 else 0
+			quay_on += 1 if int(r["qb"]) > 0 else 0
+			harb_off += 1 if r["ha"] else 0
+			harb_on += 1 if r["hb"] else 0
+			w_off.append(float(r["wa"]))
+			w_on.append(float(r["wb"]))
+	print("  STREAM TOWNS (river_w <= 5.5 m with the switch on): %d of %d; with a quay street off %d, on %d; with a harbour off %d, on %d; river width median off %.1f m, on %.1f m" % [st, stream_rows.size(), quay_off, quay_on, harb_off, harb_on, _median(w_off), _median(w_on)])
+	_ok(st >= 2, "at least two stream towns to measure and frame (%d)" % st)
+	_ok(quay_on == 0 and harb_on == 0, "NO PORT: no stream town has a quay street or a harbour with the switch on (%d, %d)" % [quay_on, harb_on])
+	_ok(quay_off > 0, "control: with the switch off some of the same towns had a quay street (%d)" % quay_off)
 	var undrawn := 0
 	for r in rows:
 		undrawn += 0 if bool(r["off"]["near_drawn"]) else 1
@@ -236,10 +292,21 @@ func _ready() -> void:
 	_ok(cand.size() >= TOWNS_FRAMED, "at least %d river towns with a visibly bent raw river to frame (%d)" % [TOWNS_FRAMED, cand.size()])
 	var cols := ["cv_off_z1", "cv_on_z1", "cv_off_z4", "cv_on_z4", "map_x1", "map_x4", "map_off_deep", "map_on_deep"]
 	var sheet: Dictionary = {}
+	var frame_towns: Array = []
 	for ci in mini(TOWNS_FRAMED, cand.size()):
-		var k: int = int(cand[ci]["k"])
+		frame_towns.append([int(cand[ci]["k"]), int(cand[ci]["bo"])])
+	## Two stream towns as well (RR-T2): river_w at stream width with the switch on.
+	var added := 0
+	for r in rows:
+		for sr in stream_rows:
+			if int(sr["k"]) == int(r["k"]) and float(sr["wb"]) <= 5.5 and int(r["bo"]) >= 60 and added < 2:
+				frame_towns.append([int(r["k"]), int(r["bo"])])
+				added += 1
+	_ok(added >= 2, "two stream towns framed (%d)" % added)
+	for ft in frame_towns:
+		var k: int = int(ft[0])
 		var s: Dictionary = places[k]
-		print("  town #%d (%d, %d), %d buildings" % [k, int(s["x"]), int(s["y"]), int(cand[ci]["bo"])])
+		print("  town #%d (%d, %d), %d buildings" % [k, int(s["x"]), int(s["y"]), int(ft[1])])
 		var cvs := {}
 		for state in ["off", "on"]:
 			bridge.param_set("urban_river_smooth", on_state if state == "on" else false)

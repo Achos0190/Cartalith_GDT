@@ -4072,3 +4072,7 @@ RR-T1 (`RIVER_REALISM_SCOPE.md`, `urban_river_smooth`) answered. **(1) Follow th
 ## Ruling HF: the world's timeline range follows the vault (owner, 2026-11-22)
 
 Owner: *"The world should follow the highest and lowest value from the vault until a user overrides the start and end dates."* The world's timeline start and end (the strip's track, the collapse/recovery simulation's span, `tl_range`) **default to the lowest and highest year found in the vault's linked or imported timelines**; once the user sets a start or end date it wins and is kept (saved per world), and the vault no longer moves it. With no vault timelines, today's rule holds. **The world's own generated events outside that range keep their years** and are not re-dated; the axis is not widened for them -- they are listed in L2's table (with a "before the range" / "after the range" note) and counted, not drawn.
+
+## Ruling HE: a stream is a stream, with no port (owner, 2026-11-22)
+
+*"If a river is in fact a stream it should be sized accordingly and not get a port."* A watercourse below the map's own river-drawing gate is a **stream** in the town, by the rule the map uses, so town and map agree; it is laid and drawn at stream width, never river width; and it never produces a port, quay, harbour front or water lanes, nor makes the town river-front typed. Built as RR-T2 (`RIVER_REALISM_SCOPE.md`).

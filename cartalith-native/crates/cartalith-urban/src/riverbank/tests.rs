@@ -328,6 +328,41 @@ fn bank_site_and_streets(streets: &[(Vec2, Vec2)]) -> (crate::site::Site, crate:
     (site, g)
 }
 
+/// Protects RR-T2 (Ruling HE): a real watercourse laid out at stream width (5 m, under the 12 m floor) gets no
+/// quay street, no bank stretches and no river port, and the same town at a river's width (24 m) still does.
+/// MUTATIONS: removing the width test in `build_embankment_with` fails the first assertion; removing it in
+/// `build_harbour` fails the second; raising the floor above 12 fails the third.
+#[test]
+fn a_stream_has_no_quay_and_no_river_port_but_a_river_does() {
+    let streets: Vec<(Vec2, Vec2)> = (0..20).map(|k| {
+        let x = 200.0 + k as f64 * 60.0;
+        (Vec2::new(x, RIVER_Y - 120.0), Vec2::new(x, RIVER_Y - 30.0))
+    }).collect();
+    let mk = |width: f64| {
+        let mut w = water(true);
+        w.river_width_m = Some(width);
+        w.river_path = crate::riverbank::fine_river_path(w.river_path.as_deref().unwrap(), 1700.0, 1250.0);
+        let site = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+        let mut g = crate::graph::Graph::new();
+        for (a, b) in &streets {
+            g.add_street(a.x, a.y, b.x, b.y, "street", 4.0, 0, "test");
+        }
+        (site, g)
+    };
+    let (mut stream, mut g) = mk(crate::riverbank::STREAM_WIDTH_M);
+    assert!(stream.use_riverbank() && stream.uses_real_water);
+    let e = super::build_embankment(&stream, &mut g, None, None);
+    assert!(e.runs.is_empty() && e.banks.is_empty(), "a stream has no quay or bank stretch: {} runs, {} banks", e.runs.len(), e.banks.len());
+    assert!(
+        matches!(crate::water::build_harbour(7, &stream, &crate::routes::place_anchors(7, &stream), &mut g, None), crate::water::HarbourOutcome::None),
+        "a stream has no river port"
+    );
+    let (mut river, mut g2) = mk(RW);
+    assert!(river.use_riverbank());
+    let e2 = super::build_embankment(&river, &mut g2, None, None);
+    assert!(!e2.runs.is_empty(), "control: the same town at a 24 m river gets its quay ({} runs)", e2.runs.len());
+}
+
 /// Protects both wall guards in `build_embankment` (literals): with a wall
 /// whose side crosses the bank line, no embankment segment crosses it; with a
 /// wall whose bottom lies between a street end and the bank, the tie is not

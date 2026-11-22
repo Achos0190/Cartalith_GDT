@@ -683,6 +683,16 @@ any change to the settlement's position or to the order and width read at the bo
 - B6 switch: ON in `params::defaults`, OFF in `WorldParams::defaults` (every golden), OFF for a save without the key; read when a layout
   is drawn, so it regenerates nothing. It moves generated layouts, so it is a section 7p switch.
 
+### RR-T2. A stream is a stream: stream width, no port, drawn with its town (Ruling HE; generation and render, behind `urban_river_smooth`)
+
+Owner Ruling HE (2026-11-22): *"If a river is in fact a stream it should be sized accordingly and not get a port"* and *"I'd still like to see the stream on the map ... with the town."* Built in the same switch as RR-T1, because the class comes from the map's own drawn runs, which only exist with it.
+
+**The class, by the map's rule.** The map has no order or discharge cut: it drops a run only when `river_draws` finds no discharge reading on the run's own cells (`river_realism::hydraulic_half_width_profile` is `None`, so `widths` is absent) or the run lies beside a heavier one (`parallel_of`, `river_draw_plan`), and past that it fades by rank (`river_stroke::river_visibility`, `HEADWATER_U_LO` = 0.5, the headwater class). The town calls a watercourse a **stream** when the map draws no run within `DRAWN_BIND_CELLS` of it, or draws it at rank `u` of `STREAM_RANK_U` (0.5, equal to `HEADWATER_U_LO`, asserted in `river_stroke` tests) or above, or with a NaN rank. Today the town lays every real river at `max(12, min(46, 10 + 7 * order))` metres, so an order-1 stream is 17 m.
+
+**What it does.** Width: `STREAM_WIDTH_M` 5 m (a labelled judgement, UNCONFIRMED figure), under the 12 m floor `RIVER_MIN_W_M`. Port: `build_embankment_with` (the quay street and bank stretches) and `build_harbour` (the river port; the reference's own navigability test already needed order 3) return nothing for a real watercourse narrower than the floor. Map: with the switch on, a run within `DRAWN_BIND_CELLS` of a settlement that has no width of its own is drawn at the thinnest width any drawn river has; `parallel_of` runs stay dropped, so no duplicate returns. Not done: the town stays river-kind typed (its bridge and bank logic need it), so "not river-front typed" is open.
+
+**Bars.** No stream town has a quay street or harbour with the switch on and some did with it off; the stream's laid width is 5 m against the order's 17 to 46 m; the drawn-stroke count with the switch on is at least the count off and no `parallel_of` run carries a width; frames of two stream towns. Measured in the unit tests and mutants (S1 to S5, all killed); the in-app counts and frames wait on `_rivertown_probe.gd` (a window lock was not obtainable at the time of writing).
+
 ---
 
 ## 4. Milestones
@@ -706,6 +716,7 @@ any change to the settlement's position or to the order and width read at the bo
   owner's answer.
 - **RR-T1 — the river through a town layout** (section 3 above): `urban_river_smooth`, `river_smooth_audit`, `_rivertown_probe.gd`; frames in
   `cartalith-native/docs/evidence/river-town-2026-11-22/`.
+- **RR-T2 — a stream is a stream** (section 3 above): `STREAM_WIDTH_M`, no quay or port, drawn with its town.
 - **RR-9 — close-out.** Screen, tile and export agree at equal `ppc` for every new term (RIM-7's mirror
   tests extended); pan-frame time with rivers on within the pre-change spread at the probe's zooms and
   under Ruling BP's 16.7 ms where today's passes; `cargo test --workspace`; parse-check of every `.gd`

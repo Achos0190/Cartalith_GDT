@@ -3010,6 +3010,15 @@ impl WorldGen {
 /// they run under plain `cargo test -p cartalith-godot`.
 #[cfg(test)]
 mod tests {
+    /// Protects RR-T2 (Ruling HE): the town calls a watercourse a stream by the map's own headwater rank, so the
+    /// adapter's copy of the constant must equal `HEADWATER_U_LO`, and the town's stream is narrower than its
+    /// narrowest river. MUTATION: change either constant and this fails.
+    #[test]
+    fn the_towns_stream_rank_is_the_maps_headwater_rank() {
+        assert_eq!(cartalith_civ::urban_adapter::STREAM_RANK_U, HEADWATER_U_LO);
+        assert!(cartalith_civ::urban_adapter::STREAM_WIDTH_M < cartalith_civ::urban_adapter::RIVER_MIN_W_M);
+    }
+
     use super::*;
 
     /// Test fixture: a traced run of `n` points along row 0.5 at x = 0.5, 1.5,

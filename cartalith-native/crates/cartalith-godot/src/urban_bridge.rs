@@ -708,11 +708,11 @@ impl WorldGen {
     /// (`river_geometry_any`, the one geometry the strokes, tiles and exports
     /// rasterize), whole runs in grid cells, for [`urban_adapter::PlaceOverrides::river_smooth`].
     /// Empty when the switch is off or there is no drawn network (a loaded save).
-    fn drawn_river_runs(&self) -> Vec<Vec<(f64, f64)>> {
+    fn drawn_river_runs(&self) -> Vec<urban_adapter::DrawnRiver> {
         if !self.params.urban_river_smooth {
             return Vec::new();
         }
-        self.river_geometry_any().map_or_else(Vec::new, |g| g.runs.iter().map(|r| r.pts.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect()).collect())
+        self.river_geometry_any().map_or_else(Vec::new, |g| g.runs.iter().map(|r| urban_adapter::DrawnRiver { pts: r.pts.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect(), ranks: r.ranks.clone() }).collect())
     }
 
     /// The [`urban_adapter::PlaceOverrides`] settlement `s` is laid out with
@@ -737,7 +737,7 @@ impl WorldGen {
         e: &'a crate::civ_roster_bridge::PlaceExtras,
         resources: Option<&'a ResourcePotentials>,
         stretch_others: &'a [(f64, f64, f64)],
-        drawn_rivers: &'a [Vec<(f64, f64)>],
+        drawn_rivers: &'a [urban_adapter::DrawnRiver],
     ) -> urban_adapter::PlaceOverrides<'a> {
         urban_adapter::PlaceOverrides {
             specialisation: if e.specialisation.is_empty() {

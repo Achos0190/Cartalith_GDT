@@ -110,6 +110,18 @@ pub const BRIDGE_JOIN_M: f64 = 240.0;
 /// approach cap. A labelled judgement within those two figures.
 pub const BRIDGE_FAR_STUB_M: f64 = 60.0;
 
+/// The narrowest a **river** is laid out, metres: the reference's own floor
+/// (`um_water_ctx`'s `max(12, min(46, 10 + 7 * order))`). A real watercourse
+/// laid out narrower than this is a **stream** (RR-T2, Ruling HE): no quay
+/// street ([`build_embankment_with`]) and no river port (`build_harbour`).
+pub const RIVER_MIN_W_M: f64 = 12.0;
+
+/// The width a stream is laid out at, metres (RR-T2, Ruling HE). **A labelled
+/// judgement**: headwater streams are a few metres across (order-1 channels of
+/// 1 to 5 m; the exact figure is UNCONFIRMED, not sourced), well under
+/// [`RIVER_MIN_W_M`], so the town draws a stream a street can step across.
+pub const STREAM_WIDTH_M: f64 = 5.0;
+
 /// The step a real river's centreline is resampled at ([`fine_river_path`]),
 /// metres. **The reference's** plot frontage, ~8 m (`generate`'s M-DEN-1/2,
 /// M-PAR-1 note), so no lot's frontage falls between two bank points.
@@ -348,7 +360,8 @@ pub fn build_embankment(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, front
 pub fn build_embankment_with(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, frontage: Option<u32>, waterfront: &[Vec2]) -> Embankment {
     let mut out = Embankment::default();
     let r = &site.river;
-    if !site.riverbank() || r.len() < 2 {
+    // RR-T2 (Ruling HE): a stream has no quay street. `river_w` is at least `RIVER_MIN_W_M` on every real river.
+    if !site.riverbank() || r.len() < 2 || (site.uses_real_water && site.river_w < RIVER_MIN_W_M) {
         return out;
     }
     let off = site.river_w / 2.0 + EMBANKMENT_CLEAR + EMBANKMENT_W / 2.0;

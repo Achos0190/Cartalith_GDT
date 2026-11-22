@@ -181,6 +181,7 @@
 //!   beside it) is the one layer with no field here at all, and it is still one
 //!   field away on the [`cartalith_urban::Town`] this function projects from.
 
+pub use cartalith_urban::riverbank::{RIVER_MIN_W_M, STREAM_WIDTH_M};
 use cartalith_urban::{
     Economy, GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
 };
@@ -973,19 +974,36 @@ pub fn um_water_ctx_box(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64,
 /// second river is at least a cell away.
 pub const DRAWN_BIND_CELLS: f64 = 0.75;
 
+/// One run of the map's drawn rivers as the town reads it (RR-T1, RR-T2).
+#[derive(Clone, Debug, Default)]
+pub struct DrawnRiver {
+    /// The run's points, grid cells, the traced frame (a cell's centre is `x + 0.5`).
+    pub pts: Vec<(f64, f64)>,
+    /// The map's visibility rank `u` at each point (`river_stroke::visibility_ranks`: `0` the
+    /// largest river, `1` the least). Empty reads "unranked": a river, never a stream.
+    pub ranks: Vec<f32>,
+}
+
+/// The rank from which the map itself calls a river a headwater: `river_stroke::HEADWATER_U_LO`
+/// (the lower half of the network by length keeps full width and tint; above it the map draws the
+/// narrower headwater look). **Must equal** that constant; a test in `cartalith-godot` asserts it.
+pub const STREAM_RANK_U: f32 = 0.5;
+
 /// The part of the drawn river that belongs to the town's bound river, clipped
 /// to the box as the raw path is and in the town's local metres, or `None`
 /// when no run qualifies ([`um_water_ctx_box_smooth`]). `bound` is the traced
 /// vertex the town binds to (traced frame), `at` the settlement's cell.
 fn drawn_stretch(
-    runs: &[Vec<(f64, f64)>],
+    runs: &[DrawnRiver],
     bound: (f64, f64),
     at: (f64, f64),
     box_rad_g: f64,
     grid_to_local: &impl Fn(f64, f64) -> Vec2,
-) -> Option<Vec<Vec2>> {
+) -> Option<(Vec<Vec2>, f32)> {
     let near = |run: &[(f64, f64)]| run.iter().map(|&q| js_hypot(q.0 - bound.0, q.1 - bound.1)).enumerate().fold((0usize, f64::INFINITY), |b, (i, d)| if d < b.1 { (i, d) } else { b });
-    let (run, bi) = runs.iter().filter(|r| r.len() >= 2).map(|r| (r, near(r))).filter(|(_, (_, d))| *d <= DRAWN_BIND_CELLS).min_by(|a, b| a.1.1.total_cmp(&b.1.1)).map(|(r, (i, _))| (r, i))?;
+    let (dr, bi) = runs.iter().filter(|r| r.pts.len() >= 2).map(|r| (r, near(&r.pts))).filter(|(_, (_, d))| *d <= DRAWN_BIND_CELLS).min_by(|a, b| a.1.1.total_cmp(&b.1.1)).map(|(r, (i, _))| (r, i))?;
+    let rank = dr.ranks.get(bi).copied().unwrap_or(0.0);
+    let run = &dr.pts;
     let pl: Vec<(f64, f64)> = run.iter().map(|&q| traced_to_cell(q)).collect();
     let far = |q: (f64, f64)| js_hypot(q.0 - at.0, q.1 - at.1) >= box_rad_g;
     let (mut lo, mut hi) = (bi, bi);
@@ -998,7 +1016,7 @@ fn drawn_stretch(
     if hi <= lo {
         return None;
     }
-    Some(pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect())
+    Some((pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect(), rank))
 }
 
 /// [`um_water_ctx_box`], and with `drawn` (RR-T1, `urban_river_smooth`: the
@@ -1009,7 +1027,7 @@ fn drawn_stretch(
 /// no run passes within [`DRAWN_BIND_CELLS`] of the bound vertex. The river
 /// carried on to the sea (`to_sea`'s [`UmWater::to_sea`] context, built only
 /// where the river ends in the box) keeps the raw path and its extension. `None` is [`um_water_ctx_box`] exactly.
-pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64, hm: f64, drawn: Option<&[Vec<(f64, f64)>]>) -> Option<UmWater> {
+pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64, hm: f64, drawn: Option<&[DrawnRiver]>) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
     }
@@ -1099,8 +1117,23 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
                             river_ext = Some(ext);
                         }
                         // RR-T1: the map's own drawn curve in place of the raw trace.
+                        // RR-T2 (Ruling HE): where the map draws no run here, or draws it in the
+                        // headwater class (rank at or above `STREAM_RANK_U`), the watercourse is a
+                        // stream: laid at `STREAM_WIDTH_M`, never at a river's width.
                         let local = match drawn {
-                            Some(runs) => drawn_stretch(runs, traced[bi], (px, py), box_rad_g, &grid_to_local).unwrap_or(local),
+                            Some(runs) => match drawn_stretch(runs, traced[bi], (px, py), box_rad_g, &grid_to_local) {
+                                Some((l, rank)) => {
+                                    // `!(rank < ..)`: a NaN rank (a run with no discharge reading) is a stream too.
+                                    if !(rank < STREAM_RANK_U) {
+                                        river_width_m = STREAM_WIDTH_M;
+                                    }
+                                    l
+                                }
+                                None => {
+                                    river_width_m = STREAM_WIDTH_M;
+                                    local
+                                }
+                            },
                             None => local,
                         };
                         river_path = Some(local);
@@ -2503,7 +2536,7 @@ pub struct PlaceOverrides<'a> {
     /// ([`um_water_ctx_box_smooth`]). **Not a `_umPlaceContext` field**; `None`
     /// (the `Default`) is today's raw centreline. The app sets it from
     /// `WorldParams::urban_river_smooth`.
-    pub river_smooth: Option<&'a [Vec<(f64, f64)>]>,
+    pub river_smooth: Option<&'a [DrawnRiver]>,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2692,7 +2725,7 @@ fn site_kind_stretches(kind: &str) -> bool {
 /// `cartalith_urban::generate::town_reach_m` of its clamped population.
 /// Must never stretch a town under `STRETCH_MIN_POP` (the plan refuses) nor
 /// return a box smaller than the reference's.
-fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, pop: f64, others: &[(f64, f64, f64)], smooth: Option<&[Vec<(f64, f64)>]>) -> Option<(cartalith_urban::stretch::StretchPlan, (f64, f64))> {
+fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, pop: f64, others: &[(f64, f64, f64)], smooth: Option<&[DrawnRiver]>) -> Option<(cartalith_urban::stretch::StretchPlan, (f64, f64))> {
     use cartalith_urban::stretch::{STRETCH_ALONG_MAX_RF, STRETCH_BOX_MARGIN_M, StretchNeighbour, plan_river_stretch, stretch_half_box};
     let pop_target = js_max(400.0, js_min(20000.0, pop));
     let max_rf = cartalith_urban::generate::town_reach_m(pop_target);

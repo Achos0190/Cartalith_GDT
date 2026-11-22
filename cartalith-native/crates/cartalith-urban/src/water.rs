@@ -324,6 +324,10 @@ pub fn build_harbour(
     let Some(h_pt) = site.harbour.pt else {
         return HarbourOutcome::None;
     };
+    // RR-T2 (Ruling HE): a stream never gets a river port. Real rivers are laid at 12 m or more.
+    if rk && site.uses_real_water && site.river_w < crate::riverbank::RIVER_MIN_W_M {
+        return HarbourOutcome::None;
+    }
 
     // v1.17 navigability guards. Guarded on `uses_real_water`, so the synthetic
     // headless path is byte-identical with them present.
