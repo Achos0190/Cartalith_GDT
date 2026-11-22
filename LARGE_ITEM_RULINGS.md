@@ -3978,3 +3978,8 @@ After Ruling GI (`4f803210`): (1) **an unclaimed settlement always keeps its own
 ## Ruling GM: PS-2 accepted on look (owner, 2026-11-22)
 
 After seeing the real plans beside today's towns and the PS-2 prototype at gain 0.4 (step 0c, `d95bd335`), owner: *"I like ps2"*. Q19 is answered by acceptance: **build PS-2 at gain 0.4** with step 0b's `PARALLEL_FAR_BANK_SLACK` and `ring_is_jagged`, behind `urban_parallel_streets` (still OFF at both boundaries until PS-7). The FS-2 delta, the market-street phi cap and the needle bar are judged against a re-roll of today's `grow` (as Ruling GH did for FS-1), not as absolute caps; the measured values (needles 12.1 %, market-street delta 0.297, river-front 0.231) are recorded as PS-2's baseline that later milestones must not worsen.
+
+
+## Ruling GN: what "continental influence" meant (owner, 2026-11-22)
+
+On `BORDER_FORMATION_RESEARCH.md` Q1: *"Terrain features, like mountain ridges, canyons, rivers historically gave good strategic and defensive positions. Making them natural borders. Like the mountains between France and Spain, the Rhine river etc."* Borders should come to rest on defensible terrain features -- ridges and crests, canyons and gorges, major rivers -- rather than on straight bisectors. The build option is still the owner's to pick after the research summary.
