@@ -4064,3 +4064,7 @@ PS-4 measured a no-go (`68c45f38`, `PARALLEL_STREETS_SCOPE.md` section 16). **Q2
 ## Ruling HD: fix E and the water gate (owner, 2026-11-22)
 
 After `2aa402de` (`PARALLEL_STREETS_SCOPE.md` section 17): **Q26** -- the water gate (reverted: met PS-4's riverside bar but raised needle lots above PS-2's baseline, and 483920 #7 became a long wall round an empty field) is **built again inside PS-5**, whose platting owns needles; the shell must then draw water gates in walls. **Q27** -- fix E's 2048 misses (riverside 3.4 vs 3.5 %, needles 12.2 vs 12.1 %, FS-1 kept 20 vs 21 of 39) are **accepted**, as Q24 accepted them.
+
+## Ruling HC: the river through a town follows the map (owner, 2026-11-22)
+
+RR-T1 (`RIVER_REALISM_SCOPE.md`, `urban_river_smooth`) answered. **(1) Follow the map.** One shared curve wins over keeping the town's old bank: the bank bar becomes *the market stands on the same side of the river as the map's marker*, replacing "no bank swap". **(2)** The 11 % of towns (53 of 478) whose market changed bank while the marker kept its side are investigated before the commit; a small, measurable fix goes in, otherwise the cause is reported. **(3)** The harbour-front sea extension (a river carried on to its sea) is smoothed as a follow-up, a separate commit, the same switch if it fits.

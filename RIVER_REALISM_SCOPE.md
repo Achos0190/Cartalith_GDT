@@ -625,13 +625,63 @@ LAKE_DEPTH` read per pixel on the screen (`cell_color`), the export (`pixel_at`)
   stands.
 - **River labels**: out of scope (Ruling EN).
 
-### Routed by Ruling FE item 4: the river through a town layout (added 2026-11-16 by the docs audit)
+### RR-T1. The river through a town layout: one curve for town and map (Ruling FE item 4; generation, behind `urban_river_smooth`)
 
-Ruling FE item 4 (owner, 2026-11-15) answered `TOWN_GENERATOR_JUDGEMENT.md` change 3 (smooth the river inside the town
-box) with *"under river realism"*: the work belongs to this scope, not the town work. No RR milestone carried it until
-this note. It is a candidate only: no design, bars or ruling on generated output beyond FE's routing exist yet, and
-nothing is built. Read the judgement's change 3 and `urban_riverbank`'s resampled centreline (`DECISIONS.md` section 7p,
-2026-11-15) before scoping it; status is `STATUS.md`'s.
+Routed here by Ruling FE item 4 (owner, 2026-11-15, *"under river realism"*) from `TOWN_GENERATOR_JUDGEMENT.md` change 3. The
+judgement's requirement is that **the town and the map share one curve**. Designed and built 2026-11-22.
+
+**What ships before it, read at the symbols.** The town's river is the *traced* D8 polyline: `urban_adapter::um_water_ctx_box`
+takes the traced vertices near the box, `cartalith_urban::riverbank::fine_river_path` resamples it linearly every 8 m
+(`RIVER_STEP`), and nothing rounds it. The map draws the same river through `river_render_polyline` (`civ_rdp_simplify` at
+`RIVER_RDP_EPS_CELLS` 0.5 cell, pinned at junctions, then `civ_catmull_rom_sample` every 0.25 cell) and then `river_meander::display_meander`
+(under a third of a cell), and the strokes, tiles and exports all rasterize that one geometry (`river_geometry_any`). So the town's
+river is the raw trace and the map's is a different, smoother curve up to about half a cell away from it: at 384 cells over 800 km a
+cell is 2.1 km, wider than the 1.7 km town box.
+
+**Measured first** (`town_river_census::river_smooth_audit`; final numbers from the final code, villages on, 665 river towns of seeds 483920, 912345 and 246371 at 384 x 288, villages
+on; the map curve here is the headless proxy: `river_render_polyline` pinned at every run end, plus `display_meander` at its default
+wavelength; the live drawn curve is checked in the app by `_rivertown_probe.gd`). Switch off:
+
+| | median | p90 | max |
+|---|---|---|---|
+| per-town max distance from the town's river to the map's curve inside the box | 329 m | 851 m | 1 947 m |
+| per-town sharpest turn at a resampled vertex | 45 deg | 90 deg | 135 deg |
+
+424 resampled vertices turn over 30 deg (the 90 deg and 45 deg elbows of 483920 #6 and #18). On the City Viewer's fit scale (about
+0.9 px per metre at x1; x4, x16 and x64 are 3.6, 14 and 58 px per metre) the median 329 m is about 300 px at x1 and over 1 000 px at
+x4, so the disagreement is the size of the town at every zoom, not a sub-pixel detail that zooming hides.
+
+**Design.** The smallest change that makes one curve is to give the town the map's own polyline rather than build a second smoother
+one that would drift from the first. `PlaceOverrides::river_smooth` carries the polylines the map draws (the host hands
+`river_geometry_any`'s runs, whole, in grid cells); `um_water_ctx_box_smooth` picks the run that passes within `DRAWN_BIND_CELLS`
+(0.75 cell) of the traced vertex the town binds to, clips it to the box exactly as the raw path is clipped, and uses it as the town's
+`river_path`. `fine_river_path` then resamples it every 8 m as before, so every consumer (the site, the embankment, the bank classes,
+the bridge search, the stamped band) reads one curve through the existing code. With no run within that distance the raw path is kept. A river carried on to its
+sea (`urban_harbour_front`'s `to_sea` extension) keeps the raw path. Not done, by design: a second smoothing in the generator, and
+any change to the settlement's position or to the order and width read at the bound cell.
+
+**Bars** (all four zooms read the same layout; the numbers are metres and degrees, so they hold at x1, x4, x16 and x64):
+
+- B1 offset: with the switch on at least 90 % of river towns' rivers inside the box lie within 30 m of the drawn river
+  (`_rivertown_probe.gd`, against `get_rivers`' `render_points`; measured 204 of 220, and 122 within 5 m; the 5-30 m tail is the layout
+  nudging its river off the market), and with it off the median is over 50 m (the control; measured 354 m). The 16 others are 12
+  towns whose bound run was not found within `DRAWN_BIND_CELLS` and 4 beside a river the map does not draw: they keep the raw path.
+- B2 turn: the town's sharpest turn inside the box is the map curve's own (it follows it); the median town's sharpest turn is under
+  30 deg and the vertices over 30 deg are at least halved (census 424 down to 148; the app probe 134 down to 50). The map's own curve
+  has a p90 sharpest turn of 32 deg (the meander's clamp), so the p90 of 39 deg here is the map's.
+- B3 no building in the water: `wet_buildings` 0 before and after (0 of 665).
+- B4 bank (Ruling HC replaced "no bank swap"): the market stands on the same side of the river as the map's marker in at least the
+  share it did (census 502 of 665 = 75.5 % off, 567 = 85.3 % on). Not a bar, a finding: the pin changed side of its river in 172 towns
+  (the drawn curve crosses over the marker) and the market flipped in 173; in the 471 towns whose pin kept its side the market flipped in
+  56 (12 %). **Cause:** the market is not placed on a chosen bank. `routes::place_anchors` rejection-samples 400 seeded candidates around the
+  bridge point and scores them, so any change in the river's geometry reshuffles the winner; in 16 of the 56 the roads' own side of the
+  river flipped too (the market follows its roads' bank, Ruling GB's `market_road_bank` and the street village), in 40 it did not. No small
+  fix exists (the bank is an output of sampling, not an input), so none is made.
+- B5 no loss: housed population median 100 %, p10 not below 80 % (84 off, 83 on); the fronted share of the bank (houses or quay at the
+  water's edge) not below the switch-off share (19 809 of 38 356 = 51.6 % off, 17 446 of 31 029 = 56.2 % on); buildings per town within
+  25 % in the median (0.000 in the app probe).
+- B6 switch: ON in `params::defaults`, OFF in `WorldParams::defaults` (every golden), OFF for a save without the key; read when a layout
+  is drawn, so it regenerates nothing. It moves generated layouts, so it is a section 7p switch.
 
 ---
 
@@ -654,6 +704,8 @@ nothing is built. Read the judgement's change 3 and `urban_riverbank`'s resample
 - **RR-8 — meander scaling** (small; folds into RR-1's lane).
 - **RR-6 — lake balance** and **RR-7 — channel heads**: harness and ruling first; built only on the
   owner's answer.
+- **RR-T1 — the river through a town layout** (section 3 above): `urban_river_smooth`, `river_smooth_audit`, `_rivertown_probe.gd`; frames in
+  `cartalith-native/docs/evidence/river-town-2026-11-22/`.
 - **RR-9 — close-out.** Screen, tile and export agree at equal `ppc` for every new term (RIM-7's mirror
   tests extended); pan-frame time with rivers on within the pre-change spread at the probe's zooms and
   under Ruling BP's 16.7 ms where today's passes; `cargo test --workspace`; parse-check of every `.gd`

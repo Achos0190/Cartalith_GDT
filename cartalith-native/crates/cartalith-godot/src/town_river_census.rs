@@ -3179,3 +3179,195 @@ fn parallel_streets_audit() {
         println!("PS1 {gw} under 1.20: {} #{} pop {:.0} type {} g {}", r.0, r.1, r.2, r.3, r.4.map_or("-".to_string(), |g| format!("{g:.3}")));
     }
 }
+
+/// **The town-river smoothing audit** (RR-T1, Ruling FE item 4; `RIVER_REALISM_SCOPE.md`'s RR-T1 bars).
+/// For every river town of each seed, laid out as the app lays it (`params::defaults`) twice, with
+/// `urban_river_smooth` off then on, it measures the layout's river against the curve the map draws for
+/// the same traced river (`river_render_polyline`, no pinned junctions), inside the town box:
+///
+/// - `offset`: each layout-river vertex's distance to the map's curve, metres (median over towns of the
+///   per-town max; the worst town);
+/// - `turn`: the turn angle at each interior vertex, degrees (worst town) and the count of vertices
+///   turning over [`TURN_BAR_DEG`], the staircase;
+/// - `wet`: buildings in the water ([`wet_buildings`]); `bank`: how many towns' market stands on the
+///   other side of the river than it did with the switch off; the fronted-bank share and the housed
+///   ratio, so "no worse than today" is read from the same run.
+///
+/// `TOWN_RIVER_GW`, `TOWN_RIVER_SEEDS`, `TOWN_RIVER_VILLAGES` as for the other audits. A measurement,
+/// not a gate: the gates are `urban_adapter`'s tests. Numbers are in
+/// `docs/evidence/river-town-2026-11-22/`.
+#[test]
+#[ignore = "measurement; RIVER_REALISM_SCOPE.md RR-T1"]
+#[allow(clippy::too_many_lines)]
+fn river_smooth_audit() {
+    /// The judgement's bar (`TOWN_GENERATOR_JUDGEMENT.md` change 3): no turn sharper than this.
+    const TURN_BAR_DEG: f64 = 30.0;
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_else(|| SEEDS.to_vec());
+    // Per switch state: per-town max offset (m), per-town max turn (deg), staircase vertices, wet, fronted, reach, pop ratio.
+    let mut off_max: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut turn_max: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let mut stairs = [0usize; 2];
+    let mut wet = [0usize; 2];
+    let (mut front, mut reach) = ([0usize; 2], [0usize; 2]);
+    let mut ratio: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    let (mut towns, mut bank_swaps, mut wet_towns, mut pin_swaps) = (0usize, 0usize, 0usize, 0usize);
+    let mut pin_move: Vec<f64> = Vec::new();
+    // Market on the pin's side of its river, per switch state; market flips among towns whose pin kept its side.
+    let (mut agree, mut stable_swaps, mut stable) = ([0usize; 2], 0usize, 0usize);
+    let mut map_turn: Vec<f64> = Vec::new();
+    let (mut flip_roads_flipped, mut flip_market_with_roads, mut flip_market_with_roads_off) = (0usize, 0usize, 0usize);
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, true);
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
+        };
+        let gpm = gw as f64 / (p.map_width_km * 1000.0);
+        let others = stretch_others(&civ);
+        // The map's drawn curve, as far as a headless test can build it: `river_render_polyline` pinned at
+        // every run's end cell (the junction cells `river_draws` pins) then `river_meander::display_meander`
+        // at its default wavelength. `river_draws` itself needs a live `WorldGen` (the in-app probe checks
+        // the real one); this is the proxy both the OFF measurement and the ON overrides use here.
+        let ends: std::collections::HashSet<(i64, i64)> = river_polys.iter().filter_map(|r| r.last()).map(|q| (q.0.floor() as i64, q.1.floor() as i64)).collect();
+        let proxy_runs: Vec<Vec<(f64, f64)>> = river_polys
+            .iter()
+            .map(|r| {
+                let pinned = |q: (f64, f64)| ends.contains(&(q.0.floor() as i64, q.1.floor() as i64));
+                let mut rp = crate::river_render_polyline(r, pinned);
+                crate::river_meander::display_meander(&mut rp, r, &[], pinned);
+                rp
+            })
+            .collect();
+        for s in civ.settlements.iter() {
+            let proxy = cartalith_civ::urban_adapter::um_site_kind_from_terrain(&uw, s.placement.x as f64, s.placement.y as f64);
+            if proxy != "river" && proxy != "riverthrough" {
+                continue;
+            }
+            let marker = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
+            let Some(pl) = bound_river(&river_polys, marker.0, marker.1) else { continue };
+            let Some(bi) = river_polys.iter().position(|q| std::ptr::eq(q, pl)) else { continue };
+            let curve = &proxy_runs[bi];
+            let mut side = [0.0f64; 2];
+            // The settlement's own position (`l.pin`, where the map draws its marker) as a signed distance to the layout's river.
+            let mut pin_sd = [0.0f64; 2];
+            // The roads' side: the summed sign of each route end against its nearest river segment (the bank `market_road_bank` follows).
+            let mut roads_side = [0.0f64; 2];
+            let mut row: [Option<(f64, f64, usize, usize, usize, usize, f64)>; 2] = [None, None];
+            for (k, smooth) in [false, true].into_iter().enumerate() {
+                let o = PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: true, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: parallel_streets(&p), river_stretch: river_stretch(&p).then_some(others.as_slice()), river_smooth: smooth.then_some(proxy_runs.as_slice()), ..Default::default() };
+                let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+                if !ctx.water.as_ref().is_some_and(|w| w.ctx.has_real_river_path()) {
+                    continue;
+                }
+                let Some(l) = run_layout(&ctx, None) else { continue };
+                let to_grid = |v: Vec2| (marker.0 + (v.x - l.pin.x) * gpm, marker.1 + (v.y - l.pin.y) * gpm);
+                let inside = |v: Vec2| v.x >= 0.0 && v.y >= 0.0 && v.x <= l.wm && v.y <= l.hm;
+                let pts: Vec<Vec2> = l.river.iter().copied().filter(|&v| inside(v)).collect();
+                let offs: Vec<f64> = pts.iter().filter_map(|&v| line_dist(to_grid(v), curve)).map(|d| d / gpm).collect();
+                let omax = offs.iter().cloned().fold(0.0, f64::max);
+                let (mut tmax, mut st) = (0.0f64, 0usize);
+                for w in pts.windows(3) {
+                    let (a, b) = ((w[1].x - w[0].x, w[1].y - w[0].y), (w[2].x - w[1].x, w[2].y - w[1].y));
+                    if a.0.hypot(a.1) < 0.5 || b.0.hypot(b.1) < 0.5 {
+                        continue;
+                    }
+                    let t = (a.0 * b.1 - a.1 * b.0).atan2(a.0 * b.0 + a.1 * b.1).to_degrees().abs();
+                    tmax = tmax.max(t);
+                    st += usize::from(t > TURN_BAR_DEG);
+                }
+                if k == 1 {
+                    // The map curve's own sharpest turn inside this box: the town cannot be smoother than what it follows.
+                    let cl: Vec<(f64, f64)> = curve.iter().map(|g| (l.pin.x + (g.0 - marker.0) / gpm, l.pin.y + (g.1 - marker.1) / gpm)).filter(|v| v.0 >= 0.0 && v.1 >= 0.0 && v.0 <= l.wm && v.1 <= l.hm).collect();
+                    let mt = cl.windows(3).filter_map(|w| {
+                        let (a, b) = ((w[1].0 - w[0].0, w[1].1 - w[0].1), (w[2].0 - w[1].0, w[2].1 - w[1].1));
+                        (a.0.hypot(a.1) > 0.5 && b.0.hypot(b.1) > 0.5).then(|| (a.0 * b.1 - a.1 * b.0).atan2(a.0 * b.0 + a.1 * b.1).to_degrees().abs())
+                    }).fold(0.0, f64::max);
+                    map_turn.push(mt);
+                }
+                let open = laid_ctx(&ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+                let rv: Vec<(f64, f64)> = l.river.iter().map(|v| (v.x, v.y)).collect();
+                let (f, _, rch) = bank_frontage(&l, &rv);
+                // The market's side of the river's nearest segment, for the bank-swap bar.
+                if let Some(seg) = rv.windows(2).min_by(|a, b| seg_dist((l.market.x, l.market.y), a[0], a[1]).partial_cmp(&seg_dist((l.market.x, l.market.y), b[0], b[1])).unwrap()) {
+                    side[k] = (seg[1].0 - seg[0].0) * (l.market.y - seg[0].1) - (seg[1].1 - seg[0].1) * (l.market.x - seg[0].0);
+                }
+                if let Some(seg) = rv.windows(2).min_by(|a, b| seg_dist((l.pin.x, l.pin.y), a[0], a[1]).partial_cmp(&seg_dist((l.pin.x, l.pin.y), b[0], b[1])).unwrap()) {
+                    let len = (seg[1].0 - seg[0].0).hypot(seg[1].1 - seg[0].1).max(1e-9);
+                    pin_sd[k] = ((seg[1].0 - seg[0].0) * (l.pin.y - seg[0].1) - (seg[1].1 - seg[0].1) * (l.pin.x - seg[0].0)) / len;
+                }
+                for e in &l.route_ends {
+                    if let Some(seg) = rv.windows(2).min_by(|a, b| seg_dist((e.x, e.y), a[0], a[1]).partial_cmp(&seg_dist((e.x, e.y), b[0], b[1])).unwrap()) {
+                        roads_side[k] += ((seg[1].0 - seg[0].0) * (e.y - seg[0].1) - (seg[1].1 - seg[0].1) * (e.x - seg[0].0)).signum();
+                    }
+                }
+                row[k] = Some((omax, tmax, st, wet_buildings(&l, open), f, rch, 100.0 * l.pop / l.pop_target));
+            }
+            let (Some(a), Some(b)) = (row[0], row[1]) else { continue };
+            towns += 1;
+            for (k, r) in [a, b].into_iter().enumerate() {
+                off_max[k].push(r.0);
+                turn_max[k].push(r.1);
+                stairs[k] += r.2;
+                wet[k] += r.3;
+                front[k] += r.4;
+                reach[k] += r.5;
+                ratio[k].push(r.6);
+            }
+            wet_towns += usize::from(b.3 > 0);
+            // The map's side is not comparable across two curves; compare the market's own side to the same
+            // layout's two river polylines is meaningless, so the bar is the sign of the market's cross
+            // product against its own river: a swap is the market ending up on the other bank of *its* river
+            // only if the side convention flips, which the ordered polyline (upstream to downstream) fixes.
+            bank_swaps += usize::from(side[0] * side[1] < 0.0);
+            pin_swaps += usize::from(pin_sd[0] * pin_sd[1] < 0.0);
+            for k in 0..2 {
+                agree[k] += usize::from(side[k] * pin_sd[k] > 0.0);
+            }
+            if pin_sd[0] * pin_sd[1] > 0.0 {
+                stable += 1;
+                stable_swaps += usize::from(side[0] * side[1] < 0.0);
+                if side[0] * side[1] < 0.0 {
+                    // Why: did the roads' own side of the river flip too (the market follows its roads' bank)?
+                    flip_roads_flipped += usize::from(roads_side[0] * roads_side[1] < 0.0);
+                    flip_market_with_roads += usize::from(side[1] * roads_side[1] > 0.0);
+                    flip_market_with_roads_off += usize::from(side[0] * roads_side[0] > 0.0);
+                }
+            }
+            pin_move.push((pin_sd[1] - pin_sd[0]).abs());
+            if std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1") {
+                println!("  seed {seed} ({:3},{:3}) pop {:6}: offset off {:6.1} on {:6.1} m | max turn off {:5.1} on {:5.1} deg | stairs off {} on {} | wet {}>{} | market side {:+.0}>{:+.0} | pin to river {:+.0}>{:+.0} m", s.placement.x, s.placement.y, s.pop, a.0, b.0, a.1, b.1, a.2, b.2, a.3, b.3, side[0], side[1], pin_sd[0], pin_sd[1]);
+            }
+        }
+    }
+    let name = ["off", "on"];
+    for k in 0..2 {
+        let mut o = off_max[k].clone();
+        let mut t = turn_max[k].clone();
+        let mut r = ratio[k].clone();
+        println!(
+            "RR-T1 smooth {:3}: {towns} towns | offset to the map curve, per-town max: {} m | max turn: {} deg | vertices over {TURN_BAR_DEG} deg: {} | wet {} | fronted {}/{} reach | housed % {}",
+            name[k], spread(&mut o), spread(&mut t), stairs[k], wet[k], front[k], reach[k], spread(&mut r),
+        );
+    }
+    println!("RR-T1: the settlement pin changed side of its river in {pin_swaps} towns; its signed distance to the river moved by {} m", spread(&mut pin_move));
+    println!("RR-T1: the map curve's own sharpest turn inside the box, per town: {} deg", spread(&mut map_turn));
+    println!("RR-T1: market on the pin's side of its river: off {}/{towns}, on {}/{towns}; towns whose pin kept its side: {stable}, of them the market changed side in {stable_swaps}", agree[0], agree[1]);
+    println!("RR-T1: of the {stable_swaps} stable-pin market flips: the roads' side flipped too in {flip_roads_flipped}; market on its roads' side off {flip_market_with_roads_off}, on {flip_market_with_roads}");
+    println!("RR-T1: towns whose market changed side of its river: {bank_swaps}; towns with wet buildings with the switch on: {wet_towns}");
+    assert!(towns > 0, "no river town measured: a silently empty audit");
+}

@@ -1027,6 +1027,21 @@ fn the_map_river_kind_is_on_in_the_app_off_in_parity_and_a_save_without_it_loads
     assert_eq!(params::invalidates("urban_river_kind_map"), None);
 }
 
+/// Protects RR-T1's switch: ON in the app, OFF in the parity baseline (literals), a new save records
+/// it, and a save without the key (every save before the change) reloads OFF.
+#[test]
+fn the_town_river_curve_is_on_in_the_app_off_in_parity_and_a_save_without_it_loads_off() {
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).urban_river_smooth);
+    assert!(params::defaults().urban_river_smooth);
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("urban_river_smooth"), Some(&serde_json::json!(true)));
+    assert!(native.remove("urban_river_smooth").is_some());
+    let mut p = params::defaults();
+    params::apply_saved_state(&mut p, &state);
+    assert!(!p.urban_river_smooth, "an older save keeps the raw trace");
+}
+
 /// Protects the riverbank switch (2026-11-15, under Ruling EX's follow-ups): a river town
 /// building to its bank is ON in the app's parameters and OFF in the parity baseline (literals,
 /// so a flipped default is caught); a new save records it; a save that says on reloads on; a
@@ -1377,6 +1392,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And Ruling GB's two (the water-clipped growth disc, the bridge search): a save without the keys drew the reference's.
     expect.urban_growth_water_widen = false;
     expect.urban_town_bridge_search = false;
+    // And RR-T1's river curve: a save without the key drew the raw trace.
+    expect.urban_river_smooth = false;
     // And Ruling FZ's names for the unnamed kinds: a save without the key named none.
     expect.name_unnamed_kinds = false;
     // And Ruling FF items 5 and 6: a save without the keys sited on the rebuilt
@@ -1561,6 +1578,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
         app.urban_growth_water_widen && !parity.urban_growth_water_widen && app.urban_town_bridge_search && !parity.urban_town_bridge_search,
         "Ruling GB (2026-11-17): the widened growth disc and the bridge search are on in the app, off at the parity boundary"
     );
+    assert!(app.urban_river_smooth && !parity.urban_river_smooth, "RR-T1 (Ruling FE item 4): the town's river follows the map's curve in the app, the raw trace at the parity boundary");
     assert!(app.name_unnamed_kinds && !parity.name_unnamed_kinds, "names for rivers and the other unnamed kinds, Ruling FZ item 5 (2026-11-17)");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
@@ -1596,6 +1614,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_market_road_bank = false;
     neutral.urban_growth_water_widen = false;
     neutral.urban_town_bridge_search = false;
+    neutral.urban_river_smooth = false;
     neutral.name_unnamed_kinds = false;
     neutral.ws_tect_editable = false; // F28
     neutral.civ.map_rivers = false;

@@ -1,0 +1,6 @@
+M1 min_by->max_by in drawn_stretch KILLED (a_town_river_follows_the_drawn_curve_when_given_one; first run SURVIVED, test strengthened with a second in-range run)
+M2 drop DRAWN_BIND_CELLS filter KILLED
+M3 skip the river_path replacement KILLED
+M4 params::defaults urban_river_smooth false KILLED (the_town_river_curve_is_on_in_the_app...)
+M5 WorldParams::defaults urban_river_smooth true KILLED
+M6 LOADS_WHEN_ABSENT urban_river_smooth true KILLED

@@ -1,0 +1,7 @@
+test town_river_census::river_smooth_audit ... RR-T1 smooth off: 665 towns | offset to the map curve, per-town max: n 665 min 0 p10 71 median 329 p90 851 max 1947 m | max turn: n 665 min 0 p10 0 median 45 p90 90 max 135 deg | vertices over 30 deg: 424 | wet 0 | fronted 19809/38356 reach | housed % n 665 min 0 p10 84 median 100 p90 100 max 170
+RR-T1 smooth on : 665 towns | offset to the map curve, per-town max: n 665 min 0 p10 0 median 14 p90 30 max 1947 m | max turn: n 665 min 0 p10 1 median 10 p90 39 max 173 deg | vertices over 30 deg: 148 | wet 0 | fronted 17446/31029 reach | housed % n 665 min 0 p10 83 median 100 p90 100 max 148
+RR-T1: the settlement pin changed side of its river in 172 towns; its signed distance to the river moved by n 665 min 0 p10 0 median 13 p90 680 max 1540 m
+RR-T1: the map curve's own sharpest turn inside the box, per town: n 665 min 0 p10 0 median 6 p90 32 max 173 deg
+RR-T1: market on the pin's side of its river: off 502/665, on 567/665; towns whose pin kept its side: 471, of them the market changed side in 56
+RR-T1: of the 56 stable-pin market flips: the roads' side flipped too in 16; market on its roads' side off 38, on 25
+RR-T1: towns whose market changed side of its river: 173; towns with wet buildings with the switch on: 0

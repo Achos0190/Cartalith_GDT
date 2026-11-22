@@ -1276,6 +1276,10 @@ literal mutants killed (dispatch disabled, citadel guard, channel swap in the gr
 group. `--check-only` clean on every touched `.gd` and `shell/app.gd`. Frames: `evidence/city-look-2026-11-13/cl1/`, composite
 `cl1_after.png`.
 
+### One river curve for town and map (RR-T1, Rulings FE item 4 and HC; built 2026-11-22, `DECISIONS.md` section 7p)
+
+**Built** (`cartalith-civ` `urban_adapter::um_water_ctx_box_smooth`, `drawn_stretch`; `PlaceOverrides::river_smooth`; `urban_bridge.rs` `drawn_river_runs`; switch `urban_river_smooth`, on in the app, off in `WorldParams::defaults` and for a save without the key): a riverbank town's river is the map's own drawn polyline, not the raw trace. Verified at `um_water_ctx_box_smooth` and the census, not from a document: `river_smooth_audit` (665 river towns, seeds 483920 / 912345 / 246371 at 384 x 288, villages on) offset to the map curve median 329 m -> 14 m, vertices over 30 deg 424 -> 148, buildings in water 0, fronted bank 51.6 % -> 56.2 %, housed p10 84 -> 83; `_rivertown_probe.gd` against the real drawn rivers (220 towns) median 354 m -> 0.1 m, 204 within 30 m. Six literal mutants killed. **Not done:** a river carried on to its sea (the harbour-front extension) keeps the raw path (Ruling HC item 3, a follow-up); 16 of 220 towns in the app keep the raw path (12 with no drawn run within 0.75 cell, 4 beside a river the map does not draw); the market flips bank in 12 % of towns whose marker kept its side (`place_anchors` sampling), accepted. Frames: `docs/evidence/river-town-2026-11-22/`.
+
 ### Towns sit on their river (owner report 2026-11-14, Ruling EX; built 2026-11-14, `DECISIONS.md` section 7p)
 
 *"Can you check the town/city you just sent me. The river passes below it. It's not on the river. And for the same matter double

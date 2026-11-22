@@ -962,6 +962,54 @@ pub fn um_water_ctx_with(w: &UrbanWorld, px: f64, py: f64, to_sea: bool) -> Opti
 /// reference's box it is [`um_water_ctx_with`] exactly; every box-sized step
 /// (the stem search radius, the river clip, the raster) reads the box given.
 pub fn um_water_ctx_box(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64, hm: f64) -> Option<UmWater> {
+    um_water_ctx_box_smooth(w, px, py, to_sea, wm, hm, None)
+}
+
+/// How near, in grid cells, a drawn river run must pass the traced vertex the
+/// town binds to for the town to follow it ([`um_water_ctx_box_smooth`]). **A
+/// labelled judgement**: the drawn curve stays inside the traced cells
+/// (`river_meander`'s clamp, `river_render_polyline`'s 0.5-cell tolerance), so
+/// the run for the same river passes within about 0.7 of a bound vertex; a
+/// second river is at least a cell away.
+pub const DRAWN_BIND_CELLS: f64 = 0.75;
+
+/// The part of the drawn river that belongs to the town's bound river, clipped
+/// to the box as the raw path is and in the town's local metres, or `None`
+/// when no run qualifies ([`um_water_ctx_box_smooth`]). `bound` is the traced
+/// vertex the town binds to (traced frame), `at` the settlement's cell.
+fn drawn_stretch(
+    runs: &[Vec<(f64, f64)>],
+    bound: (f64, f64),
+    at: (f64, f64),
+    box_rad_g: f64,
+    grid_to_local: &impl Fn(f64, f64) -> Vec2,
+) -> Option<Vec<Vec2>> {
+    let near = |run: &[(f64, f64)]| run.iter().map(|&q| js_hypot(q.0 - bound.0, q.1 - bound.1)).enumerate().fold((0usize, f64::INFINITY), |b, (i, d)| if d < b.1 { (i, d) } else { b });
+    let (run, bi) = runs.iter().filter(|r| r.len() >= 2).map(|r| (r, near(r))).filter(|(_, (_, d))| *d <= DRAWN_BIND_CELLS).min_by(|a, b| a.1.1.total_cmp(&b.1.1)).map(|(r, (i, _))| (r, i))?;
+    let pl: Vec<(f64, f64)> = run.iter().map(|&q| traced_to_cell(q)).collect();
+    let far = |q: (f64, f64)| js_hypot(q.0 - at.0, q.1 - at.1) >= box_rad_g;
+    let (mut lo, mut hi) = (bi, bi);
+    while lo > 0 && !far(pl[lo - 1]) {
+        lo -= 1;
+    }
+    while hi < pl.len() - 1 && !far(pl[hi + 1]) {
+        hi += 1;
+    }
+    if hi <= lo {
+        return None;
+    }
+    Some(pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect())
+}
+
+/// [`um_water_ctx_box`], and with `drawn` (RR-T1, `urban_river_smooth`: the
+/// polylines the map draws the rivers with, grid cells, the traced frame) the
+/// real river's centreline is the stretch of the drawn run that belongs to the
+/// bound river, so the town's river, its stamped band and every stage that
+/// walks it share the map's one curve. Falls back to the raw traced path where
+/// no run passes within [`DRAWN_BIND_CELLS`] of the bound vertex. The river
+/// carried on to the sea (`to_sea`'s [`UmWater::to_sea`] context, built only
+/// where the river ends in the box) keeps the raw path and its extension. `None` is [`um_water_ctx_box`] exactly.
+pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64, hm: f64, drawn: Option<&[Vec<(f64, f64)>]>) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
     }
@@ -1050,6 +1098,11 @@ pub fn um_water_ctx_box(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64,
                         if ext.len() != local.len() {
                             river_ext = Some(ext);
                         }
+                        // RR-T1: the map's own drawn curve in place of the raw trace.
+                        let local = match drawn {
+                            Some(runs) => drawn_stretch(runs, traced[bi], (px, py), box_rad_g, &grid_to_local).unwrap_or(local),
+                            None => local,
+                        };
                         river_path = Some(local);
                     }
                 }
@@ -2444,6 +2497,13 @@ pub struct PlaceOverrides<'a> {
     /// from `WorldParams::urban_parallel_streets`, off in the app until the
     /// owner rules at PS-7 (`DECISIONS.md` section 7p).
     pub parallel_streets: bool,
+    /// RR-T1 (Ruling FE item 4, `RIVER_REALISM_SCOPE.md`): the polylines the
+    /// map draws the rivers with (grid cells, the traced frame), so a riverbank
+    /// town's river is the curve the map draws, not the raw trace
+    /// ([`um_water_ctx_box_smooth`]). **Not a `_umPlaceContext` field**; `None`
+    /// (the `Default`) is today's raw centreline. The app sets it from
+    /// `WorldParams::urban_river_smooth`.
+    pub river_smooth: Option<&'a [Vec<(f64, f64)>]>,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -2470,7 +2530,7 @@ pub fn um_place_context_with(
     let seed = o.variant.map_or(seed, |v| seed ^ v.wrapping_mul(0x9E37_79B9));
     // Ruling FK item 1: with `harbour_front` a river ending in a seaside box
     // is carried to its sea; off, `um_water_ctx` by control flow.
-    let water = um_water_ctx_with(w, px, py, o.harbour_front);
+    let water = um_water_ctx_box_smooth(w, px, py, o.harbour_front, SITE_WM, SITE_HM, o.river_smooth.filter(|_| o.riverbank));
     let harbour_front = o.harbour_front && water.as_ref().is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);
     let site_kind = box_water_kind(w, um_site_kind_from_terrain(w, px, py), water.as_ref());
     let terrain = um_terrain_ctx(w, px, py);
@@ -2483,7 +2543,7 @@ pub fn um_place_context_with(
         if !ok {
             return None;
         }
-        river_stretch_plan(w, px, py, seed, site_kind, pop, others)
+        river_stretch_plan(w, px, py, seed, site_kind, pop, others, o.river_smooth.filter(|_| o.riverbank))
     });
     // Ruling FQ (owner, 2026-11-16): the context is built for the
     // reference's box first; a stretched town's context is built for its
@@ -2563,7 +2623,7 @@ pub fn um_place_context_with(
     match stretch {
         // A stretched box whose water cannot be read (never seen: the plan
         // itself read water over a larger box) keeps the reference's box.
-        Some((plan, (bw, bh))) => match um_water_ctx_box(w, px, py, false, bw, bh) {
+        Some((plan, (bw, bh))) => match um_water_ctx_box_smooth(w, px, py, false, bw, bh, o.river_smooth.filter(|_| o.riverbank)) {
             Some(sw) => build(Some(sw), um_terrain_ctx_box(w, px, py, bw, bh), Some((bw, bh)), Some(plan), Some(Box::new(plain))),
             None => plain,
         },
@@ -2632,7 +2692,7 @@ fn site_kind_stretches(kind: &str) -> bool {
 /// `cartalith_urban::generate::town_reach_m` of its clamped population.
 /// Must never stretch a town under `STRETCH_MIN_POP` (the plan refuses) nor
 /// return a box smaller than the reference's.
-fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, pop: f64, others: &[(f64, f64, f64)]) -> Option<(cartalith_urban::stretch::StretchPlan, (f64, f64))> {
+fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, pop: f64, others: &[(f64, f64, f64)], smooth: Option<&[Vec<(f64, f64)>]>) -> Option<(cartalith_urban::stretch::StretchPlan, (f64, f64))> {
     use cartalith_urban::stretch::{STRETCH_ALONG_MAX_RF, STRETCH_BOX_MARGIN_M, StretchNeighbour, plan_river_stretch, stretch_half_box};
     let pop_target = js_max(400.0, js_min(20000.0, pop));
     let max_rf = cartalith_urban::generate::town_reach_m(pop_target);
@@ -2644,7 +2704,7 @@ fn river_stretch_plan(w: &UrbanWorld, px: f64, py: f64, seed: u32, kind: &str, p
     }
     let half = max_rf * (STRETCH_ALONG_MAX_RF + 1.0) + STRETCH_BOX_MARGIN_M;
     let (pw, ph) = (2.0 * half, 2.0 * half);
-    let water = um_water_ctx_box(w, px, py, false, pw, ph)?;
+    let water = um_water_ctx_box_smooth(w, px, py, false, pw, ph, smooth)?;
     let mut ctx = water.ctx;
     let fine = ctx.river_path.as_deref().filter(|p| p.len() >= 2).and_then(|p| cartalith_urban::riverbank::fine_river_path(p, pw, ph));
     if let Some(f) = fine {

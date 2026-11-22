@@ -228,6 +228,8 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::urban_growth_water_widen` / `urban_town_bridge_search`.
     p.urban_growth_water_widen = true;
     p.urban_town_bridge_search = true;
+    // RR-T1 (Ruling FE item 4): the town's river is the map's drawn curve. Off in `WorldParams::defaults`.
+    p.urban_river_smooth = true;
     // Ruling FZ item 5 (2026-11-17): rivers and the landmark kinds that were unnamed get names from the
     // world's name style. Off in `WorldParams::defaults` (nothing named, as every golden had it).
     // See `WorldParams::name_unnamed_kinds`.
@@ -581,6 +583,11 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_town_bridge_search", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns search for a crossing", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_town_bridge_search), set_fn: |p, v| p.urban_town_bridge_search = v != 0.0 },
+    // RR-T1 (Ruling FE item 4): a riverbank town's river is the curve the map draws. Same defaults, load
+    // rule (`LOADS_WHEN_ABSENT`: off) and live regen as the rows above.
+    ParamSpec { key: "urban_river_smooth", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Town rivers follow the map's curve", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_river_smooth), set_fn: |p, v| p.urban_river_smooth = v != 0.0 },
     // PARALLEL_STREETS_SCOPE.md PS-1 (owner Rulings FY, GC, GF): the town-type rule, the direction
     // field and the ground gate (`cartalith_urban::field`); at PS-2 (Ruling GM) a town with a grain also grows back streets and a bent heading. OFF at both
     // boundaries until the owner rules at PS-7: `defaults()` above leaves `WorldParams::defaults`'
@@ -1369,6 +1376,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (Ruling GB); the reference's growth radius and single bridge point.
     ("urban_growth_water_widen", ""),
     ("urban_town_bridge_search", ""),
+    // Port-only (RR-T1); the reference's river through a town is the raw trace.
+    ("urban_river_smooth", ""),
     // Port-only (PARALLEL_STREETS_SCOPE.md PS-1); the reference has no town types or field.
     ("urban_parallel_streets", ""),
     // Port-only (Ruling FZ item 5); the reference names none of these kinds.
@@ -1753,6 +1762,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling GB (2026-11-17): every save without the keys drew the reference's radius and bridge point.
     ("urban_growth_water_widen", Value::Bool(false)),
     ("urban_town_bridge_search", Value::Bool(false)),
+    // RR-T1 (2026-11-22): every save without the key drew the raw trace.
+    ("urban_river_smooth", Value::Bool(false)),
     // Parallel streets, PS-1 (2026-11-18): every save without the key had no town types or field.
     ("urban_parallel_streets", Value::Bool(false)),
     // Names for rivers and the other unnamed kinds (Ruling FZ, 2026-11-17): every save without the key

@@ -138,6 +138,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("urban_burgage", "On: a prototype; streets further apart, deep narrow plots, the house on the street and a yard behind. Off: house-deep lots (current). Read when drawn."),
     ("urban_market_road_bank", "On: a river town whose map point falls in the river puts its market on the bank its roads reach (current). Off: the first dry point found. Read when drawn."),
     ("urban_growth_water_widen", "On: a town whose ground is mostly water grows over a wider disc, up to 1.6 times (current). Off: the reference's radius. Read when drawn."),
+    ("urban_river_smooth", "On: a river town's river is the same smooth curve the map draws (current). Off: the raw traced bends. Read when drawn."),
     ("urban_town_bridge_search", "On: a big river town whose bridge point fails tries other crossings so its far bank grows (current). Off: that one point only. Read when drawn."),
     ("urban_parallel_streets", "On: in progress; a town of 1 500+ with a street grain grows back streets and straighter parallel streets (PS-2). Off: today's towns (current). Read when drawn."),
     ("name_unnamed_kinds", "On: rivers get names and landmarks a style name, from the world's name style. Off: they stay unnamed. Read when asked."),
@@ -309,7 +310,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" || key == "civ.loose_garrisons" || key == "civ.city_states" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" || key == "urban_market_road_bank" || key == "urban_growth_water_widen" || key == "urban_town_bridge_search" || key == "urban_parallel_streets" || key == "name_unnamed_kinds" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "civ.loose_garrisons" || key == "civ.city_states" || key == "urban_wall_hug" || key == "urban_river_kind_map" || key == "urban_riverbank" || key == "urban_street_village" || key == "urban_market_scale" || key == "urban_harbour_front" || key == "urban_river_stretch" || key == "urban_burgage" || key == "urban_market_road_bank" || key == "urban_growth_water_widen" || key == "urban_town_bridge_search" || key == "urban_river_smooth" || key == "urban_parallel_streets" || key == "name_unnamed_kinds" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }

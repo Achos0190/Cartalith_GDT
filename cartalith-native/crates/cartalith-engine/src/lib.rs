@@ -1475,6 +1475,14 @@ pub struct WorldParams {
     /// healthy towns. Same defaults and load rule as
     /// [`WorldParams::urban_growth_water_widen`].
     pub urban_town_bridge_search: bool,
+    /// **One river curve for town and map** (RR-T1, Ruling FE item 4,
+    /// `RIVER_REALISM_SCOPE.md`): a riverbank town's river centreline is the
+    /// curve the map draws (`river_render_polyline`: RDP at 0.5 cells then
+    /// Catmull-Rom), not the raw D8 trace's chords and elbows. Changes the
+    /// generated layout. **`false` here** (every golden); **`true` in the app**
+    /// (`params::defaults`); off on load for a save without the key
+    /// (`DECISIONS.md` section 7p). Read fresh when a layout is asked for.
+    pub urban_river_smooth: bool,
     /// **Parallel streets, PS-1: the town-type rule, the direction field and
     /// the ground gate** (`PARALLEL_STREETS_SCOPE.md`; owner Rulings FY, GA,
     /// GC and GF): every town of 1 500 and up is typed market-street,
@@ -1746,6 +1754,8 @@ impl WorldParams {
             // Ruling GB: the reference's radius and single bridge point.
             urban_growth_water_widen: false,
             urban_town_bridge_search: false,
+            // RR-T1: the raw trace, as every golden had it.
+            urban_river_smooth: false,
             // PS-1 of the parallel streets: no plan, as every golden had.
             urban_parallel_streets: false,
             // Ruling FZ: no names for the unnamed kinds, as every golden and every old save had.

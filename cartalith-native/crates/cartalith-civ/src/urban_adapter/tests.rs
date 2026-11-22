@@ -2216,6 +2216,48 @@ fn a_town_on_its_traced_river_has_the_river_through_its_market() {
     assert_eq!(water.ctx.river_width_m, Some(38.0), "max(12, min(46, 10 + 4 * 7))");
 }
 
+/// Protects RR-T1 (`urban_river_smooth`, Ruling FE item 4): given the polylines the map draws, the
+/// town's river IS the drawn curve through the box, not the raw trace. The drawn run here wanders
+/// 0.03 cell (375 m at this fixture's 12.5 km cells) either side of the stem; the layout's river
+/// must lie on it to a metre, must really leave the stem's column (a positive control: an empty diff
+/// is a failure), a second drawn run three cells away must be ignored, and `None` is the raw stem
+/// exactly, and a run more than `DRAWN_BIND_CELLS` away is refused. MUTATIONS: skipping the replacement fails the first assertion; taking the farthest run (`min_by` to `max_by`)
+/// in `drawn_stretch` fails the first; dropping the `DRAWN_BIND_CELLS` filter fails the refusal.
+#[test]
+fn a_town_river_follows_the_drawn_curve_when_given_one() {
+    let f = Fixture::new();
+    let order: Vec<i16> = (0..GW * GH).map(|i| if i % GW == 20 { 4 } else { 1 }).collect();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(20, y)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+    let wavy: Vec<(f64, f64)> = (0..=48 * 8).map(|k| (20.5 + 0.03 * (k as f64 / 3.0).sin(), k as f64 / 8.0 + 0.5)).collect();
+    let far: Vec<(f64, f64)> = (0..48).map(|y| (23.5, y as f64 + 0.5)).collect();
+    // A second run within bind range but farther than the wavy one: the nearest must win.
+    let second: Vec<(f64, f64)> = (0..48).map(|y| (21.1, y as f64 + 0.5)).collect();
+    let runs = vec![far, second, wavy.clone()];
+    let on = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&runs)).expect("water");
+    let path = on.ctx.river_path.as_ref().expect("a river path");
+    // The drawn run in the town's local metres: the frame `um_water_ctx_box_smooth` maps into.
+    let gpm = w.grid_per_meter();
+    let to_local = |q: &(f64, f64)| Vec2::new(SITE_WM / 2.0 + (q.0 - 0.5 - 20.0) / gpm, SITE_HM / 2.0 + (q.1 - 0.5 - 24.0) / gpm);
+    let local: Vec<Vec2> = wavy.iter().map(to_local).collect();
+    let seg_point_dist = |p: Vec2, a: Vec2, b: Vec2| {
+        let d = b - a;
+        let t = (((p.x - a.x) * d.x + (p.y - a.y) * d.y) / (d.x * d.x + d.y * d.y).max(1e-12)).clamp(0.0, 1.0);
+        p.dist(a + d * t)
+    };
+    let d = |p: Vec2| local.windows(2).map(|s| seg_point_dist(p, s[0], s[1])).fold(f64::INFINITY, f64::min);
+    assert!(path.iter().all(|&p| d(p) < 1.0), "the town's river leaves the drawn curve");
+    assert!(path.iter().any(|p| (p.x - SITE_WM / 2.0).abs() > 50.0), "positive control: the drawn run really leaves the stem's column");
+    assert!(path.iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 600.0), "followed the far run three cells away");
+    // A run farther than `DRAWN_BIND_CELLS` from the bound vertex is another river: refused, the raw path kept.
+    let aside: Vec<(f64, f64)> = (0..=48 * 8).map(|k| (20.5 + 1.2, k as f64 / 8.0 + 0.5)).collect();
+    let refused = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&[aside])).expect("water");
+    assert!(refused.ctx.river_path.as_ref().expect("a path").iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 1e-6), "a run 1.2 cells away keeps the raw path");
+    let off = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, None).expect("water");
+    assert!(off.ctx.river_path.as_ref().expect("a path").iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 1e-6), "None is the raw stem");
+}
+
 /// Protects the second half of the owner's town-on-its-river report
 /// (2026-11-14): a town the flow proxy calls `river` (the fixture's flow column
 /// at `x == 20` is two cells, 25 km, from the town and inside

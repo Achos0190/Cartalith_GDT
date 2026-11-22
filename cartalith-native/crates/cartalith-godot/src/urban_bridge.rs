@@ -704,6 +704,17 @@ impl WorldGen {
         })
     }
 
+    /// RR-T1 (`urban_river_smooth`): the polylines the map draws the rivers with
+    /// (`river_geometry_any`, the one geometry the strokes, tiles and exports
+    /// rasterize), whole runs in grid cells, for [`urban_adapter::PlaceOverrides::river_smooth`].
+    /// Empty when the switch is off or there is no drawn network (a loaded save).
+    fn drawn_river_runs(&self) -> Vec<Vec<(f64, f64)>> {
+        if !self.params.urban_river_smooth {
+            return Vec::new();
+        }
+        self.river_geometry_any().map_or_else(Vec::new, |g| g.runs.iter().map(|r| r.pts.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect()).collect())
+    }
+
     /// The [`urban_adapter::PlaceOverrides`] settlement `s` is laid out with
     /// in the app: its place-editor row `e`, the ruling faction's faith and
     /// every live `urban_*` switch. One builder for [`Self::urban_layouts`]
@@ -726,6 +737,7 @@ impl WorldGen {
         e: &'a crate::civ_roster_bridge::PlaceExtras,
         resources: Option<&'a ResourcePotentials>,
         stretch_others: &'a [(f64, f64, f64)],
+        drawn_rivers: &'a [Vec<(f64, f64)>],
     ) -> urban_adapter::PlaceOverrides<'a> {
         urban_adapter::PlaceOverrides {
             specialisation: if e.specialisation.is_empty() {
@@ -778,6 +790,9 @@ impl WorldGen {
             // Ruling GB (2026-11-17): the water-clipped front and the bridge search.
             water_widen: self.params.urban_growth_water_widen,
             town_bridge_search: self.params.urban_town_bridge_search,
+            // RR-T1: the map's drawn river curve through the town. Read live; empty (no
+            // drawn network, a loaded save) is the raw trace.
+            river_smooth: (!drawn_rivers.is_empty()).then_some(drawn_rivers),
             // PARALLEL_STREETS_SCOPE.md PS-1: town types, field and ground,
             // off in the app until the owner rules at PS-7. Read live.
             parallel_streets: self.params.urban_parallel_streets,
@@ -965,6 +980,7 @@ impl WorldGen {
         let resources = self.ore_potentials(ws, civ, wants_ore);
 
         let mut out = out;
+        let drawn = self.drawn_river_runs();
         // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
         // call, so a stretched river town stops short of the others.
         let stretch_others: Vec<(f64, f64, f64)> =
@@ -973,7 +989,7 @@ impl WorldGen {
             let Ok(idx) = usize::try_from(*i) else { continue };
             let Some(s) = civ.settlements.get(idx) else { continue };
             let e = civ.place_extras.get(s.tid);
-            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &stretch_others);
+            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &stretch_others, &drawn);
             if let Some(layout) = self.stretch_layout(&urban_adapter::um_place_context_with(&world, s, &civ.ways, &o), self.own_rules(&e).as_ref()) {
                 out.push(&layout_dict(idx as i64, &layout));
             }
@@ -1043,14 +1059,15 @@ impl WorldGen {
             .iter()
             .filter(|s| {
                 let e = civ.place_extras.get(s.tid);
-                urban_adapter::um_stretch_gate(s, &self.place_overrides(civ, s, &e, None, &others))
+                urban_adapter::um_stretch_gate(s, &self.place_overrides(civ, s, &e, None, &others, &[]))
             })
             .collect();
+        let drawn = self.drawn_river_runs();
         let wants_ore = candidates.iter().any(|s| civ.place_extras.get(s.tid).specialisation == "mining");
         let resources = self.ore_potentials(ws, civ, wants_ore);
         for s in candidates {
             let e = civ.place_extras.get(s.tid);
-            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &others);
+            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &others, &drawn);
             let ctx = urban_adapter::um_place_context_with(&world, s, &civ.ways, &o);
             let (bw, bh) = self.drawn_box(&ctx, self.own_rules(&e).as_ref());
             if (bw - urban_adapter::SITE_WM).abs() > 0.5 || (bh - urban_adapter::SITE_HM).abs() > 0.5 {

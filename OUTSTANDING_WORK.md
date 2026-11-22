@@ -14,7 +14,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 1. ~~**The timeline ladder**~~ landed `6e4d6bad` (STATUS.md). Left: a 6T pass for swipe and system Back, a pass over the owner's real vault, and re-running `_gi_probe` and `_pc3strip_probe`.
 2. ~~**Builds**~~ done: v.26.11.22-001 on the 6T and in the D: folder, Windows export rebuilt. Pad installed too. Next APK after the GZ save build (owner).
 3. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; owner Q26 (the water gate with PS-5) and Q27 (E's 2 048 rows) open. Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
-4. **River smoothing inside town layouts** (Ruling FE item 4, running). Owner `RIVER_REALISM_SCOPE.md`.
+4. **River smoothing, harbour-front follow-up** (Ruling HC item 3): smooth the sea extension of a river-mouth town's river too, same switch (RR-T1 itself is built). Owner `RIVER_REALISM_SCOPE.md`.
    - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md` (written; build not started).
 5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
    map streaks, the trace leftovers, Ruling GB's leftover towns, name-style
