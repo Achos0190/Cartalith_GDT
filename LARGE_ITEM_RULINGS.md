@@ -4039,3 +4039,7 @@ Owner: *"update the underlying compression algorithm keep it backwards compatibl
 - Pick level and delta by measurement on real 2k and 4k worlds (size, write and read ms, on the PC and the 6T), recorded in `SAVEFILE_COMPAT.md` §18.
 - **Known price, accepted by this ruling:** §18.3 -- the legacy HTML reader and JSZip reject an archive with any zstd entry, so the HTML app can no longer open new saves (HTML work is on hold, owner 2026-11-08). Saves stay valid zip containers (method 93).
 - Built together with Ruling GW (art in the save) as one format-3 change.
+
+## Ruling GY: PS-3 answers (owner, 2026-11-22)
+
+PS-3 measured a no-go (`4d540795`, `PARALLEL_STREETS_SCOPE.md` section 15). **Q20 (a):** restate the 83 m+ depth bar **by area** (traced plans 32-40 %) and build the back-street tier **together with PS-5's platting**, which owns the needle lots and rear lanes. **Q21:** drop the spindle market. **Q22:** PS-2's baseline on today's world is **58.5 % quads** (the census world moved under Rulings GQ, F27 and GO).

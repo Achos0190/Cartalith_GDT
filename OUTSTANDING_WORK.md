@@ -13,8 +13,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 
 1. ~~**The timeline ladder**~~ landed `6e4d6bad` (STATUS.md). Left: a 6T pass for swipe and system Back, a pass over the owner's real vault, and re-running `_gi_probe` and `_pc3strip_probe`.
 2. ~~**Builds**~~ done: v.26.11.22-001 on the 6T and in the D: folder, Windows export rebuilt. Left: install on the Pad when it is online.
-3. **Parallel streets: owner Q20-Q22 on PS-3, then PS-4 to PS-7** (PS-2 built, off; PS-3 measured no-go, scope section 15;
-   Rulings GA-GM). Owner `PARALLEL_STREETS_SCOPE.md`; switch `urban_parallel_streets`.
+3. **Parallel streets PS-4, then PS-5 with the back-street tier** (PS-3 no-go `4d540795`; Ruling GY: depth bar by area, tier built with PS-5's platting, spindle dropped, PS-2 baseline 58.5 % quads). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-15; switch `urban_parallel_streets` (off).
 4. **River smoothing inside town layouts** (Ruling FE item 4). Owner `RIVER_REALISM_SCOPE.md`.
 5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
    map streaks, the phone assistant clip at 393 px, the trace leftovers, Ruling GB's leftover towns, name-style
