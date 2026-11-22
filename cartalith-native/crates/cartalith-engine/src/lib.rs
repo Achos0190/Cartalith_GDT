@@ -1166,6 +1166,17 @@ pub struct WorldParams {
     /// rivers move -- Ruling ER overrides Ruling EN item 5 for new worlds;
     /// a saved world keeps its rivers ([`WorldState::routing_roughness`]).
     pub rough_routing: bool,
+    /// **F28 (owner, 2026-11-21): plates, drift and volcano count stay editable
+    /// after a World-Structure archetype set them.** `false` here (every golden
+    /// and every saved world): [`world_structure_derived`] replaces
+    /// `tect.plates`/`tect.vel`/`volc.count` with the archetype's values on every
+    /// generate, so those three dials are dead while World Structure is on.
+    /// `true` in the shipped app (`DECISIONS.md` §7p): the reference calls
+    /// `deriveFromWorldStructure` only from the World-Structure UI handlers
+    /// (v2.71 line 3244; "never inside generate()", invariant 5), so the sliders
+    /// keep whatever the user sets next. With it on the derivation is
+    /// [`apply_world_structure_derivation`], called where the dials change.
+    pub ws_tect_editable: bool,
     /// **Basin routing** (owner Ruling EV, 2026-11-13, after *"Still see some
     /// heavy combing"*; `DELTA_GEOMETRY_RESEARCH.md` section 14): the routing
     /// surface tilts each filled depression by
@@ -1624,6 +1635,9 @@ impl WorldParams {
             // Off: the reference routes plain D8. On at the app boundary
             // (Ruling ER) -- see the field's own doc comment.
             rough_routing: false,
+            // Off: golden worlds derive tectonics from the archetype on every
+            // generate. On at the app boundary (F28) -- see the field's doc comment.
+            ws_tect_editable: false,
             // Off: the shipped breadth-first fill every golden routes over.
             // On at the app boundary (2026-11-13) -- see the field's doc.
             basin_routing: false,
@@ -2740,7 +2754,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 /// preview (`preview::land_mask`) derives the plate count exactly as
 /// generation does. Must stay the one place this derivation is written.
 pub(crate) fn world_structure_derived(p: &WorldParams) -> (usize, f64, i32) {
-    if p.world_structure.enabled {
+    if p.world_structure.enabled && !p.ws_tect_editable {
         let ws = &p.world_structure;
         let plates = (js_round(4.0 + ws.fragmentation * 24.0) as usize).clamp(4, 40);
         let vel = ws.tectonic_energy * 2.0;
@@ -2749,6 +2763,23 @@ pub(crate) fn world_structure_derived(p: &WorldParams) -> (usize, f64, i32) {
     } else {
         (p.tect.plates, p.tect.vel, p.volc.count)
     }
+}
+
+/// `deriveFromWorldStructure()`'s three writes (v2.71 line 3244), for the
+/// [`WorldParams::ws_tect_editable`] mode: copies the archetype's derived plate
+/// count, drift and volcano count into `p.tect.plates`/`p.tect.vel`/`p.volc.count`,
+/// once, where the World-Structure dials change, so the user can edit them
+/// afterwards. A no-op while World Structure is off or the mode is off (the
+/// generate-time override then does the work). Same three formulas as
+/// [`world_structure_derived`]'s override branch, which stays the one other copy.
+pub fn apply_world_structure_derivation(p: &mut WorldParams) {
+    if !p.world_structure.enabled || !p.ws_tect_editable {
+        return;
+    }
+    let ws = &p.world_structure;
+    p.tect.plates = (js_round(4.0 + ws.fragmentation * 24.0) as usize).clamp(4, 40);
+    p.tect.vel = ws.tectonic_energy * 2.0;
+    p.volc.count = js_round(ws.hotspot_density * 60.0) as i32;
 }
 
 /// **Which kernels the GPU path runs on the GPU** (owner Ruling EZ item 3,
@@ -6067,6 +6098,29 @@ mod tests {
         assert!(ws.stream_order.is_none());
         assert!(ws.river_mask.is_none());
         assert!(ws.river_floor.is_none());
+    }
+
+    /// Protects F28: with `ws_tect_editable` off the archetype overrides plates / drift /
+    /// volcanoes at generate time (the golden rule: 26, 1.6, 30 for 0.9 / 0.8 / 0.5);
+    /// with it on, `apply_world_structure_derivation` writes those literals once into
+    /// `p.tect` / `p.volc`, a later hand edit (plates 9) survives, and with World Structure
+    /// off it changes nothing.
+    #[test]
+    fn ws_tect_editable_derives_once_and_keeps_hand_edits() {
+        let mut p = WorldParams::defaults(64, 48, 1);
+        p.world_structure = WorldStructureParams { enabled: true, continentality: 0.3, fragmentation: 0.9, tectonic_energy: 0.8, ocean_depth: 0.5, hotspot_density: 0.5 };
+        assert_eq!(world_structure_derived(&p), (26, 1.6, 30), "off: the archetype overrides");
+        p.ws_tect_editable = true;
+        assert_eq!(world_structure_derived(&p).0, p.tect.plates, "on: generate reads p.tect, not the archetype");
+        apply_world_structure_derivation(&mut p);
+        assert_eq!((p.tect.plates, p.tect.vel, p.volc.count), (26, 1.6, 30));
+        p.tect.plates = 9;
+        assert_eq!(world_structure_derived(&p), (9, 1.6, 30), "a hand edit survives");
+        let mut off = WorldParams::defaults(64, 48, 1);
+        off.ws_tect_editable = true;
+        let before = (off.tect.plates, off.tect.vel, off.volc.count);
+        apply_world_structure_derivation(&mut off);
+        assert_eq!((off.tect.plates, off.tect.vel, off.volc.count), before, "World Structure off: no-op");
     }
 
     /// World-Structure is verified numerically against real JS in

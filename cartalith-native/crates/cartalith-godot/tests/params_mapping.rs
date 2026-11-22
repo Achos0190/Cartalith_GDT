@@ -1339,6 +1339,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.kind_flood_basalt = false;
     // And Ruling ER's rough routing: a save without the key was routed D8.
     expect.rough_routing = false;
+    // And F28's ws_tect_editable: a save without the key overrode plates and drift at generate time.
+    expect.ws_tect_editable = false;
     // And Ruling EV's basin routing: a save without the key filled breadth-first.
     expect.basin_routing = false;
     // And Ruling ET's lake balance: a save without the key kept its rain-test lakes.
@@ -1381,6 +1383,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And Ruling FN: a save without the key laid its river towns out in the
     // reference's box.
     expect.urban_river_stretch = false;
+    // And F28: a reference export derives plates and drift at generate time.
+    expect.ws_tect_editable = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1506,6 +1510,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt, Ruling DJ item 4");
     assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
     assert!(app.rough_routing && !parity.rough_routing, "rough routing for new worlds, Ruling ER");
+    assert!(app.ws_tect_editable && !parity.ws_tect_editable, "plates and drift editable under World Structure, F28");
     assert!(app.lake_balance && !parity.lake_balance, "lake water balance for new worlds, Ruling ET");
     assert!(app.civ.merge_ways && !parity.civ.merge_ways, "shared road trunks for new worlds, Ruling EU item 1");
     assert!(app.basin_routing && !parity.basin_routing, "basin routing for new worlds, Ruling EV");
@@ -1564,6 +1569,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_growth_water_widen = false;
     neutral.urban_town_bridge_search = false;
     neutral.name_unnamed_kinds = false;
+    neutral.ws_tect_editable = false; // F28
     neutral.civ.map_rivers = false;
     neutral.civ.harbour_box = false;
     neutral.civ.port_shore = false;
@@ -1851,4 +1857,38 @@ fn fixed_counts_are_off_unless_flagged_and_non_empty() {
     assert_eq!(p.civ.counts[0], 50);
     assert_eq!(params::set(&mut p, "civ.n_hamlet", Value::Num(2001.0)), Outcome::Clamped);
     assert_eq!(p.civ.counts[4], 2000);
+}
+
+/// Protects F28 through the shell's own door: `param_set` on a World-Structure dial (the app's defaults, switch on)
+/// derives plates 26, drift 1.6 and volcanoes 30 for fragmentation 0.9 / tectonic energy 0.8 / hotspot density 0.5,
+/// and the three then take a hand edit, which a later change of an unrelated dial leaves alone. With the switch off
+/// (the parity defaults) setting a dial derives nothing.
+#[test]
+fn world_structure_dials_derive_tectonics_once_when_editable() {
+    let set = |p: &mut cartalith_engine::WorldParams, key: &str, v: f64| {
+        let val = if key == "world_structure.enabled" { Value::Bool(v != 0.0) } else { Value::Num(v) };
+        assert_eq!(params::set(p, key, val), Outcome::Applied, "{key}");
+    };
+    let mut p = params::defaults();
+    for (k, v) in [("world_structure.fragmentation", 0.9), ("world_structure.tectonic_energy", 0.8), ("world_structure.hotspot_density", 0.5)] {
+        set(&mut p, k, v);
+    }
+    assert_ne!(p.tect.plates, 26, "World Structure still off: nothing derived yet");
+    set(&mut p, "world_structure.enabled", 1.0);
+    assert_eq!((p.tect.plates, p.tect.vel, p.volc.count), (26, 1.6, 30));
+    // Each dial that feeds one of the three re-derives it once World Structure is on (literal: 4 + 0.5 * 24 = 16,
+    // 0.5 * 2 = 1, 0.25 * 60 = 15).
+    set(&mut p, "world_structure.fragmentation", 0.5);
+    assert_eq!(p.tect.plates, 16);
+    set(&mut p, "world_structure.tectonic_energy", 0.5);
+    assert_eq!(p.tect.vel, 1.0);
+    set(&mut p, "world_structure.hotspot_density", 0.25);
+    assert_eq!(p.volc.count, 15);
+    p.tect.plates = 9;
+    set(&mut p, "world_structure.continentality", 0.3);
+    assert_eq!(p.tect.plates, 9, "a hand edit survives a dial that feeds none of the three (continentality)");
+    let mut parity = cartalith_engine::WorldParams::defaults(64, 48, 1);
+    set(&mut parity, "world_structure.enabled", 1.0);
+    set(&mut parity, "world_structure.fragmentation", 0.9);
+    assert_eq!(parity.tect.plates, cartalith_engine::WorldParams::defaults(64, 48, 1).tect.plates, "switch off: no derivation");
 }

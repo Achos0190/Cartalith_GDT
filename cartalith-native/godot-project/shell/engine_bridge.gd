@@ -2874,6 +2874,18 @@ func gpu_last_backend() -> String:
 	_gpu_cache["last_backend"] = v
 	return v
 
+## The adapter the last generation opened (`"AMD Radeon RX 7800 XT"`), measured like
+## `gpu_last_backend()` and cached across a generation for the same reason. `""` when none
+## opened, before the first generate, or on a binary without the binding (F7).
+func gpu_last_adapter() -> String:
+	if not _has("gpu_last_adapter"):
+		return ""
+	if generating:
+		return String(_gpu_cache.get("last_adapter", ""))
+	var v := String(world_gen.gpu_last_adapter())
+	_gpu_cache["last_adapter"] = v
+	return v
+
 ## Clear the record. `true` if the call reached the engine; `false` if it could
 ## not (no binding, or a generation is running), which is the same answer the
 ## other GPU setters give and for the same reason.

@@ -172,6 +172,11 @@ pub fn defaults() -> WorldParams {
     // on a grid axis. Off in `WorldParams::defaults`, the goldens' plain D8.
     // Acts only with `integrate_drainage` (on above).
     p.rough_routing = true;
+    // Owner finding F28 (2026-11-21): plates, drift and volcano count stay
+    // editable after a World-Structure archetype set them, as in the reference
+    // (it derives only from the UI handlers). Off in `WorldParams::defaults`,
+    // whose goldens re-derive on every generate.
+    p.ws_tect_editable = true;
     // Owner Ruling EV (2026-11-13; `DELTA_GEOMETRY_RESEARCH.md` section 14):
     // new worlds tilt every filled depression floor-first, so water inside a
     // basin runs down to its floor and out by one path instead of crossing it
@@ -429,6 +434,11 @@ pub const PARAMS: &[ParamSpec] = &[
     // plain D8). A row so a save records how its world was routed; a save
     // without the key loads OFF (`apply_saved_state`), the routing every
     // world before the ruling had. No GUI control.
+    // F28: see `WorldParams::ws_tect_editable`. No GUI control; a row so a save records
+    // which rule its world used, and the shell reads it to un-dim Plates/Drift/Volcanoes.
+    ParamSpec { key: "ws_tect_editable", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Plates and drift editable under World Structure", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.ws_tect_editable), set_fn: |p, v| { p.ws_tect_editable = v != 0.0; cartalith_engine::apply_world_structure_derivation(p); } },
     ParamSpec { key: "rough_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Rough routing (rivers wander across smooth slopes)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.rough_routing), set_fn: |p, v| p.rough_routing = v != 0.0 },
@@ -611,22 +621,22 @@ pub const PARAMS: &[ParamSpec] = &[
     // ---- world structure -------------------------------------------------
     ParamSpec { key: "world_structure.enabled", group: "world_structure", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Enable continental steering", unit: "", reference_control: "wsEnabled",
-        get_fn: |p| Value::Bool(p.world_structure.enabled), set_fn: |p, v| p.world_structure.enabled = v != 0.0 },
+        get_fn: |p| Value::Bool(p.world_structure.enabled), set_fn: |p, v| { p.world_structure.enabled = v != 0.0; cartalith_engine::apply_world_structure_derivation(p); } },
     ParamSpec { key: "world_structure.continentality", group: "world_structure", kind: Kind::Float, min: 0.01, max: 0.90, step: 0.01,
         label: "Continentality", unit: "", reference_control: "wsCont",
         get_fn: |p| Value::Num(p.world_structure.continentality), set_fn: |p, v| p.world_structure.continentality = v },
     ParamSpec { key: "world_structure.fragmentation", group: "world_structure", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
         label: "Fragmentation", unit: "", reference_control: "wsFrag",
-        get_fn: |p| Value::Num(p.world_structure.fragmentation), set_fn: |p, v| p.world_structure.fragmentation = v },
+        get_fn: |p| Value::Num(p.world_structure.fragmentation), set_fn: |p, v| { p.world_structure.fragmentation = v; cartalith_engine::apply_world_structure_derivation(p); } },
     ParamSpec { key: "world_structure.tectonic_energy", group: "world_structure", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
         label: "Tectonic energy", unit: "", reference_control: "wsTect",
-        get_fn: |p| Value::Num(p.world_structure.tectonic_energy), set_fn: |p, v| p.world_structure.tectonic_energy = v },
+        get_fn: |p| Value::Num(p.world_structure.tectonic_energy), set_fn: |p, v| { p.world_structure.tectonic_energy = v; cartalith_engine::apply_world_structure_derivation(p); } },
     ParamSpec { key: "world_structure.ocean_depth", group: "world_structure", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
         label: "Ocean depth", unit: "", reference_control: "wsOcean",
         get_fn: |p| Value::Num(p.world_structure.ocean_depth), set_fn: |p, v| p.world_structure.ocean_depth = v },
     ParamSpec { key: "world_structure.hotspot_density", group: "world_structure", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
         label: "Hotspot density", unit: "", reference_control: "wsHot",
-        get_fn: |p| Value::Num(p.world_structure.hotspot_density), set_fn: |p, v| p.world_structure.hotspot_density = v },
+        get_fn: |p| Value::Num(p.world_structure.hotspot_density), set_fn: |p, v| { p.world_structure.hotspot_density = v; cartalith_engine::apply_world_structure_derivation(p); } },
 
     // ---- tectonics -------------------------------------------------------
     ParamSpec { key: "tect.plates", group: "tectonics", kind: Kind::Int, min: 4.0, max: 40.0, step: 1.0,
@@ -1246,6 +1256,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("integrate_drainage", ""),
     // Port-only (Ruling ER); the reference routes plain D8.
     ("rough_routing", ""),
+    // Port-only (F28); the reference's sliders simply stay editable.
+    ("ws_tect_editable", ""),
     // Port-only (Ruling EV); the reference has no fill to tilt.
     ("basin_routing", ""),
     // Port-only (Ruling EW item 1); the reference's wall stands at its growth-reserve hull.
@@ -1606,6 +1618,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Rough routing (Ruling ER, 2026-11-11): every save without the key was
     // generated with plain D8 routing, so a regenerate reproduces its rivers.
     ("rough_routing", Value::Bool(false)),
+    // F28: every save without the key was generated with the archetype's values
+    // overriding plates, drift and volcanoes at generate time.
+    ("ws_tect_editable", Value::Bool(false)),
     // Basin routing (Ruling EV, 2026-11-13): every save without the key was
     // routed over the breadth-first fill, so a regenerate reproduces it.
     ("basin_routing", Value::Bool(false)),

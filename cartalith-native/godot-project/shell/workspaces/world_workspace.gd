@@ -2383,7 +2383,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	var ws_overridden := false
 	if WS_OVERRIDDEN_KEYS.has(key):
 		_ws_override_base_hint[key] = hint
-		ws_overridden = bool(bridge.param_get("world_structure.enabled"))
+		ws_overridden = _ws_overrides_tect()
 		if ws_overridden:
 			hint = ("%s %s" % [WS_OVERRIDE_REASON, hint]).strip_edges()
 
@@ -2603,6 +2603,7 @@ func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
 		return
 	bridge.param_set(key, v)
 	if key == "world_structure.enabled":
+		_resync_param_rows()  ## F28: turning it on derives plates / drift / volcanoes into their rows
 		_refresh_ws_override_rows()
 	_mark_stale_from(stage_index)
 	_regenerate_live()
@@ -2639,6 +2640,12 @@ func _resync_param_rows() -> int:
 	_resyncing = false
 	return n
 
+## True while World Structure steers Plates, Drift and Volcanoes so those rows are dead. Since F28 (2026-11-21) the engine
+## derives them once where the dials change and leaves them editable (`ws_tect_editable`, as the reference's sliders are),
+## so this is only true on a build or a save that still overrides them at generate time.
+func _ws_overrides_tect() -> bool:
+	return bool(bridge.param_get("world_structure.enabled")) and not bool(bridge.param_get("ws_tect_editable"))
+
 ## Live counterpart to `_build_param_row`'s own gate, re-applied to whichever
 ## `WS_OVERRIDDEN_KEYS` rows survived from the one `_build_categories()` pass
 ## -- three property writes per row, no rebuild, the same "cheap enough to
@@ -2657,7 +2664,7 @@ func _resync_param_rows() -> int:
 ## built once could in principle have been freed from under it by then, and a
 ## dead `HSlider` reference is a crash, not a silent no-op, without the guard.
 func _refresh_ws_override_rows() -> void:
-	var enabled := bool(bridge.param_get("world_structure.enabled"))
+	var enabled := _ws_overrides_tect()
 	for key in _ws_override_sliders:
 		var s := _ws_override_sliders[key] as HSlider
 		if not is_instance_valid(s):
@@ -2706,6 +2713,8 @@ func _on_float_row_released(key: String, is_int: bool, stage_index: int) -> void
 	if key == SEA_LEVEL_KEY and _sea_live_available():
 		_apply_sea_level_live()
 		return
+	if key.begins_with("world_structure."):
+		_resync_param_rows()  ## F28: a dial that moved re-derived plates / drift / volcanoes
 	_mark_stale_from(stage_index)
 	_regenerate_live()
 

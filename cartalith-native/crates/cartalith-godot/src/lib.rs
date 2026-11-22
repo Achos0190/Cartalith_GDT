@@ -8912,6 +8912,7 @@ fn preview_world_params(lookup: &dyn Fn(&str) -> Option<PreviewArg>, target_w: i
     let mut p = with_call_args(p, seed, width_km, gw, gh);
     if let Some(ws) = archetype {
         p.world_structure = ws;
+        cartalith_engine::apply_world_structure_derivation(&mut p);
     }
     Ok(p)
 }
@@ -9017,6 +9018,7 @@ mod preview_binding_tests {
         let m = full_dict(42, 800.0, 655, "Archipelago");
         let mut want = with_call_args(params::defaults(), 42, 800.0, 1024, 655);
         want.world_structure = archetype_knobs_str("archipelago").expect("known archetype");
+        cartalith_engine::apply_world_structure_derivation(&mut want); // F28: the app derives once where the archetype lands
         assert_eq!(preview_world_params(&|k| m.get(k).cloned(), 1024).expect("complete dict"), want);
         assert_eq!(run(&m, 320, 1024).expect("mask"), cartalith_engine::preview::land_mask(&want, 320));
     }
@@ -9676,6 +9678,14 @@ impl WorldGen {
         cartalith_gpu::last_backend().unwrap_or_default().into()
     }
 
+    /// The adapter the last generation opened (`"AMD Radeon RX 7800 XT"`), or `""`
+    /// when it opened none; the name beside [`Self::gpu_last_backend`], measured
+    /// the same way (F7: the Preferences GPU row names the card that ran).
+    #[func]
+    fn gpu_last_adapter(&self) -> GString {
+        GString::from(cartalith_gpu::last_adapter().unwrap_or_default().as_str())
+    }
+
     /// Whether a GPU buffer readback has failed at all this session.
     ///
     /// The enable condition for `Preferences ▸ Performance ▸ Try the GPU
@@ -9867,6 +9877,7 @@ impl WorldGen {
         match archetype_knobs(&archetype) {
             Some(ws) => {
                 self.params.world_structure = ws;
+                cartalith_engine::apply_world_structure_derivation(&mut self.params);
                 true
             }
             None => false,
@@ -10908,6 +10919,7 @@ impl WorldGen {
         // re-anchors it below since `enabled` is unconditionally true on this
         // path -- see the `params` field's own doc comment.
         p.world_structure = world_structure;
+        cartalith_engine::apply_world_structure_derivation(&mut p);
 
         // Both of this function's refusals -- the finalize lock and an
         // unknown archetype name -- have already returned above, so from
@@ -16779,11 +16791,12 @@ impl WorldGen {
     /// non-finite/negative coordinate, or before any `generate()` call.
     ///
     /// `snap_to_water`: **a new affordance, not a ported one** -- see
-    /// `civ_tools_bridge::nearest_land_cell`'s own doc comment. When on and
-    /// the raw click cell is water, this searches outward (within
-    /// `civ_snap_radius`'s own base radius) for the nearest dry-land,
-    /// non-water-body cell and places there instead; a click with nothing
-    /// dry in range still refuses exactly as `civ_drop_place` always has.
+    /// `civ_tools_bridge::nearest_water_edge_cell`'s own doc comment. When on,
+    /// the click moves (within `civ_snap_radius`'s base radius) to the nearest
+    /// dry cell touching sea, lake or river, whether it landed on dry ground
+    /// or in water (F37, 2026-11-21: it used to rescue water clicks only). With
+    /// no water edge in range a dry click stays where it is and a water click
+    /// still refuses exactly as `civ_drop_place` always has.
     #[func]
     fn civ_drop_settlement(&mut self, gx: f64, gy: f64, kind: GString, faction: i64, name: GString, snap_to_water: bool) -> i64 {
         let Some(k) = civ_tools_bridge::kind_from_str(&kind.to_string()) else { return -1 };
@@ -16803,7 +16816,8 @@ impl WorldGen {
         }
         if snap_to_water {
             let max_r = cartalith_civ::tools::civ_snap_radius(gw);
-            if let Some((nx, ny)) = civ_tools_bridge::nearest_land_cell(cx, cy, gw, gh, &ws.field, &civ.water_bodies, sea, max_r) {
+            let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km);
+            if let Some((nx, ny)) = civ_tools_bridge::nearest_water_edge_cell(cx, cy, gw, gh, &ws.field, &civ.water_bodies, &ws.flow_discharge, thresh, sea, max_r) {
                 cx = nx;
                 cy = ny;
             }

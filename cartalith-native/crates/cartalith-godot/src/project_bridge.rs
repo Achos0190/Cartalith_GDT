@@ -7889,7 +7889,7 @@ mod tests {
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
             "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
-            "urban_harbour_front", "civ.port_reach", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "name_unnamed_kinds",
+            "urban_harbour_front", "civ.port_reach", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "name_unnamed_kinds", "ws_tect_editable",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

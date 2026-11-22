@@ -576,6 +576,29 @@ var _cpu_threads_popup: PopupMenu
 ## Rung id -> worker count, rebuilt from the live core count each time the
 ## submenu is constructed. `0` (auto) is always the first entry.
 var _cpu_thread_choices: Array[int] = []
+## The kernels `use_gpu` sends to the GPU on a generate, by the engine's own names
+## (`cartalith_engine::GPU_PATH_KERNELS`, Ruling EZ item 3), as the readout prints them.
+## Erode (droplet)'s slope-collapse passes are a third GPU user, listed in the tooltip.
+const GPU_KERNEL_LABELS := {"plate_assignment": "plate assignment", "base_field_blur": "plate-height blur"}
+
+## The Preferences ▸ GPU acceleration readout line (F7): says whether the GPU is on, which
+## kernels it runs, and -- once a generation has run -- which adapter actually did, measured
+## (`gpu_last_adapter`, `gpu_stages_used`), never inferred. A run that opened no device says
+## so instead of claiming acceleration it did not get.
+func _gpu_status_text() -> String:
+	if not bool(_bridge.param_get("use_gpu")):
+		return "   GPU off: every stage runs on the CPU"
+	var used := _bridge.gpu_stages_used()
+	var adapter := _bridge.gpu_last_adapter()
+	if not _bridge.has_world:
+		return "   On: plate assignment and plate-height blur run on the GPU"
+	if adapter == "" or used.is_empty():
+		return "   On, but the last Generate used no GPU stage (CPU fallback)"
+	var names: Array[String] = []
+	for k in used:
+		names.append(String(GPU_KERNEL_LABELS.get(String(k), String(k))))
+	return "   %s · %s" % [adapter, ", ".join(names)]
+
 ## The GPU-acceleration row's own tooltip, named because `about_to_popup` has
 ## to put it back after a generation released the row.
 ## Stage list checked 2026-11-15 against what is pushed onto
@@ -4539,6 +4562,10 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	var gpu_idx := p.item_count - 1
 	p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
 	p.set_item_tooltip(gpu_idx, GPU_TOGGLE_TIP)
+	## F7 (owner, 2026-11-21: "GPU support seems completely removed on PC"): the toggle's
+	## own row only carried a backend that stayed blank until Devices was opened, and
+	## which kernels run lived in a tooltip. This line says it outright, from the run.
+	var gpu_status_idx := _readout(p, _gpu_status_text(), GPU_TOGGLE_TIP)
 	## Every row in this group reaches a `WorldGen` `#[func]`, and a generation
 	## in flight holds that object mutably borrowed on its worker thread --
 	## reaching it anyway is the `Gd<T>::bind() failed, already bound` failure
@@ -4548,6 +4575,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	p.about_to_popup.connect(func():
 		var use_gpu := bool(_bridge.param_get("use_gpu"))
 		p.set_item_checked(gpu_idx, use_gpu)
+		p.set_item_text(gpu_status_idx, _gpu_status_text())
 		## §2.5: "Toggle + backend readout (`WebGPU · on`)." The row carried no
 		## backend at all. See `_active_backend()` for why it can be blank.
 		var backend := _active_backend()
@@ -6603,6 +6631,7 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		var backend := _active_backend()
 		p.set_item_text(idx, "GPU acceleration" if backend == ""
 			else "GPU acceleration   %s · %s" % [backend, "on" if on else "off"])
+		p.set_item_text(idx + 1, _gpu_status_text())  ## the readout row directly under the toggle (F7)
 
 # -- §2.5 Memory ▸ Undo history (PR-11) ---------------------------------------
 

@@ -167,6 +167,7 @@ fn world_params(w: &WorldSpec, gw: usize, gh: usize) -> cartalith_engine::WorldP
             ocean_depth: k[3],
             hotspot_density: k[4],
         };
+        cartalith_engine::apply_world_structure_derivation(&mut p); // F28: the archetype's tectonics, as before the switch
     }
     p
 }

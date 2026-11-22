@@ -845,6 +845,21 @@ pub fn record_opened_backend(set: Option<&GpuDeviceSet>) {
     if let Ok(mut w) = LAST_BACKEND.write() {
         *w = set.map(|s| s.primary().adapter_backend.to_str());
     }
+    if let Ok(mut w) = LAST_ADAPTER.write() {
+        *w = set.map(|s| s.primary().adapter_name.clone());
+    }
+}
+
+/// The adapter name the last generation opened (F7, 2026-11-21: the
+/// Preferences row could not say which GPU ran, only a backend), recorded
+/// beside [`LAST_BACKEND`] and cleared with it by a CPU-only run.
+static LAST_ADAPTER: RwLock<Option<String>> = RwLock::new(None);
+
+/// The last recording's adapter name, e.g. `"AMD Radeon RX 7800 XT"`; `None`
+/// before the first generation and after a CPU-only one.
+#[must_use]
+pub fn last_adapter() -> Option<String> {
+    LAST_ADAPTER.read().ok().and_then(|v| v.clone())
 }
 
 /// The last recording [`record_opened_backend`] made -- `"vulkan"`, `"dx12"`,

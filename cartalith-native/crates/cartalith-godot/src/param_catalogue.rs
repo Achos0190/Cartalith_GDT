@@ -48,7 +48,7 @@ use crate::params;
 /// effect a user names ("why is this lake dry?"), so the assistant can read it
 /// and set it like the other world switches.
 pub const EXCLUDED: &[&str] =
-    &["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve", "rough_routing", "basin_routing"];
+    &["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve", "rough_routing", "basin_routing", "ws_tect_editable"];
 
 /// One line per registry group: what a user means by it, in their words (scope
 /// s.5b.1's table and s.5b.6's prompt, as the stage-1 prototype measured them).

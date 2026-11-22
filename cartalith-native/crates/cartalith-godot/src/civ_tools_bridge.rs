@@ -135,33 +135,40 @@ pub fn kind_from_str(s: &str) -> Option<SettlementKind> {
     }
 }
 
-/// The nearest dry-land, non-water-body cell to `(gx, gy)` within `max_r`
-/// cells, or `(gx, gy)` itself if it is already land. `None` if every cell
-/// in range is water (or `(gx, gy)` is out of bounds).
+/// The nearest **water-edge** cell to `(gx, gy)` within `max_r` cells: a
+/// dry-land, non-water-body cell with sea, lake or river (`flow > flow_thresh`)
+/// in its 8-neighbourhood, the test `cartalith_civ::civ_snap_to_water_edge`
+/// uses for generated sites. `(gx, gy)` itself if it already qualifies; `None`
+/// if nothing in range does (or `(gx, gy)` is out of bounds).
 ///
-/// **A new affordance, not a ported one.** Neither the reference nor
-/// `cartalith-civ` has a "snap to water" concept for settlement placement —
-/// `_civDropPlace` simply refuses a water click (`DropPlace::Water`). This
-/// exists because `DCC_SHELL_SPEC.md` §4.5.3's Settlement tool options row
-/// lists a "snap to water" toggle with nothing behind it yet; `lib.rs`'s
-/// `civ_drop_settlement` calls this only when that toggle is on, and falls
-/// through to the ordinary refusal when it finds nothing in range.
-///
-/// A full box scan, not a spiral search: `max_r` is always a handful of
-/// cells (`civ_snap_radius`'s own floor is 5), so a `(2r+1)^2` scan is
-/// trivial, and scanning the whole box up front (rather than stopping at
-/// the first ring with a hit) is what guarantees the *nearest* cell wins
-/// when a diagonal and an axis-aligned candidate tie on ring but not on
-/// true distance.
-pub fn nearest_land_cell(gx: usize, gy: usize, gw: usize, gh: usize, field: &[f32], water_bodies: &[u8], sea: f64, max_r: f64) -> Option<(usize, usize)> {
+/// F37 (owner, 2026-11-21): this used to return the nearest *dry* cell, so the
+/// "Snap to water" toggle only rescued a click that landed in water and never
+/// moved a dry-land click to the shore, the opposite of its name. The nearest
+/// land cell to a water click is itself a water-edge cell, so the rescue is kept.
+/// Not a ported function: the reference has no hand-placement snap (`_civDropPlace`
+/// refuses water). A full box scan keeps the true nearest when a diagonal and an
+/// axis candidate tie on ring but not on distance; `max_r` is a handful of cells.
+#[allow(clippy::too_many_arguments)]
+pub fn nearest_water_edge_cell(gx: usize, gy: usize, gw: usize, gh: usize, field: &[f32], water_bodies: &[u8], flow: &[f32], flow_thresh: f64, sea: f64, max_r: f64) -> Option<(usize, usize)> {
     if gw == 0 || gh == 0 || gx >= gw || gy >= gh {
         return None;
     }
-    let is_land = |x: usize, y: usize| {
-        let i = y * gw + x;
-        (field[i] as f64) >= sea && water_bodies[i] == 0
+    let waterish = |x: isize, y: isize| {
+        if x < 0 || y < 0 || x as usize >= gw || y as usize >= gh {
+            return false;
+        }
+        let i = y as usize * gw + x as usize;
+        (field[i] as f64) < sea || water_bodies[i] != 0 || flow.get(i).is_some_and(|&f| (f as f64) > flow_thresh)
     };
-    if is_land(gx, gy) {
+    let is_edge = |x: usize, y: usize| {
+        let i = y * gw + x;
+        if (field[i] as f64) < sea || water_bodies[i] != 0 {
+            return false;
+        }
+        let (xi, yi) = (x as isize, y as isize);
+        (-1..=1).any(|dy| (-1..=1).any(|dx| (dx != 0 || dy != 0) && waterish(xi + dx, yi + dy)))
+    };
+    if is_edge(gx, gy) {
         return Some((gx, gy));
     }
     let r = max_r.floor().max(0.0) as isize;
@@ -178,7 +185,7 @@ pub fn nearest_land_cell(gx: usize, gy: usize, gw: usize, gh: usize, field: &[f3
                 continue;
             }
             let (xu, yu) = (x as usize, y as usize);
-            if !is_land(xu, yu) {
+            if !is_edge(xu, yu) {
                 continue;
             }
             if best.is_none_or(|(_, _, bd)| d2 < bd) {
@@ -575,7 +582,7 @@ mod tests {
         }
     }
 
-    // ---------- nearest_land_cell ----------
+    // ---------- nearest_water_edge_cell ----------
 
     /// Test fixture: a `w x h` world of water (height `0.2`, water body `1`) with a
     /// vertical land strip (height `0.6`, body `0`) over the columns `land_cols`.
@@ -592,26 +599,51 @@ mod tests {
         (field, wb)
     }
 
-    /// Protects: a click already on dry land snaps to itself, not to a neighbour.
+    /// Protects F37: a click in the strip's dry interior (x=9 of 6..12) snaps to the
+    /// nearest shore cell (x=11, 2 away; the other shore is 3 away), not stays put as the old nearest-land rule did.
     #[test]
-    fn nearest_land_cell_returns_the_same_cell_when_already_land() {
-        let (field, wb) = strip_world(16, 16, 6..10);
-        assert_eq!(nearest_land_cell(8, 8, 16, 16, &field, &wb, 0.42, 5.0), Some((8, 8)));
+    fn nearest_water_edge_cell_moves_a_dry_click_to_the_shore() {
+        let (field, wb) = strip_world(16, 16, 6..12);
+        let flow = vec![0.0f32; 256];
+        assert_eq!(nearest_water_edge_cell(9, 8, 16, 16, &field, &wb, &flow, 5.0, 0.42, 5.0), Some((11, 8)));
     }
 
-    /// Protects: a water click within range snaps to the nearest land cell on the strip's near edge.
+    /// Protects: a click already on the shore stays put.
     #[test]
-    fn nearest_land_cell_finds_the_closest_shore_cell() {
+    fn nearest_water_edge_cell_keeps_a_shore_click() {
         let (field, wb) = strip_world(16, 16, 6..10);
-        // (2, 8) is water; the nearest land is the strip's left edge at x=6.
-        assert_eq!(nearest_land_cell(2, 8, 16, 16, &field, &wb, 0.42, 10.0), Some((6, 8)));
+        let flow = vec![0.0f32; 256];
+        assert_eq!(nearest_water_edge_cell(6, 8, 16, 16, &field, &wb, &flow, 5.0, 0.42, 5.0), Some((6, 8)));
     }
 
-    /// Protects: a click farther from land than `max_r` returns `None`, so the caller falls through to the ordinary water refusal.
+    /// Protects: a water click within range lands on the nearest shore cell (the old rescue).
     #[test]
-    fn nearest_land_cell_returns_none_when_nothing_is_in_range() {
+    fn nearest_water_edge_cell_finds_the_closest_shore_cell() {
         let (field, wb) = strip_world(16, 16, 6..10);
-        assert_eq!(nearest_land_cell(0, 0, 16, 16, &field, &wb, 0.42, 2.0), None);
+        let flow = vec![0.0f32; 256];
+        assert_eq!(nearest_water_edge_cell(2, 8, 16, 16, &field, &wb, &flow, 5.0, 0.42, 10.0), Some((6, 8)));
+    }
+
+    /// Protects: a river counts as water. All land, one river column at x=12 (flow 9 > 5):
+    /// a click at (8, 8) goes to x=11, the dry bank beside it, and the river cell itself is never chosen.
+    #[test]
+    fn nearest_water_edge_cell_snaps_to_a_river_bank() {
+        let (w, h) = (16usize, 16usize);
+        let field = vec![0.6f32; w * h];
+        let wb = vec![0u8; w * h];
+        let mut flow = vec![0.0f32; w * h];
+        for y in 0..h {
+            flow[y * w + 12] = 9.0;
+        }
+        assert_eq!(nearest_water_edge_cell(8, 8, w, h, &field, &wb, &flow, 5.0, 0.42, 5.0), Some((11, 8)));
+    }
+
+    /// Protects: nothing in range returns `None`, so the caller keeps the click (land) or refuses (water).
+    #[test]
+    fn nearest_water_edge_cell_returns_none_when_nothing_is_in_range() {
+        let (field, wb) = strip_world(16, 16, 6..10);
+        let flow = vec![0.0f32; 256];
+        assert_eq!(nearest_water_edge_cell(0, 0, 16, 16, &field, &wb, &flow, 5.0, 0.42, 2.0), None);
     }
 
     // ---------- manual naming / population ----------
