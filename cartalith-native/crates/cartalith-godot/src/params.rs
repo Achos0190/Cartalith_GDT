@@ -392,6 +392,14 @@ pub fn defaults() -> WorldParams {
     // box holds no sea is nudged to the nearest cell whose box does. Off in
     // `WorldParams::defaults` (section 7p). See `CivParams::port_shore`.
     p.civ.port_shore = true;
+    // Owner findings F16 and F39 (2026-11-21): sea lanes call at ports, follow a
+    // coast and share trunks. Off in `WorldParams::defaults` (section 7p). See
+    // `CivParams::sea_lanes`.
+    p.civ.sea_lanes = true;
+    // Owner finding F36 (2026-11-21): river-confluence and stronger coast terms
+    // in the siting ranking. Off in `WorldParams::defaults` (section 7p). See
+    // `CivParams::site_map_terms`.
+    p.civ.site_map_terms = true;
     // Ruling FI item 2 (owner 2026-11-16): every crossing of a river the map
     // draws is charged as a ford or bridge. Off in `WorldParams::defaults`
     // (section 7p). See `CivParams::map_crossings`.
@@ -1152,6 +1160,20 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.port_shore", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Port towns move to the shore", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.port_shore), set_fn: |p, v| p.civ.port_shore = v != 0.0 },
+    // Owner finding F16/F39 (2026-11-21): sea lanes call at ports, follow a coast
+    // and share trunks. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control. A save without the key loads OFF. Read by
+    // `compute_civilisation`'s sea routes.
+    ParamSpec { key: "civ.sea_lanes", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Sea lanes call at ports and share trunks", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.sea_lanes), set_fn: |p, v| p.civ.sea_lanes = v != 0.0 },
+    // Owner finding F36 (2026-11-21): river-confluence and stronger coast terms in
+    // the siting ranking. ON at the app boundary, OFF in `WorldParams::defaults`;
+    // no reference control. A save without the key loads OFF. Read by
+    // `compute_civilisation`'s suitability.
+    ParamSpec { key: "civ.site_map_terms", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Towns favour river confluences and coasts", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.site_map_terms), set_fn: |p, v| p.civ.site_map_terms = v != 0.0 },
     // Ruling FI item 2 (owner 2026-11-16): every drawn river crossing charged.
     // ON at the app boundary, OFF in `WorldParams::defaults`; no reference
     // control. A save without the key loads OFF. Read by `compute_civilisation`'s
@@ -1499,6 +1521,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Ruling FI: no reference control; the reference neither nudges ports nor
     // charges a crossing below the flow threshold.
     ("civ.port_shore", ""),
+    // Findings F16/F39/F36: no reference control; the reference has neither.
+    ("civ.sea_lanes", ""),
+    ("civ.site_map_terms", ""),
     ("civ.map_crossings", ""),
     // Ruling FK item 2: no reference control; the reference badges ports within
     // its own radius.
@@ -1773,6 +1798,10 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling FI (2026-11-16): every save without the keys placed its ports
     // without the shore nudge and priced roads with the reference's flow gate.
     ("civ.port_shore", Value::Bool(false)),
+    // Findings F16/F39/F36 (2026-11-21): every save without the keys drew its
+    // lanes pair by pair and ranked sites without the terms.
+    ("civ.sea_lanes", Value::Bool(false)),
+    ("civ.site_map_terms", Value::Bool(false)),
     ("civ.map_crossings", Value::Bool(false)),
     // Ruling FK item 2 (2026-11-16): every save without the key badged its
     // port candidates within the reference's radius.

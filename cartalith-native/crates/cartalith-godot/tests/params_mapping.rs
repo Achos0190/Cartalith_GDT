@@ -341,7 +341,7 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 #[test]
 fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 25, "the civ group is twenty-five rows");
+    assert_eq!(rows.len(), 27, "the civ group is twenty-seven rows"); // 25 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22)
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -1387,6 +1387,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.port_reach = false;
     // And F33: a save without the key planned stages under the reference's naming.
     expect.civ.planner_dominant_biome = false;
+    // And findings F16/F39/F36: a save without the keys drew its lanes pair by pair and ranked sites without the terms.
+    expect.civ.sea_lanes = false;
+    expect.civ.site_map_terms = false;
     // And Ruling FO item 1: a save without the key has no founding years.
     expect.civ.founding_year = false;
     // And Ruling GK: a save without the key read its unclaimed places with no garrison.
@@ -1588,6 +1591,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_harbour_front = false;
     neutral.civ.port_reach = false;
     neutral.civ.planner_dominant_biome = false;
+    neutral.civ.sea_lanes = false; // findings F16/F39 (2026-11-22)
+    neutral.civ.site_map_terms = false; // finding F36 (2026-11-22)
     neutral.civ.founding_year = false;
     neutral.civ.loose_garrisons = false;
     neutral.urban_river_stretch = false;

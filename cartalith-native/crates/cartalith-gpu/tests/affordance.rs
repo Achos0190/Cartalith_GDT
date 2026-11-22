@@ -149,6 +149,7 @@ fn affordance_kernels_match_cpu_on_real_worlds() {
                 river_reach: Some(&river_reach),
                 coast_reach: Some(&coast_reach),
                 river_front: front,
+                confluence: None,
                 resources: Some(&res),
                 rain: Some(&ws.rainfall),
                 flood: Some(&flood),

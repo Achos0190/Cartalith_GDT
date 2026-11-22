@@ -58,6 +58,8 @@ mod wall_gap_census;
 // against the map; an ignored measurement over real generated worlds.
 #[cfg(test)]
 mod town_river_census;
+#[cfg(test)]
+mod sea_site_census;
 // Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
 // the way join off and on, and the river stretches offered along them; an
 // ignored measurement through the real pipeline.
@@ -2594,7 +2596,9 @@ mod civ_pipeline_tests {
         // filtered (0.03 % shorter); the helper's pair and endpoint checks
         // passed on the same run, so no road was lost or truncated -- a
         // surviving pair re-routed a little shorter without the abandoned node.
-        assert!(rebuilt >= filtered * 0.999, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+        // RE-BASELINED 2026-11-22 (finding F36's `civ.site_map_terms`): `0.999` became `0.998`; 1 645.4 km rebuilt
+        // against 1 648.3 km filtered (0.18 % shorter), pair and endpoint checks passing.
+        assert!(rebuilt >= filtered * 0.998, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
 
         // The exact branch needs a world whose phase II abandons no network
         // node. Seed 2 was one until RV-1's carve changed the worlds
@@ -3250,7 +3254,11 @@ mod civ_pipeline_tests {
                 // endpoint check; a 0.1 % slack (about 4 km here) admits only
                 // re-routing.
                 assert!(
-                    rebuilt >= filtered * 0.999,
+                    // RE-BASELINED 2026-11-22 (finding F36's `civ.site_map_terms` moved this world's towns):
+                    // `0.999` became `0.998`; measured 1645.4 km rebuilt against 1648.3 km filtered (0.99824), again
+                    // surviving pairs re-routed when the rebuild paths without the abandoned node, not a lost road
+                    // (the pair and endpoint checks above still fail on one).
+                    rebuilt >= filtered * 0.998,
                     "phase {phase}: the rebuild draws {rebuilt:.1} km, less than filtering's {filtered:.1} km"
                 );
             }
@@ -5364,7 +5372,7 @@ fn compute_civilisation(
     // (`WorldState::stream_order` traced along `channels`), traced only when a
     // switch below reads it, so the reference boundary allocates nothing for
     // it. `None` for a world without that network (a loaded save).
-    let map_net = if opts.river_front || opts.map_rivers { map_river_network(ws, gw, gh) } else { None };
+    let map_net = if opts.river_front || opts.map_rivers || opts.site_map_terms { map_river_network(ws, gw, gh) } else { None };
     // One network, two products: `river_order` for the road network's
     // crossing costs and the settlement diagnostics below, `river_polys` for
     // Ruling N's suitability river term. Ruling FF item 5 (`civ.map_rivers`,
@@ -5393,6 +5401,15 @@ fn compute_civilisation(
     } else {
         (None, None)
     };
+    // Finding F36 (`civ.site_map_terms`): the confluence term, on the same
+    // network as the frontage term. Built only when on.
+    let confluence = opts.site_map_terms.then(|| {
+        let (polys, order): (&[Vec<(f64, f64)>], &[i16]) = match map_net.as_ref() {
+            Some((p, o)) => (p, o),
+            None => (&river_polys, &river_order),
+        };
+        cartalith_civ::build_river_confluence(polys, order, gw, gh)
+    });
     // The proxy's own search square (`um_site_kind_from_terrain`): the towns
     // the constraint moves are the ones the layout would call river towns.
     let river_constraint = river_on.as_deref().map(|on| cartalith_civ::RiverOn {
@@ -5418,6 +5435,7 @@ fn compute_civilisation(
                 river_reach: Some(&river_reach),
                 coast_reach: Some(&coast_reach),
                 river_front: river_front.as_deref(),
+                confluence: confluence.as_deref(),
                 resources: Some(&resources),
                 rain: Some(&ws.rainfall),
                 flood: Some(&flood),
@@ -5989,7 +6007,7 @@ fn compute_civilisation(
     // deferred `coast_sdf` and the river grids. Released before the territory
     // sweep rather than at function exit, so its heap and distance grids do
     // not stack on top of them (`MEMORY_OPTIMIZATION_SCOPE.md`, 2026-09-27).
-    drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources));
+    drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources, confluence));
 
     // Territory (`DECISIONS.md` §7b): reuses the same real terrain
     // travel-cost field the road network above already computed --
@@ -6027,9 +6045,11 @@ fn compute_civilisation(
     // ports here, matching the reference's own hamlet-tier village shape).
     let ports: Vec<cartalith_civ::NamedSettlement> =
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
-    let sea_routes = cartalith_civ::civ_sea_routes(
+    // Findings F16 and F39 (`civ.sea_lanes`): lanes call at ports, hug a coast
+    // and share trunks. Off: `civ_sea_routes`' own lanes, by control flow.
+    let sea_routes = cartalith_civ::civ_sea_routes_lanes(
         &ports, &ws.field, &wb.classification, gw, gh, world, map_width_km,
-        Some(ocean_wind.0), Some(ocean_wind.1),
+        Some(ocean_wind.0), Some(ocean_wind.1), opts.sea_lanes,
     );
 
     // `TIMELINE_SCOPE.md` milestone 1: stamp every settlement/way with a

@@ -134,6 +134,7 @@ pub mod way_class;
 /// network -- edges re-traced so later roads join the trunks earlier ones laid,
 /// behind `CivParams::merge_ways`. See the module doc.
 pub mod way_merge;
+pub mod sea_lanes;
 /// Owner Ruling EU item 1 (2026-11-12): measures of the drawn road network
 /// (side-by-side bundles, duplicates, water, crossings, grade). Measurement
 /// only; see the module doc.
@@ -4274,6 +4275,86 @@ pub fn build_river_front(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh
     out
 }
 
+/// Weight of the **river confluence** term ([`build_river_confluence`]) in the
+/// full-context suitability sum (owner finding F36, 2026-11-21: *"Location with
+/// multiple rivers confluencing for example and near a coast"*), under Ruling N:
+/// a term inside the ranking, never a bypass.
+///
+/// **A labelled judgement, measured, not a reference value.** Sized below
+/// [`SUIT_W_FULL_RIVER_FRONT`] (0.25) because a confluence is a refinement of
+/// being on a river, not a second reason to be near water; the census in
+/// `cartalith-godot`'s `site_census.rs` (seeds 483920, 912345, 246371 at 384 and
+/// 2 048) sweeps it and `STATUS.md` records the figures.
+pub const SUIT_W_SITE_CONFLUENCE: f64 = 0.15;
+
+/// Extra weight on the existing coast term ([`SUIT_W_FULL_COAST`] 0.14, on
+/// [`build_coast_reach`]'s raster) when `civ.site_map_terms` is on: the coast
+/// half of F36. A labelled judgement, swept with [`SUIT_W_SITE_CONFLUENCE`].
+pub const SUIT_W_SITE_COAST: f64 = 0.10;
+
+/// How far, in grid cells, a confluence attracts: the town box of a river town
+/// is about 1.6 cells across at 2 048, so 3 cells reaches the junction from
+/// either bank while staying local. A labelled judgement.
+pub const SUIT_CONFLUENCE_REACH_CELLS: f64 = 3.0;
+
+/// [`SuitabilityCtx::confluence`]'s raster: per cell, how near a **confluence**
+/// of traced rivers it is (owner finding F36). A confluence is a cell that two
+/// or more polylines of `polys` pass through (`trace_river_polylines` ends a
+/// tributary on the first cell of the trunk it joins, so that cell is in both),
+/// valued by the Strahler tier ([`river_order_tier`]) of the joined river there,
+/// so a brook meeting a brook earns nothing and a river meeting a river earns
+/// the most. Spread as `tier * (1 - d / R)`, `R` = [`SUIT_CONFLUENCE_REACH_CELLS`],
+/// maximised, like [`build_river_front`]. `polys` and `order` must be the map's
+/// own network, as there. Never wraps the seam.
+pub fn build_river_confluence(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh: usize) -> Vec<f32> {
+    let mut out = vec![0f32; gw * gh];
+    let mut count: std::collections::HashMap<usize, u8> = std::collections::HashMap::new();
+    for pl in polys {
+        let mut last = usize::MAX;
+        for &(px, py) in pl {
+            let (cx, cy) = (px.floor() as isize, py.floor() as isize);
+            if cx < 0 || cy < 0 || cx >= gw as isize || cy >= gh as isize {
+                continue;
+            }
+            let c = cy as usize * gw + cx as usize;
+            if c != last {
+                let e = count.entry(c).or_insert(0);
+                *e = e.saturating_add(1);
+                last = c;
+            }
+        }
+    }
+    let reach = SUIT_CONFLUENCE_REACH_CELLS;
+    let r = reach.floor() as isize;
+    let mut cells: Vec<usize> = count.into_iter().filter(|&(_, n)| n >= 2).map(|(c, _)| c).collect();
+    cells.sort_unstable(); // HashMap order must never reach the output
+    for c in cells {
+        let tier = river_order_tier(order[c]);
+        if tier <= 0.0 {
+            continue;
+        }
+        let (cx, cy) = ((c % gw) as isize, (c / gw) as isize);
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let (nx, ny) = (cx + dx, cy + dy);
+                if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                    continue;
+                }
+                let d = ((dx * dx + dy * dy) as f64).sqrt() / reach;
+                if d >= 1.0 {
+                    continue;
+                }
+                let v = (tier * (1.0 - d)) as f32;
+                let o = &mut out[ny as usize * gw + nx as usize];
+                if v > *o {
+                    *o = v;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Per cell, whether a town there sits **on** a traced river: the nearest
 /// river segment passes within [`SUIT_RIVER_FRONT_M`] (625 m, half the town
 /// box's short side) of the cell's centre, so the river runs through the box
@@ -4738,6 +4819,10 @@ pub struct SuitabilityCtx<'a> {
     /// false, the reference boundary): it adds nothing and is not listed in a
     /// cell's explanation, rather than being listed as a zero.
     pub river_front: Option<&'a [f32]>,
+    /// [`build_river_confluence`]'s raster, the F36 confluence term, and with it
+    /// the F36 extra coast weight ([`SUIT_W_SITE_COAST`]): `Some` is
+    /// `civ.site_map_terms` on. `None` adds nothing and lists nothing.
+    pub confluence: Option<&'a [f32]>,
     pub resources: Option<&'a ResourcePotentials>,
     pub rain: Option<&'a [f32]>,
     pub flood: Option<&'a [f32]>,
@@ -4906,6 +4991,10 @@ pub fn build_settlement_suitability(
                 // boundary's sum is the same expression it always was.
                 if let Some(rf) = c.river_front {
                     z += SUIT_W_FULL_RIVER_FRONT * rf[i] as f64;
+                }
+                // Finding F36: the same rule, one more term and one stronger.
+                if let Some(cf) = c.confluence {
+                    z += SUIT_W_SITE_CONFLUENCE * cf[i] as f64 + SUIT_W_SITE_COAST * coast;
                 }
             }
         }
@@ -5171,6 +5260,13 @@ pub fn explain_settlement_suitability(
                 let v = rf[i] as f64;
                 push(&mut terms, "river_frontage", v, SUIT_W_FULL_RIVER_FRONT);
                 z += SUIT_W_FULL_RIVER_FRONT * v;
+            }
+            // Finding F36, as in `build_settlement_suitability`.
+            if let Some(cf) = c.confluence {
+                let v = cf[i] as f64;
+                push(&mut terms, "river_confluence", v, SUIT_W_SITE_CONFLUENCE);
+                push(&mut terms, "coast_extra", coast, SUIT_W_SITE_COAST);
+                z += SUIT_W_SITE_CONFLUENCE * v + SUIT_W_SITE_COAST * coast;
             }
         }
     }
@@ -10673,6 +10769,26 @@ pub fn civ_sea_routes(
     ocean_f: Option<&JpCoarseField>,
     wind_f: Option<&JpCoarseField>,
 ) -> Vec<SeaRoute> {
+    civ_sea_routes_lanes(ports, field, water_bodies, gw, gh, world, map_width_km, ocean_f, wind_f, false)
+}
+
+/// [`civ_sea_routes`] with `civ.sea_lanes` (owner findings F16 and F39,
+/// 2026-11-21): `lanes` true splits a lane at the ports it sails past, lets it
+/// follow a coast and shares trunks between lanes (`sea_lanes`). `false` is
+/// [`civ_sea_routes`] exactly, by control flow.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_sea_routes_lanes(
+    ports: &[NamedSettlement],
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    map_width_km: f64,
+    ocean_f: Option<&JpCoarseField>,
+    wind_f: Option<&JpCoarseField>,
+    lanes: bool,
+) -> Vec<SeaRoute> {
     let n = ports.len();
     if n < 2 {
         return Vec::new();
@@ -10831,13 +10947,44 @@ pub fn civ_sea_routes(
 
     // Reconstruct each edge's raw cell-path from the Dijkstra `prev`
     // tree, then smooth with Catmull-Rom (ocean validity mode).
+    // `civ.sea_lanes`: the lanes' own cell paths (split at calls, on coasts,
+    // sharing trunks), source..=target. Off: `None`, and the Dijkstra `prev`
+    // walk below is the reference's, untouched.
+    let lane_cells: Option<Vec<(usize, usize, Vec<usize>)>> = lanes.then(|| {
+        let base = |i: usize, j: usize, dx: isize, dy: isize| -> f64 {
+            match edge_cost {
+                Some(f) => f(i, j, dx, dy),
+                None if cost_ref[i].is_finite() && cost_ref[j].is_finite() => {
+                    if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 }
+                }
+                None => f64::INFINITY,
+            }
+        };
+        let prevs: Vec<&[i32]> = results.iter().map(|r| r.1.as_slice()).collect();
+        let weight: Vec<f64> = ports.iter().map(|p| p.pop as f64).collect();
+        sea_lanes::lane_paths(
+            &edges,
+            &sea_lanes::LaneIn { cost: cost_ref, rw, rh, world, rp: &rp, prev: &prevs, weight: &weight, base: &base },
+        )
+    });
+    let jobs: Vec<(usize, usize)> = match &lane_cells {
+        Some(l) => l.iter().map(|(a, b, _)| (*a, *b)).collect(),
+        None => edges,
+    };
     let mut routes = Vec::new();
-    for (a, b) in edges {
+    for (job, (a, b)) in jobs.into_iter().enumerate() {
         let pa = &ports[a];
         let pb = &ports[b];
         let prev = &results[a].1;
         let si = rp[a] as i64;
         let mut raw: Vec<(f64, f64)> = Vec::new();
+        if let Some(l) = &lane_cells {
+            // Source cell is replaced by the port's own point, as below.
+            raw.push((pa.placement.x as f64, pa.placement.y as f64));
+            for &c in &l[job].2[1..] {
+                raw.push((((c % rw) as f64 + 0.5) / sc, ((c / rw) as f64 + 0.5) / sc));
+            }
+        } else {
         let mut ci = rp[b] as i64;
         let mut guard = rw * rh;
         while ci != si && ci >= 0 && guard > 0 {
@@ -10853,6 +11000,7 @@ pub fn civ_sea_routes(
         }
         raw.push((pa.placement.x as f64, pa.placement.y as f64));
         raw.reverse();
+        }
         let pb_pt = (pb.placement.x as f64, pb.placement.y as f64);
         if raw.last() != Some(&pb_pt) {
             raw.push(pb_pt);
@@ -24012,6 +24160,7 @@ Isle {name},1
             river_reach: Some(&f.river_reach),
             coast_reach: Some(&f.coast_reach),
             river_front: None,
+            confluence: None,
             resources: Some(&f.res),
             rain: Some(&f.rain),
             flood: Some(&f.flood),
@@ -24433,6 +24582,79 @@ Isle {name},1
             }
         }
         assert!(checked > 100, "a vacuous pass: {checked} scored cells");
+    }
+
+    /// Finding F36: the confluence term and the stronger coast term are one more
+    /// pair of rows and nothing when off. Switched on, `z` moves by exactly
+    /// 0.15 (a literal) times the confluence raster plus 0.10 (a literal) times
+    /// the cell's own coastal value, and the explainer reconstructs the score.
+    /// MUTATION: 0.15 -> 0.14, 0.10 -> 0.14, or dropping the coast addend fails
+    /// the `z` delta; adding the term when `confluence` is `None` fails the
+    /// off-is-unchanged check.
+    #[test]
+    fn confluence_and_coast_extra_are_two_more_terms_and_nothing_when_off() {
+        assert_eq!((SUIT_W_SITE_CONFLUENCE, SUIT_W_SITE_COAST), (0.15, 0.10));
+        let f = suit_fixture();
+        let off = suit_ctx(&f);
+        let cf: Vec<f32> = (0..f.gw * f.gh).map(|i| if i % 5 == 0 { 0.7 } else { 0.0 }).collect();
+        let on = SuitabilityCtx { confluence: Some(&cf), ..suit_ctx(&f) };
+        let run = |c: &SuitabilityCtx| {
+            build_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(c))
+        };
+        let (a, b) = (run(&off), run(&on));
+        assert_ne!(a, b, "premise: the terms move the score");
+        let (mut checked, mut coastal) = (0, 0);
+        for y in 0..f.gh {
+            for x in 0..f.gw {
+                let ex = |c: &SuitabilityCtx| {
+                    explain_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(c), x, y)
+                };
+                let (e0, e1) = (ex(&off), ex(&on));
+                assert_eq!(e1.score, b[y * f.gw + x], "the explainer reconstructs the on score at ({x},{y})");
+                if e0.excluded.is_some() {
+                    continue;
+                }
+                assert!(!e0.terms.iter().any(|t| t.key == "river_confluence" || t.key == "coast_extra"), "off lists no rows");
+                let coast = e0.terms.iter().find(|t| t.key == "coastal_access").map_or(0.0, |t| t.value);
+                coastal += usize::from(coast > 0.0);
+                let want = 0.15 * cf[y * f.gw + x] as f64 + 0.10 * coast;
+                assert!((e1.z - e0.z - want).abs() < 1e-12, "z moves by the two terms at ({x},{y})");
+                checked += 1;
+            }
+        }
+        assert!(checked > 100 && coastal > 0, "a vacuous pass: {checked} cells, {coastal} coastal");
+    }
+
+    /// Finding F36's raster: a cell two polylines pass through is a confluence,
+    /// valued by the joined river's tier and fading over 3 cells; a lone river, a
+    /// brook meeting a brook (order 1, tier 0) and far cells read 0.
+    /// MUTATION: `n >= 2` -> `n >= 1` lights a lone river; -> `n >= 3` loses the
+    /// junction; the tier lookup or reach changes move the literal values.
+    #[test]
+    fn river_confluence_marks_where_two_traced_rivers_meet() {
+        let (gw, gh) = (30usize, 12usize);
+        let trunk: Vec<(f64, f64)> = (2..28).map(|x| (x as f64 + 0.5, 5.5)).collect();
+        // The tributary ends on the trunk's cell (14, 5), as `trace_river_polylines` ends one.
+        let trib: Vec<(f64, f64)> = (0..6).map(|y| (14.5, y as f64 + 0.5)).collect();
+        let mut order = vec![0i16; gw * gh];
+        for x in 2..28 {
+            order[5 * gw + x] = 3;
+        }
+        for y in 0..5 {
+            order[y * gw + 14] = 2;
+        }
+        let at = |r: &[f32], x: usize, y: usize| r[y * gw + x];
+        let r = build_river_confluence(&[trunk.clone(), trib], &order, gw, gh);
+        assert!((at(&r, 14, 5) - 0.7).abs() < 1e-6, "the junction reads the order-3 tier");
+        assert!((at(&r, 15, 5) - 0.7 * (1.0 - 1.0 / 3.0)).abs() < 1e-6, "one cell off fades by 1/3");
+        assert_eq!(at(&r, 20, 5), 0.0, "far along the trunk reads 0");
+        let lone = build_river_confluence(&[trunk.clone()], &order, gw, gh);
+        assert!(lone.iter().all(|&v| v == 0.0), "a lone river has no confluence");
+        let mut brooks = vec![0i16; gw * gh];
+        brooks[5 * gw + 14] = 1;
+        let trib2: Vec<(f64, f64)> = (0..6).map(|y| (14.5, y as f64 + 0.5)).collect();
+        let b = build_river_confluence(&[trunk, trib2], &brooks, gw, gh);
+        assert!(b.iter().all(|&v| v == 0.0), "a brook meeting a brook earns nothing");
     }
 
     /// Same equality demand on the no-context branch, which uses a

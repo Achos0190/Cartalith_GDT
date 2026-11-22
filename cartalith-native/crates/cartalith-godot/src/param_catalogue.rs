@@ -262,6 +262,8 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.river_front", "On: a town near a river is placed on it, the river through the town (current). Off: a town may sit a little off its river, as older worlds did."),
     ("civ.map_rivers", "On: towns are sited and roads priced on the rivers the map draws (current). Off: both use a rebuilt river network, as older worlds did."),
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
+    ("civ.sea_lanes", "On: sea lanes call at ports they pass, hug a coast and share trunks (current). Off: each lane is its own route, as older worlds had."),
+    ("civ.site_map_terms", "On: sites beside a river confluence or the coast rank higher (current). Off: ranked without those terms, as older worlds were."),
     ("civ.port_shore", "On: a coastal town whose town map has no sea moves up to 4 km to the shore and becomes a harbour (current). Off: it stays put, as older worlds did."),
     ("civ.map_crossings", "On: roads pay a ford or bridge wherever they cross a river the map draws (current). Off: only bigger rivers cost to cross, as older worlds did."),
     ("civ.planner_dominant_biome", "On: the planner names a stage for the biome over most of its km (current). Off: a short stage merged into a neighbour keeps the neighbour's biome name."),

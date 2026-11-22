@@ -143,7 +143,7 @@ pub struct WayMergeReport {
 /// the search is deterministic (the topology's own heap is in `crate`, keyed
 /// for whole-grid sources; this one serves a window).
 #[derive(Clone, Copy, PartialEq)]
-struct Key(f64, usize);
+pub(crate) struct Key(pub(crate) f64, pub(crate) usize);
 impl Eq for Key {}
 impl Ord for Key {
     fn cmp(&self, o: &Self) -> Ordering {
@@ -160,12 +160,12 @@ impl PartialOrd for Key {
 /// `y0..y0 + h`. `wrap` is set only when the window is the full width of a
 /// wrapping world, the one case where a step may cross the seam.
 #[derive(Clone, Copy, Debug)]
-struct Window {
-    x0: usize,
-    y0: usize,
-    w: usize,
-    h: usize,
-    wrap: bool,
+pub(crate) struct Window {
+    pub(crate) x0: usize,
+    pub(crate) y0: usize,
+    pub(crate) w: usize,
+    pub(crate) h: usize,
+    pub(crate) wrap: bool,
 }
 
 /// The step cost between two 8-adjacent routing cells: `len * 0.5 * (c_i + c_j)`,
@@ -194,7 +194,7 @@ pub fn path_cost(cost: &[f32], path: &[usize], rw: usize, world: bool) -> f64 {
 /// ([`MARGIN_SHARE`], floored at [`MIN_MARGIN_CELLS`]), clamped to the grid. A
 /// path that crosses a wrapping world's seam takes the full width (the box of
 /// its columns would be the wrong side of the world).
-fn window_for(path: &[usize], rw: usize, rh: usize, world: bool) -> Window {
+pub(crate) fn window_for(path: &[usize], rw: usize, rh: usize, world: bool) -> Window {
     let crosses_seam = world && path.windows(2).any(|p| (p[0] % rw).abs_diff(p[1] % rw) > 1);
     let (mut x0, mut x1, mut y0, mut y1) = (usize::MAX, 0, usize::MAX, 0);
     for &c in path {

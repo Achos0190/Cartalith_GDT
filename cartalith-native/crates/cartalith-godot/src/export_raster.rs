@@ -2150,7 +2150,7 @@ impl AtlasFields {
         // network for Ruling EX's frontage term (each falling back to the
         // rebuild on a world without one).
         let civ = &wg.params.civ;
-        let map_net = if civ.river_front || civ.map_rivers { crate::map_river_network(ws, gw, gh) } else { None };
+        let map_net = if civ.river_front || civ.map_rivers || civ.site_map_terms { crate::map_river_network(ws, gw, gh) } else { None };
         let (river_order, river_polys) =
             crate::civ_river_network(ws, gw, gh, sea, world, wg.params.river_density, map_width_km, civ.map_rivers, map_net.as_ref());
         let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
@@ -2162,6 +2162,14 @@ impl AtlasFields {
             };
             cartalith_civ::build_river_front(polys, order, gw, gh, map_width_km * 1000.0 / gw as f64)
         });
+        // Finding F36's confluence term, exactly as `compute_civilisation` builds it.
+        let confluence = civ.site_map_terms.then(|| {
+            let (polys, order): (&[Vec<(f64, f64)>], &[i16]) = match map_net.as_ref() {
+                Some((p, o)) => (p, o),
+                None => (&river_polys, &river_order),
+            };
+            cartalith_civ::build_river_confluence(polys, order, gw, gh)
+        });
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),
             corridor: Some(&corridors),
@@ -2170,6 +2178,7 @@ impl AtlasFields {
             river_reach: Some(&river_reach),
             coast_reach: Some(&coast_reach),
             river_front: river_front.as_deref(),
+            confluence: confluence.as_deref(),
             resources: Some(&resources),
             rain: Some(&ws.rainfall),
             flood: Some(&flood),

@@ -6884,6 +6884,7 @@ mod tests {
             river_reach: Some(&river_reach),
             coast_reach: Some(&coast_reach),
             river_front: None,
+            confluence: None,
             resources: Some(&resources),
             rain: Some(&ws.rainfall),
             flood: Some(&flood),

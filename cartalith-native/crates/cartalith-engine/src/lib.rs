@@ -1075,6 +1075,23 @@ pub struct CivParams {
     /// **`false` here, `true` in the shipped app** (`params::defaults`), the `DECISIONS.md` §7p split. A
     /// save without the key loads it off.
     pub planner_dominant_biome: bool,
+    /// Owner findings F16 and F39 (2026-11-21): sea lanes call at the ports they
+    /// sail past, follow a coast where that is a modest detour, and merge into
+    /// shared trunks (`cartalith_civ::sea_lanes`), the treatment
+    /// [`merge_ways`](Self::merge_ways) gave the land ways.
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the
+    /// `DECISIONS.md` section 7p split: the reference draws every pair's own
+    /// least-time path. A save without the key loads it off.
+    pub sea_lanes: bool,
+    /// Owner finding F36 (2026-11-21): settlement suitability gains a **river
+    /// confluence** term (`cartalith_civ::build_river_confluence`) and a
+    /// stronger coast term (`SUIT_W_SITE_COAST`), both inside the existing
+    /// ranking (Ruling N: a term, never a bypass).
+    ///
+    /// **`false` here, `true` in the shipped app**, the same section 7p split.
+    /// A save without the key loads it off.
+    pub site_map_terms: bool,
     /// Owner Ruling FO item 1 (2026-11-16, `LARGE_ITEM_RULINGS.md`): every settlement a generation places
     /// is given a **founding year**, stored beside its place-editor extras (`PlaceExtras::founded`, saved
     /// as `extras.founded`, `SAVEFILE_COMPAT.md` 9.1). The year is `-um_infer_age(population)`: the
@@ -1856,6 +1873,8 @@ impl WorldParams {
                 harbour_box: false,
                 // Ruling FI items 1 and 3: the reference does not nudge ports to the shore.
                 port_shore: false,
+                sea_lanes: false,
+                site_map_terms: false,
                 // Ruling FI item 2: the reference charges a crossing only above the flow threshold.
                 map_crossings: false,
                 // Ruling FK item 2: the reference badges ports within its own radius.

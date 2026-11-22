@@ -2472,6 +2472,7 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
                 river_reach: river_reach.as_deref(),
                 coast_reach: coast_reach.as_deref(),
                 river_front: None,
+                confluence: None,
                 resources: Some(&rp),
                 rain: Some(f.rainfall),
                 flood: Some(&flood),

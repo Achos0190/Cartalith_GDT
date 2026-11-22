@@ -79,6 +79,7 @@ fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
         river_reach: None,
         coast_reach: Some(&coast_reach),
         river_front: None,
+        confluence: None,
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),
