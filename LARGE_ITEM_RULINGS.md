@@ -3995,3 +3995,7 @@ On `TOOLING_PLAN.md` (`ea0d8ace`): **build all four** -- (1) install the `cartal
 ## Ruling GQ: re-fit the tectonic peak for milder defaults (owner, 2026-11-22)
 
 After F29 (`1ee81d3e`: default worlds 4 949-6 233 m, land below 0 °C roughly doubled), owner: **re-fit**. Keep "from tectonics, no hard cap", but tune the law's constants so a default world lands about 4.5-5 km and its cold-land share stays close to today's; strong collisions still reach high (7-9 km). The fit is measured on the three seeds and several drift settings and reported.
+
+## Ruling GR: sea lanes further offshore; only the big arc reeled in (owner, 2026-11-22)
+
+On the F39 frame for seed 83744 (`3c276bfd`): *"After is way too close, I like before better. Just the big arch could be reeled in a little bit."* The coast pull is too strong. Keep the lanes out in open water as before; reduce only the large detour arc (by the port calls and a mild limit on how far a lane may swing beyond a direct coastal course), and keep a minimum standoff from the shore away from ports.
