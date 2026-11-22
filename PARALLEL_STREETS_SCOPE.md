@@ -1183,3 +1183,40 @@ bank inside the wall. x4 still shows long parallel streets and squarer blocks (4
 go, and they are the heading gain and the back streets' blocks; options: (a) a lower gain (the third variant),
 (b) restate FS-2's delta against a re-seed as Q16 did for FS-1 (the null's own organic delta is 0.20), (c) stop at PS-1.
 
+## 13. PS-2 step 0c (2026-11-22, Ruling GJ: a lower heading gain): NO-GO again; nothing built
+
+**Verdict: no-go.** Step 0b's two fixes kept (`PARALLEL_FAR_BANK_SLACK`, `wallhug::ring_is_jagged`), the heading gain
+swept at 0.4, 0.3 and 0.2 (step 0b's 0.6, step 0's gain-0 diagnostic: 0.0), every step-0 bar read per gain. **No gain
+passes them all.** Evidence: `cartalith-native/docs/evidence/parallel-streets-ps2c-2026-11-22/` (`summary.txt`); census
+world, tools and the null as before; the prototype is `scratch_code/step0c_prototype.diff.txt`.
+
+| step 0c, 384 | quads outside core (24) | housed p10 | FS-1 kept >= 85 % (null 10, median 0.81) | FS-2 delta, market-street / river-front (caps 0.30 / 0.20) | market-street phi max (cap 0.35) | needle lots (<= 11.3 %) | wall: sharp median / p90 / total, hull ratio max (today 4 / 6 / 133, 1.144) |
+|---|---|---|---|---|---|---|---|
+| gain 0.6 (step 0b) | 64.4 % | 101 | 23 (0.875) | 0.398 / 0.274 | 0.62 | 12.6 % | 3 / 7 / 127, 1.114 |
+| **0.4** | **61.5 %** | 100 | 22 (0.88) | **0.297** / 0.231 | 0.548 | **12.1 %** | 3 / 6 / 125, 1.126 |
+| 0.3 | 60.0 % | 102 | 22 (0.87) | 0.317 / 0.266 | 0.569 | 12.2 % | 4 / 6 / 127, 1.115 |
+| 0.2 | 60.0 % | 106 | 21 (0.88) | 0.330 / **0.161** | 0.581 | 12.3 % | 4 / 6 / 130, 1.132 |
+| 0.0 (step 0, before the 0b fixes) | 57.0 % | 96 | 22 | 0.23 / 0.18 | | 11.9 % | |
+
+Every gain passes quads, housed p10, the restated FS-1, the wall bar and the river-front and organic medians and p90.
+Every gain fails two bars the gain does not move:
+- **Needle lots 12.1 to 12.3 % against 11.3 %** (today's 11.3 %): the back streets' blocks, not the heading bend (gain 0
+  in step 0 already gave 11.9 %).
+- **One market-street town's phi, 0.55 to 0.58 against the cap 0.35** (246371 #9, a town of 2 006: off 0.25, on 0.55 at
+  every gain): the order comes from its back streets and cross lanes in a town with few edges, not from the bend.
+The FS-2 delta is met by the market-street towns only at 0.4 (0.297) and by the river-front towns only at 0.2
+(0.161), so no single gain meets both, and the delta moves between gains by noise as much as by the gain (0.317 at
+0.3 against 0.297 at 0.4); market-street entropy is 0.88 at 0.4 (bar 0.90), 0.92 at 0.3, 0.90 at 0.2.
+
+**Frames** (owner condition): City Viewer, the 14 towns, opening frame and x4, off and on at gain 0.4, windowed under the
+lock, probe `RESULT: PASS` x3; all 14 looked at. Wall close-ups (`wall_closeups/`, off | gain 0.6 | gain 0.4) for 246371
+#14, #6, #13 and 483920 #23: at 0.4 the walls are taut curtains as at 0.6 (the jag guard keeps the grown circuit), and
+the streets are visibly less ruled than at 0.6 (long parallels remain along the market spine of 246371 #14 and in the
+blocks beside it at x4). Needle crops in `needles/`.
+
+**What this leaves for the owner.** The two failures are the back streets' blocks (needles; the small market town's
+phi), so a further gain change is not the lever. Q19: (a) judge the needle bar and FS-2's cap against a re-roll as Q16
+did for FS-1 (needles: the re-seed gives 11.6 %, today 11.3 %; the small town's phi against its own re-roll);
+(b) change the back-street rule (fewer or shorter back streets, or none in a town under about 3 000, the lever for the
+needles and the small town's phi; a fourth variant); (c) stop at PS-1.
+

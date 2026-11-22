@@ -1,0 +1,17 @@
+PARALLEL_STREETS_SCOPE.md PS-2 step 0c (owner Ruling GJ: a lower heading gain), measured 2026-11-22. Verdict NO-GO;
+nothing built. The scope's section 13 has the results; this file lists the evidence.
+
+Census world and tools as steps 0 and 0b (parallel-streets-ps2-2026-11-18, -ps2b-2026-11-21): seeds 483920 912345
+246371, 800 km, villages on, app params::defaults, 384x288, one release test binary of origin/main 4a94860b plus
+scratch_code/step0c_prototype.diff.txt = step 0b's prototype (far-bank slack, jag guard) with the heading gain read
+from the env var PS2_GAIN (a SWEEP-TEMP function in growth.rs; never committed as code). Gains 0.4, 0.3, 0.2 (step
+0b's 0.6 is in ../parallel-streets-ps2b-2026-11-21/step0/agg_c5_384.txt). The null is step 0's, unchanged.
+
+step0/agg_g<gain>_384.txt, towns_g<gain>_384.csv, audit_g<gain>_384.txt   ps1_agg.py's tables, the per-town rows (with
+                                  step 0b's wall columns), the audit's lines, per gain.
+step0/bars_g<gain>.txt           every step-0 bar read off those files (scratch_code/bars.py).
+contact_<seed>.png               the 14 towns: City Viewer opening frame OFF, ON, x4 OFF, ON, at gain 0.4 (the best
+                                 gain, section 13), windowed under the lock, probe RESULT: PASS x3 (frames/<seed>.log).
+frames/pair_<seed>_<id>_z1|z4.png  full-size OFF | ON pairs. needles/  the 260 m needle crops OFF | ON.
+wall_closeups/wall_<seed>_<id>_off_b_c.png   OFF | step 0b (gain 0.6) | step 0c (gain 0.4): 246371 #14, #6, #13, 483920 #23.
+scratch_code/                    the diff, bars.py; shots.sh, contact.py, the probe and wallstat/plot are step 0b's.
