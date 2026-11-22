@@ -1117,9 +1117,9 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
                             river_ext = Some(ext);
                         }
                         // RR-T1: the map's own drawn curve in place of the raw trace.
-                        // RR-T2 (Ruling HE): where the map draws no run here, or draws it in the
-                        // headwater class (rank at or above `STREAM_RANK_U`), the watercourse is a
-                        // stream: laid at `STREAM_WIDTH_M`, never at a river's width.
+                        // RR-T2 (Ruling HE): where the map draws the run in the headwater class (rank at or
+                        // above `STREAM_RANK_U`), the watercourse is a stream: laid at `STREAM_WIDTH_M`,
+                        // never at a river's width.
                         let local = match drawn {
                             Some(runs) => match drawn_stretch(runs, traced[bi], (px, py), box_rad_g, &grid_to_local) {
                                 Some((l, rank)) => {
@@ -1129,10 +1129,10 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
                                     }
                                     l
                                 }
-                                None => {
-                                    river_width_m = STREAM_WIDTH_M;
-                                    local
-                                }
+                                // No run near: the map merged this water into a heavier neighbour (`parallel_of`),
+                                // so it is a river drawn by its parent, not a stream (measured: all 20 undrawn
+                                // towns of seed 483920 are such runs, order 1 to 4). Raw path, river width.
+                                None => local,
                             },
                             None => local,
                         };

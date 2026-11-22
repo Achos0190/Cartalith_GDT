@@ -14739,29 +14739,6 @@ impl WorldGen {
         // A tributary is never drawn wider than its trunk where it meets it;
         // a run bridged onto another's head widens that run instead.
         river_stroke::settle_join_widths(&mut profiles, &joins);
-        // RR-T2 (Ruling HE, "I'd still like to see the stream on the map ... with the town"): a watercourse a
-        // town sits on is drawn, as a stream, even where it has no discharge reading of its own (`profiles[i]` is
-        // `None`, so it would be dropped): its half width is the thinnest any drawn river has, a floor, never a
-        // river's. A `parallel_of` run is still dropped (it is the same water as its heavier neighbour:
-        // `river_draw_plan`'s merge stays), and only runs within `DRAWN_BIND_CELLS` of a settlement qualify.
-        // With the switch off (`urban_river_smooth`) nothing changes.
-        if self.params.urban_river_smooth && let Some(civ) = self.civ.as_ref() {
-            let floor = profiles.iter().flatten().filter_map(|p| p.first().copied()).fold(f64::INFINITY, f64::min);
-            if floor.is_finite() {
-                for i in 0..rivers.len() {
-                    if profiles[i].is_some() || plan.parallel_of[i].is_some() {
-                        continue;
-                    }
-                    let near = civ.settlements.iter().any(|st| {
-                        let (mx, my) = (st.placement.x as f64 + 0.5, st.placement.y as f64 + 0.5);
-                        rivers[i].pts.iter().any(|&(qx, qy)| ((qx - mx).powi(2) + (qy - my).powi(2)).sqrt() <= cartalith_civ::urban_adapter::DRAWN_BIND_CELLS)
-                    });
-                    if near {
-                        profiles[i] = Some(vec![floor; run_pts[i].len()]);
-                    }
-                }
-            }
-        }
         // RR-2 / RR-4 inputs, read once per network: each cell's gradient as the
         // waterfall detector reads it (`landmark_gradient` over the terrain
         // crate's `analysis::slope`), metres per field unit, the cell size, and
@@ -15293,16 +15270,7 @@ impl WorldGen {
             u8::from(self.river_meander_off.get()),
             self.river_width_max_cells.get().to_bits(),
             u8::from(self.river_marks_off.get()),
-        ) + &format!(";ts{:016x}", self.town_stream_key())
-    }
-
-    /// RR-T2: a hash of the settlement cells while `urban_river_smooth` is on (the towns a stream is drawn for), else `0`,
-    /// so the drawn-river cache is rebuilt when a town moves or the switch flips.
-    fn town_stream_key(&self) -> u64 {
-        if !self.params.urban_river_smooth {
-            return 0;
-        }
-        self.civ.as_ref().map_or(0, |c| c.settlements.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, s| (h ^ ((u64::from(s.placement.x as u32) << 20) ^ u64::from(s.placement.y as u32))).wrapping_mul(0x0100_0000_01b3)))
+        )
     }
 
     /// The river network cache's key, for a probe to check it moves with an

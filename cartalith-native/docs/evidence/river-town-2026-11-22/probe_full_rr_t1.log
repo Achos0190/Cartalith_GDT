@@ -1,0 +1,71 @@
+  PASS  urban_river_smooth is a registered parameter
+  PASS  urban_river_smooth is ON in the app's parameters (a new world)
+  PASS  the world has drawn rivers (593)
+  drawn strokes (widths, not parallel_of): off 472, on 472 (new 0); runs with parallel_of AND widths: off 0, on 0
+  PASS  NO PARALLEL DOUBLES: no parallel_of run carries a width, on or off (0, 0)
+  PASS  the switch only adds strokes (472 -> 472)
+  town #0 (8,49) nearest run drawn=true at 0.00 cells: offset off 181.4 on 21.2 m | turn off 0.0 on 0.0 | river vertices in box off 443 on 112 | river[0] off (-830.2468, -830.2468) on (2933.333, -1458.333)
+  town #1 (1,115) nearest run drawn=true at 0.02 cells: offset off 129.3 on 0.0 m | turn off 45.0 on 18.4 | river vertices in box off 217 on 223 | river[0] off (2933.333, -1458.333) on (3170.283, -1627.674)
+  town #2 (20,33) nearest run drawn=false at 0.00 cells: offset off 618.1 on 0.0 m | turn off 45.0 on 0.0 | river vertices in box off 217 on 55 | river[0] off (2933.333, -1458.333) on (3446.001, -1535.231)
+  UNDRAWN town #2 (20,33): run order 4 own_order 3 discharge 2897.03 (Q/Q_max 0.25552) cells 19 keys widths=false parallel_of=48
+  town #3 (23,114) nearest run drawn=true at 0.03 cells: offset off 446.1 on 0.0 m | turn off 45.0 on 39.8 | river vertices in box off 379 on 410 | river[0] off (3336.42, 3336.42) on (3387.719, 4074.667)
+  town #4 (361,258) nearest run drawn=true at 0.01 cells: offset off 404.1 on 0.1 m | turn off 0.0 on 9.1 | river vertices in box off 309 on 328 | river[0] off (3313.333, 630.0) on (4978.631, 1225.415)
+  town #5 (154,26) nearest run drawn=true at 0.00 cells: offset off 252.6 on 252.6 m | turn off 0.3 on 0.3 | river vertices in box off 158 on 158 | river[0] off (2933.333, 625.0) on (2933.333, 625.0)
+  town #6 (153,271) nearest run drawn=true at 0.00 cells: offset off 139.9 on 30.0 m | turn off 45.0 on 0.0 | river vertices in box off 379 on 80 | river[0] off (3336.42, -830.2468) on (854.1644, -3020.833)
+  town #7 (211,237) nearest run drawn=true at 0.00 cells: offset off 377.1 on 4.2 m | turn off 135.0 on 3.3 | river vertices in box off 217 on 108 | river[0] off (850.0, -1458.333) on (-2558.527, 1670.958)
+  town #8 (148,248) nearest run drawn=true at 0.08 cells: offset off 411.1 on 0.0 m | turn off 90.0 on 57.0 | river vertices in box off 185 on 232 | river[0] off (850.0, -1458.333) on (2211.243, -2568.41)
+  town #9 (6,68) nearest run drawn=true at 0.07 cells: offset off 392.9 on 0.0 m | turn off 45.0 on 79.7 | river vertices in box off 217 on 271 | river[0] off (2933.333, 625.0) on (-402.1048, 4060.135)
+  town #10 (243,264) nearest run drawn=true at 0.00 cells: offset off 400.3 on 22.8 m | turn off 45.0 on 2.7 | river vertices in box off 189 on 107 | river[0] off (850.0, 2708.333) on (-1035.096, 3543.816)
+  town #11 (219,263) nearest run drawn=true at 0.00 cells: offset off 423.3 on 2.7 m | turn off 45.0 on 3.6 | river vertices in box off 217 on 107 | river[0] off (-1233.333, 2708.333) on (-2366.521, 1298.485)
+  UNDRAWN town #17 (140,232): run order 4 own_order 1 discharge 4424.23 (Q/Q_max 0.39022) cells 6 keys widths=false parallel_of=351
+  UNDRAWN town #28 (254,125): run order 3 own_order 3 discharge 1431.54 (Q/Q_max 0.12626) cells 12 keys widths=false parallel_of=279
+  UNDRAWN town #60 (239,271): run order 3 own_order 2 discharge 1864.94 (Q/Q_max 0.16449) cells 7 keys widths=false parallel_of=510
+  UNDRAWN town #73 (264,256): run order 3 own_order 2 discharge 3486.92 (Q/Q_max 0.30755) cells 8 keys widths=false parallel_of=504
+  UNDRAWN town #98 (262,87): run order 2 own_order 1 discharge 25.77 (Q/Q_max 0.00227) cells 7 keys widths=false parallel_of=212
+  UNDRAWN town #130 (122,286): run order 2 own_order 1 discharge 41.68 (Q/Q_max 0.00368) cells 6 keys widths=false parallel_of=559
+  UNDRAWN town #136 (209,277): run order 2 own_order 1 discharge 106.82 (Q/Q_max 0.00942) cells 7 keys widths=false parallel_of=566
+  UNDRAWN town #145 (330,160): run order 1 own_order 1 discharge 68.26 (Q/Q_max 0.00602) cells 4 keys widths=false parallel_of=353
+  UNDRAWN town #148 (4,23): run order 2 own_order 1 discharge 75.85 (Q/Q_max 0.00669) cells 6 keys widths=false parallel_of=40
+  UNDRAWN town #149 (7,35): run order 2 own_order 1 discharge 41.72 (Q/Q_max 0.00368) cells 5 keys widths=false parallel_of=53
+  UNDRAWN town #157 (242,243): run order 2 own_order 2 discharge 290.46 (Q/Q_max 0.02562) cells 5 keys widths=false parallel_of=483
+  UNDRAWN town #169 (204,239): run order 2 own_order 1 discharge 73.49 (Q/Q_max 0.00648) cells 8 keys widths=false parallel_of=488
+  UNDRAWN town #172 (266,111): run order 2 own_order 2 discharge 363.97 (Q/Q_max 0.03210) cells 8 keys widths=false parallel_of=247
+  UNDRAWN town #174 (14,49): run order 4 own_order 3 discharge 8317.33 (Q/Q_max 0.73360) cells 14 keys widths=false parallel_of=48
+  UNDRAWN town #185 (168,88): run order 2 own_order 2 discharge 59.55 (Q/Q_max 0.00525) cells 4 keys widths=false parallel_of=181
+  UNDRAWN town #197 (375,246): run order 2 own_order 2 discharge 265.47 (Q/Q_max 0.02341) cells 4 keys widths=false parallel_of=498
+  UNDRAWN town #219 (66,96): run order 2 own_order 1 discharge 58.49 (Q/Q_max 0.00516) cells 6 keys widths=false parallel_of=221
+  UNDRAWN town #226 (136,272): run order 2 own_order 1 discharge 113.89 (Q/Q_max 0.01004) cells 4 keys widths=false parallel_of=553
+  UNDRAWN town #233 (326,197): run order 1 own_order 1 discharge 210.57 (Q/Q_max 0.01857) cells 10 keys widths=false parallel_of=407
+  STREAM TOWNS (river_w <= 5.5 m with the switch on): 0 of 220; with a quay street off 0, on 0; with a harbour off 0, on 0; river width median off nan m, on nan m
+  FAIL  at least two stream towns to measure and frame (0)
+  PASS  NO PORT: no stream town has a quay street or a harbour with the switch on (0, 0)
+  FAIL  control: with the switch off some of the same towns had a quay street (0)
+  220 river towns measured, 20 of them beside a river the map does not draw (no channel width, or a parallel run)
+  PASS  at least ten river towns measured (silently empty is a failure)
+  offset to the drawn river, per-town max (m): median off 353.5, on 0.1; towns on the curve (<= 30 m): 195 of 220
+  sharpest turn: median off 45.0, on 6.0 deg; staircase vertices over 30 deg: off 134, on 50
+  buildings moved by (median share): 0.099
+  FAIL  ONE CURVE: at least 90% of river towns' rivers lie within 30 m of the drawn river with the switch on (195 of 220)
+  PASS  control: with it off the median town's river is over 50 m from the drawn river (353.5 m)
+  PASS  SMOOTH: the median town's sharpest turn is under 30 deg with it on (6.0)
+  PASS  SMOOTH: the staircase is at least halved (134 -> 50 vertices over 30 deg)
+  PASS  nothing collapses: buildings move by under 25% in the median (0.099)
+  PASS  at least 4 river towns with a visibly bent raw river to frame (65)
+  FAIL  two stream towns framed (0)
+  town #6 (153, 271), 4457 buildings
+  PASS  town #6 deep map (off) drew (120 colours, 15 zoom steps)
+  PASS  town #6 deep map (on) drew (120 colours, 15 zoom steps)
+  PASS  town #6: the City Viewer frames differ off to on (29387 sampled pixels; control)
+  town #3 (23, 114), 4231 buildings
+  PASS  town #3 deep map (off) drew (121 colours, 15 zoom steps)
+  PASS  town #3 deep map (on) drew (132 colours, 15 zoom steps)
+  PASS  town #3: the City Viewer frames differ off to on (16786 sampled pixels; control)
+  town #16 (246, 237), 2907 buildings
+  PASS  town #16 deep map (off) drew (109 colours, 15 zoom steps)
+  PASS  town #16 deep map (on) drew (106 colours, 15 zoom steps)
+  PASS  town #16: the City Viewer frames differ off to on (38714 sampled pixels; control)
+  town #21 (77, 231), 2750 buildings
+  PASS  town #21 deep map (off) drew (128 colours, 15 zoom steps)
+  PASS  town #21 deep map (on) drew (108 colours, 15 zoom steps)
+  PASS  town #21: the City Viewer frames differ off to on (33612 sampled pixels; control)
+RESULT: FAIL (4 failed) checks=28

@@ -2255,8 +2255,8 @@ fn a_town_river_follows_the_drawn_curve_when_given_one() {
     let aside: Vec<(f64, f64)> = (0..=48 * 8).map(|k| (20.5 + 1.2, k as f64 / 8.0 + 0.5)).collect();
     let refused = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&[DrawnRiver { pts: aside, ranks: vec![] }])).expect("water");
     assert!(refused.ctx.river_path.as_ref().expect("a path").iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 1e-6), "a run 1.2 cells away keeps the raw path");
-    // RR-T2 (Ruling HE): a river the map draws no run for is a stream at stream width; an unranked drawn run is a river at the order's width.
-    assert_eq!(refused.ctx.river_width_m, Some(STREAM_WIDTH_M), "no drawn run: a stream");
+    // RR-T2 (Ruling HE): water the map merged away (no run near) is drawn by its parent, so it keeps the river's width; an unranked drawn run is a river at the order's width.
+    assert_eq!(refused.ctx.river_width_m, Some(38.0), "no drawn run near: not a stream");
     assert_eq!(on.ctx.river_width_m, Some(38.0), "an unranked drawn run keeps the order's river width");
     // A ranked run: below the headwater rank is a river, at or above it a stream.
     let ranked = |u: f32| vec![DrawnRiver { pts: wavy.clone(), ranks: vec![u; wavy.len()] }];
