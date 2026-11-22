@@ -32,7 +32,7 @@ GUI, then engine, then the LLM interface).
 ## Open work by area
 
 ### Timeline and story
-- Ladder on a real vault: 217 of 243 events are "off the axis" (the track follows the vault's 3000-4769 while the world's own events sit at -640..-60), so the world's events are counted, not drawn. Decide: a split or broken axis, or two tracks. `chronos_lanes.gd`, `tl_range` (found 2026-11-22, `2e4d4f38`).
+- **Ruling HF:** the world's timeline start/end default to the vault's lowest and highest year until the user overrides them (saved per world); world events outside keep their years, counted and listed in L2, not drawn. `tl_range`, `chronos_lanes.gd`, the collapse simulation's span (F-finding: the end date must hold).
 - Phone: with the transport panel open at L0, Back goes straight to "Exit Cartalith"; the back chain in `dcc_shell.gd` does not close the transport panel (predates the ladder).
 - Phone: the ladder's count line, Back and Filter text is about 10 px on the 6T's 1080 px screen.
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.

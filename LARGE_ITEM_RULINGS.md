@@ -4068,3 +4068,7 @@ After `2aa402de` (`PARALLEL_STREETS_SCOPE.md` section 17): **Q26** -- the water 
 ## Ruling HC: the river through a town follows the map (owner, 2026-11-22)
 
 RR-T1 (`RIVER_REALISM_SCOPE.md`, `urban_river_smooth`) answered. **(1) Follow the map.** One shared curve wins over keeping the town's old bank: the bank bar becomes *the market stands on the same side of the river as the map's marker*, replacing "no bank swap". **(2)** The 11 % of towns (53 of 478) whose market changed bank while the marker kept its side are investigated before the commit; a small, measurable fix goes in, otherwise the cause is reported. **(3)** The harbour-front sea extension (a river carried on to its sea) is smoothed as a follow-up, a separate commit, the same switch if it fits.
+
+## Ruling HF: the world's timeline range follows the vault (owner, 2026-11-22)
+
+Owner: *"The world should follow the highest and lowest value from the vault until a user overrides the start and end dates."* The world's timeline start and end (the strip's track, the collapse/recovery simulation's span, `tl_range`) **default to the lowest and highest year found in the vault's linked or imported timelines**; once the user sets a start or end date it wins and is kept (saved per world), and the vault no longer moves it. With no vault timelines, today's rule holds. **The world's own generated events outside that range keep their years** and are not re-dated; the axis is not widened for them -- they are listed in L2's table (with a "before the range" / "after the range" note) and counted, not drawn.
