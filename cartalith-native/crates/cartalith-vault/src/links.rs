@@ -744,6 +744,13 @@ pub struct LinkStore {
     /// an older reader is ignored -- the same arrangement as `snapshots`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timelines: Vec<crate::timelines::TimelineDecision>,
+    /// Ruling HF: the world's timeline start year **only when the user set it** (`None` = follow the
+    /// vault's lowest year). Additive, like `snapshots`: absent members are not written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tl_start: Option<i64>,
+    /// Ruling HF: the world's timeline end year only when the user set it; see [`Self::tl_start`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tl_end: Option<i64>,
 }
 
 /// The key one entity's snapshot at one radius is filed under:
@@ -808,6 +815,8 @@ impl LinkStore {
     /// never in here (§5).
     pub fn is_empty(&self) -> bool {
         self.vaults.is_empty() && self.links.is_empty() && self.snapshots.is_empty() && self.timelines.is_empty()
+            && self.tl_start.is_none()
+            && self.tl_end.is_none()
     }
 
     /// The pretty-printed `vault.json` document: this store's own members
@@ -984,6 +993,22 @@ impl LinkStore {
 mod tests {
     use super::*;
     use crate::provider::FileMeta;
+
+    /// Protects Ruling HF's saved start/end: a user-set range survives `to_json`/`from_json` (so a world
+    /// reopens with it), an unset side is absent from the document rather than `0`, and a store holding only a
+    /// range is not "empty" (or `vault.json` would be dropped and the override with it).
+    #[test]
+    fn timeline_range_override_round_trips_and_is_omitted_when_unset() {
+        let mut st = LinkStore::default();
+        assert!(st.is_empty());
+        st.tl_start = Some(4200);
+        assert!(!st.is_empty());
+        let json = st.to_json();
+        assert!(json.contains("\"tl_start\": 4200") && !json.contains("tl_end"), "{json}");
+        let back = LinkStore::from_json(&json).unwrap();
+        assert_eq!((back.tl_start, back.tl_end), (Some(4200), None));
+        assert!(LinkStore::default().to_json().find("tl_").is_none());
+    }
 
     /// A settled fixture link (settlement, heading selection, one imported
     /// paragraph) that every test below starts from and mutates as needed.

@@ -109,7 +109,7 @@ func setup(shell: Node, compact: bool) -> VBoxContainer:
 	_up = DccWidgets.segment(head, "⌃", go_up)
 	_up.name = "LadderUp"
 	_up.tooltip_text = "Show more: lanes, then every event in a table."
-	_count = DccTheme.mono_label("", "text_ghost", DccTheme.role_px("fs_timeline"), 0)
+	_count = DccTheme.mono_label("", "text_ghost", _fs(), 0)
 	_count.name = "LadderCount"
 	head.add_child(_count)
 	_badge = DccWidgets.segment(head, "", _open_prompt)
@@ -122,6 +122,8 @@ func setup(shell: Node, compact: bool) -> VBoxContainer:
 		_sync_visibility())
 	_filter_btn.name = "FilterToggle"
 	for b in [_down, _up, _badge, _all_btn, _filter_btn]:
+		if _compact:
+			(b as Button).add_theme_font_size_override("font_size", _fs())
 		(b as Button).custom_minimum_size.y = maxf((b as Button).custom_minimum_size.y, float(ChronosPrompt.tap_h()))
 	_canvas = ChronosLanes.new()
 	_canvas.phone = shell.is_phone() if shell != null and shell.has_method("is_phone") else compact
@@ -149,10 +151,10 @@ func setup(shell: Node, compact: bool) -> VBoxContainer:
 	_table.select_mode = Tree.SELECT_ROW
 	_table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_table.add_theme_font_override("font", DccTheme.mono())
-	_table.add_theme_font_size_override("font_size", maxi(10, DccTheme.role_px("fs_timeline")))
+	_table.add_theme_font_size_override("font_size", maxi(10, _fs()))
 	_table.item_mouse_selected.connect(_on_table_clicked)
 	add_child(_table)
-	_note = DccTheme.mono_label("", "text_ghost", DccTheme.role_px("fs_timeline"), 0)
+	_note = DccTheme.mono_label("", "text_ghost", _fs(), 0)
 	_note.name = "LadderNote"
 	_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_note.visible = false
@@ -379,9 +381,11 @@ func _feed_canvas(lo: int, hi: int, cur: int) -> void:
 	_off = _shown.size() - on.size()
 	_canvas.set_model(mini(level, 1), lo, hi, cur, _bands, on if level >= 1 else [], _landmarks)
 	var parts: Array = ["%d event%s" % [_total, "" if _total == 1 else "s"]]
-	parts.append("%d period%s" % [_periods.size(), "" if _periods.size() == 1 else "s"] if not _periods.is_empty() else "no periods (centuries shown)")
+	## The phone's count line is shorter: at its body size (12, was 10) the long form was wider than the transport panel
+	## and widened the whole strip past the screen edge (frame `L1_transport_phone`, 2026-11-22).
+	parts.append("%d period%s" % [_periods.size(), "" if _periods.size() == 1 else "s"] if not _periods.is_empty() else ("no periods" if _compact else "no periods (centuries shown)"))
 	if _off > 0 and level >= 1:
-		parts.append("%d off the axis (all events lists them)" % _off)
+		parts.append("%d off the axis" % _off if _compact else "%d off the axis (all events lists them)" % _off)
 	_count.text = " · ".join(PackedStringArray(parts))
 
 ## True when the item's years touch `[lo, hi]`: a range that starts before the axis and runs into it is drawn (clipped).
@@ -553,21 +557,28 @@ func _build_filters() -> void:
 		mb.flat = false
 		mb.custom_minimum_size.y = float(ChronosPrompt.tap_h())
 		mb.add_theme_font_override("font", DccTheme.mono())
-		mb.add_theme_font_size_override("font_size", maxi(10, DccTheme.role_px("fs_timeline")))
+		mb.add_theme_font_size_override("font_size", maxi(10, _fs()))
 		_filters.add_child(mb)
 		_menus[k] = mb
-	_nof = DccTheme.mono_label("", "text_ghost", DccTheme.role_px("fs_timeline"), 0)
+	_nof = DccTheme.mono_label("", "text_ghost", _fs(), 0)
 	_nof.name = "LadderNOf"
 	_filters.add_child(_nof)
 	_cluster_chip = DccWidgets.segment(_filters, "", func():
 		_s_cluster = []
 		_on_filters_changed())
 	_cluster_chip.name = "ClusterChip"
+	if _compact:
+		_cluster_chip.add_theme_font_size_override("font_size", _fs())
 	_cluster_chip.custom_minimum_size.y = maxf(_cluster_chip.custom_minimum_size.y, float(ChronosPrompt.tap_h()))
 	_doc_btn = DccWidgets.chip(_filters, "Open as document", _open_document, true)
 	_doc_btn.name = "OpenAsDocument"
 	_doc_btn.tooltip_text = "Write the whole timeline as a read-only Markdown document in Chronos syntax (_cartalith/Consolidated timeline.md in your vault) and open it. It is regenerated each time and never replaces a file of yours. Private notes' events are left out."
 	_doc_btn.custom_minimum_size.y = maxf(_doc_btn.custom_minimum_size.y, float(ChronosPrompt.tap_h()))
+
+## The ladder's text size: the strip's role size on desktop and tablet; the phone's body size on the phone, where the
+## strip role (10) and `segment()`'s 10 were the finding "count, Back and Filter read about 10 px on the 6T" (2026-11-22).
+func _fs() -> int:
+	return DccTheme.FS_BODY if _compact else DccTheme.role_px("fs_timeline")
 
 ## Fills the three menus from the current model (the faction list changes with the world). A checkable row toggles and
 ## the popup stays open.
@@ -654,6 +665,7 @@ func _fill_table() -> void:
 	rows = rows.duplicate()
 	rows.sort_custom(func(a, c): return int(a["start_year"]) < int(c["start_year"]))
 	var cur := int(_shell.tl_year()) if _shell != null else 0
+	var rng: Dictionary = _shell.tl_range() if _shell != null else {"min": -1000000000, "max": 1000000000}
 	for it in rows:
 		var d: Dictionary = it
 		var row := _table.create_item(root)
@@ -663,6 +675,10 @@ func _fill_table() -> void:
 		row.set_text(0, _when_text(d))
 		var mark: String = {"gen": "●", "note": "○", "imported": "■", "both": "◉"}[ChronosLanes.origin_of(d)]
 		row.set_text(1, ("%s %s" % [mark, String(d["title"])]) if _compact else String(d["title"]) + ("  [private]" if bool(d.get("private", false)) else ""))
+		## Ruling HF: an event outside the track keeps its year; the table says so (the canvas does not draw it).
+		if not _reaches(d, int(rng["min"]), int(rng["max"])):
+			row.set_text(1, row.get_text(1) + ("  (before the range)" if int(d["start_year"]) < int(rng["min"]) else "  (after the range)"))
+			row.set_tooltip_text(1, row.get_text(1)) ## the column can clip the note on a narrow sheet
 		if cols.size() > 2:
 			row.set_text(2, _kind_word(d))
 		if cols.size() > 3:

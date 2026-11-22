@@ -137,10 +137,11 @@ var _tl_sim_mode := "collapse"          ## "collapse" | "recovery"
 var _tl_sim_character := "mixed"        ## "mixed" | "trade" | "disease" | "conflict"
 var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/100
 var _tl_sim_rate := 0.01                ## fraction/yr -- reference slider(tenths-%)/1000
-## Simulation "Start year" (number field -9999..9999), sent as `start_year`. Default 0 is the reference's `#civSimStartYear` `value` (v2.11 line 1944).
-var _tl_sim_start_year := 0
-## F11: the run's END year (owner finding 2026-11-21: a field named Duration read as an end year turned 4200 + 4700 into 8900). Sent as `end_year`; the default 100 is the reference's 100-year duration from the default start 0.
-var _tl_sim_end_year := 100
+## Simulation "Start year" (number field -9999..9999), sent as `start_year`, and F11's END year (owner finding
+## 2026-11-21: a field named Duration read as an end year turned 4200 + 4700 into 8900), sent as `end_year`, are
+## **the world's own timeline start and end** (Ruling HF): typing one saves it per world and moves the strip's
+## track (`app.tl_override_set`); until then they show the vault's lowest/highest year, else the reference's 0 and 100
+## (`#civSimStartYear` v2.11 line 1944, and its 100-year duration). `app.tl_sim_span()` answers.
 ## Simulation "Step years" (1..1000000), sent as `step_years`. Default 10 is the reference's `#civSimStepYears` `value` (v2.11 line 1947).
 var _tl_sim_step_years := 10
 ## The Timeline "Exist only" filter; `_tl_apply_filters` returns rows unfiltered when off.
@@ -8258,10 +8259,11 @@ func _build_timeline_sim(body: Control) -> void:
 	else:
 		DccWidgets.dock_slider(grp, "Regrowth rate", 0.1, 3.0, 0.1, _tl_sim_rate * 100.0, "%/yr",
 			func(v: float): _tl_sim_rate = v / 100.0)
-	DccWidgets.number(grp, "Start year", -9999.0, 9999.0, 1.0, float(_tl_sim_start_year),
-		func(v: float): _tl_sim_start_year = int(v))
-	DccWidgets.number(grp, "End year", -9999.0, 9999999.0, 1.0, float(_tl_sim_end_year),
-		func(v: float): _tl_sim_end_year = int(v))
+	var span: Array = app.tl_sim_span()
+	DccWidgets.number(grp, "Start year", -9999.0, 9999.0, 1.0, float(span[0]),
+		func(v: float): app.tl_override_set(int(v), app.tl_override().get("end")))
+	DccWidgets.number(grp, "End year", -9999.0, 9999999.0, 1.0, float(span[1]),
+		func(v: float): app.tl_override_set(app.tl_override().get("start"), int(v)))
 	DccWidgets.number(grp, "Step years", 1.0, 1000000.0, 1.0, float(_tl_sim_step_years),
 		func(v: float): _tl_sim_step_years = int(v))
 	DccWidgets.action(grp, "Simulate", func(): _tl_run_simulation(false), true)
@@ -8283,8 +8285,8 @@ func _tl_run_simulation(confirm_overwrite: bool) -> void:
 		"character": _tl_sim_character,
 		"severity": _tl_sim_severity,
 		"rate": _tl_sim_rate,
-		"start_year": _tl_sim_start_year,
-		"end_year": _tl_sim_end_year,
+		"start_year": int(app.tl_sim_span()[0]),
+		"end_year": int(app.tl_sim_span()[1]),
 		"step_years": _tl_sim_step_years,
 		"confirm_overwrite": confirm_overwrite,
 	}
@@ -8334,7 +8336,7 @@ func _tl_format_sim_result(r: Dictionary) -> String:
 	var final_n := int(r.get("final_settlements", 0))
 	var head := "Simulated %d step%s (%d yr each), %s -> %s. %d settlements remain." % [
 		steps, "" if steps == 1 else "s", _tl_sim_step_years,
-		_tl_format_year(_tl_sim_start_year), _tl_format_year(end_year), final_n]
+		_tl_format_year(int(app.tl_sim_span()[0])), _tl_format_year(end_year), final_n]
 	if _tl_sim_mode == "recovery":
 		return head
 	var died := int(r.get("died", 0))

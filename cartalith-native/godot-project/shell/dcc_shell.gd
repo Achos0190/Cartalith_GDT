@@ -6554,10 +6554,15 @@ func tl_set_year(year: int, exact := false) -> void:
 ## drawn as ticks (`tl_selection_events()`) and are not a range source either, so selecting a place never
 ## moves the axis under the user.
 func tl_range() -> Dictionary:
+	var bridge := _find_engine_bridge()
+	## Ruling HF: each end is the user's own (saved per world), else the vault's lowest/highest year, else the
+	## recorded years and conflicts as before. The vault no longer WIDENS a user-set end, and a world event outside
+	## the range keeps its year (counted and listed in L2, not drawn).
+	var ov := tl_override()
+	var ext: Array = _tl_note_extent(bridge) if bridge != null and bridge.has_world else []
 	var years: Array = []
 	for y in tl_recorded_years():
 		years.append(int(y))
-	var bridge := _find_engine_bridge()
 	if bridge != null and bridge.has_world:
 		for c in bridge.conflict_list():
 			var cd: Dictionary = c
@@ -6565,27 +6570,81 @@ func tl_range() -> Dictionary:
 				years.append(int(cd["start_year"]))
 			if cd.has("end_year"):
 				years.append(int(cd["end_year"]))
-		## CT view issue 1 (owner's vault, 2026-11-22): linked and imported note events are the world's
-		## dated things too. Events at 3000-4769 on a -400..1200 track pinned the playhead to the end.
-		## Unlike `tl_selection_events()` this is every linked note and every import, not the selection's,
-		## so selecting a place still never moves the axis.
-		var ext := _tl_note_extent(bridge)
-		if not ext.is_empty():
-			years.append(ext[0])
-			years.append(ext[1])
-	if years.is_empty():
+	var lo := 0
+	var hi := 0
+	var have := 0 ## bit 1 lo known, bit 2 hi known
+	if ov.has("start"):
+		lo = int(ov["start"]); have |= 1
+	elif not ext.is_empty():
+		lo = int(ext[0]); have |= 1
+	if ov.has("end"):
+		hi = int(ov["end"]); have |= 2
+	elif not ext.is_empty():
+		hi = int(ext[1]); have |= 2
+	if not years.is_empty():
+		var wlo: int = years[0]
+		var whi: int = years[0]
+		for y in years:
+			wlo = mini(wlo, int(y))
+			whi = maxi(whi, int(y))
+		## the world's own years fill an end that neither the user nor the vault gave
+		if not (have & 1):
+			lo = wlo; have |= 1
+		if not (have & 2):
+			hi = whi; have |= 2
+	if have == 0:
 		return {"min": TL_YEAR_MIN, "max": TL_YEAR_MAX, "from_world": false}
-	var lo: int = years[0]
-	var hi: int = years[0]
-	for y in years:
-		lo = mini(lo, int(y))
-		hi = maxi(hi, int(y))
+	if have == 1:
+		hi = maxi(lo + TL_MIN_SPAN, TL_YEAR_MAX) ## only a start is known (user-set, no world data)
+	elif have == 2:
+		lo = mini(hi - TL_MIN_SPAN, TL_YEAR_MIN)
+	if hi < lo: ## a user-set side that crossed the other: the user's side wins, the other follows it
+		if ov.has("start"):
+			hi = lo + TL_MIN_SPAN
+		else:
+			lo = hi - TL_MIN_SPAN
 	if hi - lo < TL_MIN_SPAN:
-		## Widened by the shortfall, split as evenly as integers allow, so the data sits mid-track.
-		var short := TL_MIN_SPAN - (hi - lo)
-		lo -= short / 2
-		hi += short - short / 2
+		if ov.has("start") and ov.has("end"):
+			hi = maxi(hi, lo + 1) ## the user's own pair is never widened, only kept a valid track
+		else:
+			## Widened by the shortfall, split as evenly as integers allow, so the data sits mid-track.
+			var short := TL_MIN_SPAN - (hi - lo)
+			lo -= short / 2
+			hi += short - short / 2
 	return {"min": lo, "max": hi, "from_world": true}
+
+## Ruling HF: the start and end the USER set for this world, `{start?, end?}` (a key is absent for a side that
+## follows the vault; never 0 for "unset"). Saved in `vault.json` by the engine.
+func tl_override() -> Dictionary:
+	var bridge := _find_engine_bridge()
+	if bridge == null or not bridge.has_world or not bridge.world_gen.has_method("tl_override"):
+		return {}
+	return bridge.world_gen.tl_override()
+
+## Ruling HF: sets the user's timeline start and/or end (`null` leaves that side following the vault, so pass
+## the current `tl_override()` value for a side you are not changing). The strip rebuilds on `timeline_records_changed`.
+func tl_override_set(start: Variant, end: Variant) -> void:
+	var bridge := _find_engine_bridge()
+	if bridge == null or not bridge.has_world or not bridge.world_gen.has_method("tl_override_set"):
+		return
+	bridge.world_gen.tl_override_set(start != null, int(start) if start != null else 0, end != null, int(end) if end != null else 0)
+	timeline_records_changed.emit()
+
+## Ruling HF: the vault timelines' `[lowest, highest]` year, or `[]` with none (public face of `_tl_note_extent`).
+func tl_vault_extent() -> Array:
+	var bridge := _find_engine_bridge()
+	if bridge == null or not bridge.has_world:
+		return []
+	return _tl_note_extent(bridge)
+
+## Ruling HF: what the collapse simulation's Start and End year fields hold: the user's own, else the vault's
+## lowest/highest year, else the reference's 0 and 100. Returns `[start, end]`.
+func tl_sim_span() -> Array:
+	var ov := tl_override()
+	var ext := tl_vault_extent()
+	var s := int(ov["start"]) if ov.has("start") else (int(ext[0]) if not ext.is_empty() else 0)
+	var e := int(ov["end"]) if ov.has("end") else (int(ext[1]) if not ext.is_empty() else 100)
+	return [s, e]
 
 ## `[min, max]` over every Note and Imported item (`WorldGen.timeline_items`' `year_min`/`year_max`), or `[]`.
 ## Linked notes are read from disk, and `tl_range()` runs several times a frame, so the answer is kept for
@@ -12349,6 +12408,11 @@ func _notification(what: int) -> void:
 		if ladder != null and ladder.has_method("go_down") and ladder.go_down():
 			_haptic("back")
 			return
+		## At L0 the ladder has nowhere lower to go; the transport panel itself is the level left (it fell through to
+		## "Exit Cartalith" before, 2026-11-22 finding), exactly as its own close button does.
+		set_phone_sim_strip_open(false)
+		_haptic("back")
+		return
 	if (_phone_search_overlay != null and _phone_search_overlay.visible) \
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()

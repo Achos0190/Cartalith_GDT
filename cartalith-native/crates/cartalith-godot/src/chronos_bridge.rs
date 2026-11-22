@@ -240,6 +240,28 @@ impl WorldGen {
         out
     }
 
+    /// Ruling HF: the timeline start/end the USER set, saved with the world: `{start?, end?}`, a key absent
+    /// when that side follows the vault (never 0 for "unset").
+    #[func]
+    fn tl_override(&self) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        if let Some(y) = self.vault.store.tl_start {
+            d.set("start", y);
+        }
+        if let Some(y) = self.vault.store.tl_end {
+            d.set("end", y);
+        }
+        d
+    }
+
+    /// Ruling HF: sets (`has_*` true) or clears (`has_*` false, the side follows the vault again) the user's
+    /// timeline start and end. A side whose `has_*` is false is left cleared, so call once with both.
+    #[func]
+    fn tl_override_set(&mut self, has_start: bool, start: i64, has_end: bool, end: i64) {
+        self.vault.store.tl_start = has_start.then_some(start);
+        self.vault.store.tl_end = has_end.then_some(end);
+    }
+
     /// Undoes one `timeline_decide`: removes the rows it imported and restores the decision row it
     /// replaced (or removes the row it created). `{ok, error}`.
     #[func]

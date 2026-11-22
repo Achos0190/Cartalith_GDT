@@ -4545,6 +4545,9 @@ impl WorldGen {
                     self.vault.store.snapshots = store.snapshots;
                     // The timeline decisions are this project's too (CT-4, `vault.json` `timelines[]`).
                     self.vault.store.timelines = store.timelines;
+                    // Ruling HF: the user's timeline start/end (absent = follow the vault).
+                    self.vault.store.tl_start = store.tl_start;
+                    self.vault.store.tl_end = store.tl_end;
                     // The vault *registry* is merged, not replaced. A
                     // `VaultRef` is `{id, display_name}` and the first entry
                     // is what `vault_info()` reports as the device's bound

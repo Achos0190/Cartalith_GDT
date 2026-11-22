@@ -8633,6 +8633,9 @@ impl WorldGen {
         self.vault.store.links.clear();
         // Ruling GD: decisions and imported events are world state, cleared with the links they name.
         self.vault.store.timelines.clear();
+        // Ruling HF: the user's timeline start/end belong to the world and leave with it.
+        self.vault.store.tl_start = None;
+        self.vault.store.tl_end = None;
         self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         // `snapshots` is world state too and must clear with `links`. Added
         // 2026-09-02: milestone 2 put snapshots in `LinkStore` without adding
@@ -8930,6 +8933,9 @@ impl WorldGen {
         self.vault.store.links.clear();
         // Ruling GD: decisions and imported events are world state, cleared with the links they name.
         self.vault.store.timelines.clear();
+        // Ruling HF: the user's timeline start/end belong to the world and leave with it.
+        self.vault.store.tl_start = None;
+        self.vault.store.tl_end = None;
         self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         self.vault.store.snapshots.clear();
         // Which of the three ways into a world this was -- an element of the
@@ -11541,6 +11547,9 @@ impl WorldGen {
         self.vault.store.links.clear();
         // Ruling GD: decisions and imported events are world state, cleared with the links they name.
         self.vault.store.timelines.clear();
+        // Ruling HF: the user's timeline start/end belong to the world and leave with it.
+        self.vault.store.tl_start = None;
+        self.vault.store.tl_end = None;
         self.vault.events = cartalith_vault::timelines::EventsDoc::default();
         // World state, same as `links` -- see `absorb()`'s clear for why.
         self.vault.store.snapshots.clear();

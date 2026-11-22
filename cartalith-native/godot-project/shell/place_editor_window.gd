@@ -235,13 +235,7 @@ var _sim_severity := 0.5
 ## Simulation rate as a per-year fraction (the slider shows 0-10 %/yr); default 0.01 is the
 ## reference's `#civSimRate` `value` (10, read as `/1000`; v2.11 lines 1942 and 25421).
 var _sim_rate := 0.01
-## Simulation start year, any integer in the number row's -100000..100000 range; default 0 is the
-## reference's `#civSimStartYear` `value` (v2.11 line 1944).
-var _sim_start_year := 0
-## Simulation duration in years (number row minimum 1); default 100 is the reference's
-## `#civSimDuration` `value` (v2.11 line 1946).
-## F11: the run's END year, sent as `end_year` (see `civilization_workspace.gd::_tl_sim_end_year`).
-var _sim_end_year := 100
+## Start/End year are not held here: they are the world's timeline start/end (Ruling HF, `app.tl_sim_span()`).
 ## Simulation step in years (number row minimum 1); default 10 is the reference's
 ## `#civSimStepYears` `value` (v2.11 line 1947).
 var _sim_step_years := 10
@@ -799,10 +793,12 @@ func _build_timeline(parent: Control) -> void:
 	DccWidgets.slider(sim, "Rate", 0.0, 10.0, 0.1, _sim_rate * 100.0, "%/yr",
 		func(v: float): _sim_rate = v / 100.0,
 		"Recovery mode only -- regrowth rate per year.")
-	DccWidgets.number(sim, "Start year", -100000.0, 100000.0, 1.0, float(_sim_start_year),
-		func(v: float): _sim_start_year = int(v))
-	DccWidgets.number(sim, "End year", -100000.0, 10000000.0, 1.0, float(_sim_end_year),
-		func(v: float): _sim_end_year = int(v))
+	## Ruling HF: Start/End are the world's own timeline start/end (saved per world; vault range until set).
+	var span: Array = app.tl_sim_span()
+	DccWidgets.number(sim, "Start year", -100000.0, 100000.0, 1.0, float(span[0]),
+		func(v: float): app.tl_override_set(int(v), app.tl_override().get("end")))
+	DccWidgets.number(sim, "End year", -100000.0, 10000000.0, 1.0, float(span[1]),
+		func(v: float): app.tl_override_set(app.tl_override().get("start"), int(v)))
 	DccWidgets.number(sim, "Step (yr)", 1.0, 10000.0, 1.0, float(_sim_step_years),
 		func(v: float): _sim_step_years = int(v))
 	DccWidgets.action(sim, "Run simulation", func(): _run_collapse_sim(false))
@@ -859,8 +855,8 @@ func _run_collapse_sim(confirm: bool) -> void:
 		"character": _sim_character,
 		"severity": _sim_severity,
 		"rate": _sim_rate,
-		"start_year": _sim_start_year,
-		"end_year": _sim_end_year,
+		"start_year": int(app.tl_sim_span()[0]),
+		"end_year": int(app.tl_sim_span()[1]),
 		"step_years": _sim_step_years,
 		"confirm_overwrite": confirm,
 	}
