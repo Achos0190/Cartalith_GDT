@@ -129,6 +129,24 @@ against the installed version.
 **A build produced here is confirmed to compile and package, nothing more.**
 Whether it runs is a question only Windows answers (`DECISIONS.md` §5).
 
+### Windows installer (Ruling HH)
+
+After a Windows export (`godot --headless --export-release "Windows Desktop"
+builds/windows/Cartalith.exe`), build the per-user, unsigned setup with
+Inno Setup 6 (`winget install --id JRSoftware.InnoSetup -e --scope user`):
+
+    cartalith-native/tools/build_installer.sh <export-folder> <output-folder>
+
+It runs `ISCC` on `cartalith-native/installer/cartalith.iss`, takes the version
+from `godot-project/version.txt`, and writes `Cartalith-Setup-<version>.exe`.
+The setup installs `Cartalith.exe`, `Cartalith.console.exe`, `Cartalith.pck` and
+`cartalith_godot.dll` under `{localappdata}\Programs\Cartalith`; the godotsteam
+and `steam_api64` dlls beside them in the export are unused (nothing calls Steam
+and the pck excludes the addon) and are not installed. It never touches
+`%APPDATA%`, so settings and worlds survive upgrade and uninstall. Test it with
+`/VERYSILENT /SUPPRESSMSGBOXES /DIR=<scratch> /NOICONS`, never into the real
+`Programs` folder. The headless export prints "export DONE" and may not exit.
+
 ## Crates for `cartalith-io`
 
 `zip` reads the HTML app's saves directly; `serde` and `serde_json` parse
