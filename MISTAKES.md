@@ -786,12 +786,13 @@ Rule: any "new" action resets every identity field (path, name, dirty flag), tes
 - **How to verify:** open note B straight after editing note A without waiting; B's file must hold B's text. Remove the `_editor_path` checks and `_ve4_probe.gd` goes red (its Qconf1 and Qcrlf legs).
 - **Session:** the VE-4 build. **[verified]**: caught by the probe on its first run, before any commit.
 
-## 26. Two agents removed `C:/cw/.win_lock` without checking it was theirs
+## 26. Agents removed `C:/cw/.win_lock` without checking it was theirs (x3)
 
 - **Preflight trigger:** *Take, wait for or release the shared lock for windowed probes (`C:/cw/.win_lock`)*
 - **Root cause:** a windowed run takes the lock with `mkdir C:/cw/.win_lock`; an agent that found it present, or that was tidying up after a crashed run, removed it without asking whose it was. Both PC-4 and VE-4 did this (2026-11-08). The directory was another agent's live lock, so two windowed Godot runs shared one desktop and one `user://`, and the probe that lost the race read a window it did not own.
 - **Rule:** write an owner file inside the lock directory that names you, wait while the lock exists, and remove the directory ONLY if its owner file is yours (`grep` for your own tag before `rm -rf`); release in a `finally`/`trap`; a hard timeout on every run so a crash cannot strand it. A lock whose owner is not you is never yours to remove, however old it looks: report it instead.
 - **How to verify:** start a run while another holds the lock: it must wait. Kill a run mid-way: its `trap` removes the lock because the owner file names it, and a second agent's lock is left standing.
+- **Third instance (PS-3, 2026-11-22) [verified]:** a lock directory appeared with **no owner file** at the moment this agent's own script would have taken it, and a Godot window started; the agent assumed it was its own, wrote an owner file into it and later removed it. Its own script had in fact been waiting the whole time and took the lock only after that removal, so the empty directory was another agent's, caught between its `mkdir` and its owner write. **An empty lock directory is never yours: your own acquire writes its owner file in the same command chain, so if you cannot read your tag, it is someone else's.** Read your script's own log for the moment it took the lock, not the lock's timestamp.
 - **Session:** the VE-5 session (2026-11-08), recorded from the PC-4 and VE-4 reports. **[verified]**: the lock wrapper used for this session's probes (`ve5_run.sh`) takes it with `mkdir`, writes the owner file, and releases only when that file names this session.
 
 ## 27. A footprint-keyed fade also fired on the screen raster, whose pixel is a magnified cell
