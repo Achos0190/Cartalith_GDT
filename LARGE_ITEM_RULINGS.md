@@ -4060,3 +4060,7 @@ New slot `entities/town_layouts.json` (format 3, no version bump); a save withou
 ## Ruling HB: PS-4 answers (owner, 2026-11-22)
 
 PS-4 measured a no-go (`68c45f38`, `PARALLEL_STREETS_SCOPE.md` section 16). **Q23 (a):** where a lane to the water meets a riverside wall, open a **water gate** (measured first) -- today the wall refuses every water lane, so change 5's lanes have never been laid in a walled town. **Q24:** build **fix E** on its own as a PS-2 first-sight fix (a stretched town under the switch takes the switch-off town's stretch choice), behind `urban_parallel_streets` (off), judged on the frames. **Q25:** the riverside bar is carried by PS-5's rear households and platting; until then it is judged against PS-2's 3.8 % / 3.5 %.
+
+## Ruling HD: fix E and the water gate (owner, 2026-11-22)
+
+After `2aa402de` (`PARALLEL_STREETS_SCOPE.md` section 17): **Q26** -- the water gate (reverted: met PS-4's riverside bar but raised needle lots above PS-2's baseline, and 483920 #7 became a long wall round an empty field) is **built again inside PS-5**, whose platting owns needles; the shell must then draw water gates in walls. **Q27** -- fix E's 2048 misses (riverside 3.4 vs 3.5 %, needles 12.2 vs 12.1 %, FS-1 kept 20 vs 21 of 39) are **accepted**, as Q24 accepted them.
