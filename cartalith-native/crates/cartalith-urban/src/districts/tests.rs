@@ -321,6 +321,7 @@ fn setup(c: &Case) -> Fixture {
                 road_reach: None,
                 wide_spacing: false,
                 whole_budget: false,
+                field: None,
                 target_len,
                 max_rf,
                 walls: true,

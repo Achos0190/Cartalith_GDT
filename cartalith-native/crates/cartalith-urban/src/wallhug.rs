@@ -182,6 +182,43 @@ pub enum KeptReason {
     MarginNotMet,
     /// The refitted ring was not smaller than the one it replaces.
     NotSmaller,
+    /// **Not the reference** (PS-2 step 0b): a town with a grain whose refitted ring was jagged
+    /// ([`ring_is_jagged`]): the circuit it grew is kept, as for any ring refused.
+    Jagged,
+}
+
+/// The most vertices a refitted ring of a town with a grain may turn more than
+/// [`JAG_TURN_RAD`] (either way). **Derived from today's walls**: on the 35 census towns of 1 500
+/// and up (384, three seeds, switch off) a wall has a median of 4 and a p90 of 6 such vertices
+/// (max 8, `parallel-streets-ps2b-2026-11-21/step0/wall_stats.txt`), so the cap is today's p90.
+pub const JAG_MAX_SHARP: usize = 6;
+/// A turn of more than this at a ring vertex is sharp, radians (60 degrees): the owner's spike
+/// check (the `TAUT_MAX_TURN` of 75 degrees is the sharpest corner [`tauten`] makes on purpose).
+pub const JAG_TURN_RAD: f64 = 60.0 * PI / 180.0;
+/// The longest a refitted ring of a town with a grain may be over its convex hull. **Derived**:
+/// the judgement's own p90 bar for a taut wall (`TOWN_GENERATOR_JUDGEMENT.md` change 1, 1.15); today's
+/// walls reach 1.144 at most on the census (the same file).
+pub const JAG_MAX_HULL_RATIO: f64 = 1.15;
+
+/// **Not the reference** (PS-2 step 0b, the owner's question on 246371 #14's wall): whether `ring`
+/// is a jagged wall: more than [`JAG_MAX_SHARP`] vertices turning over [`JAG_TURN_RAD`], or longer
+/// than [`JAG_MAX_HULL_RATIO`] times its convex hull. The back streets' blocks leave the built
+/// mass in clumps with open ground between them, and a ring hugging clumps is notched and spiked
+/// where a medieval wall is a taut curtain (Ruling FE). Never true for a ring under four points.
+pub fn ring_is_jagged(ring: &[Vec2]) -> bool {
+    let n = ring.len();
+    if n < 4 {
+        return false;
+    }
+    let sharp = (0..n)
+        .filter(|&i| {
+            let (a, b, c) = (ring[(i + n - 1) % n], ring[i], ring[(i + 1) % n]);
+            let (d1, d2) = (b - a, c - b);
+            d1.len() > 1e-6 && d2.len() > 1e-6 && d1.cross(d2).atan2(d1.dot(d2)).abs() > JAG_TURN_RAD
+        })
+        .count();
+    let len = |p: &[Vec2]| (0..p.len()).map(|i| p[i].dist(p[(i + 1) % p.len()])).sum::<f64>();
+    sharp > JAG_MAX_SHARP || len(ring) > JAG_MAX_HULL_RATIO * len(&convex_hull(ring))
 }
 
 /// Ruling FB's span test on a both-banks town's lots (see [`hug_wall`]):
@@ -1283,6 +1320,7 @@ pub fn hug_wall(
     opts: &FortOpts,
     both_banks: bool,
     plaza: Option<&[Vec2]>,
+    parallel: bool,
 ) -> HugOutcome {
     let Some(old_ring) = wall_state.ring.clone() else {
         return HugOutcome::Kept(KeptReason::NoWall);
@@ -1555,6 +1593,10 @@ pub fn hug_wall(
             // (the census at 384: 12 squares outside on 3 seeds before this).
             if plaza.is_some_and(|pz| !point_in_poly(poly_centroid(pz), ring)) {
                 last = KeptReason::Refused;
+                continue 'cand;
+            }
+            if parallel && ring_is_jagged(ring) {
+                last = KeptReason::Jagged;
                 continue 'cand;
             }
             if margin >= MIN_MARGIN_M {

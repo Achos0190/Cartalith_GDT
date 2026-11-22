@@ -555,7 +555,7 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "River towns search for a crossing", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_town_bridge_search), set_fn: |p, v| p.urban_town_bridge_search = v != 0.0 },
     // PARALLEL_STREETS_SCOPE.md PS-1 (owner Rulings FY, GC, GF): the town-type rule, the direction
-    // field and the ground gate (`cartalith_urban::field`); at PS-1 it changes no layout. OFF at both
+    // field and the ground gate (`cartalith_urban::field`); at PS-2 (Ruling GM) a town with a grain also grows back streets and a bent heading. OFF at both
     // boundaries until the owner rules at PS-7: `defaults()` above leaves `WorldParams::defaults`'
     // `false`, the exception `urban_burgage` takes. No reference control. A save without the key loads
     // OFF (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout is asked for, so it invalidates nothing

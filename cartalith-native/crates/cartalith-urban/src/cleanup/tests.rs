@@ -1470,3 +1470,26 @@ fn the_generate_ordering_seam() {
     }
 }
 
+/// Protects `lane_pass_with`'s `keep_rect` (PS-2, `PARALLEL_STREETS_SCOPE.md` 9.1): the 200 x 180 m cells of the
+/// oversized grid are closed four-cornered blocks of rectangularity 1.0, so with `keep_rect` the pass cuts none of them
+/// (0 lanes), where the reference pass (`keep_rect` false) lays at least one on the same grid; and a grid whose cells
+/// are skewed to 0.5 rectangularity (a parallelogram, area 36 000 m2 over a bounding rectangle of 72 000) is cut as before.
+#[test]
+fn keep_rect_leaves_closed_rectangular_blocks_whole_and_cuts_the_rest() {
+    let site = dry_site();
+    let run = |skew: f64, keep: bool| {
+        let mut g = Graph::new();
+        grid(&mut g, 100.0, 100.0, 6, 5, 200.0, 180.0, "street", 6.0, 1, true);
+        if skew > 0.0 {
+            // Shear every node sideways in proportion to its row: the cells become parallelograms.
+            for n in &mut g.nodes {
+                n.x += skew * (n.y - 100.0);
+            }
+        }
+        let anchors = Anchors { market: Vec2::new(400.0, 300.0), ..place_anchors_stub() };
+        lane_pass_with(2468, &site, &anchors, &mut g, 3, None, keep)
+    };
+    assert!(run(0.0, false) > 0, "the reference pass cuts the rectangular grid");
+    assert_eq!(run(0.0, true), 0, "keep_rect leaves every closed rectangular block whole");
+    assert!(run(1.0, true) > 0, "a sheared (parallelogram) block is not rectangular enough to keep");
+}

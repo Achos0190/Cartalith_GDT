@@ -445,6 +445,104 @@ pub fn sources_for(ty: TownType, pop: f64, site: &Site, g: &Graph, market: Vec2,
     (!out.is_empty()).then_some(out)
 }
 
+/// A block outline with near-duplicate vertices (closer than 6 m) merged and
+/// near-straight vertices (turn under `turn_deg`) dropped: the corners a
+/// reader of the plan would count. PS-0's `ps_corners`
+/// (`parallel-streets-ps0-2026-11-17/scratch_code/prototype_and_audit.diff.txt`),
+/// kept verbatim so PS-1's block shapes are PS-0's instrument (moved here
+/// from the census, 2026-11-21, so PS-2's `lane_pass_with` and the census
+/// count one definition); the 6 m and
+/// 20-degree thresholds are PS-0's labelled judgements.
+pub fn block_outline_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
+    let mut p: Vec<(f64, f64)> = Vec::new();
+    for v in poly {
+        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
+            p.push((v.x, v.y));
+        }
+    }
+    while p.len() > 2 && {
+        let (a, b) = (p[0], p[p.len() - 1]);
+        (a.0 - b.0).hypot(a.1 - b.1) < 6.0
+    } {
+        p.pop();
+    }
+    loop {
+        let n = p.len();
+        if n <= 3 {
+            return p;
+        }
+        let mut drop = 0usize;
+        let mut least = f64::INFINITY;
+        for i in 0..n {
+            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
+            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
+            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
+            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
+            if d > std::f64::consts::PI {
+                d = 2.0 * std::f64::consts::PI - d;
+            }
+            if d < least {
+                least = d;
+                drop = i;
+            }
+        }
+        if least.to_degrees() < turn_deg {
+            p.remove(drop);
+        } else {
+            return p;
+        }
+    }
+}
+
+/// Minimum-area bounding rectangle over the outline's edge directions:
+/// `(long side, short side)`; the short side is a block's depth across.
+/// PS-0's `ps_mabr`, verbatim (moved here with [`block_outline_corners`]).
+pub fn block_mabr(poly: &[Vec2]) -> (f64, f64) {
+    let mut best = (f64::INFINITY, 0.0, 0.0);
+    let n = poly.len();
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        let th = (b.y - a.y).atan2(b.x - a.x);
+        let (c, s) = (th.cos(), th.sin());
+        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for v in poly {
+            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
+            x0 = x0.min(x);
+            x1 = x1.max(x);
+            y0 = y0.min(y);
+            y1 = y1.max(y);
+        }
+        let (w, h) = (x1 - x0, y1 - y0);
+        if w * h < best.0 {
+            best = (w * h, w.max(h), w.min(h));
+        }
+    }
+    (best.1, best.2)
+}
+
+/// The corner count PS-2's closed-block test reads: [`block_outline_corners`]
+/// at PS-0's 20 degrees (the census's own setting).
+pub fn block_corners(poly: &[Vec2]) -> usize {
+    block_outline_corners(poly, 20.0).len()
+}
+
+/// Area over the minimum-area bounding rectangle's ([`block_mabr`]), 0..1:
+/// PS-0's rectangularity, the census's `rect`. 0 for a degenerate outline.
+pub fn rectangularity(poly: &[Vec2]) -> f64 {
+    let (l, s) = block_mabr(poly);
+    let a = crate::geom::poly_area(poly).abs();
+    if l * s > 0.0 { a / (l * s) } else { 0.0 }
+}
+
+/// How far bearing `a` is from the nearest of the grain `axis`'s four
+/// directions (the axis and its cross-direction, either way), 0..pi/4. PS-2
+/// (`crate::growth`) reads it: a street "runs with the grain" when this is
+/// small, whichever of the two directions it follows.
+pub fn axis_off(a: f64, axis: f64) -> f64 {
+    let d = (a - axis).rem_euclid(std::f64::consts::FRAC_PI_2);
+    d.min(std::f64::consts::FRAC_PI_2 - d)
+}
+
 /// The unsigned angle between two axes (bearings modulo pi), 0..pi/2.
 fn axis_diff(a: f64, b: f64) -> f64 {
     let d = (a - b).rem_euclid(std::f64::consts::PI);

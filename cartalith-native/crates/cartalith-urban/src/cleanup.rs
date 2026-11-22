@@ -593,6 +593,23 @@ pub fn lane_pass(
     epoch: i32,
     min_area: Option<f64>,
 ) -> usize {
+    lane_pass_with(seed, site, anchors, g, epoch, min_area, false)
+}
+
+/// [`lane_pass`], and with `keep_rect` (**not the reference**; PS-2,
+/// `PARALLEL_STREETS_SCOPE.md` 9.1) a face that is already a closed block,
+/// four corners (`crate::field::block_corners`) and rectangularity
+/// [`KEEP_RECT`] or more, is not cut, so a block PS-2 closed square is not
+/// split into a wedge. Skipped before any draw; `false` is [`lane_pass`].
+pub fn lane_pass_with(
+    seed: u32,
+    site: &Site,
+    anchors: &Anchors,
+    g: &mut Graph,
+    epoch: i32,
+    min_area: Option<f64>,
+    keep_rect: bool,
+) -> usize {
     let min_area = min_area.unwrap_or(12000.0);
     let mut r = stream(seed, &format!("lanes/{epoch}"));
     let faces = g.extract_faces();
@@ -612,6 +629,9 @@ pub fn lane_pass(
             continue;
         }
         if site.is_water(c) {
+            continue;
+        }
+        if keep_rect && crate::field::block_corners(&f.poly) == 4 && crate::field::rectangularity(&f.poly) >= KEEP_RECT {
             continue;
         }
 
@@ -658,6 +678,10 @@ pub fn lane_pass(
     }
     added
 }
+
+/// [`lane_pass_with`]'s closed-block line: scope 5.3's rectangularity target
+/// (0.75, from the traced plans), as scope 9.1 names it.
+pub const KEEP_RECT: f64 = 0.75;
 
 /// This module's unit and golden tests.
 #[cfg(test)]

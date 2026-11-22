@@ -1220,3 +1220,64 @@ did for FS-1 (needles: the re-seed gives 11.6 %, today 11.3 %; the small town's 
 (b) change the back-street rule (fewer or shorter back streets, or none in a town under about 3 000, the lever for the
 needles and the small town's phi; a fourth variant); (c) stop at PS-1.
 
+
+## 14. PS-2 built (2026-11-22, owner Ruling GM): behind `urban_parallel_streets`, OFF at both boundaries
+
+**Built.** Step 0c's prototype as real code, at heading gain 0.4, with step 0b's two fixes. Owner (Ruling GM): *"I like ps2"*;
+the FS-2 delta, the market-street phi cap and the needle bar are judged **against a re-roll of today's `grow`** (as Ruling GH
+did for FS-1), not as absolute caps. Evidence: `cartalith-native/docs/evidence/parallel-streets-ps2d-2026-11-22/`.
+
+| Piece | Where |
+|---|---|
+| the grain reaches `grow` (`GrowOpts::field`, `None` = the reference, every golden) | `cartalith_urban::growth` |
+| heading bent toward the grain, gain `PARALLEL_GAIN` 0.4 (explore 0.7 of it) | `grow` |
+| back street (`lay_back_street`): a rib of exactly `BACK_DEPTH_M` 90 m square to the frontage, then a street walked both ways (`BACK_WALK_STEPS` 3), on 50 % of qualifying taps (`BACK_SHARE`, its own substream so the epoch's draws stay as near today's as the geometry allows) | `growth.rs` |
+| cross lane (`cross_lane`): square within 5 degrees, both ends 30 m clear of any node, one block depth | `growth.rs` |
+| far-end oblique refusal (a street does not end as a T on a street over 0.35 rad off every axis of a strong grain) | `legalize_street` |
+| the site rules shared by streets and lanes (`refused_by_site`, moved unchanged) | `growth.rs` |
+| closed four-cornered blocks of rectangularity 0.75 are not cut (`lane_pass_with`, `KEEP_RECT`) | `cleanup.rs`, `field.rs` (`block_corners`, `rectangularity`, `axis_off`, moved from the census) |
+| a town with a grain is judged against 1.25 times its target for the far bank (`PARALLEL_FAR_BANK_SLACK`) | `riverbank::second_pass` |
+| a refit wall of such a town that is jagged is refused, the grown circuit kept (`ring_is_jagged`, `KeptReason::Jagged`; at most 6 vertices over 60 degrees, at most 1.15 of the hull) | `wallhug.rs` |
+
+Only a town of 1 500 and up with a grain changes (`Town::parallel`'s `field` is `Some`): villages (street villages),
+radial towns and no-grain towns are laid out exactly as with the switch off (`field::tests::only_a_town_with_a_grain_changes_layout`,
+hash equality at 800, 2 500 and the radial culture; the 48 growth goldens and every urban golden run with `field: None`).
+
+**The census confirms step 0c exactly.** The same 35 towns at 384, the new code from `origin/main`: every row of
+`towns_384.csv` is identical to step 0c's gain-0.4 rows (0 of 71 lines differ), so every bar below is step 0c's. **These are
+PS-2's baseline, which later milestones must not worsen** (owner Ruling GM):
+
+| baseline, 384 | off (today) | PS-2 |
+|---|---|---|
+| quads outside core (24 towns) | 49.9 % | **61.5 %** |
+| housed p10 | 95 | **100** |
+| FS-1 kept >= 85 % (re-seed null: 10 of 35, median 0.81) | 35 | **22 (median 0.88)** |
+| needle lots | 11.3 % | **12.1 %** |
+| FS-2 delta, market-street / river-front / organic | 0 | **0.297 / 0.231 / 0.168** |
+| market-street phi, per-town max | | 0.548 (one small town, 246371 #9) |
+| wall: sharp vertices median / p90 / total; wall over hull max | 4 / 6 / 133; 1.144 | 3 / 6 / 125; 1.126 |
+
+**Cross lanes are rare.** A station 144 to 216 m along a back street needs the walk to have gone that far, so 11 cross lanes were laid
+over the whole census (against hundreds of back-street edges) and none shows in the 6 000-person fixture; the four-cornered blocks
+come from the back streets and the kept-closed rule. They are kept because step 0c measured with them (removing them would move
+the baseline); a candidate for PS-3's review.
+
+**Tests (literals).** `growth/ps2.rs`: the cross lane's acceptance and its five refusals (oblique, node near either end, too far,
+too near), the oblique T refusal against a 45-degree and an on-axis grain, the back street's geometry (rib one depth long, one
+cross lane at stream seed 0, the blocked rib), the 6 000 town (35 back-street and 0 cross-lane edges, 410 edges against today's 396),
+seed 13 at 12 000 (534 edges, the closed-block rule through `generate`), the constants. `cleanup`: `keep_rect` leaves a rectangular
+grid whole and cuts a sheared one. `field`: `axis_off`, `block_corners`, `rectangularity`. `wallhug`: `ring_is_jagged` on six rings
+(square, L at the cap of 6, a 7-sharp tooth, a star, a crescent, a triangle) and the guard on seeds 17 and 56 (`Kept(Jagged)`) with
+seed 9 at 3 000 off untouched. `riverbank`: the slack (7 000 of 6 000 gets the far bank, 7 600 and a no-grain town do not).
+**Mutants** (Python, exact literal replace, occurs-once check, restored in a `finally`): 37 on the new branches (the heading sign, the explore factor,
+every threshold and constant, each refusal in `cross_lane` and `legalize_street`, the back street's depth and walk, `keep_rect`, the jag
+guard's cap, turn and hull ratio, the slack, the three hand-overs in `generate`). Five survived the first tests (the 30 m station test, the end-node
+clearance, the 0.03 reach floor, the guard's `parallel &&`, `generate`'s `keep_rect` flag); a test was added for each and all five were then killed, except the
+station test, which `cross_lane`'s own node clearance makes redundant and which was deleted. Two mutants did not match the CRLF text and were re-run on a
+single line (one killed; `ring_is_jagged`'s `n < 4` against `n < 3` is equivalent, a triangle being no jagged ring either way). Census, frames, mutant and test logs are in the evidence directory.
+
+**Frames** (owner condition): City Viewer, the 14 towns, opening frame and x4, off and on, windowed under the lock, probe
+`RESULT: PASS` x3 (`contact_<seed>.png`, `frames/`; needle crops in `needles/`); the same view as step 0c at gain 0.4.
+
+**Not done, by design.** The switch is OFF at both boundaries until PS-7 (owner). PS-3 onward (block depth, the type rules' per-quarter
+variety, the zoom detail) are unbuilt; the baseline above is what they must not worsen.

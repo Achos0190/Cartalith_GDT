@@ -1308,6 +1308,34 @@ fn wall_tautness(ring: &[(f64, f64)]) -> (f64, f64) {
     (len / hull.max(1e-9), ring.len() as f64 / (len / WALL_VERTEX_RUN_M).max(1e-9))
 }
 
+/// PS-2 step 0b (Ruling GH, the owner's wall question): the wall ring's spikes, as the CSV text
+/// `len/hull,n,convex,reflex,sharpest`. A vertex's turn is the angle between its two runs (0 =
+/// straight); `convex` and `reflex` count the vertices turning more than 60 degrees outward and
+/// inward (the sign against the ring's shoelace area); `sharpest` is the largest such turn in
+/// degrees. A ring is read as drawn, towers and all. `-` columns for an unwalled town.
+fn wall_sharp(ring: Option<&[Vec2]>) -> String {
+    let Some(r) = ring.filter(|r| r.len() >= 4) else { return "-,0,0,0,0".into() };
+    let pts: Vec<(f64, f64)> = r.iter().map(|p| (p.x, p.y)).collect();
+    let n = pts.len();
+    let area: f64 = (0..n).map(|i| pts[i].0 * pts[(i + 1) % n].1 - pts[(i + 1) % n].0 * pts[i].1).sum();
+    let (mut cv, mut rf, mut worst) = (0, 0, 0.0f64);
+    for i in 0..n {
+        let (a, b, c) = (pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]);
+        let (d1, d2) = ((b.0 - a.0, b.1 - a.1), (c.0 - b.0, c.1 - b.1));
+        if d1.0.hypot(d1.1) < 1e-6 || d2.0.hypot(d2.1) < 1e-6 {
+            continue;
+        }
+        let ang = (d1.0 * d2.1 - d1.1 * d2.0).atan2(d1.0 * d2.0 + d1.1 * d2.1).to_degrees() * area.signum();
+        if ang > 60.0 {
+            cv += 1;
+        } else if ang < -60.0 {
+            rf += 1;
+        }
+        worst = worst.max(ang.abs());
+    }
+    format!("{:.3},{n},{cv},{rf},{worst:.0}", wall_tautness(&pts).0)
+}
+
 /// The judgement's vertex bar for a taut wall: at most one ring vertex per
 /// this many metres of wall (`TOWN_GENERATOR_JUDGEMENT.md` change 1's
 /// acceptance bar, *"ring vertices at most wall length / 35 m"*).
@@ -2887,78 +2915,7 @@ fn stretch_water_audit() {
 // Pins nothing; `#[ignore]`d. Ruling BK: each helper says what it measures.
 // ------------------------------------------------------------------------
 
-/// A block outline with near-duplicate vertices (closer than 6 m) merged and
-/// near-straight vertices (turn under `turn_deg`) dropped: the corners a
-/// reader of the plan would count. PS-0's `ps_corners`
-/// (`parallel-streets-ps0-2026-11-17/scratch_code/prototype_and_audit.diff.txt`),
-/// kept verbatim so PS-1's block shapes are PS-0's instrument; the 6 m and
-/// 20-degree thresholds are PS-0's labelled judgements.
-fn ps_corners(poly: &[Vec2], turn_deg: f64) -> Vec<(f64, f64)> {
-    let mut p: Vec<(f64, f64)> = Vec::new();
-    for v in poly {
-        if p.last().is_none_or(|l: &(f64, f64)| (l.0 - v.x).hypot(l.1 - v.y) >= 6.0) {
-            p.push((v.x, v.y));
-        }
-    }
-    while p.len() > 2 && {
-        let (a, b) = (p[0], p[p.len() - 1]);
-        (a.0 - b.0).hypot(a.1 - b.1) < 6.0
-    } {
-        p.pop();
-    }
-    loop {
-        let n = p.len();
-        if n <= 3 {
-            return p;
-        }
-        let mut drop = 0usize;
-        let mut least = f64::INFINITY;
-        for i in 0..n {
-            let (a, b, c) = (p[(i + n - 1) % n], p[i], p[(i + 1) % n]);
-            let t1 = (b.1 - a.1).atan2(b.0 - a.0);
-            let t2 = (c.1 - b.1).atan2(c.0 - b.0);
-            let mut d = (t2 - t1).abs() % (2.0 * std::f64::consts::PI);
-            if d > std::f64::consts::PI {
-                d = 2.0 * std::f64::consts::PI - d;
-            }
-            if d < least {
-                least = d;
-                drop = i;
-            }
-        }
-        if least.to_degrees() < turn_deg {
-            p.remove(drop);
-        } else {
-            return p;
-        }
-    }
-}
-
-/// Minimum-area bounding rectangle over the outline's edge directions:
-/// `(long side, short side)`; the short side is a block's depth across.
-/// PS-0's `ps_mabr`, verbatim.
-fn ps_mabr(poly: &[Vec2]) -> (f64, f64) {
-    let mut best = (f64::INFINITY, 0.0, 0.0);
-    let n = poly.len();
-    for i in 0..n {
-        let (a, b) = (poly[i], poly[(i + 1) % n]);
-        let th = (b.y - a.y).atan2(b.x - a.x);
-        let (c, s) = (th.cos(), th.sin());
-        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
-        for v in poly {
-            let (x, y) = (v.x * c + v.y * s, -v.x * s + v.y * c);
-            x0 = x0.min(x);
-            x1 = x1.max(x);
-            y0 = y0.min(y);
-            y1 = y1.max(y);
-        }
-        let (w, h) = (x1 - x0, y1 - y0);
-        if w * h < best.0 {
-            best = (w * h, w.max(h), w.min(h));
-        }
-    }
-    (best.1, best.2)
-}
+use cartalith_civ::urban_adapter::{block_outline_corners as ps_corners, block_mabr as ps_mabr};
 
 /// Every geometric field of a layout that PS-1 must not move, folded to one
 /// FNV-1a hash over the f64 bits: edges (ends, class, width), blocks,
@@ -3020,11 +2977,18 @@ fn parallel_streets_audit() {
     let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
     let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS").ok().map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_else(|| SEEDS.to_vec());
     let csv = std::env::var("PS1_CSV").ok();
+    // PS-2 step 0b: the wall rings, for drawing the wall against the lots (scratch).
+    let mut rings = csv.as_ref().map(|out| {
+        std::fs::create_dir_all(out).unwrap();
+        let mut f = std::fs::File::create(format!("{out}/rings_{gw}.csv")).unwrap();
+        writeln!(f, "seed,town,variant,x,y").unwrap();
+        f
+    });
     let mut files = csv.as_ref().map(|out| {
         std::fs::create_dir_all(out).unwrap();
         let f = |n: &str| std::fs::File::create(format!("{out}/{n}_{gw}.csv")).unwrap();
         let (mut ft, mut fb, mut fl, mut fbd) = (f("towns"), f("blocks"), f("lots"), f("bldg"));
-        writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges").unwrap();
+        writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges,wall_len_over_hull,wall_n,wall_sharp_convex,wall_sharp_reflex,wall_sharpest_deg").unwrap();
         writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
         writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside").unwrap();
         writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
@@ -3158,9 +3122,14 @@ fn parallel_streets_audit() {
                     let segm = segs.get(segs.len() / 2).copied().unwrap_or(f64::NAN);
                     let c_l = cells(l);
                     let keep = c_off.iter().filter(|c| c_l.contains(c)).count() as f64 / c_off.len().max(1) as f64;
-                    writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{}",
+                    if let (Some(rf), Some(ring)) = (rings.as_mut(), l.wall.ring.as_ref()) {
+                        for p in ring {
+                            writeln!(rf, "{seed},{i},{vn},{:.1},{:.1}", p.x, p.y).unwrap();
+                        }
+                    }
+                    writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{},{}",
                         s.placement.x, s.placement.y, l.pop_target, l.pop, l.max_rf, h / hmax, deg[0], deg[1], deg[2], deg[3], deg[4], c_l.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M,
-                        pl.town_type.key(), u8::from(l.wall.ring.is_some()), l.edges.len()).unwrap();
+                        pl.town_type.key(), u8::from(l.wall.ring.is_some()), l.edges.len(), wall_sharp(l.wall.ring.as_deref())).unwrap();
                 }
             }
         }

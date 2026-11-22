@@ -1,0 +1,56 @@
+import subprocess,sys,os,hashlib
+R='C:/cw/ps2e/cartalith-native/crates/cartalith-urban/src/'
+FILT=['growth::ps2','a_jagged_refit','a_ring_is_jagged','keep_rect','the_grain_and_block','a_town_with_a_grain_is_judged','only_a_town_with_a_grain']
+M=[
+('growth.rs','ang - off * gr.strength * PARALLEL_GAIN','ang + off * gr.strength * PARALLEL_GAIN'),
+('growth.rs','* if explore { 0.7 } else { 1.0 }','* if explore { 1.0 } else { 0.7 }'),
+('growth.rs','&& gr.strength >= PARALLEL_STRONG\n                        && crate::field::axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD','&& gr.strength < PARALLEL_STRONG\n                        && crate::field::axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD'),
+('growth.rs','axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD','axis_off(perp, gr.axis) > PARALLEL_OBLIQUE_RAD'),
+('growth.rs','&& rb.chance(BACK_SHARE)','&& rb.chance(1.0 - BACK_SHARE + 0.4)'),
+('growth.rs','if p.dist(o) < BACK_DEPTH_M - 1.0 {','if p.dist(o) > BACK_DEPTH_M - 1.0 {'),
+('growth.rs','for dir in [perp + PI / 2.0, perp - PI / 2.0] {','for dir in [perp + PI / 2.0] {'),
+('growth.rs','while next < walked + seg - CROSS_NODE_CLEAR_M {','while next < walked + seg {'),
+('growth.rs','if next - walked >= CROSS_NODE_CLEAR_M\n','if next - walked >= 0.0\n'),
+('growth.rs','perp + PI, ep)','perp, ep)'),
+('growth.rs','if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 1) {','if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 99) {'),
+('growth.rs','&& f.at(b, site.market_dist(b, m)).strength >= PARALLEL_STRONG','&& f.at(b, site.market_dist(b, m)).strength < PARALLEL_STRONG'),
+('growth.rs','axis_off(e_ang, f.at(b, site.market_dist(b, m)).axis) > PARALLEL_OBLIQUE_RAD','axis_off(e_ang, f.at(b, site.market_dist(b, m)).axis) < PARALLEL_OBLIQUE_RAD'),
+('growth.rs','if (sq - PI / 2.0).abs() > CROSS_SQUARE_RAD','if (sq - PI / 2.0).abs() < CROSS_SQUARE_RAD'),
+('growth.rs','|| g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_some()','|| g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_none()'),
+('growth.rs','|| g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()','|| false'),
+('growth.rs','* (1.25 * BACK_DEPTH_M)','* (0.75 * BACK_DEPTH_M)'),
+('growth.rs','&& h.t > 0.03\n            && hit.is_none_or','&& h.t > 0.5\n            && hit.is_none_or'),
+('growth.rs','pub const BACK_DEPTH_M: f64 = 90.0;','pub const BACK_DEPTH_M: f64 = 80.0;'),
+('growth.rs','pub const PARALLEL_GAIN: f64 = 0.4;','pub const PARALLEL_GAIN: f64 = 0.5;'),
+('growth.rs','pub const BACK_WALK_STEPS: usize = 3;','pub const BACK_WALK_STEPS: usize = 2;'),
+('cleanup.rs','if keep_rect && crate::field::block_corners(&f.poly) == 4','if !keep_rect && crate::field::block_corners(&f.poly) == 4'),
+('cleanup.rs','block_corners(&f.poly) == 4 && crate','block_corners(&f.poly) == 3 && crate'),
+('cleanup.rs','rectangularity(&f.poly) >= KEEP_RECT','rectangularity(&f.poly) < KEEP_RECT'),
+('wallhug.rs','sharp > JAG_MAX_SHARP ||','sharp >= JAG_MAX_SHARP ||'),
+('wallhug.rs','pub const JAG_MAX_SHARP: usize = 6;','pub const JAG_MAX_SHARP: usize = 7;'),
+('wallhug.rs','> JAG_MAX_HULL_RATIO * len(&convex_hull(ring))','< JAG_MAX_HULL_RATIO * len(&convex_hull(ring))'),
+('wallhug.rs','pub const JAG_TURN_RAD: f64 = 60.0 * PI / 180.0;','pub const JAG_TURN_RAD: f64 = 75.0 * PI / 180.0;'),
+('wallhug.rs','if n < 4 {\n        return false;','if n < 3 {\n        return false;'),
+('wallhug.rs','if parallel && ring_is_jagged(ring)','if ring_is_jagged(ring)'),
+('wallhug.rs','if parallel && ring_is_jagged(ring)','if parallel && !ring_is_jagged(ring)'),
+('riverbank.rs','pub const PARALLEL_FAR_BANK_SLACK: f64 = 1.25;','pub const PARALLEL_FAR_BANK_SLACK: f64 = 1.0;'),
+('riverbank.rs','p.field.is_some()) { PARALLEL_FAR_BANK_SLACK }','p.field.is_none()) { PARALLEL_FAR_BANK_SLACK }'),
+('generate.rs','field: parallel.as_ref().and_then(|p| p.field.clone()),','field: None,'),
+('generate.rs','lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some()))','lane_min, false)'),
+('field.rs','let d = (a - axis).rem_euclid(std::f64::consts::FRAC_PI_2);\n    d.min(std::f64::consts::FRAC_PI_2 - d)','let d = (a - axis).rem_euclid(std::f64::consts::FRAC_PI_2);\n    d'),
+]
+res=[]
+for f,old,new in M:
+    p=R+f; src=open(p,encoding='utf8',newline='').read()
+    h=hashlib.md5(src.encode()).hexdigest()
+    if src.count(old)!=1: res.append((f,old[:50],'NOMATCH %d'%src.count(old))); print(res[-1],flush=True); continue
+    try:
+        open(p,'w',encoding='utf8',newline='').write(src.replace(old,new))
+        r=subprocess.run(['cargo','test','-p','cartalith-urban','--lib','--']+FILT,cwd='C:/cw/ps2e/cartalith-native',capture_output=True,text=True,env=dict(os.environ,CARGO_TARGET_DIR='C:/cw/ps2e_target'))
+        out=r.stdout+r.stderr
+        st='BUILD_ERROR' if 'could not compile' in out else ('KILLED' if r.returncode!=0 else 'SURVIVED')
+    finally:
+        open(p,'w',encoding='utf8',newline='').write(src)
+    assert hashlib.md5(open(p,encoding='utf8',newline='').read().encode()).hexdigest()==h
+    res.append((f,old[:60].replace('\n',' '),st)); print(res[-1],flush=True)
+print('SUMMARY',sum(1 for x in res if x[2]=='KILLED'),'killed',[x for x in res if x[2]!='KILLED'])

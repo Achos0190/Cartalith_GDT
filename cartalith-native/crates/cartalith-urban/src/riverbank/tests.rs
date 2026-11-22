@@ -1503,3 +1503,28 @@ fn the_water_sweep_keeps_a_span_at_the_alternative_bridge_point() {
     crate::cleanup::remove_water_crossings(&site, &mut g);
     assert!(g.edges.iter().any(|e| e.alive && e.cls == "primary"), "the span at the alternative point is kept");
 }
+
+/// Protects `second_pass`'s grain slack (PS-2 step 0b, `PARALLEL_FAR_BANK_SLACK` 1.25): a both-banks town with a
+/// grain (switch on) housing 7 000 of 6 000 is given the far bank, `share` = 6 000 * 1.25 / 7 000 - 1 (about 0.0714), where
+/// the same town without a grain, or at 7 600 (over 1.25 of its target), is not.
+#[test]
+fn a_town_with_a_grain_is_judged_against_a_quarter_over_its_target() {
+    use super::{RiverbankPass, second_pass};
+    let first = crate::generate::generate_pass(4242, &GenOpts { parallel_streets: true, ..opts(true, true) }, RiverbankPass::First, false);
+    assert!(first.both_banks && first.parallel.as_ref().is_some_and(|p| p.field.is_some()), "the fixture has a grain");
+    let with = |pop: f64| {
+        let mut t = first.clone();
+        t.pop = pop;
+        t.pop_target = 6000.0;
+        t
+    };
+    let share = |t: &crate::generate::Town| match second_pass(t) {
+        Some(RiverbankPass::FarBank { share }) => Some(share),
+        other => panic!("{other:?}"),
+    };
+    assert!((share(&with(7000.0)).unwrap() - (7500.0 / 7000.0 - 1.0)).abs() < 1e-12);
+    assert_eq!(second_pass(&with(7600.0)), None);
+    let mut no_grain = with(7000.0);
+    no_grain.parallel = None;
+    assert_eq!(second_pass(&no_grain), None, "no grain, no slack");
+}

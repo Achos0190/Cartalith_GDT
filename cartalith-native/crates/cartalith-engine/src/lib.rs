@@ -1422,7 +1422,8 @@ pub struct WorldParams {
     /// river-front, organic-core or no grain, given the field later
     /// milestones grow streets along, and measured for the ground a larger
     /// footprint needs (`cartalith_urban::field`, reported on the layout).
-    /// **At PS-1 it changes no street, lot or building.**
+    /// **With it on, a town of 1 500 and up with a street grain grows differently** (PS-2, Ruling GM,
+    /// 2026-11-22: back streets and a heading bent toward the grain); every other town is unchanged.
     ///
     /// **`false` here AND in the shipped app** (`params::defaults`) until the
     /// owner rules at PS-7, the exception `urban_burgage` takes (`DECISIONS.md`

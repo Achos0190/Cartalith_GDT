@@ -208,6 +208,9 @@ pub use cartalith_urban::wallhug::HugOutcome;
 /// polygon centroid, spelled here for the same census's size classes and
 /// bank sides (2026-11-15, Ruling FB's both-banks audit).
 pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
+/// PS-0's block-shape measures (`cartalith_urban::field`), for the census's
+/// block audits: one definition with PS-2's closed-block test.
+pub use cartalith_urban::field::{block_mabr, block_outline_corners};
 /// Ruling FK item 1's "built to its water" line (`cartalith_urban::generate::HARBOUR_REACH_M`),
 /// re-exported so the census counts harbours against the line the layout itself uses.
 pub use cartalith_urban::generate::HARBOUR_REACH_M;
@@ -2433,8 +2436,11 @@ pub struct PlaceOverrides<'a> {
     /// `PARALLEL_STREETS_SCOPE.md` PS-1 (owner Rulings FY, GC, GF): the
     /// town-type rule, the direction field and the ground gate
     /// (`cartalith_urban::field`), reported on [`UrbanLayout::parallel`].
-    /// **It changes no layout.** **Not a `_umPlaceContext` field** and not in
-    /// the reference, so `false` (the `Default`) is no plan. The app sets it
+    /// **With it on, a town with a grain grows differently** (PS-2, owner Ruling GM, 2026-11-22:
+    /// back streets, cross lanes and a heading bent toward the grain, `cartalith_urban::growth`;
+    /// a town with no grain, a village and a radial town are laid out exactly as with it off).
+    /// **Not a `_umPlaceContext` field** and not in the reference, so `false` (the `Default`) is no
+    /// plan and today's layout. The app sets it
     /// from `WorldParams::urban_parallel_streets`, off in the app until the
     /// owner rules at PS-7 (`DECISIONS.md` section 7p).
     pub parallel_streets: bool,

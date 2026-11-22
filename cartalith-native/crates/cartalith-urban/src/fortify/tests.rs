@@ -332,6 +332,7 @@ fn town(c: &Case) -> (Site, Anchors, Graph, f64) {
         road_reach: None,
         wide_spacing: false,
         whole_budget: false,
+        field: None,
         target_len: c.target_len,
         max_rf: c.max_rf,
         walls: false,

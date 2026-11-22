@@ -1,0 +1,12 @@
+PARALLEL_STREETS_SCOPE.md PS-2 built (2026-11-22, owner Ruling GM), behind urban_parallel_streets, OFF at both boundaries.
+Scope section 14 has the result; this file lists the evidence. Census world as steps 0, 0b, 0c: seeds 483920 912345
+246371, 800 km, villages on, app params::defaults, 384x288; release test binary of the built tree.
+
+step0/towns_final_384.csv, agg_final_384.txt, audit_final_384.txt, bars_final.txt
+        the census of the built code (parallel_streets_audit, PS1_CSV; ps1_agg.py is step 0's; bars.py is step 0c's).
+        Every row of towns_final_384.csv equals ../parallel-streets-ps2c-2026-11-22/step0/towns_g0.4_384.csv (0 of 71 lines differ).
+mutants/mutants_pass1.txt ... pass3.txt   the mutation runs (37 mutants, then the survivors again after tests were added);
+        scratch_code/mut.py.txt is the script (exact-literal replace, occurs-once check, restore in a finally).
+contact_<seed>.png   the 14 towns: City Viewer opening frame OFF, ON, x4 OFF, ON, windowed under the lock, probe RESULT: PASS x3.
+frames/              full-size OFF | ON pairs and the probe logs. needles/ the 260 m needle crops OFF | ON.
+The probe (_ps2s0_probe.gd) and the contact-sheet script are step 0b's, in ../parallel-streets-ps2b-2026-11-21/scratch_code/.

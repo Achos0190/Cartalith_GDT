@@ -80,6 +80,10 @@ use std::f64::consts::PI;
 #[cfg(test)]
 mod tests;
 
+/// PS-2's tests (`PARALLEL_STREETS_SCOPE.md` 13, 14): the back street, the cross lane, the grain's effect on `grow`.
+#[cfg(test)]
+mod ps2;
+
 // --------------------------------------------------------------- wall state --
 
 /// One gate in a wall circuit — `{pt, water, prov}`, pushed by `buildWall`
@@ -274,6 +278,13 @@ pub struct GrowOpts {
     /// `false` (the `Default`, every reference path) is the reference's
     /// budget by control flow. A street village's `road_reach` budget wins.
     pub whole_budget: bool,
+    /// **Not the reference** (`PARALLEL_STREETS_SCOPE.md` PS-2, behind
+    /// `urban_parallel_streets`): the town's grain (`crate::field::plan`).
+    /// `Some` bends headings toward it, lays back streets with cross lanes
+    /// and refuses oblique T-junctions where it is strong. `None` (the
+    /// `Default`, every reference path, every town with no grain) is the
+    /// reference's growth by control flow.
+    pub field: Option<crate::field::DirectionField>,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -594,6 +605,10 @@ pub fn grow(
 
     for ep in 1..=epochs {
         let mut r = stream(seed, &format!("grow/e{ep}"));
+        // PS-2: the back streets draw from their own substream, so the
+        // epoch's own draws (and with them the rest of the town) stay as near
+        // the switch-off sequence as the changed geometry allows (FS-1).
+        let mut rb = stream(seed, &format!("grow/back/e{ep}"));
         let explore_share = js_max(
             s.exploration_minimum,
             s.exploration_start - s.exploration_decay * ep as f64,
@@ -630,6 +645,8 @@ pub fn grow(
             };
             let o: Vec2;
             let ang: f64;
+            // PS-2: the tapped edge's exact perpendicular (mid-edge branch only).
+            let mut tap: Option<f64> = None;
             if explore && r.chance(0.55) {
                 let ni = r.int(0, g.nodes.len() as i64 - 1);
                 let Some(n) = usize::try_from(ni).ok().and_then(|i| g.nodes.get(i)) else {
@@ -661,7 +678,33 @@ pub fn grow(
                 let side = if r.chance(0.5) { 1.0 } else { -1.0 };
                 // sigma ~15deg, M-NET-3
                 ang = edge_ang + side * (PI / 2.0) + r.norm() * s.branch_angle_jitter;
+                tap = Some(edge_ang + side * (PI / 2.0));
             }
+            // **Not the reference** (PS-2, `GrowOpts::field`; scope 9.1): where
+            // the grain is strong and the tapped edge runs with it, a share of
+            // the candidates become a back street (`lay_back_street`, exactly
+            // square to the edge); every other heading is bent toward the
+            // nearest axis of the grain by `PARALLEL_GAIN` x its strength
+            // (PS-0's rule, scope 8.3; exploration by 0.7 of that). No draw
+            // and no change with `field` `None`.
+            let mut back: Option<f64> = None;
+            let ang = match opts.field.as_ref() {
+                Some(f) => {
+                    let gr = f.at(o, site.market_dist(o, anchors.market));
+                    if let Some(perp) = tap
+                        && gr.strength >= PARALLEL_STRONG
+                        && crate::field::axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD
+                        && rb.chance(BACK_SHARE)
+                    {
+                        back = Some(perp);
+                        perp
+                    } else {
+                        let off = (ang - gr.axis + PI / 4.0).rem_euclid(PI / 2.0) - PI / 4.0;
+                        ang - off * gr.strength * PARALLEL_GAIN * if explore { 0.7 } else { 1.0 }
+                    }
+                }
+                None => ang,
+            };
             // Demand decays from the market — and from the quay in port towns,
             // which are densest at the waterfront (harbour-city family).
             // **Not the reference** (Ruling FN, `Site::market_dist`): a
@@ -730,7 +773,12 @@ pub fn grow(
             if !explore && r.u() > w * 1.35 {
                 continue;
             }
-            let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing) else {
+            let par = opts.field.as_ref().map(|f| (f, anchors.market));
+            let made = match (back, par) {
+                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par),
+                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None).map(|m| m.0),
+            };
+            let Some(made) = made else {
                 continue;
             };
             for eid in made {
@@ -803,12 +851,16 @@ fn legalize_street(
     ep: i32,
     prov_tail: &str,
     wide_spacing: bool,
-) -> Option<Vec<usize>> {
-    // segment lengths M-NET-4
-    let l = js_min(
-        125.0,
-        js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance)),
-    );
+    par: Option<(&crate::field::DirectionField, Vec2)>,
+    fixed_len: Option<f64>,
+) -> Option<(Vec<usize>, Vec2)> {
+    // segment lengths M-NET-4. **Not the reference** (PS-2's back street,
+    // `fixed_len`): the rib to a back street is exactly the block depth, and
+    // draws no length (only ever with `par`, so the reference's draws stand).
+    let l = match fixed_len {
+        Some(l) => l,
+        None => js_min(125.0, js_max(30.0, r.logn(s.segment_length_median, s.segment_length_variance))),
+    };
     let mut b = Vec2::new(o.x + js_cos(ang) * l, o.y + js_sin(ang) * l);
 
     // ---- local constraints (Parish-Mueller legalization) ----
@@ -849,51 +901,21 @@ fn legalize_street(
         if dd < s.junction_angle_limit {
             return None;
         }
-    }
-    if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
-        return None;
-    }
-    if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
-        return None; // M-REG-5
-    }
-    // Never cross water — the bridge already exists. The accumulation
-    // is the reference's and is load-bearing: it produces a sixth
-    // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
-    let mut wet = false;
-    let mut t = 0.15;
-    while t <= 1.0 {
-        if site.is_water(o.lerp(b, t)) {
-            wet = true;
-            break;
+        // **Not the reference** (PS-2's far-end oblique refusal, scope 9.1):
+        // where the grain is strong, a street does not end as a T on a street
+        // off every axis of the grain by more than `PARALLEL_OBLIQUE_RAD`, so
+        // a wedge is a seam, not the default. Dropped, not continued: the
+        // shortest rule that removes the oblique T (a crossing would raise
+        // the degree-4 count FS-3 caps).
+        if let Some((f, m)) = par
+            && f.at(b, site.market_dist(b, m)).strength >= PARALLEL_STRONG
+            && crate::field::axis_off(e_ang, f.at(b, site.market_dist(b, m)).axis) > PARALLEL_OBLIQUE_RAD
+        {
+            return None;
         }
-        t += 0.17;
     }
-    if wet {
+    if refused_by_site(site, wall_state, o, b) {
         return None;
-    }
-    // Wall permeability: after the wall exists, streets cross only at
-    // gates (M-NET-9).
-    if let Some(ring) = wall_state.ring.as_deref() {
-        let cross = ring_crossings(ring, o, b);
-        if !cross.is_empty() {
-            let mut ok = true;
-            for cp in cross {
-                let mut near = false;
-                for gt in &wall_state.gates {
-                    if cp.dist(gt.pt) < 20.0 {
-                        near = true;
-                        break;
-                    }
-                }
-                if !near {
-                    ok = false;
-                    break;
-                }
-            }
-            if !ok {
-                return None;
-            }
-        }
     }
     // Parallel spacing: room for two plot depths between streets
     // (M-BLK-4).
@@ -940,7 +962,184 @@ fn legalize_street(
         if explore { "Exploration" } else { "Densification" },
         ep
     ) + prov_tail;
-    Some(g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov))
+    Some((g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov), b))
+}
+
+/// `legalize_street`'s site rules on the segment `o`-`b`: the box margin, the
+/// slope, the water and the wall's gates (moved out unchanged, 2026-11-21, so
+/// PS-2's cross lanes ([`cross_lane`]) are held to exactly the same rules).
+/// Draws nothing. `true` where the reference would `continue`.
+fn refused_by_site(site: &Site, wall_state: &WallState, o: Vec2, b: Vec2) -> bool {
+    if b.x < 40.0 || b.y < 40.0 || b.x > site.wm - 40.0 || b.y > site.hm - 40.0 {
+        return true;
+    }
+    if site.slope(o.lerp(b, 0.5)) > 0.34 || site.slope(b) > 0.34 {
+        return true; // M-REG-5
+    }
+    // Never cross water — the bridge already exists. The accumulation
+    // is the reference's and is load-bearing: it produces a sixth
+    // sample at exactly `t = 1.0` that `0.15 + k * 0.17` does not.
+    let mut wet = false;
+    let mut t = 0.15;
+    while t <= 1.0 {
+        if site.is_water(o.lerp(b, t)) {
+            wet = true;
+            break;
+        }
+        t += 0.17;
+    }
+    if wet {
+        return true;
+    }
+    // Wall permeability: after the wall exists, streets cross only at
+    // gates (M-NET-9).
+    if let Some(ring) = wall_state.ring.as_deref() {
+        let cross = ring_crossings(ring, o, b);
+        if !cross.is_empty() {
+            let mut ok = true;
+            for cp in cross {
+                let mut near = false;
+                for gt in &wall_state.gates {
+                    if cp.dist(gt.pt) < 20.0 {
+                        near = true;
+                        break;
+                    }
+                }
+                if !near {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// PS-2's grain is "strong" from this field strength up (PS-0's refusal
+/// threshold, scope 8.3): back streets, cross lanes and the far-end oblique
+/// refusal act only there.
+pub const PARALLEL_STRONG: f64 = 0.5;
+/// A heading or a street more than this off every axis of the grain is
+/// oblique, radians (PS-0's 0.35 rad, scope 8.3 and 9.1).
+pub const PARALLEL_OBLIQUE_RAD: f64 = 0.35;
+/// How far a heading bends toward the grain, times the field's strength.
+/// **A measured judgement** (owner Ruling GM, 2026-11-22, `PARALLEL_STREETS_SCOPE.md` 13 and 14): swept
+/// at 0.6, 0.4, 0.3 and 0.2 in step 0c, 0.4 is the one whose market-street FS-2 delta passes (0.297) with
+/// the most quads (61.5 %); PS-0's 0.6 setting bent the town too far (delta 0.398). Lower gains gave no
+/// fewer needle lots (12.1 to 12.3 %), which the back streets carry.
+pub const PARALLEL_GAIN: f64 = 0.4;
+/// The back street's offset behind its frontage, centreline to centreline,
+/// metres: scope 9.1's block depth, 5.3's 83 m target plus one street width
+/// [labelled in the scope].
+pub const BACK_DEPTH_M: f64 = 90.0;
+/// The share of qualifying taps (strong grain, edge with it) that become a
+/// back street. **A labelled judgement**, set in step 0 (scope section 11).
+pub const BACK_SHARE: f64 = 0.5;
+/// How many legalized steps the back street walks each way from its rib.
+/// **A labelled judgement**: about 1.5 block lengths of the drawn 56 m median.
+pub const BACK_WALK_STEPS: usize = 3;
+/// The cross-lane spacing along a pair, metres, jittered +/- 20 %: twice the
+/// depth, so a block's aspect is about 2.0 (scope 9.1, 5.3's target).
+pub const CROSS_STEP_M: f64 = 2.0 * BACK_DEPTH_M;
+/// A cross lane's ends keep this far from any node, metres (scope 9.1), so
+/// `Graph::add_street` edge-snaps them at the station instead of moving them
+/// onto a node.
+pub const CROSS_NODE_CLEAR_M: f64 = 30.0;
+/// A cross lane must meet the far parallel within this of square, radians
+/// (scope 9.1: 5 degrees).
+pub const CROSS_SQUARE_RAD: f64 = 5.0 * PI / 180.0;
+const BACK_PROV: &str = " Back street (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): one block depth behind its frontage, along the grain.";
+const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): closes a block square between two parallels.";
+
+/// **Not the reference** (PS-2, scope 9.1): the back-street candidate. A rib
+/// exactly square to the tapped frontage, exactly [`BACK_DEPTH_M`] long; if
+/// it reaches that depth free, a back street walked both ways from its end
+/// parallel to the frontage (up to [`BACK_WALK_STEPS`] legalized steps each
+/// way), with a cross lane ([`cross_lane`]) at every station
+/// [`CROSS_STEP_M`] (+/- 20 %) along it. A rib that meets a street first is
+/// kept as an ordinary street. Every piece passes `legalize_street`'s rules
+/// or [`refused_by_site`]'s; nothing is laid that they refuse. Only ever
+/// called with a grain, so it never runs on a reference path.
+#[allow(clippy::too_many_arguments)]
+fn lay_back_street(
+    r: &mut crate::rng::Substream,
+    s: &crate::rules::StreetRules,
+    site: &Site,
+    g: &mut Graph,
+    wall_state: &WallState,
+    o: Vec2,
+    perp: f64,
+    ep: i32,
+    par: (&crate::field::DirectionField, Vec2),
+) -> Option<Vec<usize>> {
+    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M))?;
+    if p.dist(o) < BACK_DEPTH_M - 1.0 {
+        return Some(made);
+    }
+    for dir in [perp + PI / 2.0, perp - PI / 2.0] {
+        let u = Vec2::new(js_cos(dir), js_sin(dir));
+        let (mut end, mut walked) = (p, 0.0);
+        let mut next = CROSS_STEP_M * r.range(0.8, 1.2);
+        for _ in 0..BACK_WALK_STEPS {
+            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None) else { break };
+            made.extend(m);
+            let seg = b.dist(end);
+            while next < walked + seg - CROSS_NODE_CLEAR_M {
+                // A station within `CROSS_NODE_CLEAR_M` of the node the walk has just reached is refused by `cross_lane`'s own
+                // node clearance, so no test of it is made here.
+                if let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep) {
+                    made.extend(c);
+                }
+                next += CROSS_STEP_M * r.range(0.8, 1.2);
+            }
+            walked += seg;
+            end = b;
+            // The step ended on a street (a T): the back street stops there.
+            if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 1) {
+                break;
+            }
+        }
+    }
+    Some(made)
+}
+
+/// **Not the reference** (PS-2's `closing` mode, scope 9.1): a cross lane
+/// from `st` (on a back street) at heading `ang`, to the first street it
+/// meets within 1.25 block depths. Refused whole unless that street is within
+/// [`CROSS_SQUARE_RAD`] of square to it, both ends are [`CROSS_NODE_CLEAR_M`]
+/// from every node, and [`refused_by_site`] passes it; then laid with both
+/// ends exact (`add_street` edge-snaps them where they are). Draws nothing.
+fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32) -> Option<Vec<usize>> {
+    let far = st + Vec2::new(js_cos(ang), js_sin(ang)) * (1.25 * BACK_DEPTH_M);
+    let mut hit: Option<(f64, Vec2, f64)> = None;
+    for eid in g.edges_near(st, far) {
+        let e = &g.edges[eid];
+        if !e.alive {
+            continue;
+        }
+        let (a2, b2) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        if let Some(h) = seg_int(st, far, a2, b2)
+            && h.u > 1e-3
+            && h.u < 1.0 - 1e-3
+            && h.t > 0.03
+            && hit.is_none_or(|x| h.t < x.0)
+        {
+            hit = Some((h.t, h.pt, js_atan2(b2.y - a2.y, b2.x - a2.x)));
+        }
+    }
+    let (_, b, e_ang) = hit?;
+    let sq = (e_ang - ang).rem_euclid(PI);
+    if (sq - PI / 2.0).abs() > CROSS_SQUARE_RAD
+        || g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_some()
+        || g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()
+        || refused_by_site(site, wall_state, st, b)
+    {
+        return None;
+    }
+    Some(g.add_street(st.x, st.y, b.x, b.y, "lane", 2.6, ep, CROSS_PROV))
 }
 
 /// How many candidates [`grow_far_bank`] draws at most. **The reference's**
@@ -1062,7 +1261,7 @@ pub fn grow_far_bank(
         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
             continue;
         }
-        let Some(made) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing) else {
+        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None) else {
             continue;
         };
         for eid in made {

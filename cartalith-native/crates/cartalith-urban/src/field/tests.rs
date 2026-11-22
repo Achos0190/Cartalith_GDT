@@ -158,19 +158,24 @@ fn near_crossings_merge_into_one_road() {
 }
 
 /// The town-type and ground pass on generated towns: with the switch on, a
-/// town's layout is the switch-off one (the reference's `hash_model` and the
-/// building count), its plan is present with a type and a ground figure; off
-/// there is no plan. A village (800) and a radial town carry the same layout
-/// both ways, the village no plan and the radial town no grain.
+/// town with a grain grows a different layout (PS-2, `crate::growth`) and has
+/// a plan with a type and a ground figure; a town with no grain keeps the
+/// switch-off layout (the reference's `hash_model` and the building count);
+/// off there is no plan. A village (800) and a radial town carry the same
+/// layout both ways, the village no plan and the radial town no grain.
 #[test]
-fn the_plan_changes_no_layout() {
+fn only_a_town_with_a_grain_changes_layout() {
     let t = |pop: f64, culture: Option<&str>, on: bool| -> Town {
         generate(4242, &GenOpts { pop: Some(pop), culture: culture.map(str::to_string), parallel_streets: on, ..GenOpts::default() })
     };
     for (pop, culture) in [(6000.0, None), (2500.0, None), (800.0, None), (6000.0, Some("venus"))] {
         let (off, on) = (t(pop, culture, false), t(pop, culture, true));
-        assert_eq!(hash_model(&off), hash_model(&on), "pop {pop} {culture:?}");
-        assert_eq!((off.buildings.len(), off.pop), (on.buildings.len(), on.pop));
+        let grain = on.parallel.as_ref().is_some_and(|p| p.field.is_some());
+        assert_eq!(hash_model(&off) == hash_model(&on), !grain, "pop {pop} {culture:?}");
+        assert!(grain || pop != 6000.0 || culture.is_some(), "the 6 000 organic town has a grain, so the moved branch is reached");
+        if !grain {
+            assert_eq!((off.buildings.len(), off.pop), (on.buildings.len(), on.pop));
+        }
         assert!(off.parallel.is_none());
         match (pop, culture) {
             (800.0, _) => assert!(on.parallel.is_none(), "a village has no plan"),
@@ -298,4 +303,25 @@ fn crossings_across_the_bearing_wrap_merge() {
     g.add_street(500.0, 500.0, 900.0, 500.0, "primary", 6.0, 0, "t");
     let b = approach_bearings(&g, Vec2::new(500.0, 500.0), 100.0);
     assert_eq!(b.len(), 2, "west (wrapping) and east: {b:?}");
+}
+
+/// Protects `axis_off`, `block_corners` and `rectangularity` (PS-2's closed-block and grain tests, moved from the census):
+/// literals. A bearing 0.1 rad off an axis, or off its cross-direction, is 0.1 from the grain, and 45 degrees is the most
+/// (pi / 4); a 100 m square has four corners and rectangularity 1.0, a right triangle three corners and 0.5, a pentagon
+/// (a square with its corner cut) five.
+#[test]
+fn the_grain_and_block_shape_measures_read_literals() {
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+    for (a, want) in [(0.0, 0.0), (0.1, 0.1), (-0.2, 0.2), (FRAC_PI_2 + 0.1, 0.1), (FRAC_PI_4, FRAC_PI_4), (3.0 * FRAC_PI_2 - 0.3, 0.3)] {
+        assert!((axis_off(a, 0.0) - want).abs() < 1e-12, "{a}: {}", axis_off(a, 0.0));
+    }
+    assert!((axis_off(1.0 + 0.25, 1.0) - 0.25).abs() < 1e-12, "the axis offsets the bearing");
+    let poly = |v: &[(f64, f64)]| -> Vec<Vec2> { v.iter().map(|&(x, y)| Vec2::new(x, y)).collect() };
+    let square = poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]);
+    let tri = poly(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)]);
+    let pent = poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (60.0, 100.0), (0.0, 100.0)]);
+    assert_eq!((block_corners(&square), block_corners(&tri), block_corners(&pent)), (4, 3, 5));
+    assert!((rectangularity(&square) - 1.0).abs() < 1e-9);
+    assert!((rectangularity(&tri) - 0.5).abs() < 1e-9);
+    assert!(rectangularity(&[]) == 0.0, "a degenerate outline reads 0");
 }

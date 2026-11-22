@@ -1,0 +1,9 @@
+('growth.rs', 'if next - walked >= CROSS_NODE_CLEAR_M ', 'SURVIVED')
+('growth.rs', '|| g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()', 'KILLED')
+('growth.rs', '&& h.t > 0.03             && hit.is_none_or', 'KILLED')
+('wallhug.rs', 'if parallel && ring_is_jagged(ring)', 'SURVIVED')
+('generate.rs', 'lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some(', 'SURVIVED')
+('wallhug.rs', 'if n < 4 {', 'SURVIVED')
+('field.rs', 'd.min(std::f64::consts::FRAC_PI_2 - d)', 'KILLED')
+SUMMARY 3 killed [('growth.rs', 'if next - walked >= CROSS_NODE_CLEAR_M ', 'SURVIVED'), ('wallhug.rs', 'if parallel && ring_is_jagged(ring)', 'SURVIVED'), ('generate.rs', 'lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some(', 'SURVIVED'), ('wallhug.rs', 'if n < 4 {', 'SURVIVED')]
+FIN

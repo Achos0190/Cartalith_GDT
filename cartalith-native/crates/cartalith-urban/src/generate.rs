@@ -78,7 +78,7 @@ use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, b
 use crate::blocks::{Block, Parcel, build_blocks};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::courtyard::build_courtyard_rings;
-use crate::cleanup::{clear_fort_zone, lane_pass, privatize_alleys};
+use crate::cleanup::{clear_fort_zone, privatize_alleys};
 use crate::districts::{
     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
 };
@@ -297,9 +297,10 @@ pub struct GenOpts {
     /// Rulings FY, GC and GF): the town-type rule, the local direction field
     /// and the ground gate ([`crate::field`]), computed for an organic or
     /// radial town of [`crate::field::MIN_POP`] and up and reported on
-    /// [`Town::parallel`]. **It changes no layout**: no street, lot or
-    /// building moves with it on (PS-1 is "no growth change"). `false` is no
-    /// plan, by control flow. The host sets it from
+    /// [`Town::parallel`]. **A town with a grain grows differently** (PS-2, Ruling GM: back streets,
+    /// cross lanes and a heading bent toward the grain, `crate::growth`); a town with no grain, a
+    /// village and a radial town are laid out as with it off. `false` is no plan and today's layout,
+    /// by control flow. The host sets it from
     /// `WorldParams::urban_parallel_streets`, off at both boundaries until
     /// the owner rules at PS-7 (`DECISIONS.md` section 7p).
     pub parallel_streets: bool,
@@ -1257,6 +1258,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             road_reach: street_village.then_some(crate::village::ROAD_REACH_M),
             wide_spacing: burgage,
             whole_budget: burgage,
+            // PS-2: the grain, with the switch on and a town that has one.
+            field: parallel.as_ref().and_then(|p| p.field.clone()),
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -1316,7 +1319,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         crate::burgage::back_lane_pass(&site, anchors.market, &mut g, epochs, max_rf, wall_state.ring.as_deref(), plaza.as_ref().map(|z| z.poly.as_slice()));
     }
     for _ in 0..3 {
-        if lane_pass(seed, &site, &anchors, &mut g, epochs, lane_min) == 0 {
+        // PS-2: a town with a grain keeps its closed blocks whole.
+        if crate::cleanup::lane_pass_with(seed, &site, &anchors, &mut g, epochs, lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some())) == 0 {
             break;
         }
     }
@@ -1387,7 +1391,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             fortified,
             wet_moat: profile.planning == "radial" && profile.waterway,
         };
-        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks, plaza.as_ref().filter(|p| p.kind == crate::plaza::PlazaKind::Market).map(|p| p.poly.as_slice())));
+        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks, plaza.as_ref().filter(|p| p.kind == crate::plaza::PlazaKind::Market).map(|p| p.poly.as_slice()), parallel.as_ref().is_some_and(|p| p.field.is_some()) ));
         // **Not the reference** (2026-11-17, Ruling FK's left item (iii);
         // rides `urban_wall_hug`, `crate::wallhug::shore_snap`): the stretches
         // of the fitted wall that stand over open water are set on the shore.

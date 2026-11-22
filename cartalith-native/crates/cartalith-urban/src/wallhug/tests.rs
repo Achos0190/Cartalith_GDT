@@ -837,3 +837,51 @@ fn a_chord_through_a_wet_corner_goes_round_it() {
         assert!((0..=n).all(|t| !wet(a.lerp(b, t as f64 / n as f64))), "a sample in the water on {a:?}-{b:?}");
     }
 }
+
+/// Protects `ring_is_jagged` (PS-2 step 0b, the owner's wall question; limits derived from today's walls in
+/// `PARALLEL_STREETS_SCOPE.md` 12): a ring is jagged at more than 6 vertices turning over 60 degrees, or over 1.15 of its
+/// convex hull's length. Literals: a square (4 sharp, ratio 1.0), an L (6 sharp, 1.079) and a under-four-point ring are
+/// not; a rectangle with one narrow tooth (7 sharp, ratio under 1.15), a 16-point star (16 sharp) and a crescent (2 sharp,
+/// ratio 1.33) are.
+#[test]
+fn a_ring_is_jagged_over_six_sharp_turns_or_a_hull_ratio_of_one_fifteen() {
+    let r = |v: &[(f64, f64)]| -> Vec<Vec2> { v.iter().map(|&(x, y)| Vec2::new(x, y)).collect() };
+    let square = r(&[(0.0, 0.0), (400.0, 0.0), (400.0, 400.0), (0.0, 400.0)]);
+    let ell = r(&[(0.0, 0.0), (400.0, 0.0), (400.0, 200.0), (200.0, 200.0), (200.0, 400.0), (0.0, 400.0)]);
+    let tooth = r(&[(0.0, 0.0), (280.0, 0.0), (300.0, -40.0), (320.0, 0.0), (600.0, 0.0), (600.0, 300.0), (0.0, 300.0)]);
+    let star: Vec<Vec2> = (0..16).map(|k| { let (rad, a) = (if k % 2 == 0 { 100.0 } else { 60.0 }, std::f64::consts::TAU * k as f64 / 16.0); Vec2::new(rad * a.cos(), rad * a.sin()) }).collect();
+    let crescent: Vec<Vec2> = (30..=330).step_by(30).map(|t| (100.0, f64::from(t))).chain((60..=300).rev().step_by(30).map(|t| (40.0, f64::from(t)))).map(|(rad, t)| Vec2::new(rad * t.to_radians().cos(), rad * t.to_radians().sin())).collect();
+    assert!(!ring_is_jagged(&square), "4 sharp, ratio 1.0");
+    assert!(!ring_is_jagged(&ell), "6 sharp (the cap), ratio 1.079");
+    assert!(!ring_is_jagged(&square[..3]), "under four points is never jagged");
+    assert!(ring_is_jagged(&tooth), "7 sharp turns");
+    assert!(ring_is_jagged(&star), "16 sharp turns");
+    assert!(ring_is_jagged(&crescent), "2 sharp turns but 1.33 of its hull");
+}
+
+/// Protects `hug_wall`'s jag guard (PS-2 step 0b): on a walled town with a grain (switch on) a refit ring that
+/// `ring_is_jagged` is refused (`Kept(Jagged)`) and the grown circuit stays, the two fixtures found by scanning seeds 1 to 59
+/// (seed 17 at 1 800 and seed 56 at 3 000); with the switch off the same towns are refitted as today (no guard), and a
+/// kept circuit is the one that was grown (the wall of the switch-on town is not the off one's).
+#[test]
+fn a_jagged_refit_of_a_town_with_a_grain_is_refused_and_the_grown_circuit_kept() {
+    use crate::wallhug::{HugOutcome, KeptReason};
+    for (seed, pop) in [(17u32, 1800.0), (56, 3000.0)] {
+        let make = |on: bool| generate(seed, &GenOpts { pop: Some(pop), parallel_streets: on, walls: Some(true), wall_hug: true, ..GenOpts::default() });
+        let (off, on) = (make(false), make(true));
+        assert!(matches!(on.wall_hug, Some(HugOutcome::Kept(KeptReason::Jagged))), "seed {seed}: {:?}", on.wall_hug);
+        assert!(!matches!(off.wall_hug, Some(HugOutcome::Kept(KeptReason::Jagged))), "seed {seed} off: {:?}", off.wall_hug);
+        assert!(on.wall.ring.is_some(), "the grown circuit stands");
+    }
+}
+
+/// Protects that the jag guard is the switch's alone: seed 9 at 3 000 with the switch OFF is refitted (`Refit`) to a ring
+/// that `ring_is_jagged` calls jagged (today's walls reach 8 sharp vertices), and stays so; the guard never acts on it.
+#[test]
+fn the_switch_off_refit_is_untouched_by_the_jag_guard() {
+    use crate::wallhug::HugOutcome;
+    let off = generate(9, &GenOpts { pop: Some(3000.0), parallel_streets: false, walls: Some(true), wall_hug: true, ..GenOpts::default() });
+    assert!(matches!(off.wall_hug, Some(HugOutcome::Refit { .. })), "{:?}", off.wall_hug);
+    assert!(ring_is_jagged(off.wall.ring.as_ref().expect("a walled town")), "today's refit ring is kept as it is, jagged or not");
+}
+

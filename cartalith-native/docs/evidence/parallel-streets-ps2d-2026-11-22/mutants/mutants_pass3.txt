@@ -1,0 +1,5 @@
+('wallhug.rs', 'if parallel && ring_is_jagged(ring)', 'KILLED')
+('generate.rs', 'lane_min, parallel.as_ref().is_some_and(|p| p.field.is_some(', 'KILLED')
+('growth.rs', 'if let Some(c) = cross_lane(site, g, wall_state, end + u * (', 'BUILD_ERROR')
+SUMMARY 2 killed [('growth.rs', 'if let Some(c) = cross_lane(site, g, wall_state, end + u * (', 'BUILD_ERROR')]
+FIN

@@ -1,0 +1,7 @@
+cen quads24 off/on ['49.9', '61.5'] housed p10 off/on ['95', '100'] FS1 kept off/on [('35', '1.00'), ('22', '0.88')] needles off/on ['11.3', '12.1']
+  market_street: towns 3 phi median 0.347 p90 0.548 max 0.548; on-off delta max 0.297; entropy/max median 0.882
+  organic_core: towns 9 phi median 0.174 p90 0.297 max 0.341; on-off delta max 0.168; entropy/max median 0.944
+  river_front: towns 23 phi median 0.145 p90 0.256 max 0.294; on-off delta max 0.231; entropy/max median 0.954
+ wall off sharp med/p90/total 4 6 133 hull med/p90/max 1.045 1.113 1.144
+ wall proto sharp med/p90/total 3 6 125 hull med/p90/max 1.033 1.086 1.126
+ market phi per town ['0.2445', '0.3466', '0.5482'] cap .35

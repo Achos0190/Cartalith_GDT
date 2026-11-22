@@ -842,6 +842,13 @@ pub enum RiverbankPass {
     Village { street_scale: f64, trim: bool },
 }
 
+/// How much more than its target a town with a grain (`Town::parallel`'s field) may house on the
+/// market's bank and still be given the far bank ([`second_pass`]). **A labelled judgement**: the
+/// upper quartile of housed(switch on) / housed(off) over the 35 census towns is 1.22 (median 1.06,
+/// `parallel-streets-ps2-2026-11-18/step0/towns_s0b_384.csv`), so 1.25 gives the far bank to a town
+/// whose off layout would have taken it. Reached only with `urban_parallel_streets` on.
+pub const PARALLEL_FAR_BANK_SLACK: f64 = 1.25;
+
 /// Whether [`crate::generate`] lays this town out again, and how, from its
 /// first layout `t` (2026-11-15; `None` for a second layout, with the switch
 /// off, or when the first is right).
@@ -870,8 +877,12 @@ pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
     if !(t.riverbank || t.street_village) || t.riverbank_pass != Some(RiverbankPass::First) {
         return None;
     }
-    if t.both_banks && t.pop < t.pop_target {
-        let share = if t.pop > 0.0 { t.pop_target / t.pop - 1.0 } else { FAR_BANK_MAX_RATIO };
+    // **Not the reference** (PS-2 step 0b, Ruling GH, `PARALLEL_FAR_BANK_SLACK`): a town with a
+    // grain houses more on the market's bank than today's layout does, so judged against its bare
+    // target it skipped the far bank today's layout takes. Its target is raised by the slack.
+    let target = t.pop_target * if t.parallel.as_ref().is_some_and(|p| p.field.is_some()) { PARALLEL_FAR_BANK_SLACK } else { 1.0 };
+    if t.both_banks && t.pop < target {
+        let share = if t.pop > 0.0 { target / t.pop - 1.0 } else { FAR_BANK_MAX_RATIO };
         return Some(RiverbankPass::FarBank { share: share.min(FAR_BANK_MAX_RATIO) });
     }
     if t.pop_target < BOTH_BANKS_MIN_POP && t.pop > t.pop_target * RIVER_HOUSING_CAP {
