@@ -119,7 +119,6 @@ var _rehomed_shown := false
 ## The phone form's header row (made by `DccWidgets.phone_head()`), or null off the phone: the host's first child.
 var _head_wrap: Control
 ## The margin container around `_body`; its bottom margin is the phone's 60 px (the sheet's Close row) or 10.
-var _pad: MarginContainer
 ## The phone-insets relay this window owns, connected once in `setup()` and never again (`_connect_insets_relay()`).
 var _insets_relay: Callable
 ## PC-6: the content root (status, chips, transcript, input, Save), built once and moved between the
@@ -155,6 +154,11 @@ var _conv: Array = []
 ## True once the first-use card was put in this transcript (it is shown once per New, never again once answered).
 var _conv_card_shown := false
 var _body: VBoxContainer
+## The pinned action rows' box and its margin (see `_rebuild`'s foot comment); a sibling of `_form_scroll` in the host.
+var _foot: VBoxContainer
+var _foot_pad: MarginContainer
+## Scroll around the form's body: on only in the window form (see `_sync_scroll_floor`), a pass-through elsewhere.
+var _form_scroll: ScrollContainer
 var _task := "prose"
 var _note_action := "note_summarise"
 ## The current place `{index, tid, name}`, or `{}`.
@@ -327,8 +331,19 @@ func setup(a, b: EngineBridge) -> void:
 		_head_wrap = _head_wrap_of(DccWidgets.phone_head(host, "Assistant", "optional · your model"), host)
 	## A phone sheet draws its Close button over the bottom of the content (measured: it covered the
 	## closing note), so the phone body ends 60 px early; the pointer dialog reserves the row itself.
-	var pad := DccWidgets.pad(host, 14, 10, 14, _pad_bottom())
-	_pad = pad
+	## The window form scrolls when its content is taller than the window (the tablet's 44 px controls make the form about
+	## 870 px against an 800 px window, which left Send and Save under the Close row: `_llmpanel_probe`, 2026-11-22).
+	## The scroll is only switched on for that form (`_sync_scroll_floor`); docked and on the phone it is a pass-through,
+	## so those layouts, which already scroll or fit, are unchanged.
+	_form_scroll = ScrollContainer.new()
+	_form_scroll.name = "FormScroll"
+	_form_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_form_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_form_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_form_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_form_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	host.add_child(_form_scroll)
+	var pad := DccWidgets.pad(_form_scroll, 14, 10, 14, 0)
 	pad.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body = VBoxContainer.new()
@@ -336,6 +351,14 @@ func setup(a, b: EngineBridge) -> void:
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
+	## The FOOT: the reason, token line, Reset / Stop / Send and the Save row, outside the scroll so they stay in view
+	## whatever the form's height (window form: above the dialog's Close row; docked and phone: the same order below the
+	## body as before). The bottom margin the body used to carry (60 on the phone, which draws its Close button over the
+	## content) lives here now.
+	_foot_pad = DccWidgets.pad(host, 14, 8, 14, _pad_bottom())
+	_foot = VBoxContainer.new()
+	_foot.add_theme_constant_override("separation", 8)
+	_foot_pad.add_child(_foot)
 	## Closing cancels a running reply and joins the worker: no thread outlives the window.
 	## **A move is not a close** (PW-3): `PopoutHost.toggle()` hides the window for the length of one
 	## call to put it in, or take it out of, its own operating-system window, and that must not end a
@@ -589,6 +612,7 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	else:
 		dropped = 0
 	_clear(_body)
+	_clear(_foot)
 	controls.clear()
 	_chips.clear()
 	if not bridge.llm_api:
@@ -801,7 +825,7 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## PC-6: docked, the transcript's floor is DOCKED_REPLY_MIN (200 px; F4) (it expands into every free pixel, see above).
-	_scroll.custom_minimum_size.y = 100 if _phone else DOCKED_REPLY_MIN
+	_scroll.custom_minimum_size.y = 100 if (_phone or not is_docked()) else DOCKED_REPLY_MIN
 	_body.add_child(_scroll)
 	if kept_msgs != null:
 		_msgs = kept_msgs
@@ -885,7 +909,7 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	_body.add_child(_input)
 	controls["input"] = _input
 
-	_reason_label = _note_label(_body, "", "warn")
+	_reason_label = _note_label(_foot, "", "warn")
 	controls["reason"] = _reason_label
 
 	## PC-6: docked, the token line is its own line and the buttons flow (Send reads "Turn on Assistant
@@ -905,11 +929,11 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	_tok_label.custom_minimum_size.x = WRAP_MIN_W
 	_tok_label.tooltip_text = "No spend limit is enforced unless you set a cap in Settings. Counts are what servers reported."
 	if _phone:
-		_body.add_child(ctl)
+		_foot.add_child(ctl)
 		ctl.add_child(_tok_label)
 	else:
-		_body.add_child(_tok_label)
-		_body.add_child(ctl)
+		_foot.add_child(_tok_label)
+		_foot.add_child(ctl)
 	controls["tokens"] = _tok_label
 	_tok_reset = _button(ctl, "Reset", _on_reset_counter)
 	_tok_reset.tooltip_text = "Zero the counter for this session. It does not change any cap setting."
@@ -922,12 +946,12 @@ func _rebuild(keep_transcript: bool = false) -> void:
 	## PC-6: docked, Save and its reason flow (one row of both measured 287 px against the 304 px dock).
 	var save_row: Container = HFlowContainer.new()
 	save_row.add_theme_constant_override("h_separation", 8)
-	_body.add_child(save_row)
+	_foot.add_child(save_row)
 	_save = _button(save_row, "Save to note", _on_save)
 	controls["save"] = _save
 	_save_reason = _note_label(save_row, "", "text_ghost")
 	controls["save_reason"] = _save_reason
-	controls["save_note"] = _note_label(_body, "Saved text is appended to the note, marked model-generated. Your own text is never changed.")
+	controls["save_note"] = _note_label(_foot, "Saved text is appended to the note, marked model-generated. Your own text is never changed.")
 
 	_fill_notes()
 	if kept_msgs != null:
@@ -2306,7 +2330,8 @@ func _maybe_ask_save_card() -> void:
 	controls["conv_save_card"] = box
 	## The docked transcript's floor is 80 px, which showed the buttons and scrolled the question out of sight
 	## (seen in `_pcl_conv_probe`'s frame, 2026-11-16): the floor rises while the card waits and returns on the answer.
-	_scroll.custom_minimum_size.y = maxf(_scroll.custom_minimum_size.y, CARD_SCROLL_MIN)
+	if _phone or is_docked():  ## the window form's transcript expands; a raised floor overflows it (`_sync_scroll_floor`)
+		_scroll.custom_minimum_size.y = maxf(_scroll.custom_minimum_size.y, CARD_SCROLL_MIN)
 	_scroll_to_end()
 
 
@@ -2706,10 +2731,17 @@ const DOCKED_REPLY_MIN := 200.0
 ## expands into the free space, and a raised floor there would push Send off the sheet's edge). Called after every change
 ## of a card or of the save question, and when the content is mounted. Pure layout: never touches a message.
 func _sync_scroll_floor() -> void:
+	if _form_scroll != null and is_instance_valid(_form_scroll):
+		_form_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if (not _phone and not is_docked()) else ScrollContainer.SCROLL_MODE_DISABLED
 	if _scroll == null or not is_instance_valid(_scroll):
 		return
-	var want := 100.0 if _phone else DOCKED_REPLY_MIN
-	if controls.has("conv_save_card") and is_instance_valid(controls["conv_save_card"]):
+	## Window form (neither the phone sheet nor docked): the transcript EXPANDS into the free height, so every raised
+	## floor below only makes the form taller than the window -- at 1600x900 the 200 px reply floor plus the save
+	## card's 160 left the Save and Send rows under the Close row (`_llmpanel_probe`, 2026-11-22). It keeps the 100 px
+	## floor the phone has.
+	var window_form := not _phone and not is_docked()
+	var want := 100.0 if (_phone or window_form) else DOCKED_REPLY_MIN
+	if not window_form and controls.has("conv_save_card") and is_instance_valid(controls["conv_save_card"]):
 		want = maxf(want, CARD_SCROLL_MIN)
 	if is_docked():
 		for c in cards:
@@ -3670,7 +3702,7 @@ func _relayout(form: String) -> void:
 			_host.remove_child(_head_wrap)
 			_head_wrap.queue_free()
 			_head_wrap = null
-		_pad.add_theme_constant_override("margin_bottom", _pad_bottom())
+		_foot_pad.add_theme_constant_override("margin_bottom", _pad_bottom())
 		_rebuild(true)
 	_form = form
 	_relaying = false

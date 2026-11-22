@@ -697,6 +697,23 @@ static func edge_sliders_enabled() -> bool:
 	_ensure_loaded()
 	return bool(_cfg.get_value(_SEC_HANDEDNESS, "edge_sliders", true))
 
+## TR-4 (`TOOLING_PLAN.md` M1): the opt-in diagnostic trace's level. `""` is OFF and is the default, so a fresh
+## install writes no log; `"info"` writes stage/job timings, `"debug"` adds the finer records the build keeps (the
+## compile-time cap in `cartalith-godot`'s `Cargo.toml` decides which exist). Any other stored text reads as off. The
+## `[diagnostics]` section is NOT in `RESET_KEEP_SECTIONS`, so Preferences > Reset to default settings clears it.
+## Per device; never in a world save or an export.
+const TRACE_LEVELS := ["", "info", "debug"]
+static func trace_level() -> String:
+	_ensure_loaded()
+	var v := String(_cfg.get_value("diagnostics", "trace", ""))
+	return v if v in TRACE_LEVELS else ""
+
+## Stores the trace level (`""` off, "info", "debug"; anything else is stored as off) and saves.
+static func set_trace_level(level: String) -> void:
+	_ensure_loaded()
+	_cfg.set_value("diagnostics", "trace", level if level in TRACE_LEVELS else "")
+	_save()
+
 ## Stores the edge-sliders switch and saves. Lives beside the dominant hand because it is a tablet ergonomics choice.
 static func set_edge_sliders_enabled(on: bool) -> void:
 	_ensure_loaded()

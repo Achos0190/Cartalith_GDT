@@ -140,6 +140,10 @@ var _t0 := 0
 var _active := false
 var _cancelling := false
 var _terminal_sent := false
+## TR (`TOOLING_PLAN.md` M1): the opt-in trace's two assistant records per request. First byte = the first response head
+## after `begin()`; done = the terminal event. Only an operation name, milliseconds and a size are ever passed to
+## `Trace.event` (it accepts no text): never a prompt, a reply, a note, a key or an address.
+var _first_byte_logged := false
 
 
 func _init() -> void:
@@ -184,6 +188,7 @@ func begin(settings: Dictionary, capability: String, consented: PackedStringArra
 		return {"ok": false, "code": "wire", "reason": "The connection could not be started."}
 	_active = true
 	_t0 = Time.get_ticks_msec()
+	_first_byte_logged = false
 	set_process(true)
 	# The headers carry the credential; the caller gets a copy without them.
 	var out := prep.duplicate()
@@ -230,6 +235,9 @@ func pump() -> void:
 	for item in wire.drain():
 		match String(item.get("kind", "")):
 			"head":
+				if not _first_byte_logged:
+					_first_byte_logged = true
+					Trace.event("llm.first_byte", float(Time.get_ticks_msec() - _t0), int(item["status"]))
 				stream.on_head(int(item["status"]))
 			"chunk":
 				_dispatch(stream.on_chunk(item["bytes"]))
@@ -333,6 +341,8 @@ func _terminal(notify: Callable) -> void:
 	if _terminal_sent:
 		return
 	_terminal_sent = true
+	## Request time (send to the terminal event) and the reply's size in characters, not its content.
+	Trace.event("llm.done", float(Time.get_ticks_msec() - _t0), text_so_far.length())
 	wire.cancel()
 	notify.call()
 
@@ -410,6 +420,7 @@ func _continue_after_join() -> void:
 		idle.emit()
 		return
 	_t0 = Time.get_ticks_msec()
+	_first_byte_logged = false
 
 
 ## The one automatic retry (LLM-4; scope s.4 rule 7). Runs only after Rust marked the error
@@ -441,4 +452,5 @@ func _retry_after_pause() -> void:
 		idle.emit()
 		return
 	_t0 = Time.get_ticks_msec()
+	_first_byte_logged = false
 	set_process(true)

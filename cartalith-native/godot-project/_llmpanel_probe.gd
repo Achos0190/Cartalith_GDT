@@ -89,6 +89,14 @@ func _shot(tag: String) -> void:
 
 
 func _click(c: Control) -> void:
+	## A docked form (the tablet's Context panel, 1000 px tall) holds more than it shows and scrolls, so a user scrolls the
+	## control into view before pressing it; the probe does the same instead of clicking a point the dock clips away.
+	var sc: Node = c.get_parent()
+	while sc != null:
+		if sc is ScrollContainer:
+			(sc as ScrollContainer).ensure_control_visible(c)
+		sc = sc.get_parent()
+	await _settle(2)
 	var local := c.get_global_rect().get_center()
 	var vp := c.get_viewport()
 	var at: Vector2 = vp.get_final_transform() * local
@@ -612,7 +620,12 @@ func _ready() -> void:
 	await _until(func(): return _server.requests.size() - n4 >= 2 and not _win.run.busy(), 15000)
 	await _settle(6)
 	_ok(_server.requests.size() - n4 == 2, "exactly two requests for one 529 (%d)" % (_server.requests.size() - n4))
-	_ok(_window_text().contains("Overloaded. Trying once more;"), "the panel says it is trying once more")
+	var retry_text := _window_text()
+	var at := retry_text.find("Trying once more")
+	## The mock closes the socket right after its 529; under load the client sometimes sees the close before the status
+	## line and words the first failure "...failed or was lost" instead of "Overloaded" (1 of 6 desktop runs,
+	## `OUTSTANDING_WORK.md`). Either way the one automatic retry is announced, which is what this protects.
+	_ok(retry_text.contains("Overloaded. Trying once more;") or retry_text.contains("failed or was lost. Trying once more;"), "the panel says it is trying once more (found: '%s')" % (retry_text.substr(maxi(0, at - 30), 90).replace("\n", " | ") if at >= 0 else "no retry note in the window"))
 	_ok(_assistant_text() == "The river runs south.", "...and the reply completed: '%s'" % _assistant_text())
 	await _shot("12_retry")
 
@@ -626,6 +639,22 @@ func _ready() -> void:
 	elif _mode == "tablet":
 		floor_px = float(DccTheme.role_px("btn_min_h"))
 	var win_rect := Rect2(Vector2(_win.position), Vector2(_win.size))
+	## The action rows are IN VIEW without scrolling anything: Send, Save and Reset end above the dialog's own Close row
+	## (2026-11-22: on desktop 1600x900 and the tablet they sat under it, so every click below missed). Never scrolled
+	## into view first, which is what `_click` does for the docked form.
+	if _mode != "phone":
+		## A fresh view: earlier clicks scrolled the form to the control they pressed, which would hide an overflow.
+		var fs: ScrollContainer = _win._form_scroll
+		fs.scroll_vertical = 0
+		await _settle(3)
+		if _mode == "desktop":
+			var vb := fs.get_v_scroll_bar()
+			_ok(vb.max_value <= vb.page + 1.0, "desktop: the whole form fits the window with no scrolling (%.0f of %.0f)" % [vb.max_value, vb.page])
+		var ok_top: float = _win.get_ok_button().get_global_rect().position.y
+		for nm in ["send", "save", "tokens_reset"]:
+			var ab := _c(nm)
+			_ok(ab != null and ab.is_visible_in_tree() and ab.get_global_rect().end.y <= ok_top + 1.0,
+				"'%s' ends above the Close row without scrolling (%.0f against %.0f)" % [nm, ab.get_global_rect().end.y if ab != null else -1.0, ok_top])
 	for name in ["send", "stop", "save", "tokens_reset", "note_reload", "settings", "task_prose", "task_story", "task_note", "note", "input"]:
 		var c := _c(name)
 		if c == null or not c.is_visible_in_tree():

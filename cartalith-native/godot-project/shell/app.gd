@@ -1810,7 +1810,11 @@ func _enable_idle_mode() -> void:
 ## touched. The phone presents windows its own way (`phone_present()`).
 func _watch_dialog(n: Node) -> void:
 	if n is AcceptDialog:
-		(n as Window).visibility_changed.connect(_fit_dialog.bind(n))
+		## Guarded: a window re-added to the tree (the phone re-opens its settings window) fires `node_added` again
+		## and the bound callable is already connected, which Godot logs as an error each time.
+		var hook := _fit_dialog.bind(n)
+		if not (n as Window).visibility_changed.is_connected(hook):
+			(n as Window).visibility_changed.connect(hook)
 
 ## `_watch_dialog()`'s visibility hook: clamps an over-large dialog to the app
 ## window and re-centres it. Skips hidden windows, the phone (it presents windows
@@ -1851,8 +1855,13 @@ func _ready() -> void:
 		return
 	## TOOLING_PLAN.md M1: `CARTALITH_TRACE=info` switches the opt-in trace on at boot (off by default;
 	## JSON lines in user://logs/). The shell's Preferences switch is TR-4's remaining half.
-	if OS.get_environment("CARTALITH_TRACE") != "":
-		Trace.start(OS.get_environment("CARTALITH_TRACE"), ProjectSettings.globalize_path("user://logs"))
+	## TR-4: the environment variable wins (a probe or a bug report); otherwise Preferences > Diagnostic trace decides,
+	## and it is off unless the user turned it on (`DccSettings.trace_level()`).
+	var trace_level: String = OS.get_environment("CARTALITH_TRACE")
+	if trace_level == "":
+		trace_level = DccSettings.trace_level()
+	if trace_level != "":
+		Trace.start(trace_level, ProjectSettings.globalize_path("user://logs"))
 	super._ready()
 	undo_groups.app = self
 	year_history.app = self

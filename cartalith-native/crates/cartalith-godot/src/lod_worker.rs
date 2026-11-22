@@ -1670,6 +1670,9 @@ impl LodWorker {
         }
         let me = Arc::clone(self);
         pool.spawn(move || {
+            // TR-3/M1 (TOOLING_PLAN.md): one `lod::job` span per worker job, closed when the job ends, so the trace shows each
+            // job's own run time. Fields are the allowlisted `kind` name and `level`; never a tile's pixels or a path.
+            let _span = tracing::info_span!("lod::job", kind = "snapshot").entered();
             let built = LodSnapshot::build(inputs);
             let Ok(mut st) = me.state.lock() else { return };
             // The generation check is the whole staleness rule: if the world,
@@ -1753,6 +1756,9 @@ impl LodWorker {
         let me = Arc::clone(self);
         pool.spawn(move || {
             me.synthesized.fetch_add(1, Ordering::SeqCst);
+            // TR-3/M1 (TOOLING_PLAN.md): one `lod::job` span per worker job, closed when the job ends, so the trace shows each
+            // job's own run time. Fields are the allowlisted `kind` name and `level`; never a tile's pixels or a path.
+            let _span = tracing::info_span!("lod::job", kind = "tile", level = z as i64).entered();
             let out = snap.render_tile_conformed(z, col, row, conform);
             let Ok(mut st) = me.state.lock() else { return };
             st.in_flight.remove(&(z, col, row, conform));
@@ -1798,6 +1804,9 @@ impl LodWorker {
         };
         let me = Arc::clone(self);
         pool.spawn(move || {
+            // TR-3/M1 (TOOLING_PLAN.md): one `lod::job` span per worker job, closed when the job ends, so the trace shows each
+            // job's own run time. Fields are the allowlisted `kind` name and `level`; never a tile's pixels or a path.
+            let _span = tracing::info_span!("lod::job", kind = "info", level = z as i64).entered();
             let out = snap.render_info_tile(view, z, col, row);
             let tag = snap.info_tag(view);
             let Ok(mut st) = me.state.lock() else { return };
@@ -2024,6 +2033,9 @@ impl LodWorker {
         };
         let me = Arc::clone(self);
         pool.spawn(move || {
+            // TR-3/M1 (TOOLING_PLAN.md): one `lod::job` span per worker job, closed when the job ends, so the trace shows each
+            // job's own run time. Fields are the allowlisted `kind` name and `level`; never a tile's pixels or a path.
+            let _span = tracing::info_span!("lod::job", kind = "relief", level = z as i64).entered();
             let out = relief_job(&snap, z, col, row, grid);
             let Ok(mut st) = me.state.lock() else { return };
             st.relief_in_flight.remove(&(z, col, row, grid));

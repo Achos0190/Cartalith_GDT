@@ -386,6 +386,9 @@ const ID_PREF_QUICK_BAR := 902
 const ID_PREF_POPOUT := 903
 ## `Preferences ▸ Brush edge sliders` (tablet; `MAP_CONTEXT_SCOPE.md` s.7.3). 904 was unused (`grep -rn -E "\b904\b" shell/*.gd`, 2026-11-17).
 const ID_PREF_EDGE_SLIDERS := 904
+const ID_PREF_TRACE_OFF := 906  ## Preferences ▸ Diagnostic trace ▸ Off (TR-4).
+const ID_PREF_TRACE_INFO := 907  ## ... Info.
+const ID_PREF_TRACE_DEBUG := 908  ## ... Debug.
 const ID_PREF_RESET_SETTINGS := 905  ## Preferences ▸ Reset to default settings… (owner, 2026-11-21, F40).
 ## PC-9's rows (`PC_SHELL_PROPOSAL.md` §3.8, §3.9; mockup `design/mobile-shell-2026-10-31/Shell.dc.html`'s
 ## desktop menus). 910-918 were unused, measured 2026-11-01 at `a38e0ac`: no `ID_` constant in this
@@ -616,6 +619,7 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
 var _edge_sliders_pref_row := -1   ## `Preferences ▸ Brush edge sliders (tablet)` row index, -1 until built
+var _trace_popup: PopupMenu   ## `Preferences ▸ Diagnostic trace` (TR-4)
 var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
 var _ui_scale_popup: PopupMenu  ## MS-1 S5: `Preferences ▸ UI scale` (touch builds only).
 var _stylus_popup: PopupMenu   ## `Preferences ▸ Stylus` (SH-3): the stylus input preferences, per install.
@@ -4474,6 +4478,50 @@ func _build_ui_scale_submenu(p: PopupMenu) -> void:
 	p.add_child(_ui_scale_popup)
 	p.add_submenu_item("UI scale", "UiScaleChoice")
 
+## TR-4: Preferences ▸ Diagnostic trace ▸ Off / Info / Debug. Off by default; the choice is stored per device
+## (`DccSettings.trace_level()`) and applied at once (`_apply_trace_level`). The log holds timings and sizes only
+## (`cartalith-trace` accepts no free text), in `user://logs/`.
+func _build_trace_submenu(p: PopupMenu) -> void:
+	_trace_popup = PopupMenu.new()
+	_trace_popup.name = "TraceChoice"
+	_trace_popup.add_radio_check_item("Off", ID_PREF_TRACE_OFF)
+	_trace_popup.add_radio_check_item("Info (stage and job timings)", ID_PREF_TRACE_INFO)
+	_trace_popup.add_radio_check_item("Debug (finer records)", ID_PREF_TRACE_DEBUG)
+	for i in 3:
+		_trace_popup.set_item_tooltip(i, "Writes a timing log to the app's logs folder to help find slow steps. Only operation names, sizes and times are written: never a note, a prompt, a key or a path. Off by default; stored on this device, never in a world.")
+	_refresh_trace_menu()
+	_trace_popup.id_pressed.connect(_on_trace_choice)
+	_shell.style_popup(_trace_popup)
+	p.add_child(_trace_popup)
+	p.add_submenu_item("Diagnostic trace", "TraceChoice")
+
+## Ticks Preferences ▸ Diagnostic trace from `DccSettings.trace_level()`.
+func _refresh_trace_menu() -> void:
+	if _trace_popup == null:
+		return
+	var lv := DccSettings.trace_level()
+	_trace_popup.set_item_checked(0, lv == "")
+	_trace_popup.set_item_checked(1, lv == "info")
+	_trace_popup.set_item_checked(2, lv == "debug")
+
+## Serves Preferences ▸ Diagnostic trace: stores the level, ticks, and starts or stops the trace now.
+func _on_trace_choice(id: int) -> void:
+	var lv: String
+	match id:
+		ID_PREF_TRACE_OFF: lv = ""
+		ID_PREF_TRACE_INFO: lv = "info"
+		ID_PREF_TRACE_DEBUG: lv = "debug"
+		_: return
+	DccSettings.set_trace_level(lv)
+	_refresh_trace_menu()
+	apply_trace_level(lv)
+
+## Switches the trace to `level` (`""` off) without a restart. Static so Reset to default settings reuses it.
+static func apply_trace_level(level: String) -> void:
+	Trace.stop()
+	if level != "":
+		Trace.start(level, ProjectSettings.globalize_path("user://logs"))
+
 ## Ticks Preferences ▸ UI scale from `DccSettings.ui_scale()`. Reads settings only.
 func _refresh_ui_scale_menu() -> void:
 	var v := DccSettings.ui_scale()
@@ -4880,6 +4928,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## live-menu walk Help's read-only row uses, so the two can never disagree
 	## about what the list *is*, only about whether it can be clicked.
 	_live(p, "Keyboard shortcuts…", ID_PREF_SHORTCUTS)
+	_build_trace_submenu(p)
 	## F40 (owner, 2026-11-21): *"make an option to Reset to base settings in Preferences."* Last in the popup, after a
 	## separator, so it is never one slip from a row people use.
 	p.add_separator()
@@ -6552,6 +6601,11 @@ func _reset_settings() -> void:
 		func():
 			var r: Dictionary = DccSettings.reset_to_defaults()
 			if bool(r.get("ok", false)):
+				## TR-4: the trace level is a stored setting, so the reset has put it back to off; stop the live trace and
+				## re-tick the row too (a CARTALITH_TRACE environment variable is the launcher's choice, and is left).
+				if OS.get_environment("CARTALITH_TRACE") == "":
+					apply_trace_level(DccSettings.trace_level())
+				_refresh_trace_menu()
 				_host.set_status("hint", "settings reset to defaults -- the old file is at %s" % String(r.get("backup", "")), "text_dim")
 			else:
 				_host.set_status("hint", "settings were not reset: %s" % String(r.get("error", "unknown")), "text_dim"))
