@@ -12,7 +12,7 @@ below is rated on both, and section 5 has a bar that fails a fix that looks good
 character.
 
 This document **defines** milestones and holds the design reasoning. It carries no status column: what is built is
-`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built when this scope was written** (PS-1 has been built since: section 10). The only code
+`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built when this scope was written** (PS-1 and PS-2 have been built since: sections 10 and 14; PS-3 was measured and not built: section 15). The only code
 written is a scratch `#[ignore]` measurement (`block_shape_audit`), appended to `town_river_census.rs` in a worktree
 that was then removed; it is kept as `cartalith-native/docs/evidence/parallel-streets-2026-11-17/block_shape_audit.rs.txt`
 and pins nothing. `urban_burgage` stays in and off (Ruling FY; Q8's 56 m census reach kept).
@@ -1281,3 +1281,108 @@ single line (one killed; `ring_is_jagged`'s `n < 4` against `n < 3` is equivalen
 
 **Not done, by design.** The switch is OFF at both boundaries until PS-7 (owner). PS-3 onward (block depth, the type rules' per-quarter
 variety, the zoom detail) are unbuilt; the baseline above is what they must not worsen.
+
+## 15. PS-3 measured (2026-11-22): NO-GO on its own bars; nothing built but the 30 m access measure
+
+**Verdict: no-go.** A prototype of PS-3 (the back-street tier kept whole, a lane closing each tier, a spindle market
+on a market-street town's spine) was built behind `urban_parallel_streets`, measured on the census world against
+every PS-3 bar and PS-2's baseline (Ruling GM), swept over its four judgement settings, framed, and reverted. **No
+setting meets section 5.3's "depth across 83 m or more at 15 %"** (best 10.2 %), and **every setting that moves that
+bar at all worsens PS-2's baseline** (quads outside the core, needle lots), which Ruling GM forbids. By the rule the
+PS-2 steps followed, the product code is not kept; it is `scratch_code/ps3_prototype.diff.txt`. **What is kept** is
+the measure the brief asked for: section 9.2's "a back lane within 30 m" as `field::rear_served` /
+`field::rear_access_m` (`REAR_ACCESS_M`, `REAR_LOT_DEPTH_M`, 30 m each) and a `rear_served` column in
+`parallel_streets_audit`'s lot CSV. It reads a finished layout and changes none; PS-5's rear households will read it.
+Evidence: `cartalith-native/docs/evidence/parallel-streets-ps3-2026-11-22/` (`summary.txt` lists every file).
+
+**The world moved under PS-2's baseline.** Section 14's figures were measured on the census world of `a15b4ec6`;
+since then the world itself changed (among others Ruling GQ's peak law, F27's junction settlements, Ruling GO's
+borders), so the census now has 38 towns of 1 500+ at 384 (35 before) and 39 at 2 048, at other places. Every
+"before" and "mid" below is **re-measured on today's tree** (`origin/main` `2f539ef8`): before = switch off, mid =
+PS-2 as shipped (the prototype with its PS-3 pieces disabled, whose 38 towns' CSV rows are byte-identical to a build
+of `origin/main`), after = the prototype at its default settings. **PS-2 on today's world misses its own quads bar**
+(58.5 % against 60 %); section 14's 61.5 % was the old world's.
+
+**What the prototype did** (all of it on a town with a grain, `field: Some`; villages, radial and no-grain towns
+untouched by control flow):
+- **The tier** (`growth::Tier`): when `lay_back_street` laid a rib and walked its back street, the band from the
+  frontage to the back street over the walked length was recorded; `legalize_street` refused any later street
+  whose midpoint lay inside it by more than `TIER_EDGE_M` (12 m, labelled), so the block behind the frontage stayed
+  one block depth (90 m) deep.
+- **The closing lane**: a walk that ended free was closed by a lane from its end square back to the frontage
+  (`cross_lane` with the start's node clearance waived and 12 m at the frontage), so the tier could close as a
+  four-cornered block that `lane_pass_with`'s `keep_rect` keeps.
+- **The spindle market** (`plaza::build_plaza_shaped`, Q9): for a town that is market-street by the market point,
+  with `urban_market_scale`, the square's far side pulled in by a quarter of its length at each end, so the market
+  street widens and tapers inside the square's own rectangle.
+
+**Numbers** (census world, seeds 483920 912345 246371, 800 km, villages on, the app's `params::defaults`, release test
+binary; 5.3's rows over the blocks outside the core of the 8 largest towns a seed, 24 towns, as PS-2 reported them;
+every other row over the 38 towns of 1 500+):
+
+| 384 | bar | before (off) | mid (PS-2) | after (PS-3 prototype) |
+|---|---|---|---|---|
+| quads outside the core | 60 %+; PS-2's 58.5 not worse | 51.8 % | 58.5 % | **53.4 %** |
+| compact / all triangles | 5 / 15 % or less | 7.3 / 10.8 % | 5.0 / 8.1 % | 5.6 / 9.7 % |
+| block aspect, median | 2.0 or more | 1.57 | 1.57 | **1.59** |
+| rectangularity, median | 0.75 or more | 0.69 | 0.74 | 0.72 |
+| **depth across 83 m+, by count** | **15 % or more** | 4.0 % | 4.1 % | **7.3 %** |
+| the same by area (all 38 towns' outside-core blocks; not a bar) | | 18.7 % | 19.3 % | 27.6 % |
+| housed p10 (38 towns) | 5.1 | 91 | 97 | 95 |
+| FS-1: area ratio in 0.9-1.4 / min | 0.9 or more | | 30 of 38 / 0.80 | 31 of 38 / 0.83 |
+| FS-1: 85 % of off kept (re-roll null not re-measured on this world; 10 of 35 on the old one) | the null | | 16 of 38 (0.82) | 18 of 38 (0.85) |
+| needle lots / needle buildings | not above PS-2's | 11.5 % / 0.50 % | 12.0 % / 0.62 % | **14.0 % / 0.91 %** |
+| FS-2 delta max, market-street / organic / river-front | PS-2's | 0 | 0.164 / 0.433 / 0.207 | **0.311** / 0.362 / **0.277** |
+| wall over hull p90 / max; sharp vertices total | 5.1, no spikes | 1.099 / 1.167; 162 | 1.088 / 1.130; 134 | 1.088 / 1.129; 123 |
+| lots over 30 m deep / of them a street within 30 m of the rear (`rear_served`) | measurable | 2.4 % / 58.1 % | 3.0 % / 56.9 % | 5.1 % / **40.8 %** (the prototype's run wrote the distance; the same rule applied in `ps1_agg.py`) |
+
+| 2 048 (39 towns; 5.3's rows over all towns' outside-core blocks) | before | mid (PS-2) | after |
+|---|---|---|---|
+| quads outside the core | 49.6 % | 58.0 % | 52.5 % |
+| depth across 83 m+ | 4.1 % | 4.4 % | 7.3 % |
+| housed p10 | 91 | 101 | 93 |
+| needle lots | 11.4 % | 12.1 % | 14.3 % |
+| wall over hull p90 / max | 1.099 / 1.125 | 1.073 / 1.117 | 1.057 / 1.115 |
+
+**The sweep** (384; each a labelled judgement of the prototype, set by an environment knob in a scratch build):
+
+| setting | quads (24) | 83 m+ (24) | needles | housed p10 | FS-2 delta max (market / organic / river) |
+|---|---|---|---|---|---|
+| default (share 0.5, walk 3, edge 12 m, close, spindle) | 53.4 | 7.3 | 14.0 | 95 | 0.311 / 0.362 / 0.277 |
+| every tap a back street (`BACK_SHARE` 1.0) | 54.3 | 9.1 | 16.0 | 98 | 0.292 / 0.268 / 0.279 |
+| walk 5 steps | 53.1 | 6.7 | 14.2 | 97 | 0.195 / 0.259 / 0.330 |
+| share 1.0 and walk 5 | 52.5 | **10.2** | 15.4 | 100 | 0.258 / 0.266 / 0.297 |
+| tier edge 20 m | 54.9 | 7.1 | 14.4 | 95 | 0.172 / 0.281 / 0.211 |
+| tiers without the closing lane or the spindle | 54.8 | 7.0 | 13.3 | 92 | 0.148 / 0.249 / 0.144 |
+| no tiers (closing lane and spindle only) | 59.5 | 4.3 | 12.8 | 103 | 0.364 / 0.235 / 0.205 |
+| the spindle only | 58.6 | 4.0 | 12.1 | 97 | **0.390** / 0.433 / 0.207 |
+| the closing lane only | 59.5 | 4.3 | 12.8 | 103 | 0.274 / 0.235 / 0.205 |
+
+**Why it misses.** The tier does what it was built for: by area the deep share rises from 19 % to 28-37 %, about
+the traced plans' 32-40 % (section 8.1), and in the block plots (`plots/`) the tiers read as rows of long
+rectangular blocks. But 5.3 counts blocks, and a tier is two large blocks among the dozens of small ones grown round
+it: at most one back street per tapped frontage, so even with every tap a back street the count reaches 10 %. And
+the tiers that do not close square (the frontage bends, or the walk overshoots it) are deep irregular blocks, whose
+platting fans into needles (12.0 to 13.3-16.0 %) and whose interior has no lane within 30 m of a rear (the served
+share falls from 57 to 41 %): that is PS-5's platting, but PS-3 may not raise the needle bar before it. The
+closing lane alone adds needles (12.8 %) at no gain in depth, and the spindle alone moves a market-street town's
+order (FS-2 delta 0.164 to 0.390) without a measurable gain in any 5.3 row.
+
+**Frames** (owner condition, Ruling GA): City Viewer, windowed under the lock, opening frame and x4 market-centred,
+before / mid / after for 23 settlements of the shell's world at 384 x 288 (seed 483920: 14 towns and a village; seed 912345: 8 towns) (`contact_<seed>.png`, `frames/triple_<seed>_<id>_z1|z4.png`; the combined
+sheet `ps3_combined.png`). All looked at. The probe passed in all four runs; the before frames of the two sessions are pixel-identical (46 of 46); the village (483920 #2) is the same in all three, as it must be. **At first sight the prototype is a different town in several places**, which FS-4 would fail: 483920 #8 (walled, market-street) is re-shaped, its wall now round a long deep block and its growth spilling outside the circuit; 483920 #4 and 912345 #0 (river-front) move mass from one bank to the other (483920 #4's far bank fills). 483920 #21 changes type (market-street to river-front: the spindle's outline is nearer the bank). At x4 the tiers read as longer blocks with rows of houses along them (912345 #4, 483920 #4's far bank), but not as a clear gain over PS-2 under scrutiny; the spindle is visible on market-street towns (912345 #8, 483920 #8). The census block plots (`plots/`) show the tiers best: rows of long rectangular blocks in 483920 #6, irregular deep blocks elsewhere.
+
+**Mutants** on the kept measure (`mutants.txt`): 9 literal mutants (Python, exact replace, occurs-once check, restored in a `finally`, hash checked), all killed by `field::tests::a_deep_lot_is_served_from_behind_only_by_a_street_within_30_m_of_its_rear_edge`: `REAR_ACCESS_M` 30 to 29 and to 31; `REAR_LOT_DEPTH_M` 30 to 29 and to 31; `<= REAR_LOT_DEPTH_M` to `<`; `d <= REAR_ACCESS_M` to `<`; the rear edge's middle taken from the side (`lot[1]`-`lot[2]`); the depth taken across the front; the four-corner test at 3. The prototype's constants were not mutated, since none ships.
+
+**What this leaves for the owner.** **Q20.** PS-3's depth bar (83 m+ across at 15 % of blocks by count) is out of
+reach of a tier inside `grow` (best 10.2 %), while the same blocks are 28-37 % of the area. Options: (a) restate the
+bar by area (the prototype then passes at 27.6-37 %), keep the tier, and let PS-5's platting take the needles and the
+rear lanes the deep blocks need; the tier would then be built with PS-5, since alone it worsens PS-2's needle and
+quads baseline; (b) lay the spine tier by Option B's deterministic spine and ribs for market-street towns only (the
+"too regular" risk, section 3.2) and measure it; (c) stop parallel streets at PS-2 and go to PS-4 (river-front towns)
+and PS-5 with the tier left out. [(a): the bar was set against the traced plans' 32-40 %, which the area figure
+matches; a count bar cannot tell two deep blocks from twenty shallow ones] **Q21.** The spindle market moves
+market-street towns' order and adds nothing to 5.3. Keep it for its look (frames), or drop it? [drop it from PS-3;
+put it to the owner on the frames] **Q22.** PS-2's quads on today's world are 58.5 %, under the 60 % bar it passed on
+the old world. Accept PS-2 as built (Ruling GM accepted it on look) or re-tune? [accept; record 58.5 % as the
+baseline]

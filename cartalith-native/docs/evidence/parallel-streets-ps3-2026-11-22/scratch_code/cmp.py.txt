@@ -1,0 +1,30 @@
+"""cmp.py <run dir> ...: one line of PS-3 bars per run (384), from agg_384.txt and 384/towns_384.csv."""
+import sys, re, csv, statistics as S
+q = lambda x, f: sorted(x)[int(round((len(x)-1)*f))]
+for d in sys.argv[1:]:
+    a = open(f'{d}/agg_384.txt', encoding='utf8').read().split('\n')
+    def sect(n):
+        i = [k for k, l in enumerate(a) if l.startswith('== '+n)][0]; return a[i:i+20]
+    s24, s38 = sect('8 largest'), sect('all towns')
+    def proto(sec):
+        i = [k for k, l in enumerate(sec) if '[proto]' in l][0]; return sec[i:i+9]
+    for name, sec in (('24', s24), ('all', s38)):
+        p = proto(sec)
+        oc = [l for l in p if 'outside core' in l][0]
+        m = re.search(r'quads ([\d.]+) tri ([\d.]+) compact tri ([\d.]+).*aspect ([\d.]+) rect ([\d.]+) depth ([\d.]+) m, >=83 m ([\d.]+)', oc).groups()
+        print(f'{d} [{name}] outside core: quads {m[0]} tri {m[1]} ctri {m[2]} aspect {m[3]} rect {m[4]} depth med {m[5]} 83m+ {m[6]}')
+    p = proto(s38)
+    for l in p:
+        for k in ('housed p10', 'kept >= 85', 'NEEDLES', 'REAR', 'needle buildings', 'degree 4'):
+            if k in l:
+                t = l.strip()
+                if k == 'NEEDLES': t = 'needles ' + re.search(r'NEEDLES[^%]*?([\d.]+ % \(\d+\))', t).group(1)
+                if k == 'kept >= 85': t = re.search(r'FS-1.*', t).group(0)
+                print('   ', t[:200])
+    for l in a:
+        if re.match(r'\s+(market_street|organic_core|river_front):', l): print('   ', l.strip()[:150])
+    r = list(csv.DictReader(open(f'{d}/384/towns_384.csv')))
+    for v in ('off', 'proto'):
+        T = [x for x in r if x['variant'] == v and x['walled'] == '1']
+        sh = [int(x['wall_sharp_convex'])+int(x['wall_sharp_reflex']) for x in T]; lh = sorted(float(x['wall_len_over_hull']) for x in T)
+        print(f'    wall {v}: walled {len(T)} sharp med/p90/total {S.median(sh)} {q(sh,.9)} {sum(sh)} hull med/p90/max {S.median(lh):.3f} {q(lh,.9):.3f} {lh[-1]:.3f}')

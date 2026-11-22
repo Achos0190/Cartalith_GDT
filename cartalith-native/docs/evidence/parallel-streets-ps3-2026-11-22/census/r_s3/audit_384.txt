@@ -1,0 +1,57 @@
+
+running 1 test
+test town_river_census::parallel_streets_audit ...   483920 #0 @(1,60) pop 2130 housed 129 % type organic_core approaches 2 sources 1 core 144 m max_rf 366 | ground bank 25.8 ha, far 22.0 ha (raw 22.0, end yes) | settled region 16.6 ha, bank 16.6 ha | g 2.871 g_bank 1.550 | layout MOVED
+  483920 #1 @(337,234) pop 20000 housed 87 % type organic_core approaches 2 sources 5 core 313 m max_rf 720 | ground bank 80.0 ha, far 30.6 ha (raw 30.6, end yes) | settled region 76.2 ha, bank 47.3 ha | g 1.452 g_bank 1.693 | layout MOVED
+  483920 #2 @(7,42) pop 9846 housed 146 % type river_front approaches 4 sources 61 core 292 m max_rf 694 stretched | ground bank 62.9 ha, far 62.9 ha (raw 79.4, end yes) | settled region 61.6 ha, bank 60.5 ha | g 2.041 g_bank 1.040 | layout MOVED
+  483920 #3 @(1,115) pop 7205 housed 138 % type river_front approaches 4 sources 47 core 251 m max_rf 605 stretched | ground bank 62.6 ha, far 44.8 ha (raw 44.8, end yes) | settled region 47.5 ha, bank 46.2 ha | g 2.262 g_bank 1.355 | layout MOVED
+  483920 #6 @(267,71) pop 20000 housed 102 % type river_front approaches 3 sources 61 core 315 m max_rf 720 stretched | ground bank 77.2 ha, far 77.2 ha (raw 77.2, end yes) | settled region 95.7 ha, bank 66.6 ha | g 1.612 g_bank 1.159 | layout MOVED
+  483920 #8 @(23,114) pop 1907 housed 146 % type market_street approaches 3 sources 1 core 137 m max_rf 350 | ground bank 24.4 ha, far 16.8 ha (raw 16.8, end yes) | settled region 13.4 ha, bank 13.2 ha | g 3.065 g_bank 1.842 | layout MOVED
+  483920 #9 @(100,70) pop 20000 housed 103 % type river_front approaches 2 sources 55 core 312 m max_rf 720 stretched | ground bank 65.2 ha, far 65.2 ha (raw 90.3, end yes) | settled region 84.8 ha, bank 57.0 ha | g 1.538 g_bank 1.144 | layout MOVED
+  483920 #10 @(21,69) pop 2396 housed 143 % type market_street approaches 2 sources 1 core 151 m max_rf 383 | ground bank 23.8 ha, far 23.8 ha (raw 23.9, end yes) | settled region 20.4 ha, bank 11.6 ha | g 2.339 g_bank 2.046 | layout MOVED
+  483920 #11 @(246,237) pop 18458 housed 128 % type river_front approaches 6 sources 73 core 311 m max_rf 720 stretched | ground bank 96.0 ha, far 54.9 ha (raw 54.9, end yes) | settled region 104.0 ha, bank 92.1 ha | g 1.450 g_bank 1.043 | layout MOVED
+  483920 #13 @(153,271) pop 19403 housed 118 % type river_front approaches 4 sources 64 core 312 m max_rf 720 stretched | ground bank 91.9 ha, far 63.8 ha (raw 63.8, end yes) | settled region 96.0 ha, bank 84.1 ha | g 1.622 g_bank 1.092 | layout MOVED
+  483920 #14 @(5,239) pop 20000 housed 116 % type river_front approaches 3 sources 53 core 312 m max_rf 720 stretched | ground bank 91.9 ha, far 63.9 ha (raw 63.9, end yes) | settled region 103.4 ha, bank 73.5 ha | g 1.506 g_bank 1.250 | layout MOVED
+  483920 #18 @(179,154) pop 7930 housed 158 % type river_front approaches 5 sources 64 core 263 m max_rf 631 stretched | ground bank 67.3 ha, far 50.1 ha (raw 50.1, end yes) | settled region 57.6 ha, bank 56.2 ha | g 2.038 g_bank 1.199 | layout MOVED
+  483920 #20 @(221,241) pop 9512 housed 133 % type river_front approaches 7 sources 67 core 287 m max_rf 683 stretched | ground bank 69.8 ha, far 68.3 ha (raw 68.3, end yes) | settled region 62.0 ha, bank 54.0 ha | g 2.226 g_bank 1.291 | layout MOVED
+  483920 #26 @(314,199) pop 1881 housed 99 % type market_street approaches 2 sources 1 core 136 m max_rf 348 | ground bank 38.1 ha, far 0.0 ha (raw 0.0, end no) | settled region 15.1 ha, bank 15.1 ha | g 2.520 g_bank 2.520 | layout MOVED
+  912345 #0 @(12,107) pop 20000 housed 95 % type river_front approaches 4 sources 63 core 313 m max_rf 720 stretched | ground bank 77.1 ha, far 75.1 ha (raw 75.1, end yes) | settled region 95.0 ha, bank 61.5 ha | g 1.602 g_bank 1.253 | layout MOVED
+  912345 #2 @(371,261) pop 2494 housed 149 % type market_street approaches 2 sources 1 core 154 m max_rf 389 | ground bank 29.1 ha, far 20.3 ha (raw 20.3, end yes) | settled region 20.2 ha, bank 16.7 ha | g 2.450 g_bank 1.746 | layout MOVED
+  912345 #3 @(342,242) pop 18259 housed 92 % type river_front approaches 3 sources 60 core 311 m max_rf 720 stretched | ground bank 77.0 ha, far 76.8 ha (raw 76.8, end yes) | settled region 82.2 ha, bank 60.7 ha | g 1.872 g_bank 1.269 | layout MOVED
+  912345 #4 @(363,239) pop 2605 housed 173 % type market_street approaches 3 sources 1 core 157 m max_rf 396 | ground bank 29.8 ha, far 20.8 ha (raw 20.8, end yes) | settled region 20.8 ha, bank 20.5 ha | g 2.431 g_bank 1.452 | layout MOVED
+  912345 #5 @(325,243) pop 2326 housed 143 % type market_street approaches 3 sources 1 core 149 m max_rf 378 | ground bank 26.4 ha, far 22.0 ha (raw 22.0, end yes) | settled region 16.4 ha, bank 16.3 ha | g 2.956 g_bank 1.615 | layout MOVED
+  912345 #8 @(134,240) pop 19320 housed 104 % type river_front approaches 3 sources 68 core 312 m max_rf 720 stretched | ground bank 77.2 ha, far 77.2 ha (raw 77.2, end yes) | settled region 99.9 ha, bank 67.8 ha | g 1.544 g_bank 1.137 | layout MOVED
+  912345 #19 @(228,124) pop 20000 housed 101 % type market_street approaches 2 sources 5 core 358 m max_rf 819 | ground bank 81.2 ha, far 56.2 ha (raw 56.2, end yes) | settled region 84.6 ha, bank 39.5 ha | g 1.625 g_bank 2.056 | layout MOVED
+  912345 #25 @(120,190) pop 2074 housed 124 % type market_street approaches 4 sources 1 core 142 m max_rf 362 | ground bank 21.0 ha, far 20.9 ha (raw 20.9, end yes) | settled region 12.8 ha, bank 12.8 ha | g 3.288 g_bank 1.647 | layout MOVED
+  912345 #27 @(152,172) pop 1867 housed 130 % type organic_core approaches 3 sources 1 core 160 m max_rf 409 | ground bank 16.3 ha, far 16.3 ha (raw 27.2, end yes) | settled region 12.7 ha, bank 5.9 ha | g 2.566 g_bank 2.767 | layout MOVED
+  912345 #29 @(344,144) pop 18666 housed 116 % type organic_core approaches 2 sources 11 core 366 m max_rf 847 | ground bank 63.0 ha, far 21.6 ha (raw 21.6, end yes) | settled region 74.6 ha, bank 50.2 ha | g 1.135 g_bank 1.255 | layout MOVED
+  912345 #30 @(16,3) pop 1809 housed 126 % type organic_core approaches 2 sources 1 core 134 m max_rf 343 | ground bank 15.6 ha, far 15.6 ha (raw 22.2, end yes) | settled region 11.0 ha, bank 10.8 ha | g 2.836 g_bank 1.439 | layout MOVED
+  246371 #0 @(265,282) pop 20000 housed 99 % type river_front approaches 2 sources 60 core 313 m max_rf 720 stretched | ground bank 68.3 ha, far 68.3 ha (raw 85.2, end yes) | settled region 93.1 ha, bank 58.5 ha | g 1.466 g_bank 1.167 | layout MOVED
+  246371 #1 @(343,165) pop 20000 housed 101 % type river_front approaches 4 sources 66 core 313 m max_rf 720 stretched | ground bank 86.7 ha, far 66.9 ha (raw 66.9, end yes) | settled region 90.5 ha, bank 76.7 ha | g 1.696 g_bank 1.130 | layout MOVED
+  246371 #3 @(340,218) pop 7301 housed 144 % type river_front approaches 3 sources 46 core 253 m max_rf 609 stretched | ground bank 63.0 ha, far 45.5 ha (raw 45.5, end yes) | settled region 54.4 ha, bank 54.4 ha | g 1.996 g_bank 1.160 | layout MOVED
+  246371 #4 @(88,99) pop 20000 housed 71 % type organic_core approaches 2 sources 6 core 505 m max_rf 1152 | ground bank 76.0 ha, far 0.0 ha (raw 0.0, end no) | settled region 63.4 ha, bank 63.4 ha | g 1.198 g_bank 1.198 | layout MOVED
+  246371 #7 @(157,127) pop 20000 housed 88 % type organic_core approaches 3 sources 5 core 362 m max_rf 834 | ground bank 137.9 ha, far 0.0 ha (raw 0.0, end no) | settled region 76.0 ha, bank 76.0 ha | g 1.815 g_bank 1.815 | layout MOVED
+  246371 #8 @(2,225) pop 7707 housed 125 % type river_front approaches 3 sources 8 core 260 m max_rf 623 stretched | ground bank 73.5 ha, far 29.7 ha (raw 29.7, end yes) | settled region 35.7 ha, bank 34.1 ha | g 2.891 g_bank 2.155 | layout MOVED
+  246371 #9 @(22,78) pop 2063 housed 68 % type organic_core approaches 2 sources 1 core 142 m max_rf 361 | ground bank 20.5 ha, far 14.2 ha (raw 14.2, end yes) | settled region 9.3 ha, bank 6.6 ha | g 3.721 g_bank 3.103 | layout MOVED
+  246371 #10 @(326,160) pop 2470 housed 188 % type organic_core approaches 1 sources 1 core 153 m max_rf 387 | ground bank 28.7 ha, far 24.4 ha (raw 24.4, end yes) | settled region 16.9 ha, bank 16.9 ha | g 3.147 g_bank 1.703 | layout MOVED
+  246371 #11 @(372,173) pop 1894 housed 166 % type river_front approaches 2 sources 1 core 137 m max_rf 349 | ground bank 19.6 ha, far 19.6 ha (raw 19.6, end yes) | settled region 16.9 ha, bank 8.7 ha | g 2.317 g_bank 2.248 | layout MOVED
+  246371 #13 @(301,176) pop 7955 housed 182 % type river_front approaches 3 sources 48 core 263 m max_rf 632 stretched | ground bank 75.2 ha, far 40.2 ha (raw 40.2, end yes) | settled region 62.0 ha, bank 60.6 ha | g 1.860 g_bank 1.241 | layout MOVED
+  246371 #14 @(186,87) pop 20000 housed 127 % type river_front approaches 4 sources 71 core 313 m max_rf 720 stretched | ground bank 87.4 ha, far 66.9 ha (raw 66.9, end yes) | settled region 104.7 ha, bank 90.0 ha | g 1.474 g_bank 0.972 | layout MOVED
+  246371 #16 @(371,283) pop 2167 housed 170 % type market_street approaches 2 sources 1 core 145 m max_rf 368 | ground bank 27.2 ha, far 17.9 ha (raw 17.9, end yes) | settled region 19.5 ha, bank 11.3 ha | g 2.314 g_bank 2.403 | layout MOVED
+  246371 #25 @(286,184) pop 2078 housed 134 % type organic_core approaches 3 sources 1 core 142 m max_rf 362 | ground bank 25.4 ha, far 18.1 ha (raw 18.1, end yes) | settled region 15.3 ha, bank 15.1 ha | g 2.846 g_bank 1.682 | layout MOVED
+PS1 384: towns 1500+ 38; layout identical with the switch on: 0 of 38 (moved 38)
+PS1 384 seed 483920 types: {"market_street": 3, "organic_core": 2, "river_front": 9}
+PS1 384 seed 912345 types: {"market_street": 5, "organic_core": 3, "river_front": 3}
+PS1 384 seed 246371 types: {"market_street": 1, "organic_core": 5, "river_front": 7}
+PS1 384 all seeds types: {"market_street": 9, "organic_core": 10, "river_front": 19}
+PS1 384 ground recount (market's bank + bridge-strip far bank), towns 5000+: fit at F_req 1.100: 23 of 23 (100.0 %) -> GO (90 % or more)
+PS1 384 ground recount (market's bank + bridge-strip far bank), towns 5000+: fit at F_req 1.120: 23 of 23 (100.0 %) -> GO (90 % or more)
+PS1 384 ground recount (market's bank + bridge-strip far bank), towns 5000+: fit at F_req 1.200: 21 of 23 (91.3 %) -> GO (90 % or more)
+PS1 384 control (market's bank only, PS-0 item 2's test), towns 5000+: fit at x1.2: 11 of 23
+PS1 384 control (market's bank only, PS-0 item 2's test), towns 5000+: fit at x1.4: 4 of 23
+PS1 384 g over towns 5000+: min 1.135 p10 1.450 median 1.622
+PS1 384 under 1.20: 912345 #29 pop 18666 type organic_core g 1.135
+PS1 384 under 1.20: 246371 #4 pop 20000 type organic_core g 1.198
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1472 filtered out; finished in 206.94s
+

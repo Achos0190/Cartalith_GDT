@@ -1,0 +1,29 @@
+"""PS-3 mutants on the rear-access measure: exact literal replace, occurs-once check, restore in a finally (MISTAKES.md)."""
+import subprocess, hashlib, os
+P = 'C:/cw/ps3/cartalith-native/crates/cartalith-urban/src/field.rs'
+M = [
+    ('pub const REAR_ACCESS_M: f64 = 30.0;', 'pub const REAR_ACCESS_M: f64 = 29.0;'),
+    ('pub const REAR_ACCESS_M: f64 = 30.0;', 'pub const REAR_ACCESS_M: f64 = 31.0;'),
+    ('pub const REAR_LOT_DEPTH_M: f64 = 30.0;', 'pub const REAR_LOT_DEPTH_M: f64 = 29.0;'),
+    ('pub const REAR_LOT_DEPTH_M: f64 = 30.0;', 'pub const REAR_LOT_DEPTH_M: f64 = 31.0;'),
+    ('/ 2.0 <= REAR_LOT_DEPTH_M', '/ 2.0 < REAR_LOT_DEPTH_M'),
+    ('d <= REAR_ACCESS_M', 'd < REAR_ACCESS_M'),
+    ('let rear = lot[2].lerp(lot[3], 0.5);', 'let rear = lot[1].lerp(lot[2], 0.5);'),
+    ('(lot[0].dist(lot[3]) + lot[1].dist(lot[2])) / 2.0', '(lot[0].dist(lot[1]) + lot[1].dist(lot[2])) / 2.0'),
+    ('if lot.len() != 4 || (', 'if lot.len() != 3 || ('),
+]
+raw = open(P, 'rb').read(); h0 = hashlib.sha256(raw).hexdigest()
+env = dict(os.environ, CARGO_TARGET_DIR='C:/cw/ps3_target')
+try:
+    for a, b in M:
+        assert raw.count(a.encode()) == 1, a
+        open(P, 'wb').write(raw.replace(a.encode(), b.encode()))
+        r = subprocess.run(['cargo', 'test', '--release', '-p', 'cartalith-urban', '--lib', 'a_deep_lot_is_served'], cwd='C:/cw/ps3/cartalith-native', env=env, capture_output=True, text=True)
+        out = r.stdout + r.stderr
+        st = 'BUILD_ERROR' if 'error[' in out or 'could not compile' in out else 'KILLED' if r.returncode != 0 else 'SURVIVED'
+        if st != 'BUILD_ERROR' and '1 passed' not in out and '1 failed' not in out: st += ' (test not run?)'
+        print(f'{st}: {a!r} -> {b!r}', flush=True)
+finally:
+    open(P, 'wb').write(raw)
+assert hashlib.sha256(open(P, 'rb').read()).hexdigest() == h0
+print('restored, hash matches')

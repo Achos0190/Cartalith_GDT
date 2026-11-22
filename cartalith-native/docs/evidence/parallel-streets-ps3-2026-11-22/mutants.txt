@@ -1,0 +1,10 @@
+KILLED: 'pub const REAR_ACCESS_M: f64 = 30.0;' -> 'pub const REAR_ACCESS_M: f64 = 29.0;'
+KILLED: 'pub const REAR_ACCESS_M: f64 = 30.0;' -> 'pub const REAR_ACCESS_M: f64 = 31.0;'
+KILLED: 'pub const REAR_LOT_DEPTH_M: f64 = 30.0;' -> 'pub const REAR_LOT_DEPTH_M: f64 = 29.0;'
+KILLED: 'pub const REAR_LOT_DEPTH_M: f64 = 30.0;' -> 'pub const REAR_LOT_DEPTH_M: f64 = 31.0;'
+KILLED: '/ 2.0 <= REAR_LOT_DEPTH_M' -> '/ 2.0 < REAR_LOT_DEPTH_M'
+KILLED: 'd <= REAR_ACCESS_M' -> 'd < REAR_ACCESS_M'
+KILLED: 'let rear = lot[2].lerp(lot[3], 0.5);' -> 'let rear = lot[1].lerp(lot[2], 0.5);'
+KILLED: '(lot[0].dist(lot[3]) + lot[1].dist(lot[2])) / 2.0' -> '(lot[0].dist(lot[1]) + lot[1].dist(lot[2])) / 2.0'
+KILLED: 'if lot.len() != 4 || (' -> 'if lot.len() != 3 || ('
+restored, hash matches

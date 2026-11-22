@@ -770,3 +770,41 @@ pub fn plan(site: &Site, g: &Graph, market: Vec2, plaza: Option<&[Vec2]>, pop: f
     let samples = field.as_ref().map_or_else(Vec::new, |f| sample_field(f, site, market, max_rf, FIELD_SAMPLE_M));
     ParallelPlan { town_type, approaches, field, ground: ground_gate(site, market, max_rf, both_banks), settled_m2: 0.0, settled_bank_m2: 0.0, samples }
 }
+
+/// Scope section 9.2's access rule for a rear household (Ruling GF, Q13 (a)):
+/// a rear dwelling needs a back lane (PS-3's back-street tier) within this
+/// many metres, or a 2.5 m side passage. **The owner's** 30 m.
+pub const REAR_ACCESS_M: f64 = 30.0;
+
+/// Scope section 9.2: a rear household exists only on a lot more than this
+/// deep, metres (Ruling GC's "about 30 m").
+pub const REAR_LOT_DEPTH_M: f64 = 30.0;
+
+/// PS-3's measure of section 9.2's access rule: the distance from the middle
+/// of a four-cornered lot's rear edge to the nearest street centreline in
+/// `streets`, metres. The lot is `[front a, front b, rear b, rear a]`, the
+/// platting's order (`blocks::build_parcels_with`, read the same way by the
+/// census). `None` for a lot that is not four-cornered, or with no street.
+/// A lot is served from behind when this is at most [`REAR_ACCESS_M`]; for a
+/// lot deeper than that, its own front street is never the nearest one
+/// within reach, so a hit is a back lane or a side street. Reads only.
+pub fn rear_access_m(lot: &[Vec2], streets: &[(Vec2, Vec2)]) -> Option<f64> {
+    if lot.len() != 4 {
+        return None;
+    }
+    let rear = lot[2].lerp(lot[3], 0.5);
+    let d = streets.iter().map(|&(a, b)| dist_pt_seg(rear, a, b)).fold(f64::INFINITY, f64::min);
+    d.is_finite().then_some(d)
+}
+
+/// Section 9.2's access rule on one lot, PS-3's measure of it: `None` unless
+/// the lot is four-cornered and more than [`REAR_LOT_DEPTH_M`] deep (its two
+/// sides' mean, the census's depth), else whether a street lies within
+/// [`REAR_ACCESS_M`] of its rear edge ([`rear_access_m`]). The census counts
+/// the `Some(true)` share; PS-5's rear households will read the same answer.
+pub fn rear_served(lot: &[Vec2], streets: &[(Vec2, Vec2)]) -> Option<bool> {
+    if lot.len() != 4 || (lot[0].dist(lot[3]) + lot[1].dist(lot[2])) / 2.0 <= REAR_LOT_DEPTH_M {
+        return None;
+    }
+    Some(rear_access_m(lot, streets).is_some_and(|d| d <= REAR_ACCESS_M))
+}

@@ -1,0 +1,35 @@
+== all towns 1500+ at 384: 38 towns ==
+ [off] towns 38  housed p10 91 median 103, under 80 %: 3
+  blocks all: n 5064 quads 51.8 tri 10.6 compact tri 7.2 pent+ 37.6 aspect 1.56 rect 0.70 depth 28.9 m, >=83 m 3.3 %
+  blocks outside core: n 3223 quads 51.8 tri 10.7 compact tri 7.2 pent+ 37.4 aspect 1.58 rect 0.70 depth 29.5 m, >=83 m 3.8 %
+  per town phi median 0.098 p90 0.283; entropy/max median 0.966; phi on-off max 0.000; degree 4 11.0 %, dead ends 11.3 %, segment median (town medians) 24.9 m
+  FS-1 settled area / off: min 1.00 median 1.00 max 1.00; in 0.9-1.4: 38/38; off cells kept >= 85 %: 38/38 (median 1.00)
+  lots 88726 (non-quads 0): depth/frontage median 1.41; over 40 m deep 0.4 %; width < 4.15 m 31.8 %; taper (narrow end < half the wide) 24.4 %; depth/width > 3.5 13.3 %, > 6.0 2.2 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 11.5 % (10183)
+  buildings 91887: needle buildings (short side < 3 m and long/short > 6.0) 0.50 % (463)
+ [proto] towns 38  housed p10 95 median 124, under 80 %: 2
+  blocks all: n 5037 quads 53.1 tri 9.2 compact tri 5.5 pent+ 37.7 aspect 1.58 rect 0.72 depth 30.1 m, >=83 m 5.5 %
+  blocks outside core: n 3247 quads 54.6 tri 8.9 compact tri 5.1 pent+ 36.5 aspect 1.61 rect 0.72 depth 31.9 m, >=83 m 6.9 %
+  per town phi median 0.182 p90 0.388; entropy/max median 0.939; phi on-off max 0.281; degree 4 9.1 %, dead ends 12.4 %, segment median (town medians) 25.0 m
+  FS-1 settled area / off: min 0.54 median 1.15 max 3.13; in 0.9-1.4: 32/38; off cells kept >= 85 %: 20/38 (median 0.86)
+  lots 99233 (non-quads 0): depth/frontage median 1.56; over 40 m deep 0.6 %; width < 4.15 m 31.7 %; taper (narrow end < half the wide) 24.2 %; depth/width > 3.5 18.7 %, > 6.0 4.5 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 14.4 % (14267)
+  buildings 107050: needle buildings (short side < 3 m and long/short > 6.0) 0.84 % (897)
+== 8 largest towns per seed at 384: 24 towns ==
+ [off] towns 24  housed p10 91 median 100, under 80 %: 1
+  blocks all: n 4436 quads 51.9 tri 10.7 compact tri 7.4 pent+ 37.4 aspect 1.56 rect 0.70 depth 28.7 m, >=83 m 3.3 %
+  blocks outside core: n 2789 quads 51.8 tri 10.8 compact tri 7.3 pent+ 37.4 aspect 1.57 rect 0.69 depth 29.5 m, >=83 m 4.0 %
+  per town phi median 0.078 p90 0.159; entropy/max median 0.979; phi on-off max 0.000; degree 4 11.2 %, dead ends 10.9 %, segment median (town medians) 24.2 m
+  FS-1 settled area / off: min 1.00 median 1.00 max 1.00; in 0.9-1.4: 24/24; off cells kept >= 85 %: 24/24 (median 1.00)
+  lots 77297 (non-quads 0): depth/frontage median 1.42; over 40 m deep 0.5 %; width < 4.15 m 32.2 %; taper (narrow end < half the wide) 24.6 %; depth/width > 3.5 13.5 %, > 6.0 2.3 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 11.7 % (9059)
+  buildings 79776: needle buildings (short side < 3 m and long/short > 6.0) 0.52 % (417)
+ [proto] towns 24  housed p10 95 median 115, under 80 %: 1
+  blocks all: n 4417 quads 53.1 tri 9.2 compact tri 5.7 pent+ 37.7 aspect 1.58 rect 0.72 depth 30.4 m, >=83 m 5.7 %
+  blocks outside core: n 2843 quads 54.9 tri 8.8 compact tri 5.2 pent+ 36.3 aspect 1.60 rect 0.72 depth 32.1 m, >=83 m 7.1 %
+  per town phi median 0.126 p90 0.223; entropy/max median 0.962; phi on-off max 0.211; degree 4 9.1 %, dead ends 12.1 %, segment median (town medians) 24.8 m
+  FS-1 settled area / off: min 0.95 median 1.16 max 2.12; in 0.9-1.4: 22/24; off cells kept >= 85 %: 15/24 (median 0.90)
+  lots 87090 (non-quads 0): depth/frontage median 1.58; over 40 m deep 0.6 %; width < 4.15 m 32.1 %; taper (narrow end < half the wide) 24.2 %; depth/width > 3.5 19.1 %, > 6.0 4.6 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 14.7 % (12815)
+  buildings 93830: needle buildings (short side < 3 m and long/short > 6.0) 0.81 % (756)
+selection: [('246371', '0'), ('246371', '1'), ('246371', '3'), ('246371', '4'), ('246371', '7'), ('246371', '8'), ('246371', '13'), ('246371', '14'), ('483920', '1'), ('483920', '2'), ('483920', '6'), ('483920', '9'), ('483920', '11'), ('483920', '13'), ('483920', '14'), ('483920', '20'), ('912345', '0'), ('912345', '2'), ('912345', '3'), ('912345', '4'), ('912345', '5'), ('912345', '8'), ('912345', '19'), ('912345', '29')]
+== FS-2 by type (towns 1500+) ==
+  market_street: towns 9 phi median 0.294 p90 0.386 max 0.388; on-off delta max 0.172; entropy/max median 0.902
+  organic_core: towns 10 phi median 0.206 p90 0.461 max 0.545; on-off delta max 0.281; entropy/max median 0.922
+  river_front: towns 19 phi median 0.157 p90 0.223 max 0.592; on-off delta max 0.211; entropy/max median 0.950

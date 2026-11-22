@@ -325,3 +325,25 @@ fn the_grain_and_block_shape_measures_read_literals() {
     assert!((rectangularity(&tri) - 0.5).abs() < 1e-9);
     assert!(rectangularity(&[]) == 0.0, "a degenerate outline reads 0");
 }
+
+/// Protects PS-3's measure of scope 9.2's access rule (`rear_served`, `rear_access_m`): a 10 m wide lot whose front
+/// is on y = 0 and whose rear edge is at y = 40 (40 m deep, over the 30 m line). A street along y = 70 is 30 m behind
+/// it: served. One along y = 71, 31 m behind: not served. A lot 30 m deep (rear at y = 30) is not over the line, so it
+/// has no answer whatever streets there are, and neither has a lot that is not four-cornered; one 30.5 m deep is over it. The distance itself is
+/// read from the rear edge's middle: 25 m to a street on y = 65.
+#[test]
+fn a_deep_lot_is_served_from_behind_only_by_a_street_within_30_m_of_its_rear_edge() {
+    let v = |x: f64, y: f64| Vec2::new(x, y);
+    let street = |y: f64| vec![(v(-50.0, 0.0), v(60.0, 0.0)), (v(-50.0, y), v(60.0, y))];
+    let lot = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 40.0), v(0.0, 40.0)];
+    assert_eq!(rear_served(&lot, &street(70.0)), Some(true), "a street 30 m behind serves it");
+    assert_eq!(rear_served(&lot, &street(71.0)), Some(false), "one 31 m behind does not");
+    assert_eq!(rear_served(&lot, &street(0.5)[..1]), Some(false), "its own front street, 40 m off, does not");
+    let shallow = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 30.0), v(0.0, 30.0)];
+    assert_eq!(rear_served(&shallow, &street(31.0)), None, "a lot 30 m deep is not over the line");
+    assert_eq!(rear_served(&lot[..3], &street(41.0)), None, "a three-cornered lot has no answer");
+    let just = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 30.5), v(0.0, 30.5)];
+    assert_eq!(rear_served(&just, &street(50.0)), Some(true), "a lot 30.5 m deep is over the line");
+    assert!((rear_access_m(&lot, &street(65.0)).unwrap() - 25.0).abs() < 1e-12);
+    assert_eq!(rear_access_m(&lot, &[]), None, "no street, no distance");
+}

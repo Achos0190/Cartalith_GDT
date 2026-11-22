@@ -1,0 +1,22 @@
+PARALLEL_STREETS_SCOPE.md PS-3 measured (2026-11-22): NO-GO on its own bars. The prototype (back-street tier kept whole,
+a lane closing each tier, a spindle market on a market-street town's spine) is scratch_code/ps3_prototype.diff.txt
+(it also carries the scratch environment knobs PS3_SCRATCH_OFF, PS3_SHARE, PS3_STEPS, PS3_EDGE, PS3_TIER, PS3_CLOSE,
+PS3_SPINDLE used for the sweep); it was reverted. Kept in the tree: field::rear_served / rear_access_m (REAR_ACCESS_M,
+REAR_LOT_DEPTH_M) and the census's rear_served lot column. Scope section 15 has the result.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, the app's params::defaults; release test binary of
+origin/main 2f539ef8 plus the prototype. census/<run>/ holds agg_<gw>.txt (ps1_agg.py), audit_<gw>.txt
+(parallel_streets_audit) and towns_<gw>.csv; cmp.txt / cmp_*.txt are cmp.py's bar lines.
+  r_main     origin/main as built (off = before, proto = PS-2)
+  r_mid      prototype with PS3_SCRATCH_OFF=1 (= PS-2; its towns CSV is byte-identical to r_main's)
+  r_v2       the prototype at its defaults (after)
+  r_s1 BACK_SHARE 1.0 | r_s2 walk 5 steps | r_s3 no closing lane, no spindle | r_s4 share 1.0 + walk 5
+  r_s5 tier edge 20 m | r_s6 no tiers | r_s7 spindle only | r_s8 closing lane only
+  r_mid2048, r_v2048  the same mid and after at 2048 x 1311
+  r_final    the committed tree (switch-off and PS-2 rows identical to r_mid; rear_served counts)
+plots/        block plots of the census dumps (483920 #6, #11; off | after), blocks coloured by depth across (green 83 m+).
+contact_<seed>.png   City Viewer (the shell's world, 384 x 288), opening frame and x4 market-centred, BEFORE (off) | MID
+              (PS-2) | AFTER (prototype); windowed under C:/cw/.win_lock, scratch APPDATA, probe RESULT: PASS in all four
+              runs (probe_logs/). The BEFORE frames of the two sessions are pixel-identical (46 of 46).
+frames/triple_<seed>_<id>_z1|z4.png  full size for the six towns of ps3_combined.png (the sheet to send).
+mutants.txt   9 literal mutants on the kept measure, all killed (scratch_code/mut.py.txt).

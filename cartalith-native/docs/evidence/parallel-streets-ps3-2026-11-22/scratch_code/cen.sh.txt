@@ -1,0 +1,8 @@
+#!/bin/bash
+# cen.sh <exe> <outdir> <gw:gh> [extra env...]: parallel_streets_audit with CSVs (off vs on) + ps1_agg.
+EXE=$1; OUT=$2; sz=$3; gw=${sz%%:*}; gh=${sz##*:}; shift 3
+cd /c/cw/ps3/cartalith-native/crates/cartalith-godot
+mkdir -p $OUT/$gw
+env "$@" TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 PS1_CSV=$OUT/$gw $EXE parallel_streets_audit --ignored --nocapture --test-threads 1 > $OUT/audit_$gw.txt 2>&1
+python C:/cw/ps3_scratch/ps1_agg.py $OUT/$gw $gw > $OUT/agg_$gw.txt 2>&1
+echo done $OUT $gw

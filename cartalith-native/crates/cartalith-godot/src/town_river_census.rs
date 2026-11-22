@@ -2968,7 +2968,9 @@ fn layout_geometry_hash(l: &cartalith_civ::urban_adapter::UrbanLayout) -> u64 {
 /// control at x1.2 and x1.4 (PS-0 item 2's like-with-like test). With
 /// `PS1_CSV=<dir>` it also writes PS-0's per-block, per-lot, per-building and
 /// per-town CSVs (variants `off` and `proto` = on) for `ps1_agg.py` in the
-/// evidence folder. Pins nothing.
+/// evidence folder; each lot carries PS-3's `rear_served` (scope 9.2's "a back
+/// lane within 30 m", `parallel_field::rear_served`: `-`, `1` or `0`). Pins
+/// nothing.
 #[test]
 #[ignore = "measurement; PARALLEL_STREETS_SCOPE.md PS-1"]
 #[allow(clippy::too_many_lines)]
@@ -2990,7 +2992,7 @@ fn parallel_streets_audit() {
         let (mut ft, mut fb, mut fl, mut fbd) = (f("towns"), f("blocks"), f("lots"), f("bldg"));
         writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges,wall_len_over_hull,wall_n,wall_sharp_convex,wall_sharp_reflex,wall_sharpest_deg").unwrap();
         writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
-        writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside").unwrap();
+        writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside,rear_served").unwrap();
         writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
         (ft, fb, fl, fbd)
     });
@@ -3073,14 +3075,18 @@ fn parallel_streets_audit() {
                         let cen = cartalith_civ::urban_adapter::poly_centroid(b);
                         writeln!(fb, "{seed},{i},{vn},{},{:.3},{:.3},{:.1},{:.0},{}", c.len(), lg / sh.max(1e-6), area / (lg * sh).max(1e-6), sh, area, u8::from(cen.dist(l.market) > core)).unwrap();
                     }
+                    // PS-3: scope 9.2's access rule per lot (`field::rear_served`: `-` not over 30 m deep, else 1 / 0
+                    // for a street within 30 m of the rear edge), for the census's "back lane within 30 m" count.
+                    let streets: Vec<(Vec2, Vec2)> = l.edges.iter().filter(|e| matches!(e.cls, "street" | "lane" | "primary" | "ringroad")).map(|e| (e.a, e.b)).collect();
                     for q in &l.parcels {
                         let d = |a: Vec2, b: Vec2| (a.x - b.x).hypot(a.y - b.y);
                         let n = q.poly.len();
                         let cen = cartalith_civ::urban_adapter::poly_centroid(&q.poly);
                         if n == 4 {
-                            writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                            let rear = cartalith_civ::urban_adapter::parallel_field::rear_served(&q.poly, &streets).map_or("-", |s| if s { "1" } else { "0" });
+                            writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{},{rear}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
                         } else {
-                            writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{}", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                            writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{},-", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
                         }
                     }
                     for b in &l.buildings {

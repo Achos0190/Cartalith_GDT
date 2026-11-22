@@ -1,0 +1,466 @@
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+index 43568d81..a1d3bc66 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+@@ -2990,7 +2990,7 @@ fn parallel_streets_audit() {
+         let (mut ft, mut fb, mut fl, mut fbd) = (f("towns"), f("blocks"), f("lots"), f("bldg"));
+         writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges,wall_len_over_hull,wall_n,wall_sharp_convex,wall_sharp_reflex,wall_sharpest_deg").unwrap();
+         writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
+-        writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside").unwrap();
++        writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside,rear_served").unwrap();
+         writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
+         (ft, fb, fl, fbd)
+     });
+@@ -3073,14 +3073,32 @@ fn parallel_streets_audit() {
+                         let cen = cartalith_civ::urban_adapter::poly_centroid(b);
+                         writeln!(fb, "{seed},{i},{vn},{},{:.3},{:.3},{:.1},{:.0},{}", c.len(), lg / sh.max(1e-6), area / (lg * sh).max(1e-6), sh, area, u8::from(cen.dist(l.market) > core)).unwrap();
+                     }
++                    if let Ok(dd) = std::env::var("PS3_DUMP") {
++                        // SCRATCH (PS-3 development; removed before commit): the layout's edges and blocks.
++                        let mut f = std::fs::File::create(format!("{dd}/{seed}_{i}_{vn}.txt")).unwrap();
++                        for e in &l.edges {
++                            writeln!(f, "E {} {:.1} {:.1} {:.1} {:.1} {:.1}", e.cls, e.w, e.a.x, e.a.y, e.b.x, e.b.y).unwrap();
++                        }
++                        for b in &l.blocks {
++                            writeln!(f, "B {}", b.iter().map(|v| format!("{:.1},{:.1}", v.x, v.y)).collect::<Vec<_>>().join(" ")).unwrap();
++                        }
++                        for q in &l.parcels {
++                            writeln!(f, "P {}", q.poly.iter().map(|v| format!("{:.1},{:.1}", v.x, v.y)).collect::<Vec<_>>().join(" ")).unwrap();
++                        }
++                        writeln!(f, "M {:.1} {:.1} {:.1}", l.market.x, l.market.y, 0.38 * l.max_rf).unwrap();
++                    }
++                    // PS-3: scope 9.2's access rule per lot (`field::rear_served`: `-` not over 30 m deep, else 1 / 0
++                    // for a street within 30 m of the rear edge), for the census's "back lane within 30 m" count.
++                    let streets: Vec<(Vec2, Vec2)> = l.edges.iter().filter(|e| matches!(e.cls, "street" | "lane" | "primary" | "ringroad")).map(|e| (e.a, e.b)).collect();
+                     for q in &l.parcels {
+                         let d = |a: Vec2, b: Vec2| (a.x - b.x).hypot(a.y - b.y);
+                         let n = q.poly.len();
+                         let cen = cartalith_civ::urban_adapter::poly_centroid(&q.poly);
+                         if n == 4 {
+-                            writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
++                            let rear = cartalith_civ::urban_adapter::parallel_field::rear_served(&q.poly, &streets).map_or("-", |s| if s { "1" } else { "0" });
++                            writeln!(fl, "{seed},{i},{vn},{:.2},{:.2},{:.2},4,{:.1},{:.1},{},{rear}", d(q.poly[0], q.poly[1]), d(q.poly[3], q.poly[2]), (d(q.poly[0], q.poly[3]) + d(q.poly[1], q.poly[2])) / 2.0, cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                         } else {
+-                            writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{}", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
++                            writeln!(fl, "{seed},{i},{vn},0,0,0,{n},{:.1},{:.1},{},-", cen.x, cen.y, u8::from(cen.dist(l.market) > core)).unwrap();
+                         }
+                     }
+                     for b in &l.buildings {
+diff --git a/cartalith-native/crates/cartalith-urban/src/field.rs b/cartalith-native/crates/cartalith-urban/src/field.rs
+index 9c04b58b..7e6b3e65 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field.rs
+@@ -770,3 +770,41 @@ pub fn plan(site: &Site, g: &Graph, market: Vec2, plaza: Option<&[Vec2]>, pop: f
+     let samples = field.as_ref().map_or_else(Vec::new, |f| sample_field(f, site, market, max_rf, FIELD_SAMPLE_M));
+     ParallelPlan { town_type, approaches, field, ground: ground_gate(site, market, max_rf, both_banks), settled_m2: 0.0, settled_bank_m2: 0.0, samples }
+ }
++
++/// Scope section 9.2's access rule for a rear household (Ruling GF, Q13 (a)):
++/// a rear dwelling needs a back lane (PS-3's back-street tier) within this
++/// many metres, or a 2.5 m side passage. **The owner's** 30 m.
++pub const REAR_ACCESS_M: f64 = 30.0;
++
++/// Scope section 9.2: a rear household exists only on a lot more than this
++/// deep, metres (Ruling GC's "about 30 m").
++pub const REAR_LOT_DEPTH_M: f64 = 30.0;
++
++/// PS-3's measure of section 9.2's access rule: the distance from the middle
++/// of a four-cornered lot's rear edge to the nearest street centreline in
++/// `streets`, metres. The lot is `[front a, front b, rear b, rear a]`, the
++/// platting's order (`blocks::build_parcels_with`, read the same way by the
++/// census). `None` for a lot that is not four-cornered, or with no street.
++/// A lot is served from behind when this is at most [`REAR_ACCESS_M`]; for a
++/// lot deeper than that, its own front street is never the nearest one
++/// within reach, so a hit is a back lane or a side street. Reads only.
++pub fn rear_access_m(lot: &[Vec2], streets: &[(Vec2, Vec2)]) -> Option<f64> {
++    if lot.len() != 4 {
++        return None;
++    }
++    let rear = lot[2].lerp(lot[3], 0.5);
++    let d = streets.iter().map(|&(a, b)| dist_pt_seg(rear, a, b)).fold(f64::INFINITY, f64::min);
++    d.is_finite().then_some(d)
++}
++
++/// Section 9.2's access rule on one lot, PS-3's measure of it: `None` unless
++/// the lot is four-cornered and more than [`REAR_LOT_DEPTH_M`] deep (its two
++/// sides' mean, the census's depth), else whether a street lies within
++/// [`REAR_ACCESS_M`] of its rear edge ([`rear_access_m`]). The census counts
++/// the `Some(true)` share; PS-5's rear households will read the same answer.
++pub fn rear_served(lot: &[Vec2], streets: &[(Vec2, Vec2)]) -> Option<bool> {
++    if lot.len() != 4 || (lot[0].dist(lot[3]) + lot[1].dist(lot[2])) / 2.0 <= REAR_LOT_DEPTH_M {
++        return None;
++    }
++    Some(rear_access_m(lot, streets).is_some_and(|d| d <= REAR_ACCESS_M))
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/field/tests.rs b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+index a2f644c3..5647710b 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+@@ -325,3 +325,25 @@ fn the_grain_and_block_shape_measures_read_literals() {
+     assert!((rectangularity(&tri) - 0.5).abs() < 1e-9);
+     assert!(rectangularity(&[]) == 0.0, "a degenerate outline reads 0");
+ }
++
++/// Protects PS-3's measure of scope 9.2's access rule (`rear_served`, `rear_access_m`): a 10 m wide lot whose front
++/// is on y = 0 and whose rear edge is at y = 40 (40 m deep, over the 30 m line). A street along y = 70 is 30 m behind
++/// it: served. One along y = 71, 31 m behind: not served. A lot 30 m deep (rear at y = 30) is not over the line, so it
++/// has no answer whatever streets there are, and neither has a lot that is not four-cornered. The distance itself is
++/// read from the rear edge's middle: 25 m to a street on y = 65.
++#[test]
++fn a_deep_lot_is_served_from_behind_only_by_a_street_within_30_m_of_its_rear_edge() {
++    let v = |x: f64, y: f64| Vec2::new(x, y);
++    let street = |y: f64| vec![(v(-50.0, 0.0), v(60.0, 0.0)), (v(-50.0, y), v(60.0, y))];
++    let lot = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 40.0), v(0.0, 40.0)];
++    assert_eq!(rear_served(&lot, &street(70.0)), Some(true), "a street 30 m behind serves it");
++    assert_eq!(rear_served(&lot, &street(71.0)), Some(false), "one 31 m behind does not");
++    assert_eq!(rear_served(&lot, &street(0.5)[..1]), Some(false), "its own front street, 40 m off, does not");
++    let shallow = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 30.0), v(0.0, 30.0)];
++    assert_eq!(rear_served(&shallow, &street(31.0)), None, "a lot 30 m deep is not over the line");
++    assert_eq!(rear_served(&lot[..3], &street(41.0)), None, "a three-cornered lot has no answer");
++    let just = [v(0.0, 0.0), v(10.0, 0.0), v(10.0, 30.5), v(0.0, 30.5)];
++    assert_eq!(rear_served(&just, &street(50.0)), Some(true), "a lot 30.5 m deep is over the line");
++    assert!((rear_access_m(&lot, &street(65.0)).unwrap() - 25.0).abs() < 1e-12);
++    assert_eq!(rear_access_m(&lot, &[]), None, "no street, no distance");
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 2d2f4496..a65dd133 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -1210,7 +1210,20 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+         // A street village's green at the market point (`build_plaza_with`).
+         // `TOWN_GENERATOR_JUDGEMENT.md` change 6 (`GenOpts::market_scale`):
+         // the square sized from the town (organic plan only; this branch).
+-        plaza = crate::plaza::build_plaza_with(seed, &site, &anchors, &mut g, pop_target, street_village, opts.market_scale);
++        // **Not the reference** (PS-3, Q9; `crate::plaza::build_plaza_shaped`):
++        // with the switch on and `market_scale`, a market-street town's market
++        // is a spindle on its spine. The type is read here, before the square
++        // exists, from the market point: a road through the market
++        // (`field::through_pair`) and not a river-front town by the point
++        // (`field::is_river_front` with no square). A town the square's own
++        // outline later makes river-front keeps its spindle [labelled: the
++        // rule cannot read a square it is about to shape].
++        let spindle = wants_parallel
++            && opts.market_scale
++            && crate::field::through_pair(&crate::field::approach_bearings(&g, anchors.market, crate::field::APPROACH_PROBE_M)).is_some()
++            && !crate::field::is_river_front(&site, anchors.market, None)
++            && std::env::var("PS3_SCRATCH_OFF").is_err() && std::env::var("PS3_SPINDLE").map_or(true, |v| v != "0");
++        plaza = crate::plaza::build_plaza_shaped(seed, &site, &anchors, &mut g, pop_target, street_village, opts.market_scale, spindle);
+         harbour_outcome = build_harbour(seed, &site, &anchors, &mut g, Some(&harbour_opts));
+         // **Not the reference** (Ruling FK item 1): a harbour-front market's
+         // street down to the water, before the town grows, so it grows to the
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index 15cfd529..60072980 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -602,6 +602,9 @@ pub fn grow(
+         0.0
+     };
+     let mut placed_len = 0.0f64;
++    // PS-3 (`Tier`): the back-street tiers laid so far, kept whole. Empty
++    // without a grain, so nothing is tested on a reference path.
++    let mut tiers: Vec<Tier> = Vec::new();
+ 
+     for ep in 1..=epochs {
+         let mut r = stream(seed, &format!("grow/e{ep}"));
+@@ -694,7 +697,7 @@ pub fn grow(
+                     if let Some(perp) = tap
+                         && gr.strength >= PARALLEL_STRONG
+                         && crate::field::axis_off(perp, gr.axis) <= PARALLEL_OBLIQUE_RAD
+-                        && rb.chance(BACK_SHARE)
++                        && rb.chance(knob("PS3_SHARE", BACK_SHARE))
+                     {
+                         back = Some(perp);
+                         perp
+@@ -775,8 +778,13 @@ pub fn grow(
+             }
+             let par = opts.field.as_ref().map(|f| (f, anchors.market));
+             let made = match (back, par) {
+-                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par),
+-                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None).map(|m| m.0),
++                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par, &tiers).map(|(m, t)| {
++                    if std::env::var("PS3_SCRATCH_OFF").is_err() && knob("PS3_TIER", 1.0) > 0.0 {
++                        tiers.extend(t);
++                    }
++                    m
++                }),
++                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None, &tiers).map(|m| m.0),
+             };
+             let Some(made) = made else {
+                 continue;
+@@ -853,6 +861,7 @@ fn legalize_street(
+     wide_spacing: bool,
+     par: Option<(&crate::field::DirectionField, Vec2)>,
+     fixed_len: Option<f64>,
++    tiers: &[Tier],
+ ) -> Option<(Vec<usize>, Vec2)> {
+     // segment lengths M-NET-4. **Not the reference** (PS-2's back street,
+     // `fixed_len`): the rib to a back street is exactly the block depth, and
+@@ -914,6 +923,14 @@ fn legalize_street(
+             return None;
+         }
+     }
++    // **Not the reference** (PS-3's back-street tier, `Tier`): no street is
++    // laid through the inside of a tier, so the block between a frontage and
++    // its back street stays one block depth deep. `tiers` is empty without a
++    // grain, so no reference path tests anything.
++    let mid = o.lerp(b, 0.5);
++    if tiers.iter().any(|t| t.holds(mid)) {
++        return None;
++    }
+     if refused_by_site(site, wall_state, o, b) {
+         return None;
+     }
+@@ -1051,6 +1068,51 @@ pub const CROSS_NODE_CLEAR_M: f64 = 30.0;
+ /// A cross lane must meet the far parallel within this of square, radians
+ /// (scope 9.1: 5 degrees).
+ pub const CROSS_SQUARE_RAD: f64 = 5.0 * PI / 180.0;
++/// How far inside a tier's edges a street's midpoint must lie to be refused
++/// ([`Tier::holds`]), metres. **A labelled judgement**: about a lot's frontage
++/// (today's median 7.8 m) plus half a street, so a street that closes a
++/// tier's end, or runs along its frontage or its back street, is still laid.
++pub const TIER_EDGE_M: f64 = 12.0;
++/// SCRATCH (PS-3 sweep; removed before commit).
++fn knob(k: &str, d: f64) -> f64 {
++    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
++}
++
++/// A tier's closing lane keeps this far from any node where it meets the
++/// frontage, metres. **A labelled judgement**: `Graph::add_street`'s node
++/// snap (11 m) plus a metre, so the lane ends on the frontage where it was
++/// aimed and is never pulled onto a node (which would skew it off square).
++pub const TIER_CLOSE_CLEAR_M: f64 = 12.0;
++
++/// **Not the reference** (PS-3, `PARALLEL_STREETS_SCOPE.md` section 6: the
++/// back-street tier). The band a back street closes: from the frontage point
++/// `o`, `v` the unit rib direction (toward the back street, [`BACK_DEPTH_M`]
++/// away) and `u` the unit direction along it, the back street walked from
++/// `lo` to `hi` metres along `u`. Why: PS-2's back streets made 90 m blocks
++/// that ordinary branches then cut up (scope section 11: depth across stayed
++/// at 29 m, 83 m+ at 3.7 %); a tier refuses those branches, so the block stays
++/// two plot depths and a yard deep. Must never refuse a street on a town
++/// without a grain (only [`lay_back_street`] makes one).
++#[derive(Debug, Clone, Copy)]
++pub struct Tier {
++    pub o: Vec2,
++    pub u: Vec2,
++    pub v: Vec2,
++    pub lo: f64,
++    pub hi: f64,
++}
++
++impl Tier {
++    /// Whether `p` lies inside the tier by more than [`TIER_EDGE_M`] from each
++    /// of its four sides.
++    pub fn holds(&self, p: Vec2) -> bool {
++        let d = p - self.o;
++        let (a, c) = (d.dot(self.u), d.dot(self.v));
++        let e = knob("PS3_EDGE", TIER_EDGE_M);
++        a > self.lo + e && a < self.hi - e && c > e && c < BACK_DEPTH_M - e
++    }
++}
++
+ const BACK_PROV: &str = " Back street (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): one block depth behind its frontage, along the grain.";
+ const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): closes a block square between two parallels.";
+ 
+@@ -1063,6 +1125,10 @@ const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.
+ /// kept as an ordinary street. Every piece passes `legalize_street`'s rules
+ /// or [`refused_by_site`]'s; nothing is laid that they refuse. Only ever
+ /// called with a grain, so it never runs on a reference path.
++///
++/// PS-3: also returns the [`Tier`] the back street closes, where the walk
++/// laid at least one step, and refuses the rib like any street inside an
++/// earlier tier (`tiers`).
+ #[allow(clippy::too_many_arguments)]
+ fn lay_back_street(
+     r: &mut crate::rng::Substream,
+@@ -1074,36 +1140,49 @@ fn lay_back_street(
+     perp: f64,
+     ep: i32,
+     par: (&crate::field::DirectionField, Vec2),
+-) -> Option<Vec<usize>> {
+-    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M))?;
++    tiers: &[Tier],
++) -> Option<(Vec<usize>, Option<Tier>)> {
++    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M), tiers)?;
+     if p.dist(o) < BACK_DEPTH_M - 1.0 {
+-        return Some(made);
++        return Some((made, None));
+     }
+-    for dir in [perp + PI / 2.0, perp - PI / 2.0] {
++    let u0 = Vec2::new(js_cos(perp + PI / 2.0), js_sin(perp + PI / 2.0));
++    let mut ext = [0.0f64; 2];
++    for (k, dir) in [perp + PI / 2.0, perp - PI / 2.0].into_iter().enumerate() {
+         let u = Vec2::new(js_cos(dir), js_sin(dir));
+         let (mut end, mut walked) = (p, 0.0);
+         let mut next = CROSS_STEP_M * r.range(0.8, 1.2);
+-        for _ in 0..BACK_WALK_STEPS {
+-            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None) else { break };
++        for _ in 0..knob("PS3_STEPS", BACK_WALK_STEPS as f64) as usize {
++            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None, tiers) else { break };
+             made.extend(m);
+             let seg = b.dist(end);
+             while next < walked + seg - CROSS_NODE_CLEAR_M {
+                 // A station within `CROSS_NODE_CLEAR_M` of the node the walk has just reached is refused by `cross_lane`'s own
+                 // node clearance, so no test of it is made here.
+-                if let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep) {
++                if let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M) {
+                     made.extend(c);
+                 }
+                 next += CROSS_STEP_M * r.range(0.8, 1.2);
+             }
+             walked += seg;
++            ext[k] = walked;
+             end = b;
+             // The step ended on a street (a T): the back street stops there.
+             if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 1) {
+                 break;
+             }
+         }
++        // PS-3 (`Tier`): a walk that ends free is closed by a lane from its
++        // end back to the frontage, square, so the tier is a whole
++        // four-cornered block (`lane_pass_with` then keeps it).
++        if walked > 0.0 && g.nearest_node(end.x, end.y, 0.5).is_some_and(|n| g.live_adj(n).count() == 1) && std::env::var("PS3_SCRATCH_OFF").is_err() && knob("PS3_CLOSE", 1.0) > 0.0 {
++            if let Some(c) = cross_lane(site, g, wall_state, end, perp + PI, ep, 0.0, TIER_CLOSE_CLEAR_M) {
++                made.extend(c);
++            }
++        }
+     }
+-    Some(made)
++    let tier = (ext[0] + ext[1] > 0.0).then(|| Tier { o, u: u0, v: Vec2::new(js_cos(perp), js_sin(perp)), lo: -ext[1], hi: ext[0] });
++    Some((made, tier))
+ }
+ 
+ /// **Not the reference** (PS-2's `closing` mode, scope 9.1): a cross lane
+@@ -1112,7 +1191,13 @@ fn lay_back_street(
+ /// [`CROSS_SQUARE_RAD`] of square to it, both ends are [`CROSS_NODE_CLEAR_M`]
+ /// from every node, and [`refused_by_site`] passes it; then laid with both
+ /// ends exact (`add_street` edge-snaps them where they are). Draws nothing.
+-fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32) -> Option<Vec<usize>> {
++///
++/// PS-3: `start_clear_m` and `end_clear_m` are the node clearances at each
++/// end ([`CROSS_NODE_CLEAR_M`] both for PS-2's stations); a tier's closing
++/// lane starts on the walk's own end node (0, untested) and keeps
++/// [`TIER_CLOSE_CLEAR_M`] at the frontage.
++#[allow(clippy::too_many_arguments)]
++fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32, start_clear_m: f64, end_clear_m: f64) -> Option<Vec<usize>> {
+     let far = st + Vec2::new(js_cos(ang), js_sin(ang)) * (1.25 * BACK_DEPTH_M);
+     let mut hit: Option<(f64, Vec2, f64)> = None;
+     for eid in g.edges_near(st, far) {
+@@ -1133,8 +1218,8 @@ fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang:
+     let (_, b, e_ang) = hit?;
+     let sq = (e_ang - ang).rem_euclid(PI);
+     if (sq - PI / 2.0).abs() > CROSS_SQUARE_RAD
+-        || g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_some()
+-        || g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()
++        || (start_clear_m > 0.0 && g.nearest_node(st.x, st.y, start_clear_m).is_some())
++        || g.nearest_node(b.x, b.y, end_clear_m).is_some()
+         || refused_by_site(site, wall_state, st, b)
+     {
+         return None;
+@@ -1261,7 +1346,7 @@ pub fn grow_far_bank(
+         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
+             continue;
+         }
+-        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None) else {
++        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None, &[]) else {
+             continue;
+         };
+         for eid in made {
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+index 3fb1a06f..2de0106f 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+@@ -32,7 +32,7 @@ fn two_parallels() -> (Site, Graph, WallState) {
+ fn a_cross_lane_closes_square_and_is_refused_oblique_near_a_node_or_with_nothing_to_meet() {
+     let (site, mut g, ws) = two_parallels();
+     let before = g.edges.len();
+-    let laid = cross_lane(&site, &mut g, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).expect("a square lane between two parallels");
++    let laid = cross_lane(&site, &mut g, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).expect("a square lane between two parallels");
+     // The near street is split at (200, 100) and the far one at (200, 190): each split retires an edge for two, so the
+     // two splits and the lane add five edges (the lane is the one id returned).
+     assert_eq!((g.edges.len() - before, laid.len()), (5, 1), "{laid:?}");
+@@ -46,29 +46,29 @@ fn a_cross_lane_closes_square_and_is_refused_oblique_near_a_node_or_with_nothing
+     let mut g2 = Graph::new();
+     g2.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g2.add_street(0.0, 160.0, 400.0, 220.0, "street", 4.0, 1, "slanted");
+-    assert!(cross_lane(&site2, &mut g2, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a lane 9 degrees off square is refused");
++    assert!(cross_lane(&site2, &mut g2, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a lane 9 degrees off square is refused");
+     // Near a node: the start 20 m from the near street's end (x = 0).
+     let (site3, mut g3, _) = two_parallels();
+-    assert!(cross_lane(&site3, &mut g3, &ws, Vec2::new(20.0, 100.0), PI / 2.0, 1).is_none(), "a start within 30 m of a node is refused");
++    assert!(cross_lane(&site3, &mut g3, &ws, Vec2::new(20.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a start within 30 m of a node is refused");
+     // A node near the meeting point: the far street ends at (215, 190), 15 m from where the lane would meet it.
+     let mut g5 = Graph::new();
+     g5.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g5.add_street(0.0, 190.0, 215.0, 190.0, "street", 4.0, 1, "ends at x = 215");
+-    assert!(cross_lane(&site2, &mut g5, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a meeting point within 30 m of a node is refused");
++    assert!(cross_lane(&site2, &mut g5, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a meeting point within 30 m of a node is refused");
+     // A short lane is laid, a 1 m one (a street just beside the start) is not.
+     let mut g6 = Graph::new();
+     g6.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g6.add_street(0.0, 130.0, 400.0, 130.0, "street", 4.0, 1, "30 m away");
+-    assert!(cross_lane(&site2, &mut g6, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_some(), "a 30 m lane is laid");
++    assert!(cross_lane(&site2, &mut g6, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_some(), "a 30 m lane is laid");
+     let mut g7 = Graph::new();
+     g7.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g7.add_street(0.0, 101.0, 400.0, 101.0, "street", 4.0, 1, "1 m away");
+-    assert!(cross_lane(&site2, &mut g7, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a street within 3 % of the reach is not a meeting");
++    assert!(cross_lane(&site2, &mut g7, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a street within 3 % of the reach is not a meeting");
+     // Nothing to meet: the far street is 150 m away, past 1.25 depths.
+     let mut g4 = Graph::new();
+     g4.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g4.add_street(0.0, 250.0, 400.0, 250.0, "street", 4.0, 1, "too far");
+-    assert!(cross_lane(&site2, &mut g4, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a street beyond 112.5 m is not met");
++    assert!(cross_lane(&site2, &mut g4, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a street beyond 112.5 m is not met");
+ }
+ 
+ /// Protects the grain's switch in `grow`: with the switch off a town has no back street and no cross lane; with it on
+diff --git a/cartalith-native/crates/cartalith-urban/src/plaza.rs b/cartalith-native/crates/cartalith-urban/src/plaza.rs
+index 0b8a13dd..6ecda0e8 100644
+--- a/cartalith-native/crates/cartalith-urban/src/plaza.rs
++++ b/cartalith-native/crates/cartalith-urban/src/plaza.rs
+@@ -401,6 +401,29 @@ fn scale_tries(k: f64) -> Vec<f64> {
+ /// reference's size. The draws are still exactly
+ /// two, so no other stream moves. `false` changes nothing.
+ pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64, green_at_market: bool, scale: bool) -> Option<Plaza> {
++    build_plaza_shaped(seed, site, anchors, g, pop, green_at_market, scale, false)
++}
++
++/// The share of the square's length its far side is pulled in at each end in
++/// a spindle market ([`build_plaza_shaped`]). **A labelled judgement**: the
++/// market widens from the street over its first and last quarter, so it
++/// tapers at both ends (`MEDIEVAL_TOWN_GROWTH_RESEARCH.md` 2.2: market streets
++/// taper at their ends; `PARALLEL_STREETS_SCOPE.md` 2.2), and stays inside
++/// the square's own rectangle (three quarters of its area), so it fits
++/// wherever the square was placed.
++pub const SPINDLE_TAPER: f64 = 0.25;
++
++/// [`build_plaza_with`], with `spindle` (**not the reference**;
++/// `PARALLEL_STREETS_SCOPE.md` PS-3 and Q9, behind `GenOpts::parallel_streets`):
++/// a market-street town's market is a spindle on its spine, the far side
++/// pulled in by [`SPINDLE_TAPER`] of the length at each end, so the market
++/// street widens and tapers instead of opening a rectangle. Placement, size
++/// and the two draws are [`build_plaza_with`]'s; only the far side's two
++/// corners move. `false` is [`build_plaza_with`] exactly. Must never be set
++/// for a village green or a town that is not a market-street town
++/// (`crate::generate` decides).
++#[allow(clippy::too_many_arguments)]
++pub fn build_plaza_shaped(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop: f64, green_at_market: bool, scale: bool, spindle: bool) -> Option<Plaza> {
+     let mut r = stream(seed, "plaza");
+ 
+     // Nearest live primary edge to the market. Strict `<`, so a tie keeps the
+@@ -511,8 +534,12 @@ pub fn build_plaza_with(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph
+ 
+     let p1 = mid + dir * (-l / 2.0);
+     let p2 = mid + dir * (l / 2.0);
+-    let q1 = p1 + nl * (side * wd);
+-    let q2 = p2 + nl * (side * wd);
++    let (q1, q2) = if spindle {
++        let pull = dir * (SPINDLE_TAPER * l);
++        (p1 + pull + nl * (side * wd), p2 + pull * -1.0 + nl * (side * wd))
++    } else {
++        (p1 + nl * (side * wd), p2 + nl * (side * wd))
++    };
+ 
+     // v2.73: market right, not size, decides what the space is for. Reuses
+     // `build_civic`'s own chartered-town threshold rather than a second one.

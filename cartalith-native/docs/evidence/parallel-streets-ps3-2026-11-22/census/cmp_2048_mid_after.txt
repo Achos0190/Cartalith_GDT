@@ -1,0 +1,26 @@
+r_mid2048 [24] outside core: quads 57.7 tri 7.8 ctri 4.7 aspect 1.57 rect 0.74 depth med 29.8 83m+ 4.5
+r_mid2048 [all] outside core: quads 58.0 tri 7.7 ctri 4.6 aspect 1.57 rect 0.74 depth med 29.6 83m+ 4.4
+    [proto] towns 39  housed p10 101 median 126, under 80 %: 3
+    per town phi median 0.167 p90 0.392; entropy/max median 0.947; phi on-off max 0.392; degree 4 9.4 %, dead ends 11.9 %, segment median (town medians) 25.6 m
+    FS-1 settled area / off: min 0.68 median 1.10 max 1.76; in 0.9-1.4: 31/39; off cells kept >= 85 %: 21/39 (median 0.86)
+    needles 12.1 % (12038)
+    buildings 98933: needle buildings (short side < 3 m and long/short > 6.0) 0.64 % (631)
+    [off] towns 24  housed p10 90 median 101, under 80 %: 2
+    market_street: towns 10 phi median 0.322 p90 0.398 max 0.472; on-off delta max 0.202; entropy/max median 0.884
+    organic_core: towns 11 phi median 0.207 p90 0.393 max 0.681; on-off delta max 0.392; entropy/max median 0.933
+    river_front: towns 18 phi median 0.105 p90 0.217 max 0.297; on-off delta max 0.228; entropy/max median 0.960
+    wall off: walled 39 sharp med/p90/total 4 7 170 hull med/p90/max 1.023 1.099 1.125
+    wall proto: walled 39 sharp med/p90/total 3 6 120 hull med/p90/max 1.014 1.073 1.117
+r_v2048 [24] outside core: quads 51.1 tri 10.1 ctri 5.3 aspect 1.61 rect 0.72 depth med 31.8 83m+ 7.6
+r_v2048 [all] outside core: quads 52.5 tri 10.0 ctri 5.3 aspect 1.61 rect 0.72 depth med 31.7 83m+ 7.3
+    [proto] towns 39  housed p10 93 median 121, under 80 %: 3
+    per town phi median 0.149 p90 0.412; entropy/max median 0.953; phi on-off max 0.363; degree 4 9.0 %, dead ends 12.1 %, segment median (town medians) 24.9 m
+    FS-1 settled area / off: min 0.48 median 1.17 max 1.74; in 0.9-1.4: 28/39; off cells kept >= 85 %: 22/39 (median 0.87)
+    needles 14.3 % (14084)
+    buildings 102871: needle buildings (short side < 3 m and long/short > 6.0) 1.01 % (1039)
+    [off] towns 24  housed p10 90 median 101, under 80 %: 2
+    market_street: towns 9 phi median 0.383 p90 0.493 max 0.548; on-off delta max 0.363; entropy/max median 0.869
+    organic_core: towns 12 phi median 0.207 p90 0.398 max 0.526; on-off delta max 0.237; entropy/max median 0.936
+    river_front: towns 18 phi median 0.102 p90 0.151 max 0.253; on-off delta max 0.184; entropy/max median 0.965
+    wall off: walled 39 sharp med/p90/total 4 7 170 hull med/p90/max 1.023 1.099 1.125
+    wall proto: walled 39 sharp med/p90/total 3 6 130 hull med/p90/max 1.007 1.057 1.115

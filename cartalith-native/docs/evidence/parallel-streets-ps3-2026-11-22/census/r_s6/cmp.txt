@@ -1,0 +1,13 @@
+r_s6 [24] outside core: quads 59.5 tri 8.0 ctri 4.7 aspect 1.55 rect 0.75 depth med 30.4 83m+ 4.3
+r_s6 [all] outside core: quads 59.5 tri 8.0 ctri 4.5 aspect 1.55 rect 0.75 depth med 30.3 83m+ 4.3
+    [proto] towns 38  housed p10 103 median 126, under 80 %: 1
+    per town phi median 0.207 p90 0.418; entropy/max median 0.929; phi on-off max 0.364; degree 4 9.4 %, dead ends 12.0 %, segment median (town medians) 25.7 m
+    FS-1 settled area / off: min 0.81 median 1.12 max 1.63; in 0.9-1.4: 30/38; off cells kept >= 85 %: 17/38 (median 0.84)
+    needles 12.8 % (13059)
+    buildings 104174: needle buildings (short side < 3 m and long/short > 6.0) 0.65 % (681)
+    [off] towns 24  housed p10 91 median 100, under 80 %: 1
+    market_street: towns 10 phi median 0.325 p90 0.515 max 0.795; on-off delta max 0.364; entropy/max median 0.880
+    organic_core: towns 11 phi median 0.253 p90 0.395 max 0.454; on-off delta max 0.235; entropy/max median 0.917
+    river_front: towns 17 phi median 0.172 p90 0.232 max 0.626; on-off delta max 0.205; entropy/max median 0.945
+    wall off: walled 38 sharp med/p90/total 4.0 7 162 hull med/p90/max 1.038 1.099 1.167
+    wall proto: walled 38 sharp med/p90/total 3.0 5 132 hull med/p90/max 1.022 1.073 1.129

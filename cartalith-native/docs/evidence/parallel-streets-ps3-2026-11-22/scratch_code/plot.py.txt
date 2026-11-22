@@ -1,0 +1,47 @@
+"""plot.py <dump dir> <seed> <town> [win m]: off | on side by side, blocks coloured by corners / depth (scratch)."""
+import sys, math
+from PIL import Image, ImageDraw
+sys.path.insert(0, 'C:/cw/ps3_scratch')
+D, seed, town = sys.argv[1], sys.argv[2], sys.argv[3]
+WIN = float(sys.argv[4]) if len(sys.argv) > 4 else 900.0
+def load(v):
+    E, B, P, M = [], [], [], None
+    for ln in open(f'{D}/{seed}_{town}_{v}.txt'):
+        t = ln.split()
+        if t[0] == 'E': E.append((t[1], float(t[2]), *map(float, t[3:7])))
+        elif t[0] in 'BP':
+            pts = [tuple(map(float, p.split(','))) for p in t[1:]]
+            (B if t[0] == 'B' else P).append(pts)
+        elif t[0] == 'M': M = tuple(map(float, t[1:4]))
+    return E, B, P, M
+def mabr(poly):
+    best = (1e18, 0, 0)
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i+1) % len(poly)]
+        th = math.atan2(b[1]-a[1], b[0]-a[0]); c, s = math.cos(th), math.sin(th)
+        xs = [x*c+y*s for x, y in poly]; ys = [-x*s+y*c for x, y in poly]
+        w, h = max(xs)-min(xs), max(ys)-min(ys)
+        if w*h < best[0]: best = (w*h, max(w, h), min(w, h))
+    return best[1], best[2]
+def panel(v, cx, cy, PX):
+    E, B, P, M = load(v)
+    S = int(WIN*PX); im = Image.new('RGB', (S, S+20), (245, 242, 232)); d = ImageDraw.Draw(im)
+    T = lambda p: ((p[0]-cx+WIN/2)*PX, (p[1]-cy+WIN/2)*PX+20)
+    deep = 0
+    for b in B:
+        if len(b) < 3: continue
+        lg, sh = mabr(b)
+        col = (120, 200, 120) if sh >= 83 else (200, 200, 230) if sh >= 50 else (230, 225, 210)
+        deep += sh >= 83
+        d.polygon([T(p) for p in b], fill=col, outline=(160, 150, 130))
+    for e in E:
+        col = {'primary': (180, 60, 40), 'lane': (90, 90, 160)}.get(e[0], (60, 60, 60))
+        d.line([T(e[2:4]), T(e[4:6])], fill=col, width=max(1, int(e[1]*PX*0.5)))
+    d.ellipse([T((M[0]-M[2], M[1]-M[2])), T((M[0]+M[2], M[1]+M[2]))], outline=(200, 0, 150))
+    d.rectangle([0, 0, S, 19], fill=(255, 255, 255)); d.text((4, 4), f'{seed} #{town} {v}: blocks {len(B)}, 83 m+ across {deep} (green), 50-83 lilac', fill=(0, 0, 0))
+    return im
+E, B, P, M = load('off')
+PX = 1.0 if WIN > 600 else 2.0
+a, b = panel('off', M[0], M[1], PX), panel('proto', M[0], M[1], PX)
+out = Image.new('RGB', (a.size[0]*2+8, a.size[1]), (255, 255, 255)); out.paste(a, (0, 0)); out.paste(b, (a.size[0]+8, 0))
+out.save(f'{D}/plot_{seed}_{town}_{int(WIN)}.png'); print('saved')
