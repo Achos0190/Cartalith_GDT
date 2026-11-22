@@ -376,12 +376,12 @@ pub(crate) fn unpromote(civ: &mut CivData, tools: Option<&mut CivTools>, u: &Pro
 }
 
 /// A sphere's wash alpha as a share of the faction wash's
-/// (`WorldGen::territory_opacity`). **A labelled judgement**: 0.75 keeps a
-/// sphere the same hue family as the nation it would become while reading a
-/// step lighter than a faction's land beside it, so a cluster reads like a
-/// nation and is still told apart from one; judged on the frames in
-/// `cartalith-native/docs/evidence/city-states-2026-11-22/`.
-pub(crate) const SPHERE_ALPHA_SCALE: f64 = 0.75;
+/// (`WorldGen::territory_opacity`). **Owner, 2026-11-22:** *"Can't really see
+/// the city state borders, can you change the opacity in the layer to 100%"* --
+/// so 1.0: a sphere washes at the full Territory layer opacity, the same as a
+/// faction's land (the first build's 0.75 read too faint on yellow/green
+/// terrain). The Territory layer's own opacity still scales both together.
+pub(crate) const SPHERE_ALPHA_SCALE: f64 = 1.0;
 
 /// The History row's reason once a promotion can no longer be undone.
 pub(crate) const STALE_REASON: &str = "the faction it made has changed since (a later faction was added, it was renamed or deleted, or a place left it)";

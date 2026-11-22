@@ -13906,8 +13906,8 @@ impl WorldGen {
         let appearance = self.appearance();
         // F26 / Ruling GL: a city-state's sphere is washed over the unclaimed
         // land it holds in the sphere's own colour, at `SPHERE_ALPHA_SCALE` of
-        // the faction alpha, so a large cluster reads like a nation and still
-        // reads as not one. `None` with `civ.city_states` off: the wash as before.
+        // the faction alpha (1.0 since the owner's 2026-11-22 ask), so a large
+        // cluster reads like a nation. `None` with `civ.city_states` off: the wash as before.
         let spheres = self.sphere_view();
         let sphere_rgb: Vec<(u8, u8, u8)> = spheres.as_ref().map_or_else(Vec::new, |v| v.seats.iter().map(|s| s.rgb).collect());
         let sphere_alpha = alpha as f64 * city_state_bridge::SPHERE_ALPHA_SCALE;
