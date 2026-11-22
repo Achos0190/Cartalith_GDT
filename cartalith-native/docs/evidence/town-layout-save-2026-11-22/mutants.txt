@@ -1,0 +1,37 @@
+Exact-literal mutants (scratchpad mutants.py: replace once, run the named cargo test filter, restore in finally). First pass:
+KILLED       rules_version: test town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned ... FAILED
+KILLED       a_rules_constant: test town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned ... FAILED
+KILLED       quantum: test town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned ... FAILED
+KILLED       tone_quantum: test town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned ... FAILED
+SURVIVED     orient_bits_dropped: 
+KILLED       switch_record_wrong: test town_freeze::tests::switch_record_and_absent_as_off ... FAILED
+KILLED       absent_switch_reads_on: test town_freeze::tests::switch_record_and_absent_as_off ... FAILED
+KILLED       site_hash_ignores_terrain: test town_freeze::tests::site_hash_moves_on_each_world_input ... FAILED
+KILLED       site_hash_ignores_mask: test town_freeze::tests::site_hash_moves_on_each_world_input ... FAILED
+SURVIVED     site_hash_ignores_route_ends: 
+KILLED       site_hash_ignores_paths: test town_freeze::tests::site_hash_moves_on_each_world_input ... FAILED
+KILLED       rounding_too_loose: test town_freeze::tests::within_rounding_accepts_a_flip_and_refuses_a_move ... FAILED
+SURVIVED     gate_bearing_wide: 
+KILLED       predictor_off_by_one: test town_freeze::tests::decode_of_encode_re_encodes_identically_and_within_half_a_quantum ... FAILED; test town_freeze::tests::within_rounding_accepts_a_flip_and_refuses_a_move ... FAILED; test town_
+KILLED       mismatch_silently_accepted: test town_layout_bridge::tests::every_damage_row_is_kept_verbatim_and_reported ... FAILED
+KILLED       unknown_enc_accepted: test town_layout_bridge::tests::every_damage_row_is_kept_verbatim_and_reported ... FAILED
+KILLED       older_save_writes_a_member: test town_layout_bridge::tests::no_frozen_town_writes_no_member ... FAILED; test town_layout_bridge::tests::older_saves_open_with_no_frozen_town_and_write_no_member ... FAILED
+KILLED       newer_version_read: test town_layout_bridge::tests::every_damage_row_is_kept_verbatim_and_reported ... FAILED
+KILLED       pin_dropped_on_relay: test town_layout_bridge::tests::relay_keeps_every_mark ... FAILED
+KILLED       dead_anchor_kept: test town_layout_bridge::tests::every_damage_row_is_kept_verbatim_and_reported ... FAILED
+KILLED       chip_threshold: test town_layout_bridge::tests::the_chip_shows_at_two_x_and_not_at_one_point_nine ... FAILED
+KILLED       cheap_tier_misses_world: test town_layout_bridge::tests::the_cheap_tier_names_each_cause ... FAILED
+summary: {'KILLED': 19, 'SURVIVED': 3, 'BUILD_ERROR': 0}
+
+After strengthening three tests (orient, route ends, gate bearing), the three survivors re-run:
+KILLED orient_bits_dropped / KILLED site_hash_ignores_route_ends / KILLED gate_bearing_wide (summary: KILLED 3, SURVIVED 0)
+
+Probe mutants (windowed desktop, town_save_drive.gd):
+mut_shell (_build_frozen_section() not called):
+FAIL  the viewer offers Freeze this town while unfrozen
+FAIL  the viewer shows the Frozen badge
+RESULT FAIL: 2 check(s)
+mut_serve (urban_layouts never serves a frozen town: match None):
+FAIL  the frozen town is unchanged after the switch
+FAIL  BEFORE is the frozen town
+RESULT FAIL: 2 check(s)

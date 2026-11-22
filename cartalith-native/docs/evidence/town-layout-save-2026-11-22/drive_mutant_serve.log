@@ -1,0 +1,56 @@
+completed 
+form desktop, window (1600.0, 900.0)
+ok    a world exists
+ok    a town lays out  -- index 0, 4243 buildings
+ok    positive control: the town is not frozen before any mark
+ok    the viewer offers Freeze this town while unfrozen
+ok    no Frozen badge before any mark
+ok    a POI is placed in the town
+ok    a label is placed in the town
+ok    the town is frozen after the marks  -- { "frozen": true, "manual": false, "year": 0, "pop_now": 21493, "pop": 21493, "chip": false, "rules_version": 1, "rules_version_now": 1, "anchors": 1, "detached": 0 }
+ok    the POI is anchored to it  -- { "frozen": true, "manual": false, "year": 0, "pop_now": 21493, "pop": 21493, "chip": false, "rules_version": 1, "rules_version_now": 1, "anchors": 1, "detached": 0 }
+ok    the frozen town is the generated one within 0.05 m (same counts)  -- worst 0.0000 m over 50 buildings
+ok    x1: 0.05 m is 0.02 px on screen (under 1 px); 0.07 % of the canvas changes visibly, 0.08 % by anti-aliasing levels
+ok    x4: 0.05 m is 0.09 px on screen (under 1 px); 0.07 % of the canvas changes visibly, 0.10 % by anti-aliasing levels
+ok    x12: 0.05 m is 0.26 px on screen (under 1 px); 0.00 % of the canvas changes visibly, 0.00 % by anti-aliasing levels
+ok    the viewer shows the Frozen badge  -- Frozen · year 0 · pop 21 493 · rules v1 (current v1)
+ok    the world saves  -- { "ok": true, "error": "", "bytes": 1292932, "entries": 43, "substrate": true, "geology": true }
+ok    the save holds entities/town_layouts.json
+ok    the save reopens
+ok    after reopening the town is still frozen
+ok    after reopening the layout is identical  -- 4243|1093|[(853.9, 578.9449), (844.1413, vs 4243|1093|[(853.9, 578.9449), (844.1413,
+ok    urban_parallel_streets is switched on  -- { "ok": true, "clamped": false, "rejected": false }
+FAIL  the frozen town is unchanged after the switch
+ok    the banner reports the mismatch by name  -- Since this town was drawn: parallel streets is now on.
+ok    the banner's Re-lay is clicked
+ok    the before/after opens on AFTER  -- Re-lay preview, showing AFTER (current rules): 92% of the buildings change. 2 of 2 pins follow their places.
+ok    Show before is clicked
+ok    the plan now shows BEFORE
+FAIL  BEFORE is the frozen town
+ok    Apply is clicked
+ok    the re-lay report shows  -- Re-laid with current rules. 2 pins followed their places.
+ok    the town is now drawn by the current rules (a different layout)
+ok    the POI kept its id through the re-lay (nothing deleted)
+ok    the re-laid town is frozen again with the POI anchored  -- { "frozen": true, "manual": false, "year": 0, "pop_now": 21493, "pop": 21493, "chip": false, "rules_version": 1, "rules_version_now": 1, "anchors": 1, "detached": 0 }
+ok    x1 positive control: the re-laid town differs visibly (26.1 % of the canvas)
+ok    x4 positive control: the re-laid town differs visibly (52.6 % of the canvas)
+ok    x12 positive control: the re-laid town differs visibly (52.7 % of the canvas)
+ok    banner and badge text contrast at least 4.5:1  -- 11.41 (text c8cbcd on panel 121314)
+ok    a collapse simulation records the years  -- { "ok": true, "rejected": [], "steps": 5, "end_year": 50, "died": 54963, "migrated": 24171, "unplaced": 24241, "failed":
+ok    year 10: the frozen town is not re-laid
+ok    year 10: its anchors stay (1)
+ok    year 10: chip true at pop 21493 frozen vs 9292 now
+ok    year 20: the frozen town is not re-laid
+ok    year 20: its anchors stay (1)
+ok    year 20: chip true at pop 21493 frozen vs 3895 now
+ok    year 30: the frozen town is not re-laid
+ok    year 30: its anchors stay (1)
+ok    year 30: chip true at pop 21493 frozen vs 1578 now
+ok    year 40: the frozen town is not re-laid
+ok    year 40: its anchors stay (1)
+ok    year 40: chip true at pop 21493 frozen vs 810 now
+ok    year 50: the frozen town is not re-laid
+ok    year 50: its anchors stay (1)
+ok    year 50: chip true at pop 21493 frozen vs 495 now
+chip on in 5 of 5 years, off in 0
+RESULT FAIL: 2 check(s)

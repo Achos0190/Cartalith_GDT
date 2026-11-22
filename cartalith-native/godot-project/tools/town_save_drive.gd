@@ -51,6 +51,8 @@ func _zoom_shots(ctx, tag: String) -> void:
 		var rr := Rect2i(Vector2i(r.position * vp_scale), Vector2i(r.size * vp_scale)).intersection(Rect2i(0, 0, img.get_width(), img.get_height()))
 		_zoom_imgs["%s_%d" % [tag, int(z)]] = img.get_region(rr)
 		_zoom_scale["%d" % int(z)] = float(cv._view_transform()["scale"])
+		## The measured canvas itself, saved (a `ctx.capture` frame is taken asynchronously and may show a later zoom).
+		(_zoom_imgs["%s_%d" % [tag, int(z)]] as Image).save_png(SCRATCH.path_join("zoom_%s_%s_x%d.png" % [_form, tag, int(z)]))
 		ctx.capture("z_%s_%s_x%d" % [_form, tag, int(z)])
 	cv._zoom = 1.0
 	cv._canvas.queue_redraw()
@@ -249,6 +251,8 @@ func run(ctx) -> void:
 	_check(ctx, "the save reopens", ok)
 	_check(ctx, "after reopening the town is still frozen", bool(bridge.town_state(best).get("frozen", false)))
 	_check(ctx, "after reopening the layout is identical", _sig(_layout(best)) == before_sig, _sig(_layout(best)).substr(0, 40) + " vs " + before_sig.substr(0, 40))
+	var re_reasons: Array = Array(bridge.town_state(best, true).get("reasons", PackedStringArray()))
+	_check(ctx, "after reopening nothing reports the town as changed (the cheap tier is empty)", re_reasons.is_empty(), str(re_reasons))
 	app.open_city_viewer(best)
 	await ctx.wait(2.0)
 	ctx.capture("3_%s_reopened" % _form)

@@ -1,0 +1,30 @@
+Run: cargo test -p cartalith-godot --release --lib town_layout_census -- --ignored --nocapture --test-threads 1 (2026-11-22, pre-rebase tree; the codec is unchanged by the rebase). One machine, other lanes running: timings noisy.
+test town_layout_bridge::tests::census::town_layout_census ... towns 64; re-encode identical 64/64; fresh re-lay identical 64/64; worst vertex error 0.0500 m
+size capital: n 12, median 132.7 KB, min 19.3 KB, max 170.5 KB (deflated row)
+size city: n 3, median 94.7 KB, min 84.2 KB, max 95.6 KB (deflated row)
+size hamlet: n 36, median 4.7 KB, min 2.9 KB, max 5.9 KB (deflated row)
+size town: n 4, median 26.9 KB, min 20.1 KB, max 30.6 KB (deflated row)
+size village: n 9, median 6.4 KB, min 1.8 KB, max 6.7 KB (deflated row)
+all towns as one document: 2000 KB deflated (6878 KB raw)
+load vs generate, largest: 483920#7 capital: generate 2789 ms, frozen load 3.0 ms (0.1 %)
+load vs generate, largest: 912345#1 capital: generate 1453 ms, frozen load 2.8 ms (0.2 %)
+load vs generate, largest: 912345#12 capital: generate 1387 ms, frozen load 2.6 ms (0.2 %)
+load vs generate, largest: 912345#8 capital: generate 1376 ms, frozen load 3.5 ms (0.3 %)
+load vs generate, largest: 483920#8 capital: generate 1310 ms, frozen load 3.1 ms (0.2 %)
+load vs generate, largest: 912345#11 capital: generate 1309 ms, frozen load 4.0 ms (0.3 %)
+worst load ratio: 912345#29 hamlet: generate 1.0 ms, frozen load 0.08 ms
+frozen load / generation: median 0.22 %, min 0.06 %, max 7.61 % over 64 towns
+re-attach under market_town (64 of 64 towns moved):
+  building: 1001/1280 = 78.2 %
+  gate: 68/95 = 71.6 %
+  plaza: 62/64 = 96.9 %
+  plot: 1039/1280 = 81.2 %
+  street: 875/1166 = 75.0 %
+re-attach under parallel_streets (19 of 64 towns moved):
+  building: 1152/1280 = 90.0 %
+  gate: 78/95 = 82.1 %
+  plaza: 63/64 = 98.4 %
+  plot: 1203/1280 = 94.0 %
+  street: 1035/1166 = 88.8 %
+pooled: building 84.1 %, plot 87.6 %, street 81.9 %, plaza 97.7 %, gate 76.8 %; pins lost 0
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1493 filtered out; finished in 126.02s
