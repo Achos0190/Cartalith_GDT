@@ -3410,12 +3410,16 @@ func _fit_switch_late(cb: BaseButton, tries: int = 0) -> void:
 			cb.draw.connect(_fit_switch_after_draw.bind(cb), CONNECT_ONE_SHOT)
 	elif tries < 300:
 		await get_tree().process_frame
-		_fit_switch_late(cb, tries + 1)
+		# the switch may be freed during that frame (a card's check boxes are rebuilt by the Chronos prompt):
+		# a typed parameter rejects a freed object before the guard at the top can look at it
+		if is_instance_valid(cb):
+			_fit_switch_late(cb, tries + 1)
 
 ## `_fit_switch_late()`'s retry, once the switch has first been drawn.
 func _fit_switch_after_draw(cb: BaseButton) -> void:
 	await get_tree().process_frame
-	_fit_switch_late(cb)
+	if is_instance_valid(cb):
+		_fit_switch_late(cb)
 
 ## The content scale of the nearest ancestor `Window` of `ctl` when that is above 1.0 (a phone window's own unit,
 ## `DccWidgets.phone_window()`), else 1.0. `phone_fit(d, 1.0)` is the window call shape, so this is how a switch
@@ -6669,6 +6673,21 @@ func tl_set_day(day_of_year: int) -> void:
 	var bridge := _find_engine_bridge()
 	if bridge == null:
 		return
+	bridge.civ_set_day_of_year(clampi(day_of_year, 0, 364))
+	timeline_changed.emit()
+
+## One write for a dated row: the year **and** the day of year, then a **single** `timeline_changed`.
+## A dated Items row used to call `tl_set_year()` then `tl_set_day()`, which emitted twice, so every
+## listener (the readout, the snapshot load, the rows) ran twice per click (`_ct_probe.gd` section B counts
+## the emissions). `exact` is as in `tl_set_year()`.
+func tl_set_date(year: int, day_of_year: int, exact := false) -> void:
+	if not tl_available():
+		return
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	var r := tl_range()
+	bridge.civ_goto_year(year if exact else clampi(year, int(r["min"]), int(r["max"])))
 	bridge.civ_set_day_of_year(clampi(day_of_year, 0, 364))
 	timeline_changed.emit()
 

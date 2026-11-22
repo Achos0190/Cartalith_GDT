@@ -21,6 +21,18 @@ var _offset_pick: Dictionary = {}
 var _status: Dictionary = {}
 var _undo: Dictionary = {}
 var _cards: VBoxContainer = null
+## Per card key: the last re-sync's undo token, and the founding year a "set" replaced (`{index, was}`).
+var _resync_undo: Dictionary = {}
+var _founded_undo: Dictionary = {}
+
+## The tap-target height in physical px: 44 dp on the phone (`DccTheme.PHONE_TAP_MIN` scaled by the phone's
+## unit, as `DccShell._ptap` does), the shell's own button role elsewhere. Shared with `chronos_items.gd`
+## so a chip on the strip and a chip in the prompt cannot disagree (the phone's chips were `btn_min_h`, which
+## is below 44 dp there).
+static func tap_h() -> int:
+	if DccTheme.is_phone():
+		return ceili(DccTheme.PHONE_TAP_MIN * DccTheme.phone_scale())
+	return DccTheme.role_px("btn_min_h")
 
 func setup(shell: Node, cands: Array, on_change: Callable) -> void:
 	_shell = shell
@@ -31,6 +43,10 @@ func setup(shell: Node, cands: Array, on_change: Callable) -> void:
 	max_size = Vector2i(760, 620)
 	name = "ChronosPrompt"
 	ok_button_text = "Done"
+	# AcceptDialog resets the minimum size of every Button in its own button row when its theme applies
+	# (see `context_window.gd`, "The holder is not a Button"), so its Done could never reach 44 dp: the
+	# stock button is hidden and a Done of our own sits in the content, where its height holds.
+	get_ok_button().hide()
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 8)
 	root.custom_minimum_size = Vector2(0, 0)
@@ -41,22 +57,31 @@ func setup(shell: Node, cands: Array, on_change: Callable) -> void:
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(0, 340)
+	# The body must leave room for the title bar, the note, the bulk row and the Done button inside the
+	# window, or Done lands below the fold (it did at 450x975 and at 1280x800): the scroll's own minimum is
+	# a share of the viewport, never a fixed 340.
+	scroll.custom_minimum_size = Vector2(0, mini(340, int(_view_h() * 0.35)))
 	root.add_child(scroll)
 	_cards = VBoxContainer.new()
 	_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_cards.add_theme_constant_override("separation", 10)
 	scroll.add_child(_cards)
-	var bulk := HBoxContainer.new()
+	var bulk := HFlowContainer.new()
 	bulk.add_theme_constant_override("separation", 8)
 	root.add_child(bulk)
 	var keep_all := DccWidgets.segment(bulk, "Apply Keep to all", func(): _bulk("keep"))
 	keep_all.name = "KeepAll"
 	var ignore_all := DccWidgets.segment(bulk, "Ignore all", func(): _bulk("ignore"))
 	ignore_all.name = "IgnoreAll"
-	for b in [keep_all, ignore_all]:
-		(b as Button).custom_minimum_size.y = maxf((b as Button).custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
+	var done := DccWidgets.chip(bulk, "Done", func(): hide(), true)
+	done.name = "Done"
+	done.size_flags_horizontal = Control.SIZE_SHRINK_END
+	for b in [keep_all, ignore_all, done]:
+		(b as Button).custom_minimum_size.y = maxf((b as Button).custom_minimum_size.y, float(tap_h()))
 	_build_cards()
+
+func _view_h() -> float:
+	return float(_shell.get_viewport_rect().size.y) if _shell != null else 600.0
 
 func _key(c: Dictionary) -> String:
 	return "%s|%s|%d" % [String(c["rel"]), String(c["form"]), int(c["ordinal"])]
@@ -124,14 +149,14 @@ func _card(c: Dictionary) -> void:
 		chip.name = "Choice_" + w
 		chips[w] = chip
 		DccWidgets.set_segment_on(chip, String(_choice[key]) == w)
-		chip.custom_minimum_size.y = maxf(chip.custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
+		chip.custom_minimum_size.y = maxf(chip.custom_minimum_size.y, float(tap_h()))
 	# the entity + offset row, shown for Link (when unlinked) and Import
 	var pick := HFlowContainer.new()
 	pick.add_theme_constant_override("h_separation", 6)
 	box.add_child(pick)
 	var opt := OptionButton.new()
 	opt.name = "Entity"
-	opt.custom_minimum_size.y = float(DccTheme.role_px("btn_min_h"))
+	opt.custom_minimum_size.y = float(tap_h())
 	_fill_entities(opt)
 	pick.add_child(opt)
 	_entity_pick[key] = opt
@@ -151,7 +176,7 @@ func _card(c: Dictionary) -> void:
 	box.add_child(warn)
 	var apply := DccWidgets.chip(row, "Apply", func(): pass, true)
 	apply.name = "Apply"
-	apply.custom_minimum_size.y = maxf(apply.custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
+	apply.custom_minimum_size.y = maxf(apply.custom_minimum_size.y, float(tap_h()))
 	var undo := DccWidgets.segment(row, "Undo", func(): pass)
 	undo.name = "Undo"
 	undo.visible = false
@@ -172,7 +197,154 @@ func _card(c: Dictionary) -> void:
 	apply.pressed.connect(func(): _apply(c, key, stl, undo, warn))
 	undo.pressed.connect(func(): _do_undo(key, stl, undo))
 	sync_pick.call()
+	_extras(box, c, key, stl)
 	box.add_child(HSeparator.new())
+
+## The entity the card's picker names now: `{kind, id}`, or `{}` with none.
+func _picked(key: String) -> Dictionary:
+	var opt: OptionButton = _entity_pick.get(key)
+	if opt == null or opt.item_count == 0 or opt.selected < 0:
+		return {}
+	return opt.get_item_metadata(opt.selected)
+
+## CT-7's two actions beside the four choices (design s.4.5): **Re-sync** for a timeline already imported
+## (added / removed / changed counts, each group taken or left, one undo) and the **founding comparison**
+## for a settlement (the note's founding events against the settlement's own year; a conflict shows both
+## years and offers "Set the settlement's founding year", never applied silently). Neither edits a note.
+func _extras(box: VBoxContainer, c: Dictionary, key: String, stl: Label) -> void:
+	var row := HFlowContainer.new()
+	row.name = "Extras"
+	row.add_theme_constant_override("h_separation", 6)
+	box.add_child(row)
+	var out := DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0)
+	out.name = "ExtrasText"
+	out.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(out)
+	var acts := HFlowContainer.new()
+	acts.name = "ExtrasActions"
+	acts.add_theme_constant_override("h_separation", 6)
+	box.add_child(acts)
+	var resync := DccWidgets.segment(row, "Re-sync", func(): pass)
+	resync.name = "Resync"
+	resync.tooltip_text = "Compare the note's lines with the events imported from it: what was added, removed or changed. Nothing is applied until you choose."
+	var found := DccWidgets.segment(row, "Compare founding", func(): pass)
+	found.name = "FoundCheck"
+	found.tooltip_text = "Compare the note's founding events with the chosen settlement's own founding year."
+	for bt in [resync, found]:
+		(bt as Button).custom_minimum_size.y = maxf((bt as Button).custom_minimum_size.y, float(tap_h()))
+	resync.pressed.connect(func(): _show_resync(c, key, out, acts))
+	found.pressed.connect(func(): _show_founding(c, key, out, acts))
+
+func _clear(n: Node) -> void:
+	for ch in n.get_children():
+		n.remove_child(ch)
+		ch.queue_free()
+
+func _show_resync(c: Dictionary, key: String, out: Label, acts: Container) -> void:
+	_clear(acts)
+	var b := _bridge()
+	var pk := _picked(key)
+	if b == null or pk.is_empty():
+		out.text = "no map item to re-sync onto"
+		return
+	var plan: Dictionary = b.world_gen.timeline_resync_plan(String(c["rel"]), String(c["form"]), int(c["ordinal"]), String(pk["kind"]), int(pk["id"]))
+	if not bool(plan.get("ok", false)):
+		out.text = "re-sync unavailable: %s" % String(plan.get("error", ""))
+		return
+	var n_add := int(plan["added"])
+	var n_rem := int(plan["removed"])
+	var n_chg := int(plan["changed"])
+	out.text = "Re-sync: %d added, %d removed (kept, marked source removed), %d changed since import." % [n_add, n_rem, n_chg]
+	if n_add + n_rem + n_chg == 0:
+		return
+	var takes := {}
+	for g in [["added", n_add], ["changed", n_chg], ["removed", n_rem]]:
+		var cb := CheckBox.new()
+		cb.name = "Take_" + String(g[0])
+		cb.text = "take %s (%d)" % [g[0], g[1]]
+		cb.button_pressed = int(g[1]) > 0
+		cb.disabled = int(g[1]) == 0
+		cb.custom_minimum_size.y = float(tap_h())
+		acts.add_child(cb)
+		takes[g[0]] = cb
+	var apply := DccWidgets.chip(acts, "Apply re-sync", func(): pass, true)
+	apply.name = "ApplyResync"
+	apply.custom_minimum_size.y = maxf(apply.custom_minimum_size.y, float(tap_h()))
+	apply.pressed.connect(func():
+		var got: Dictionary = b.world_gen.timeline_resync_apply(String(c["rel"]), String(c["form"]), int(c["ordinal"]), String(pk["kind"]), int(pk["id"]),
+			(takes["added"] as CheckBox).button_pressed, (takes["changed"] as CheckBox).button_pressed, (takes["removed"] as CheckBox).button_pressed)
+		if not bool(got.get("ok", false)):
+			out.text = "not applied: %s" % String(got.get("error", ""))
+			return
+		_resync_undo[key] = String(got["undo"])
+		out.text = "Re-synced (one undo step)."
+		_clear(acts)
+		var undo := DccWidgets.segment(acts, "Undo re-sync", func(): pass)
+		undo.name = "UndoResync"
+		undo.custom_minimum_size.y = maxf(undo.custom_minimum_size.y, float(tap_h()))
+		undo.pressed.connect(func():
+			var u: Dictionary = b.world_gen.timeline_resync_undo(String(_resync_undo.get(key, "")))
+			out.text = "Re-sync undone." if bool(u.get("ok", false)) else "could not undo: %s" % String(u.get("error", ""))
+			_clear(acts)
+			if _on_change.is_valid():
+				_on_change.call())
+		if _on_change.is_valid():
+			_on_change.call())
+
+func _show_founding(c: Dictionary, key: String, out: Label, acts: Container) -> void:
+	_clear(acts)
+	var b := _bridge()
+	var pk := _picked(key)
+	if b == null or pk.is_empty() or String(pk["kind"]) != "settlement":
+		out.text = "Founding comparison needs a settlement chosen in the list above."
+		return
+	var tid := int(pk["id"])
+	var rows: Array = b.world_gen.timeline_founding_check(String(c["rel"]), String(c["form"]), int(c["ordinal"]), tid)
+	var lines: Array = []
+	var conflict := {}
+	for r in rows:
+		var d: Dictionary = r
+		match String(d["verdict"]):
+			"agrees":
+				lines.append("%s: %d agrees with the settlement's founding year." % [String(d["title"]), int(d["note_year"])])
+			"conflict":
+				lines.append("%s: the note says %d, the settlement was founded %s." % [String(d["title"]), int(d["note_year"]), str(int(d["founded"])) if d.has("founded") else "(no year recorded)"])
+				if conflict.is_empty():
+					conflict = d
+	if lines.is_empty():
+		out.text = "No founding event in this note to compare (compared at the note's own years)."
+		return
+	out.text = "\n".join(lines)
+	if conflict.is_empty():
+		return
+	var index := -1
+	var all: Array = b.settlements()
+	for i in all.size():
+		if int((all[i] as Dictionary).get("tid", -1)) == tid:
+			index = i
+	if index < 0:
+		return
+	var y := int(conflict["note_year"])
+	var set_btn := DccWidgets.chip(acts, "Set the settlement's founding year to %d" % y, func(): pass, true)
+	set_btn.name = "SetFounded"
+	set_btn.custom_minimum_size.y = maxf(set_btn.custom_minimum_size.y, float(tap_h()))
+	set_btn.pressed.connect(func():
+		var was: Dictionary = all[index]
+		if not b.civ_edit_settlement(index, {"founded": y}):
+			out.text = "could not set the founding year"
+			return
+		_founded_undo[key] = {"index": index, "was": int(was["founded"]) if was.has("founded") else null}
+		out.text = "The settlement's founding year is now %d." % y
+		_clear(acts)
+		var undo := DccWidgets.segment(acts, "Undo founding year", func(): pass)
+		undo.name = "UndoFounded"
+		undo.custom_minimum_size.y = maxf(undo.custom_minimum_size.y, float(tap_h()))
+		undo.pressed.connect(func():
+			var u: Dictionary = _founded_undo.get(key, {})
+			if not u.is_empty():
+				b.civ_edit_settlement(int(u["index"]), {"founded": int(u["was"])} if u["was"] != null else {"founded_clear": true})
+			out.text = "Founding year restored."
+			_clear(acts)))
 
 func _fill_entities(opt: OptionButton) -> void:
 	var b := _bridge()

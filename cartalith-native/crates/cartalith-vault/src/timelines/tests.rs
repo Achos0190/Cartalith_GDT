@@ -303,17 +303,17 @@ fn line_key_identity() {
 fn ct0_corpus_pass_over_a_real_vault() {
     let root = std::env::var("CARTALITH_CT0_VAULT").expect("set CARTALITH_CT0_VAULT");
     let v = crate::provider::FsVault::new(root);
-    let mut n = [0usize; 4];
+    let mut n = [0usize; 5];
     let mut notes = 0;
     for rel in v.list_markdown(100_000).unwrap() {
         let Ok(t) = v.read(&rel) else { continue };
         notes += 1;
         for c in detect(&t) {
-            n[match c.form { Form::Chronos => 0, Form::Frontmatter => 1, Form::YearList => 2, Form::Table => 3 }] += 1;
+            n[match c.form { Form::Chronos => 0, Form::Frontmatter => 1, Form::YearList => 2, Form::Table => 3, Form::HtmlSpans => 4 }] += 1;
             println!("{rel}\t{}\t{}\t{:?}", c.form.as_str(), c.events.len(), c.year_range());
         }
     }
-    println!("notes {notes}: F1 {} F2 {} F3 {} F4 {}", n[0], n[1], n[2], n[3]);
+    println!("notes {notes}: F1 {} F2 {} F3 {} F4 {} F5 {}", n[0], n[1], n[2], n[3], n[4]);
 }
 
 /// Protects the read budget: with a budget of 2 over 3 notes only 2 are decided and the third is in
@@ -358,4 +358,37 @@ fn link_store_carries_decisions_and_old_documents_are_unchanged() {
     assert!(!only.is_empty(), "a store holding only a decision must be written");
     let back = LinkStore::from_json(&only.to_json()).unwrap();
     assert_eq!(back.timelines, only.timelines);
+}
+
+/// Protects F5 (CT-9), the Timelines plugin's HTML spans, against the syntax read from its public docs
+/// (see `detect_html`): both quote styles, `span` and `div`, a range with `data-end-date`, a negative year,
+/// a `0` month/day meaning "not given", `data-title` winning over the text, the text used without it; and
+/// what is NOT read: a tag without the `ob-timelines` class, the other fork's `data-date`, a month the
+/// calendar has no such day for, a span inside a code fence, and a span with no name.
+#[test]
+fn f5_html_spans_follow_the_documented_syntax() {
+    let t = "<span class='ob-timelines' data-start-date='2000-10-10-00' data-end-date='2000-10-20-00' data-title='Time Period'>ignored</span>
+<div class=\"ob-timelines other\" data-start-date=\"-123-02-00-0\">Old thing</div>
+<span class='ob-timelines' data-start-date='300-00-00-00'>Year only</span>
+<span class='plain' data-start-date='1-1-1-0'>no class</span>
+<span class='ob-timelines' data-date='5-5-5-5'>the other fork</span>
+<span class='ob-timelines' data-start-date='100-13-01-00'>no month 13</span>
+<span class='ob-timelines' data-start-date='100-02-30-00'>no 30 Feb</span>
+<span class='ob-timelines' data-start-date='7'></span>
+```
+<span class='ob-timelines' data-start-date='999-01-01-00'>fenced</span>
+```
+";
+    let c = of(t, Form::HtmlSpans);
+    assert_eq!(c.len(), 1, "one candidate per note");
+    let e = &c[0].events;
+    assert_eq!(e.len(), 3, "{e:?}");
+    assert_eq!((e[0].start, e[0].end, e[0].name.as_str()), (2000, Some(2000), "Time Period"));
+    assert_eq!(e[0].start_md, MonthDay::new(10, Some(10)));
+    assert_eq!(e[0].end_md, MonthDay::new(10, Some(20)));
+    assert_eq!((e[1].start, e[1].start_md, e[1].name.as_str()), (-123, MonthDay::new(2, None), "Old thing"));
+    assert_eq!((e[2].start, e[2].start_md, e[2].end), (300, None, None));
+    assert_eq!((e[0].kind, e[1].kind), (Kind::Period, Kind::Event), "a range is a period, a lone date an event");
+    assert_eq!(Form::HtmlSpans.as_str(), "html_spans");
+    assert!(of("plain text", Form::HtmlSpans).is_empty());
 }

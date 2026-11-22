@@ -44,7 +44,7 @@ fn standing_word(s: Standing) -> (&'static str, &'static str) {
 }
 
 fn form_of(s: &str) -> Option<Form> {
-    [Form::Chronos, Form::Frontmatter, Form::YearList, Form::Table].into_iter().find(|f| f.as_str() == s)
+    [Form::Chronos, Form::Frontmatter, Form::YearList, Form::Table, Form::HtmlSpans].into_iter().find(|f| f.as_str() == s)
 }
 
 fn decision_of(s: &str) -> Option<Decision> {
@@ -233,12 +233,12 @@ impl WorldGen {
     /// `{ok, items: [{key, source, start_year, start_month?, start_day?, end_year?, end_month?,
     /// end_day?, open_end, title, entity_kind?, entity_id?, factions, precision, private,
     /// rel?}], hidden, total, year_min?, year_max?}`. **Optional keys are absent, never 0.**
-    /// A founding for a settlement with no founding year is absent (never year 0). Journeys are
-    /// points: their length needs the planner's `calendar_days`, which this call does not run.
+    /// A founding for a settlement with no founding year is absent (never year 0). A journey is a range
+    /// when its saved plan gives a timeline (`arrival_offset_days`), else a point.
     /// Items from a private note carry `private: true`; the assistant's tools and every export must
     /// skip them (`timeline_export` does).
     #[func]
-    fn timeline_items(&self, filter: VarDictionary) -> VarDictionary {
+    fn timeline_items(&mut self, filter: VarDictionary) -> VarDictionary {
         let (items, f) = self.ct_items(&filter);
         let shown = ti::apply(&items, &f);
         let mut rows: Array<VarDictionary> = Array::new();
@@ -282,7 +282,7 @@ impl WorldGen {
     /// skipped: PackedStringArray}`. **Private items are never written.** The text carries a header
     /// comment saying it is generated and not read back; it is not stored anywhere.
     #[func]
-    fn timeline_export(&self, filter: VarDictionary) -> VarDictionary {
+    fn timeline_export(&mut self, filter: VarDictionary) -> VarDictionary {
         let (items, f) = self.ct_items(&filter);
         let shown = ti::apply(&items, &f);
         let x = ti::export_chronos(&shown.visible);
@@ -383,7 +383,7 @@ impl WorldGen {
     }
 
     /// Builds the read model's inputs from the live stores and parses `filter`.
-    fn ct_items(&self, filter: &VarDictionary) -> (Vec<ti::TimelineItem>, ti::Filter) {
+    fn ct_items(&mut self, filter: &VarDictionary) -> (Vec<ti::TimelineItem>, ti::Filter) {
         let mut f = ti::Filter::default();
         if let Some(v) = filter.get("kinds").and_then(|v| v.try_to::<PackedStringArray>().ok()) {
             f.kinds = v.as_slice().iter().filter_map(|s| ItemSource::parse(&s.to_string())).collect();
@@ -415,15 +415,29 @@ impl WorldGen {
             }
             src.snapshot_years = civ.timeline.iter().map(|t| t.year).collect();
             if f.kinds.contains(&ItemSource::Ownership) {
-                for s in &civ.settlements {
+                // derived from every snapshot per settlement, so only the settlements the entity
+                // filter can keep are computed (an empty entity filter keeps all)
+                let wanted = |tid: i64| f.entities.is_empty() || f.entities.contains(&(EntityKind::Settlement, tid));
+                for s in civ.settlements.iter().filter(|s| wanted(s.tid as i64)) {
                     src.ownership.push(ti::OwnershipInput { tid: s.tid as i64, name: s.name.clone(), spans: civ.civ_settlement_ownership_periods(s.tid) });
                 }
             }
         }
         src.conflicts = self.conflicts.conflicts.clone();
+        // A journey's length is the planner's `JourneyTimeline::arrival_offset_days` (whole days, the
+        // same figure `journey_positions` reports as `arrival`), planned only when the Journey lane can
+        // show (no kind filter, or Journey named); a journey whose plan gives no timeline stays a point.
+        let mut lengths: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
+        if f.kinds.is_empty() || f.kinds.contains(&ItemSource::Journey) {
+            for (ji, _missing, planned) in self.plan_saved_journeys(&|_| true) {
+                if let Some(Ok(t)) = planned {
+                    lengths.insert(ji, t.arrival_offset_days().clamp(0, i64::from(u32::MAX)) as u32);
+                }
+            }
+        }
         if let Some(infra) = self.infra.as_ref() {
-            for j in &infra.journeys {
-                src.journeys.push(ti::JourneyInput { id: j.id, name: j.name.clone(), start_year: j.start_year, start_day: j.start_day, calendar_days: None });
+            for (ji, j) in infra.journeys.iter().enumerate() {
+                src.journeys.push(ti::JourneyInput { id: j.id, name: j.name.clone(), start_year: j.start_year, start_day: j.start_day, calendar_days: lengths.get(&ji).copied() });
             }
         }
         // Note events: live from disk for every linked entity, one input per (note, entity).

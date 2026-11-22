@@ -50,6 +50,10 @@ use serde::{Deserialize, Serialize};
 pub const SHIP_YEAR_LIST: bool = true;
 /// The CT-0 gate for F4, same arrangement as [`SHIP_YEAR_LIST`].
 pub const SHIP_TABLE: bool = true;
+/// F5 (CT-9), the Obsidian *Timelines* plugin's HTML spans. Switch for the same reason as the two above, but
+/// its precision is by construction (the `ob-timelines` class plus a `data-start-date` that parses, as F1's
+/// fence word is), not measured on a sample: see [`detect_html`] for the syntax and where it was read.
+pub const SHIP_HTML: bool = true;
 
 /// The only frontmatter keys read as dates (design §4.1 F2). A closed list,
 /// compared case-insensitively. `founded` is the one with a destination
@@ -82,6 +86,8 @@ pub enum Form {
     Frontmatter,
     YearList,
     Table,
+    /// F5: `<span|div class='ob-timelines' data-start-date=...>` (seanlowe's maintained *Timelines* fork).
+    HtmlSpans,
 }
 
 impl Form {
@@ -92,6 +98,7 @@ impl Form {
             Form::Frontmatter => "frontmatter",
             Form::YearList => "year_list",
             Form::Table => "table",
+            Form::HtmlSpans => "html_spans",
         }
     }
 
@@ -103,6 +110,7 @@ impl Form {
             Form::Frontmatter => "Dates in properties",
             Form::YearList => "Year list",
             Form::Table => "Dated table",
+            Form::HtmlSpans => "Timelines plugin spans",
         }
     }
 }
@@ -157,6 +165,9 @@ pub fn detect(text: &str) -> Vec<Candidate> {
     }
     if SHIP_TABLE {
         forms.push(Form::Table);
+    }
+    if SHIP_HTML {
+        forms.push(Form::HtmlSpans);
     }
     detect_forms(text, &forms)
 }
@@ -266,7 +277,149 @@ pub fn detect_forms(text: &str, forms: &[Form]) -> Vec<Candidate> {
     }
     flush_run!();
     flush_table!();
+    if forms.contains(&Form::HtmlSpans) {
+        if let Some(c) = detect_html(&lines, fm_end) {
+            out.push(c);
+        }
+    }
     out
+}
+
+/// F5 (CT-9): the *Timelines* plugin's HTML events, **the syntax of seanlowe's maintained fork, read on
+/// 2026-11-22 from its public docs** (`seanlowe.github.io/obsidian-timelines`, "HTML events" and "HTML
+/// arguments"): a `<span>` or `<div>` whose `class` holds `ob-timelines`, with `data-start-date`, optional
+/// `data-end-date` and `data-title`, e.g. `<span class='ob-timelines' data-start-date='2000-10-10-00'
+/// data-title='Fall'>text</span>`. A date is `YEAR-MONTH-DAY-HOUR`, only the year may be negative
+/// (`-123-45-678-9`), and a month or day of `0` means "not given"; a given month or day must be one that
+/// exists (here, in this port's 365-day calendar). The hour is dropped (the engine's grain is the day).
+/// **Not read:** the original Darakah fork's `data-date`, whose README could not be fetched (404), so it is
+/// not recognised, and neither is a date the docs do not define (fewer than a year, non-digits). The docs
+/// contradict themselves on whether all four segments are required (they say both); one to four are
+/// accepted. The event name is `data-title`, else the element's text up to the next tag; one with neither
+/// is skipped. Fenced code is not scanned. All of a note's spans are one candidate (ordinal 0).
+fn detect_html(lines: &[&str], from: usize) -> Option<Candidate> {
+    let mut events = Vec::new();
+    let mut hash_src = String::new();
+    let mut fence: Option<usize> = None;
+    for raw in lines.iter().skip(from) {
+        let t = raw.trim();
+        let ticks = t.len() - t.trim_start_matches('`').len();
+        match fence {
+            Some(n) => {
+                if ticks >= n && t.bytes().all(|b| b == b'`') {
+                    fence = None;
+                }
+                continue;
+            }
+            None if ticks >= 3 => {
+                fence = Some(ticks);
+                continue;
+            }
+            None => {}
+        }
+        let mut rest: &str = raw;
+        while let Some(at) = rest.find('<') {
+            rest = &rest[at + 1..];
+            let tag_end = rest.find('>').unwrap_or(rest.len());
+            let tag = &rest[..tag_end];
+            let name_end = tag.find(|c: char| c.is_whitespace()).unwrap_or(tag.len());
+            if !matches!(&tag[..name_end], "span" | "div") {
+                continue;
+            }
+            let class = html_attr(tag, "class").unwrap_or_default();
+            if !class.split_whitespace().any(|c| c == "ob-timelines") {
+                continue;
+            }
+            let Some((y, md)) = html_attr(tag, "data-start-date").and_then(|d| html_date(&d)) else { continue };
+            let end = html_attr(tag, "data-end-date").and_then(|d| html_date(&d));
+            let body = rest.get(tag_end + 1..).unwrap_or("");
+            let text = body.split('<').next().unwrap_or("").trim();
+            let name = html_attr(tag, "data-title").filter(|t| !t.trim().is_empty()).unwrap_or_else(|| text.to_string());
+            if name.is_empty() {
+                continue;
+            }
+            hash_src.push_str(&format!("{y}|{md:?}|{end:?}|{name}\n"));
+            events.push(Event {
+                kind: if end.is_some() { Kind::Period } else { Kind::Event },
+                start: y,
+                end: end.map(|e| e.0),
+                start_md: md,
+                end_md: end.and_then(|e| e.1),
+                color: None,
+                group: None,
+                name,
+                description: None,
+            });
+        }
+    }
+    if events.is_empty() {
+        return None;
+    }
+    Some(Candidate { form: Form::HtmlSpans, ordinal: 0, events, skipped: Vec::new(), block_hash: content_hash(&hash_src), heading: None })
+}
+
+/// `name='value'` or `name="value"` inside one opening tag's text.
+fn html_attr(tag: &str, name: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(i) = tag[from..].find(name) {
+        let at = from + i;
+        let before_ok = at == 0 || tag[..at].ends_with(char::is_whitespace);
+        let after = tag[at + name.len()..].trim_start();
+        if before_ok {
+            if let Some(v) = after.strip_prefix('=') {
+                let v = v.trim_start();
+                let q = v.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+                let inner = &v[1..];
+                return inner.find(q).map(|e| inner[..e].to_string());
+            }
+        }
+        from = at + name.len();
+    }
+    None
+}
+
+/// One month or day segment: `Some(None)` for absent or `0` (not given), `Some(Some(v))` for a number, `None`
+/// for a malformed or out-of-range one.
+fn html_seg(opt: Option<&str>) -> Option<Option<u8>> {
+    match opt {
+        None => Some(None),
+        Some(t) if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) => {
+            let v: u32 = t.parse().ok()?;
+            if v == 0 {
+                Some(None)
+            } else {
+                Some(Some(u8::try_from(v).ok()?))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `YEAR[-MONTH[-DAY[-HOUR]]]` with an optional leading `-` on the year; see [`detect_html`].
+fn html_date(s: &str) -> Option<(i64, Option<MonthDay>)> {
+    let s = s.trim();
+    let (neg, body) = match s.strip_prefix('-') {
+        Some(b) => (true, b),
+        None => (false, s),
+    };
+    let mut seg = body.split('-');
+    let ynum = seg.next()?;
+    if ynum.is_empty() || ynum.len() > MAX_YEAR_DIGITS || !ynum.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let y: i64 = ynum.parse().ok()?;
+    let year = if neg { -y } else { y };
+    let month = html_seg(seg.next())?;
+    let day = html_seg(seg.next())?;
+    let hour = seg.next();
+    if seg.next().is_some() || hour.is_some_and(|h| h.is_empty() || !h.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let md = match (month, day) {
+        (None, _) => None,
+        (Some(m), d) => Some(MonthDay::new(m, d)?),
+    };
+    Some((year, md))
 }
 
 /// The first body line (0-based) after a leading `---` frontmatter block, or 0.
