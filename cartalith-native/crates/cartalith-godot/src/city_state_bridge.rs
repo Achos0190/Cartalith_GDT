@@ -94,6 +94,8 @@ impl TerritoryCost {
                 i.gw as u64,
                 i.gh as u64,
                 u64::from(i.world),
+                // Ruling HK: zero factions changes the spheres (minor seats), so it changes the key.
+                u64::from(minor_seats(i.civ)),
                 i.ws.sea_level.to_bits(),
                 i.civ.border_friction.to_bits(),
                 i.map_width_km.to_bits(),
@@ -136,12 +138,12 @@ impl TerritoryCost {
     }
 
     /// The spheres over this cost.
-    pub(crate) fn spheres(&self, settlements: &[NamedSettlement], owner: &[i32], gw: usize, gh: usize, world: bool) -> Spheres {
+    pub(crate) fn spheres(&self, settlements: &[NamedSettlement], owner: &[i32], gw: usize, gh: usize, world: bool, minor: bool) -> Spheres {
         match self {
-            TerritoryCost::Road(c) => cartalith_civ::city_states::spheres(settlements, owner, c, None, gw, gh, world),
+            TerritoryCost::Road(c) => cartalith_civ::city_states::spheres(settlements, owner, c, None, gw, gh, world, minor),
             TerritoryCost::Friction(f) => {
                 let edge = |a: usize, b: usize, dx: isize, dy: isize| f.edge(a, b, dx, dy);
-                cartalith_civ::city_states::spheres(settlements, owner, &f.node, Some(&edge), gw, gh, world)
+                cartalith_civ::city_states::spheres(settlements, owner, &f.node, Some(&edge), gw, gh, world, minor)
             }
         }
     }
@@ -194,6 +196,13 @@ pub(crate) fn sphere_settlements(civ: &CivData) -> (&[NamedSettlement], Option<i
         }
     }
     (&civ.settlements, None)
+}
+
+/// Ruling HK: whether spheres cover every loose place with minor seats -- the world was set to no
+/// faction (`civ.factions` 0), not merely emptied of them, so promoting one sphere into a faction
+/// does not make the others vanish. With any faction count above 0 the rule is Ruling GL's.
+pub(crate) fn minor_seats(civ: &cartalith_engine::CivParams) -> bool {
+    civ.factions == 0
 }
 
 /// The key of a sphere result over `cost_key`: the claim grid and every
@@ -446,7 +455,7 @@ impl WorldGen {
             }
         }
         let cost = &cache.cost.as_ref().expect("built above").1;
-        let v = Rc::new(view_of(&cost.spheres(settlements, &civ.territory, gw, gh, self.world), settlements, year));
+        let v = Rc::new(view_of(&cost.spheres(settlements, &civ.territory, gw, gh, self.world, minor_seats(&self.params.civ)), settlements, year));
         cache.view = Some((vk, v.clone()));
         Some(v)
     }

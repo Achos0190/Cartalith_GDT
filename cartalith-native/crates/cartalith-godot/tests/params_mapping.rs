@@ -362,11 +362,12 @@ fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
     assert_eq!(p.civ.factions, 9);
     assert_eq!(p.civ.seed_thresh, 0.55);
 
-    // A faction count of zero would leave every settlement in
-    // `assign_territory`'s "unclaimed" sentinel and every border empty, so the
-    // floor is 1 and it clamps rather than storing the request.
-    assert_eq!(params::set(&mut p, "civ.factions", Value::Num(0.0)), Outcome::Clamped);
-    assert_eq!(p.civ.factions, 1);
+    // Ruling HK boundary: zero factions is a valid world (the floor is 0), and -1 clamps to it.
+    // MUTATION: the row's `min` back to 1.0 clamps the 0.
+    assert_eq!(params::set(&mut p, "civ.factions", Value::Num(0.0)), Outcome::Applied);
+    assert_eq!(p.civ.factions, 0);
+    assert_eq!(params::set(&mut p, "civ.factions", Value::Num(-1.0)), Outcome::Clamped);
+    assert_eq!(p.civ.factions, 0);
     // And the recovery phase keeps the reference's own 0..=4 clamp
     // (`Math.max(0,Math.min(4,rp.value|0))`, reference 26643).
     assert_eq!(params::set(&mut p, "civ.recovery_phase", Value::Num(9.0)), Outcome::Clamped);

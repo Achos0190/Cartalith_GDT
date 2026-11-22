@@ -6092,6 +6092,13 @@ pub fn assign_landmass_factions(
     candidates: &[SettlementCandidate],
     faction_count: i32,
 ) -> (Vec<i32>, Vec<bool>) {
+    // Ruling HK: zero factions (the New World floor is 0) claims nothing -- every place is loose
+    // (`0`, "Unclaimed") and none is a capital. Without this the `.max(1)` below read 0 as one
+    // faction and quietly seeded a faction 1 over the whole map. Output for any count >= 1 is
+    // untouched, which is why no section 7p switch gates the new floor.
+    if faction_count <= 0 {
+        return (vec![0; candidates.len()], vec![false; candidates.len()]);
+    }
     let mut by_cont: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
     for (idx, c) in candidates.iter().enumerate() {
         by_cont.entry(c.cont_id).or_default().push(idx);
@@ -22124,6 +22131,19 @@ Isle {name},1
         // a single-seat landmass: one faction, the sole candidate is its capital.
         assert_eq!(faction_of, vec![1]);
         assert_eq!(capital_of, vec![true]);
+    }
+
+    /// Protects Ruling HK: a faction count of 0 leaves every candidate loose (`0`) and no capital,
+    /// while 1 still claims the lot. MUTATION: delete the `faction_count <= 0` early return and the
+    /// `.max(1)` below seeds faction 1 over everything.
+    #[test]
+    fn assign_landmass_factions_zero_claims_nothing() {
+        let c = vec![
+            SettlementCandidate { x: 0, y: 0, suit: 0.8, cont_id: 0 },
+            SettlementCandidate { x: 5, y: 5, suit: 0.7, cont_id: 1 },
+        ];
+        assert_eq!(assign_landmass_factions(&c, 0), (vec![0, 0], vec![false, false]));
+        assert_eq!(assign_landmass_factions(&c, 1).0, vec![1, 1]);
     }
 
     /// Protects: two landmasses never share a primary faction id, and each one's sole

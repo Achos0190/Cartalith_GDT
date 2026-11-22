@@ -24,7 +24,7 @@ fn view(ws: &cartalith_engine::WorldState, civ: &CivData, gw: usize, gh: usize, 
     let inputs = CostInputs { ws, water_bodies: &civ.water_bodies, gw, gh, world: p.world, map_width_km: p.map_width_km, river_density: p.river_density, civ: &p.civ };
     let cost = TerritoryCost::build(&inputs);
     let (s, year) = sphere_settlements(civ);
-    view_of(&cost.spheres(s, &civ.territory, gw, gh, p.world), s, year)
+    view_of(&cost.spheres(s, &civ.territory, gw, gh, p.world, minor_seats(&p.civ)), s, year)
 }
 
 /// Spheres that hold any claimed cell, or align a faction's settlement.

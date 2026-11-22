@@ -982,7 +982,7 @@ pub(crate) mod tests {
             row("climate.evap", "weather", Kind::Float, 0.0, 0.3, n(0.12), Regen::RefreshClimate),
             row("climate.rain_dep", "weather", Kind::Float, 0.0, 1.0, n(0.35), Regen::RefreshClimate),
             row("climate.rain_k", "weather", Kind::Float, 0.0, 2.0, n(1.0), Regen::RefreshClimate),
-            row("civ.factions", "civ", Kind::Int, 1.0, 24.0, n(6.0), Regen::RefreshSettlements),
+            row("civ.factions", "civ", Kind::Int, 0.0, 24.0, n(6.0), Regen::RefreshSettlements),
         ];
         let mut adv = row("tect.orogen_relief", "tectonics", Kind::Bool, 0.0, 1.0, PValue::Bool(true), Regen::FullGenerate);
         adv.advanced = true;

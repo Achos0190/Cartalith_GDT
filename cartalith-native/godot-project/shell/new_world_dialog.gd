@@ -2324,10 +2324,10 @@ func _build_placement_dials(parent: Control) -> void:
 	## own `default` out of `param_info` -- the engine's number either way,
 	## never one transcribed here.
 	var fac: Dictionary = bridge.param_info("civ.factions")
-	_factions_spin = DccWidgets.number(parent, "Factions", float(fac.get("min", 1.0)), float(fac.get("max", 24.0)),
+	_factions_spin = DccWidgets.number(parent, "Factions", float(fac.get("min", 0.0)), float(fac.get("max", 24.0)),
 		1.0, _param_or_default("civ.factions", fac),
 		func(v: float): bridge.param_set("civ.factions", int(v)),
-		"How many rival polities settlement placement distributes into. The reference's own CIV_FACTIONS carries six. Faction 0 is \"Unclaimed\" and is not counted, so the floor is one. Renaming, recolouring and adding factions by hand stays in CIVIL ▸ Factions -- this is only what a fresh placement pass seeds into.")
+		"How many rival polities settlement placement distributes into. The reference's own CIV_FACTIONS carries six. Faction 0 is \"Unclaimed\" and is not counted. 0 is allowed: every settlement then stays loose and, with City-states on, the city-state spheres cover them (Ruling HK). Renaming, recolouring and adding factions by hand stays in CIVIL ▸ Factions -- this is only what a fresh placement pass seeds into.")
 	var thr: Dictionary = bridge.param_info("civ.seed_thresh")
 	var thr_row: Dictionary = DccWidgets.slider(parent, "Suitability floor", float(thr.get("min", 0.1)), float(thr.get("max", 0.8)),
 		float(thr.get("step", 0.01)), _param_or_default("civ.seed_thresh", thr), "",

@@ -21,19 +21,30 @@ const GW: usize = 192;
 /// Two of `fh_r2_baseline::SEEDS`, one plain and one wrapped world below.
 const SEEDS: [i32; 2] = [12345, 707];
 
-/// A generated world with all six factions deleted through `remove_last`.
+/// A world generated with `civ.factions = 0` (Ruling HK: the New World screen's floor is 0), the way
+/// the app builds it: no faction is ever seeded, so every settlement is loose and no cell is claimed.
+/// Before 2026-11-22 the floor was 1 and the only route to this state was deleting factions one by
+/// one (Ruling GI, `deleted_world`).
 fn zero_faction_world(seed: i32, width_km: f64) -> (cartalith_engine::WorldState, CivData, usize, cartalith_engine::WorldParams) {
-    let (ws, mut civ, gh, p) = crate::fh_r2_baseline::generate_world(seed, width_km, 6, GW);
+    let (ws, civ, gh, p) = crate::fh_r2_baseline::generate_world(seed, width_km, 0, GW);
+    assert_eq!(p.civ.factions, 0, "premise: generated with no faction");
     assert!(civ.settlements.len() >= 4, "seed {seed}: the fixture must place settlements");
+    assert_eq!(civ.faction_roster.count(), 0, "seed {seed}: a zero-faction roster is Unclaimed alone");
+    assert_eq!(civ.faction_roster.0.len(), 1);
+    assert!(civ.settlements.iter().all(|s| s.placement.faction == 0 && !s.placement.capital), "every settlement is loose");
+    assert!(civ.territory.iter().all(|&t| t == 0), "no cell is claimed");
+    (ws, civ, gh, p)
+}
+
+/// The Ruling GI route: a six-faction world with every faction deleted through `remove_last`.
+fn deleted_world(seed: i32, width_km: f64) -> (cartalith_engine::WorldState, CivData, usize, cartalith_engine::WorldParams) {
+    let (ws, mut civ, gh, p) = crate::fh_r2_baseline::generate_world(seed, width_km, 6, GW);
     assert_eq!(civ.faction_roster.count(), 6, "premise: six factions to delete");
     let CivData { faction_roster, settlements, territory, .. } = &mut civ;
     for _ in 0..6 {
         assert!(faction_roster.remove_last(settlements, territory), "seed {seed}: Ruling GI, every faction may go");
     }
-    assert!(!faction_roster.remove_last(settlements, territory), "Unclaimed stays");
     assert_eq!(civ.faction_roster.count(), 0);
-    assert!(civ.settlements.iter().all(|s| s.placement.faction == 0), "every settlement is loose");
-    assert!(civ.territory.iter().all(|&t| t == 0), "no cell is claimed");
     (ws, civ, gh, p)
 }
 
@@ -270,4 +281,68 @@ fn loose_garrisons_switch_in_a_world_with_factions() {
 fn loose_garrisons_is_off_at_the_parity_boundary_and_on_in_the_app() {
     assert!(!cartalith_engine::WorldParams::defaults(64, 32, 1).civ.loose_garrisons);
     assert!(crate::params::defaults().civ.loose_garrisons);
+}
+
+/// Protects Ruling HK's generation half on three seeds (one wrapped): a world generated with 0
+/// factions places settlements with none claimed, the same stage-for-stage output as the deletion
+/// route on the settlement list's loose-ness, no NaN in any placed figure, and a save and reopen
+/// returns the same loose world. The three seeds are 12345, 707 and 483920 (the city-state
+/// measurement's own). MUTATION: `seeded_with_tech(opts.factions.max(1)` in `compute_civilisation`'s
+/// tail makes the roster count 1 and the premise fails; the params row's `min` back to 1.0 fails
+/// `params_mapping.rs`.
+#[test]
+fn zero_factions_generates_on_three_seeds_and_round_trips() {
+    for (seed, width) in [(12345, 800.0), (707, 40_075.0), (483_920, 800.0)] {
+        let (_, civ, gh, _) = zero_faction_world(seed, width);
+        assert!(!format!("{:?}", civ.settlements).contains("NaN"), "seed {seed}");
+        let back = crate::project_bridge::round_trip_for_tests(&civ, GW, gh);
+        assert_eq!(back.faction_roster.count(), 0, "seed {seed}");
+        assert_eq!(back.settlements.len(), civ.settlements.len());
+        assert!(back.settlements.iter().all(|s| s.placement.faction == 0));
+        assert!(back.territory.iter().all(|&t| t == 0));
+    }
+}
+
+/// Protects the Ruling GI route staying equal to the native one on what it shares: deleting six
+/// factions leaves every settlement loose on a roster of Unclaimed alone, as generating with 0 does.
+#[test]
+fn deleting_every_faction_still_reaches_the_same_state() {
+    let (_, civ, _, _) = deleted_world(SEEDS[0], 800.0);
+    assert!(civ.settlements.iter().all(|s| s.placement.faction == 0));
+    assert!(civ.territory.iter().all(|&t| t == 0));
+}
+
+/// The spheres of a zero-faction world as the shell reads them (`WorldGen::sphere_view`'s body).
+fn zero_view(ws: &cartalith_engine::WorldState, civ: &CivData, gh: usize, p: &cartalith_engine::WorldParams) -> crate::city_state_bridge::SphereView {
+    use crate::city_state_bridge::*; // includes `minor_seats`
+    let inputs = CostInputs { ws, water_bodies: &civ.water_bodies, gw: GW, gh, world: p.world, map_width_km: p.map_width_km, river_density: p.river_density, civ: &p.civ };
+    let cost = TerritoryCost::build(&inputs);
+    let (s, year) = sphere_settlements(civ);
+    view_of(&cost.spheres(s, &civ.territory, GW, gh, p.world, minor_seats(&p.civ)), s, year)
+}
+
+/// Protects Ruling HK (owner, 2026-11-22: "put 0 here and have the city-state sphere of influence
+/// behaviour as default for everything") on three real 0-faction worlds with `civ.city_states` on, as
+/// the app default has it: every settlement is in a sphere (100 %), the seats include minor ones
+/// below `CITY_STATE_MIN_POP`, spheres hold land, and none holds a claimed cell. Prints the
+/// measurement the ruling asks for (share aligned, seats and how many are minor, land share).
+/// MUTATION: `p.civ.factions == 0` to `false` in `zero_view` (or the bridge) leaves places loose and
+/// the 100 % assertion fails; dropping the `while minor_seats` loop in `city_states::spheres` does the same.
+#[test]
+fn zero_factions_every_settlement_is_in_a_sphere() {
+    for (seed, width) in [(12345, 800.0), (707, 40_075.0), (483_920, 800.0)] {
+        let (ws, civ, gh, p) = zero_faction_world(seed, width);
+        assert!(p.civ.city_states, "premise: the app default has city-states on");
+        let v = zero_view(&ws, &civ, gh, &p);
+        let n = civ.settlements.len();
+        let inside = civ.settlements.iter().filter(|s| v.aligned.contains_key(&s.tid)).count();
+        let minor = v.seats.iter().filter(|s| s.pop < cartalith_civ::city_states::CITY_STATE_MIN_POP).count();
+        let covered = v.cell.iter().filter(|&&c| c != 0).count();
+        let open = ws.field.iter().filter(|&&h| f64::from(h) > ws.sea_level).count().max(1);
+        eprintln!("HK seed {seed}: in a sphere {inside}/{n}, seats {} (minor {minor}), cells in spheres {covered}/{open} land ({:.1} %)", v.seats.len(), 100.0 * covered as f64 / open as f64);
+        assert_eq!(inside, n, "seed {seed}: no settlement is left loose");
+        assert!(!v.seats.is_empty());
+        assert!(covered > 0);
+        assert!(v.cell.iter().zip(&civ.territory).all(|(c, t)| *c == 0 || *t == 0), "no sphere on claimed land");
+    }
 }

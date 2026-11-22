@@ -4094,3 +4094,12 @@ Owner: *"Let's do a self signed for now and in due time we'll go for signpath."*
 - **Ruling FF's crossings:** keep the flow-based crossing rule; do not gate road crossings on the map's drawn river order (no road moves).
 - **Way tool:** fix the waypoint spacing so the Corridor and Pull sliders act (the Waypoints slider stays).
 - **Saved 0-degree bearings:** disclose only; never migrate saved data (note it where the save notes and About list such things).
+
+## Ruling HK: zero factions, and the city-state spheres as the default for everything (owner, 2026-11-22)
+
+Owner, on the New World screen: *"The new world screen still needs at least 1 faction."* then *"Should be able to put 0 here and have the city-state sphere of influence behaviour as default for everything."*
+
+- `civ.factions` may be **0** (range minimum 0, New World's Factions box on every form). A 0-faction world places its settlements with none claimed and no capital (Ruling GI's loose settlements: base tech, loose garrisons).
+- At 0 factions the city-state system **covers every settlement**: a settlement that no seat of `CITY_STATE_MIN_POP` (5 000) or more reaches is aligned to the larger neighbour whose sphere reaches it; if none does, the largest settlement of its local cluster becomes a **minor seat** of its own, even below 5 000. `civ.city_states` stays on by default for new worlds, and the rule lives under that switch (`city_states::spheres`' `minor_seats`, passed by `city_state_bridge::minor_seats`). With any faction count above 0 the rule is Ruling GL's, unchanged.
+- "Make this sphere a faction" works for minor seats like any other. The rule keys on the **setting** being 0, not on the roster being empty, so promoting one sphere does not make the others' minor seats vanish.
+- Read as: "the sphere behaviour" is Ruling GL's spheres (reach `SPHERE_REACH_FRAC`, weight by population); a literal "every settlement its own city-state" and "one sphere per landmass" were considered and not built. A world emptied of factions by deletion (Ruling GI) keeps Ruling GL's rule, since its setting is not 0.

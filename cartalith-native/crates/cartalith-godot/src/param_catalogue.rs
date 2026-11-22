@@ -249,7 +249,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.metropolis", "On: the most central cities become imperial seats. Off: no metropolis tier."),
     ("civ.recovery_phase", "Raise: a later stage of recovery after a collapse (1 survival to 4 mature). Lower: an earlier stage; 0 is a stable world."),
     ("civ.biome_k", "On: biome carrying capacity adjusts where people settle. Off: it does not."),
-    ("civ.factions", "Raise: more factions share the land. Lower: fewer factions; at least 1."),
+    ("civ.factions", "Raise: more factions share the land. Lower: fewer factions; 0 leaves every settlement to the city-state spheres (with City-states on)."),
     ("civ.seed_thresh", "Raise: only the best sites are settled, fewer settlements. Lower: more settlements. Ignored with fixed counts on."),
     ("civ.seed_suppress_div", "Raise: settlements pack closer, more of them. Lower: they spread further apart. Ignored with fixed counts on."),
     ("civ.fixed_counts", "On: the five settlement counts set exact numbers. Off: settlements are placed by site suitability."),

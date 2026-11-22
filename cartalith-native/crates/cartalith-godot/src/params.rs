@@ -1068,16 +1068,18 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.biome_k", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Biome carrying-capacity residual", unit: "", reference_control: "civBiomeKChk",
         get_fn: |p| Value::Bool(p.civ.biome_k), set_fn: |p, v| p.civ.biome_k = v != 0.0 },
-    // Floor `1`, not `0`: `assign_factions` distributes settlements over
-    // `1..=n` and `0` is `assign_territory`'s "unclaimed" sentinel, so a count
-    // of zero would leave every settlement unclaimed and every border empty.
+    // Floor `0` (Ruling GI/HK, 2026-11-22): a world may have no faction at all. `0` is
+    // `assign_territory`'s "unclaimed" sentinel, so every settlement is loose (Ruling GI:
+    // base tech, loose garrisons) and, with `civ.city_states` on, the city-state spheres
+    // cover them (`cartalith_civ::city_states`). Raising a minimum changes no output for a
+    // value that was already allowed, so no `DECISIONS.md` section 7p switch gates it.
     // Ceiling `24` is this port's own judgement, and a soft limit rather than
     // a technical one -- `faction_rgb_default` hands anything past its 6-wide
     // Okabe-Ito palette to `roster::civ_faction_color`'s golden-angle hue
     // walk, which is well-defined for any index. What 24 bounds is legibility:
     // a hundred one-town "factions" is not a world, and their swatches stop
     // being tellable apart long before that.
-    ParamSpec { key: "civ.factions", group: "civ", kind: Kind::Int, min: 1.0, max: 24.0, step: 1.0,
+    ParamSpec { key: "civ.factions", group: "civ", kind: Kind::Int, min: 0.0, max: 24.0, step: 1.0,
         label: "Factions", unit: "", reference_control: "",
         get_fn: |p| Value::Num(f64::from(p.civ.factions)), set_fn: |p, v| p.civ.factions = v as i32 },
     // `SETTLE_SEED_THRESH` is a suitability score in `[0,1]`, but the usable

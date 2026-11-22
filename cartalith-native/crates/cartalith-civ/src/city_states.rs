@@ -129,6 +129,9 @@ impl PartialOrd for Front {
 /// water); `edge`, when given, is the per-step cost the territory sweep used
 /// (Ruling GO's `Friction::edge`), else the default `len * (c_i + c_j) / 2`.
 ///
+/// `minor_seats` is Ruling HK's zero-faction rule (see the loop below): every loose place ends in a
+/// sphere, a place no sphere reaches founding a minor one. Off, only [`is_city_state`] places are seats.
+///
 /// Returns an empty [`Spheres`] (no seats, no cells, every settlement `None`)
 /// when `owner` or `cost` is not a whole `gw * gh` grid: without a claim grid
 /// there is no knowing which land is unclaimed, and treating it as all
@@ -141,6 +144,7 @@ pub fn spheres(
     gw: usize,
     gh: usize,
     world: bool,
+    minor_seats: bool,
 ) -> Spheres {
     let n = gw * gh;
     let none = Spheres { aligned: vec![None; settlements.len()], ..Default::default() };
@@ -156,10 +160,11 @@ pub fn spheres(
         .map(|(i, _)| i)
         .collect();
     let reach = gw as f64 * SPHERE_REACH_FRAC;
+    let mut seats = seats;
     let mut label = vec![0u32; n];
     let mut best = vec![f64::INFINITY; n];
     let mut heap = BinaryHeap::new();
-    let weights: Vec<f64> = seats.iter().map(|&i| crate::territory_weight(settlements[i].pop)).collect();
+    let mut weights: Vec<f64> = seats.iter().map(|&i| crate::territory_weight(settlements[i].pop)).collect();
     for (k, &si) in seats.iter().enumerate() {
         let c = cell_of(&settlements[si]).expect("seats were filtered on a cell");
         // Two seats on one cell: the first in settlement order holds it.
@@ -168,43 +173,66 @@ pub fn spheres(
             heap.push(Front(0.0, k, c));
         }
     }
-    while let Some(Front(d, k, i)) = heap.pop() {
-        if label[i] != 0 || d > best[i] {
-            continue;
-        }
-        label[i] = k as u32 + 1;
-        let (x, y) = ((i % gw) as isize, (i / gw) as isize);
-        for dy in -1isize..=1 {
-            for dx in -1isize..=1 {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                let nx = if world {
-                    (x + dx).rem_euclid(gw as isize)
-                } else if x + dx < 0 || x + dx >= gw as isize {
-                    continue;
-                } else {
-                    x + dx
-                };
-                let ny = y + dy;
-                if ny < 0 || ny >= gh as isize {
-                    continue;
-                }
-                let j = ny as usize * gw + nx as usize;
-                if label[j] != 0 || !open(j) {
-                    continue;
-                }
-                let step = match edge {
-                    Some(f) => f(i, j, dx, dy),
-                    None => (if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64),
-                };
-                let nd = d + step / weights[k];
-                if nd <= reach && nd < best[j] {
-                    best[j] = nd;
-                    heap.push(Front(nd, k, j));
+    // The multi-source sweep: grows every seeded sphere until its reach, over cells no sphere holds yet.
+    let sweep = |heap: &mut BinaryHeap<Front>, label: &mut Vec<u32>, best: &mut Vec<f64>, weights: &[f64]| {
+        while let Some(Front(d, k, i)) = heap.pop() {
+            if label[i] != 0 || d > best[i] {
+                continue;
+            }
+            label[i] = k as u32 + 1;
+            let (x, y) = ((i % gw) as isize, (i / gw) as isize);
+            for dy in -1isize..=1 {
+                for dx in -1isize..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = if world {
+                        (x + dx).rem_euclid(gw as isize)
+                    } else if x + dx < 0 || x + dx >= gw as isize {
+                        continue;
+                    } else {
+                        x + dx
+                    };
+                    let ny = y + dy;
+                    if ny < 0 || ny >= gh as isize {
+                        continue;
+                    }
+                    let j = ny as usize * gw + nx as usize;
+                    if label[j] != 0 || !open(j) {
+                        continue;
+                    }
+                    let step = match edge {
+                        Some(f) => f(i, j, dx, dy),
+                        None => (if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64),
+                    };
+                    let nd = d + step / weights[k];
+                    if nd <= reach && nd < best[j] {
+                        best[j] = nd;
+                        heap.push(Front(nd, k, j));
+                    }
                 }
             }
         }
+    };
+    sweep(&mut heap, &mut label, &mut best, &weights);
+    // Ruling HK (zero factions): every loose place the sweep left out is reached by no sphere, so the
+    // largest of them (population, then settlement order) becomes a minor seat of its own, even below
+    // `CITY_STATE_MIN_POP`, and sweeps over the land no sphere holds. Largest first means every place its
+    // sphere then reaches is smaller than it, i.e. aligned to the larger neighbour. Each round labels at
+    // least its own cell, so the loop ends.
+    while minor_seats {
+        let next = settlements
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.placement.faction == 0)
+            .filter_map(|(i, s)| cell_of(s).filter(|&c| open(c) && label[c] == 0).map(|c| (i, s.pop, c)))
+            .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)));
+        let Some((si, pop, c)) = next else { break };
+        seats.push(si);
+        weights.push(crate::territory_weight(pop));
+        best[c] = 0.0;
+        heap.push(Front(0.0, seats.len() - 1, c));
+        sweep(&mut heap, &mut label, &mut best, &weights);
     }
     let aligned = settlements
         .iter()
@@ -252,7 +280,7 @@ mod tests {
         let cost = vec![1.0f32; gw];
         let owner = vec![0; gw];
         let s = vec![place(0, 0, 5_000, 0)];
-        let sp = spheres(&s, &owner, &cost, None, gw, gh, false);
+        let sp = spheres(&s, &owner, &cost, None, gw, gh, false, false);
         let w = crate::territory_weight(5_000);
         let want = (24.0 * w).floor() as usize + 1;
         assert_eq!(want, 31, "premise: w(5 000) = 1.288, so 30.9 cells");
@@ -272,7 +300,7 @@ mod tests {
         let mut owner = vec![0; gw];
         owner[5] = 3;
         let s = vec![place(0, 0, 5_000, 0), place(2, 0, 100, 1), place(8, 0, 100, 0), place(3, 0, 100, 0)];
-        let sp = spheres(&s, &owner, &cost, None, gw, gh, false);
+        let sp = spheres(&s, &owner, &cost, None, gw, gh, false, false);
         assert_eq!(sp.cell[5], 0);
         assert!(sp.cell[6..].iter().all(|&c| c == 0), "nothing past the wall");
         assert_eq!(sp.aligned, vec![Some(0), None, None, Some(0)]);
@@ -289,13 +317,13 @@ mod tests {
         let cost = vec![1.0f32; gw];
         let owner = vec![0; gw];
         let s = vec![place(0, 0, 60_000, 0), place(20, 0, 5_000, 0)];
-        let sp = spheres(&s, &owner, &cost, None, gw, gh, false);
+        let sp = spheres(&s, &owner, &cost, None, gw, gh, false, false);
         let first_of_b = sp.cell.iter().position(|&c| c == 2).unwrap();
         assert!(first_of_b > 10, "the larger seat reaches past the midpoint: {first_of_b}");
         let mut claimed = owner.clone();
         claimed[20] = 1;
-        assert_eq!(spheres(&s, &claimed, &cost, None, gw, gh, false).seats, vec![0]);
-        let none = spheres(&s, &[], &cost, None, gw, gh, false);
+        assert_eq!(spheres(&s, &claimed, &cost, None, gw, gh, false, false).seats, vec![0]);
+        let none = spheres(&s, &[], &cost, None, gw, gh, false, false);
         assert!(none.seats.is_empty() && none.cell.is_empty() && none.aligned == vec![None, None]);
     }
 
@@ -307,8 +335,26 @@ mod tests {
         let mut cost = vec![1.0f32; gw];
         cost[3] = f32::INFINITY;
         let s = vec![place(0, 0, 5_000, 0), place(5, 0, 100, 0)];
-        let sp = spheres(&s, &vec![0; gw], &cost, None, gw, gh, false);
+        let sp = spheres(&s, &vec![0; gw], &cost, None, gw, gh, false, false);
         assert_eq!(sp.cell[3], 0);
         assert_eq!(sp.aligned[1], None);
+    }
+
+    /// Protects Ruling HK: with `minor_seats` every loose place ends in a sphere -- a place no city-state
+    /// reaches founds a minor seat below `CITY_STATE_MIN_POP` (the larger of two far hamlets, which
+    /// then absorbs the smaller one in its reach), and the switch off leaves them loose.
+    /// MUTATION: drop the `while minor_seats` loop (all `None`), or take the smallest instead of the
+    /// largest (`max_by` to `min_by`: the 300-person hamlet seats and the 400 one aligns to it).
+    #[test]
+    fn minor_seats_cover_every_loose_place() {
+        let (gw, gh) = (240, 1);
+        let cost = vec![1.0f32; gw];
+        let owner = vec![0; gw];
+        let s = vec![place(0, 0, 6_000, 0), place(200, 0, 300, 0), place(205, 0, 400, 0), place(100, 0, 100, 0)];
+        let off = spheres(&s, &owner, &cost, None, gw, gh, false, false);
+        assert_eq!(off.aligned, vec![Some(0), None, None, None]);
+        let on = spheres(&s, &owner, &cost, None, gw, gh, false, true);
+        assert_eq!(on.seats, vec![0, 2, 3], "the 6 000 city, the larger far hamlet, the lone hamlet");
+        assert_eq!(on.aligned, vec![Some(0), Some(2), Some(2), Some(3)]);
     }
 }

@@ -5518,7 +5518,7 @@ fn compute_civilisation(
             // `river_constraint` is `None` with `civ.river_front` off: the
             // reference's placement by control flow.
             let mut placed = cartalith_civ::place_settlements_on_rivers(
-                &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
+                &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(0),
                 &flood, &ws.flow_discharge, flow_thresh, map_width_km, want, river_constraint,
                 // Ruling FI items 1 and 3: port candidates nudged to the shore.
                 opts.port_shore,
@@ -6211,7 +6211,7 @@ fn compute_civilisation(
         // default's origin, kept where it is documented.)
         // `civ.base_ag_tech`: the technology level every faction row starts at (default 1 = the reference's own,
         // so this is `seeded(n)` exactly for a default world).
-        faction_roster: civ_roster_bridge::FactionRoster::seeded_with_tech(opts.factions.max(1) as usize, opts.base_ag_tech),
+        faction_roster: civ_roster_bridge::FactionRoster::seeded_with_tech(opts.factions.max(0) as usize, opts.base_ag_tech),
         religions: Default::default(),
         place_extras,
         village_tids,
@@ -8780,7 +8780,7 @@ impl WorldGen {
         // which every faction then speaks (the roster's culture column is set to it just below).
         let default_key = self.name_styles.world_default.clone();
         let default_cultures: Vec<&str> = match default_key.as_deref() {
-            Some(k) => vec![k; p.civ.factions.max(1) as usize + 1],
+            Some(k) => vec![k; p.civ.factions.max(0) as usize + 1],
             None => Vec::new(),
         };
         let civ_span = tracing::info_span!("bridge::compute_civilisation").entered();
