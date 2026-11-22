@@ -4084,3 +4084,7 @@ Owner, after RR-T1/RR-T2: *"Only thing for on the map is that the settlements de
 ## Ruling HH: a Windows installer (owner, 2026-11-22)
 
 Owner: *"as an exe has extra stuff, I think we should start thinking about an installer."* **Inno Setup, per-user, unsigned for now.** One `Cartalith-Setup-v.YY.MM.DD-NNN.exe` that installs into the user's own folder (no admin), adds Start-menu (and optional desktop) shortcuts and an uninstaller, and upgrades in place, keeping settings and worlds (they live in `%APPDATA%`, never in the install folder; the uninstaller never removes them). The `.iss` script is kept in the repository and built after every Windows export; the setup file goes to the D: drop folder beside the APK. Code signing is revisited before any public release (SmartScreen shows "unknown publisher" until then).
+
+## Ruling HI: self-signed now, SignPath later (owner, 2026-11-22)
+
+Owner: *"Let's do a self signed for now and in due time we'll go for signpath."* The Windows exe, engine DLL and setup are signed with a self-signed code-signing certificate (`CN=Cartalith (self-signed)`, CurrentUser store, private key non-exportable, never in the repository); SignPath Foundation's free open-source signing replaces it before any public release (requires the source to be public).
