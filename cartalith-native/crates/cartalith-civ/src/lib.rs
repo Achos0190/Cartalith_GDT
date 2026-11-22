@@ -135,6 +135,10 @@ pub mod way_class;
 /// behind `CivParams::merge_ways`. See the module doc.
 pub mod way_merge;
 pub mod sea_lanes;
+/// Owner Ruling GO (2026-11-22): territory over a terrain friction field,
+/// seams snapped to ridges, canyons and rivers, and the drawn border line.
+/// Behind `CivParams::border_friction`; see the module doc.
+pub mod border_terrain;
 /// Owner Ruling EU item 1 (2026-11-12): measures of the drawn road network
 /// (side-by-side bundles, duplicates, water, crossings, grade). Measurement
 /// only; see the module doc.
@@ -9024,6 +9028,23 @@ pub fn assign_territory(
     territory_sweep(settlements, cost, gw, gh, world, false).owner
 }
 
+/// [`assign_territory`] with a per-step cost (`road_dijkstra`'s `edge_cost`)
+/// in place of the default `len * (cost_i + cost_j) / 2`: Ruling GO's river
+/// term ([`border_terrain::Friction::edge`]), which a per-cell cost cannot
+/// express because a river is cheap along and dear across. `cost` still
+/// carries the per-cell field the closure reads through its own copy; it is
+/// passed so the sweep's shape is unchanged. Same sweep, same merge order.
+pub fn assign_territory_with_edges(
+    settlements: &[NamedSettlement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    edge: &(dyn Fn(usize, usize, isize, isize) -> f64 + Sync),
+) -> Vec<i32> {
+    territory_sweep_batched(settlements, cost, gw, gh, world, false, territory_dijkstra_batch(gw * gh), Some(edge)).owner
+}
+
 /// [`territory_sweep`]'s raw per-cell output, before it is turned into the
 /// public [`TerritoryInfluence`]. `rival_effective`/`rival` are empty
 /// unless the sweep was asked for them.
@@ -9085,12 +9106,15 @@ fn territory_sweep(
     world: bool,
     want_rival: bool,
 ) -> TerritorySweep {
-    territory_sweep_batched(settlements, cost, gw, gh, world, want_rival, territory_dijkstra_batch(gw * gh))
+    territory_sweep_batched(settlements, cost, gw, gh, world, want_rival, territory_dijkstra_batch(gw * gh), None)
 }
 
 /// [`territory_sweep`] with the Dijkstra batch size as an argument, so
 /// `territory_batch_size_moves_no_owner` can prove the batch moves nothing.
-/// `batch` must be at least 1.
+/// `batch` must be at least 1. `edge` is `road_dijkstra`'s optional per-step
+/// cost; `None` (every caller but [`assign_territory_with_edges`]) is the
+/// sweep as it always ran.
+#[allow(clippy::too_many_arguments)]
 fn territory_sweep_batched(
     settlements: &[NamedSettlement],
     cost: &[f32],
@@ -9099,6 +9123,7 @@ fn territory_sweep_batched(
     world: bool,
     want_rival: bool,
     batch: usize,
+    edge: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)>,
 ) -> TerritorySweep {
     let n = gw * gh;
     let mut owner = vec![0i32; n];
@@ -9119,7 +9144,7 @@ fn territory_sweep_batched(
         // `4 * gw * gh` predecessor grid being built and dropped per capital.
         let dists: Vec<Vec<f32>> = chunk
             .par_iter()
-            .map(|s| road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None, false).0)
+            .map(|s| road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, edge, false).0)
             .collect();
         for (s, dist) in chunk.iter().zip(dists) {
             let weight = territory_weight(s.pop);
@@ -22786,10 +22811,10 @@ Isle {name},1
             named_capital(5, 12, 1, 8000),
             named_capital(17, 9, 2, 15000),
         ];
-        let want = territory_sweep_batched(&settlements, &cost, w, h, false, true, 1);
+        let want = territory_sweep_batched(&settlements, &cost, w, h, false, true, 1, None);
         assert!(want.owner.iter().filter(|&&o| o != 0).count() > 100, "the fixture must assign territory");
         for batch in [2usize, 3, 9] {
-            let got = territory_sweep_batched(&settlements, &cost, w, h, false, true, batch);
+            let got = territory_sweep_batched(&settlements, &cost, w, h, false, true, batch, None);
             assert_eq!(got.owner, want.owner, "batch {batch}: owner");
             assert_eq!(got.rival, want.rival, "batch {batch}: rival");
             let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<u64>>();

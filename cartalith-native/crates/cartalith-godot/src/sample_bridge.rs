@@ -1597,6 +1597,14 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// Shared by the Contested-borders raster and by
 /// `WorldGen::civ_territory_influence()`, so the layer a user looks at and
 /// the numbers a panel reports cannot come from two different sweeps.
+///
+/// **Over the road cost, not Ruling GO's friction.** A world made with
+/// `civ.border_friction` above 0 drew its claim grid over the terrain
+/// friction and snapped its seams (`cartalith_civ::border_terrain`), which
+/// needs the civ layer's river, biome and corridor rasters this view does not
+/// hold; so there the influence ramp is the plain cost-distance one and its
+/// `owner` can differ from the stored claim grid near a border. Recorded as a
+/// known gap in `OUTSTANDING_WORK.md` F25.
 pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfluence> {
     let settlements = f.settlements?;
     if f.gw == 0 || f.gh == 0 || !settlements.iter().any(|s| s.placement.capital) {

@@ -2455,6 +2455,49 @@ func _ready() -> void:
 ## in rather than hardcoded here because `render.rs` owns that geometry (see
 ## `_interior_rect`); defaults to `0.0` so a caller that doesn't know about
 ## the frame simply gets the old, uninset behaviour.
+## Ruling GO's O4: the faction borders as smoothed polylines in continuous grid
+## coordinates (`WorldGen.civ_border_lines`), drawn as a thin ink line over the
+## territory wash when the territory layer is on. Empty for worlds made before
+## the ruling (`civ.border_friction` 0): the wash alone, as before.
+var _border_lines: Array = []
+## The territory layer's switch, pushed by `viewport_host.gd::set_layer_visible`.
+var _show_border_lines := false
+## The line's ink: the province line's tone (`build_province_boundary_texture`),
+## a little lighter so a province line inside a faction still reads as the lesser.
+const BORDER_LINE_INK := Color8(35, 24, 9, 210)
+## The line's width in screen pixels (scaled into local units by
+## `_pin_line_floor()`, the camera-scaled overlay rule in `MISTAKES.md`).
+## Labelled judgement: thin enough not to compete with roads.
+const BORDER_LINE_PX := 1.6
+
+## Replaces the border polylines; see `_border_lines`.
+func set_border_lines(lines: Array) -> void:
+	_border_lines = lines
+	queue_redraw()
+
+## Shows or hides the border line with the territory layer.
+func set_show_border_lines(shown: bool) -> void:
+	_show_border_lines = shown
+	queue_redraw()
+
+## Draws `_border_lines` into the current layer item, under the sea lanes and
+## roads. Width is `BORDER_LINE_PX` screen pixels at any zoom (and the export's
+## symbol gain on an export copy).
+func _draw_border_lines(rect: Rect2) -> void:
+	if not _show_border_lines or _border_lines.is_empty() or _gw <= 0:
+		return
+	var w := BORDER_LINE_PX * _pin_line_floor() * (_sym_gain if _export_mode else 1.0)
+	for line in _border_lines:
+		var pts: PackedVector2Array = line
+		if pts.size() < 2:
+			continue
+		var out := PackedVector2Array()
+		out.resize(pts.size())
+		for k in pts.size():
+			out[k] = _point_to_screen(pts[k], rect)
+		_cv.draw_polyline(out, BORDER_LINE_INK, w, true)
+
+
 func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
 	_settlements = settlements
 	_fan_rev += 1   ## Ruling FF: settlement pins join the tilt and declutter rules, which are built from this roster
@@ -4597,7 +4640,7 @@ func _draw() -> void:
 # **What changed.** Every layer now draws into its own child canvas item(s),
 # in the draw order `_draw()` always used:
 #
-#   rivers (raw RIDs, behind this item) < catchment < sea routes < roads
+#   rivers (raw RIDs, behind this item) < catchment and border line < sea routes < roads
 #   < "mid" (manual routes, conflicts, journeys, town layouts) < settlements
 #   < "top" (rejects, marks, river trace, labels, cards, sample pin)
 #
@@ -4903,8 +4946,11 @@ func _refresh_layers(sync: bool) -> void:
 	_visible_local = _visible_local_rect()
 	## Before the settlements' key: the revealed-town set is part of it.
 	_urban_plan_update(_displayed_rect(), _interior_rect(_displayed_rect()))
+	## Every refresh, not only a content one: the border line drawn in this
+	## item (Ruling GO) is sized in screen pixels, so a zoom must redraw it. The
+	## catchment's own texture rect costs nothing to redraw.
+	_dyn["catchment"].queue_redraw()
 	if sync:
-		_dyn["catchment"].queue_redraw()
 		## AP-5: a content draw (and a resize, which arrives as one) re-lays
 		## the feature icons only if their list or the fit rect moved; a
 		## camera move never needs to (the camera carries them).
@@ -5351,6 +5397,7 @@ func _draw_dyn(item: _LayerItem) -> void:
 			## and hiding the river layer should not hide the answer. The traced
 			## line is drawn much later (`_draw_river_trace`), over the marks.
 			_draw_river_catchment(rect)
+			_draw_border_lines(rect)
 		"mid":
 			_draw_mid_layer(rect, interior)
 	_cv = self
@@ -10150,6 +10197,8 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 		_roads = []
 		_sea_routes = []
 		_trade_load = PackedFloat32Array()
+	## Ruling GO's O4: the border line goes with the territory wash.
+	_show_border_lines = bool(content.get("territory", false))
 	if not bool(content.get("routes", false)):
 		_manual_routes = []
 	if not bool(content.get("labels", false)):

@@ -1,0 +1,75 @@
+Ruling GO (2026-11-22): borders follow terrain. Measurement record.
+
+1. Census: `cargo test -p cartalith-godot --lib border_harness -- --ignored --nocapture`
+   (BORDER_GW=384,2048 BORDER_S=0,0.6; dev profile; one run, deterministic, so no spread).
+   Seeds 483920, 912345, 246371, 4 000 km wide, the app's parameters with only
+   civ.border_friction varied. "linear" = the research's straight-share measure (radius 12,
+   tolerance 0.8, BORDER_FORMATION_RESEARCH.md section 1.4); "high ground" = border cells in the
+   land's top quintile of height above a gw/48 window mean (baseline 0.20 by construction; this
+   window is the friction's own, so read it with the two independent ones beside it); "ridge" =
+   the research's fine measure (above a radius 12*gw/1024 window mean); "river" = within
+   4*gw/1024 cells of an order >= 3 river; "roads" = ways, sea routes and road edges hashed (the
+   test asserts they are equal at both strengths). "civ" is compute_civilisation's wall time
+   under a parallel load (not a benchmark).
+
+BORDER seed 483920 gw 384 s 0.00: linear 0.821 (border px 1224), high ground 0.172/0.200 = x0.86, ridge 0.454/0.516 = x0.88, river 0.123/0.142 = x0.87, unowned land 0.0000, worst faction area ratio 1.00, civ 0.3 s
+BORDER seed 483920 gw 384 s 0.60: linear 0.233 (border px 1402), high ground 0.399/0.200 = x1.99, ridge 0.655/0.516 = x1.27, river 0.135/0.142 = x0.95, unowned land 0.0000, worst faction area ratio 1.15, civ 0.3 s
+RELIEF seed 912345 gw 384: slope_n p50 1.72 p90 13.29 p97 21.00 p99 26.13; |tpi| p50 0.0059 p90 0.0564 p97 0.0892 p99 0.1087
+BORDER seed 912345 gw 384 s 0.00: linear 0.975 (border px 707), high ground 0.290/0.200 = x1.45, ridge 0.586/0.515 = x1.14, river 0.120/0.163 = x0.74, unowned land 0.0001, worst faction area ratio 1.00, civ 0.2 s
+BORDER seed 912345 gw 384 s 0.60: linear 0.342 (border px 805), high ground 0.313/0.200 = x1.57, ridge 0.585/0.515 = x1.14, river 0.207/0.163 = x1.27, unowned land 0.0001, worst faction area ratio 1.17, civ 0.2 s
+RELIEF seed 246371 gw 384: slope_n p50 1.50 p90 9.48 p97 17.79 p99 21.79; |tpi| p50 0.0037 p90 0.0370 p97 0.0712 p99 0.0943
+BORDER seed 246371 gw 384 s 0.00: linear 0.746 (border px 1004), high ground 0.160/0.200 = x0.80, ridge 0.481/0.533 = x0.90, river 0.136/0.172 = x0.79, unowned land 0.0000, worst faction area ratio 1.00, civ 0.2 s
+BORDER seed 246371 gw 384 s 0.60: linear 0.280 (border px 994), high ground 0.254/0.200 = x1.27, ridge 0.498/0.533 = x0.93, river 0.388/0.172 = x2.26, unowned land 0.0000, worst faction area ratio 1.66, civ 0.3 s
+RELIEF seed 483920 gw 2048: slope_n p50 1.07 p90 18.75 p97 60.93 p99 108.14; |tpi| p50 0.0043 p90 0.0608 p97 0.1158 p99 0.1671
+BORDER seed 483920 gw 2048 s 0.00: linear 0.956 (border px 3922), high ground 0.173/0.200 = x0.87, ridge 0.658/0.665 = x0.99, river 0.144/0.175 = x0.82, unowned land 0.0005, worst faction area ratio 1.00, civ 5.3 s
+BORDER seed 483920 gw 2048 s 0.60: linear 0.495 (border px 4613), high ground 0.268/0.200 = x1.34, ridge 0.580/0.665 = x0.87, river 0.276/0.175 = x1.58, unowned land 0.0005, worst faction area ratio 1.08, civ 4.1 s
+RELIEF seed 912345 gw 2048: slope_n p50 1.14 p90 27.18 p97 66.02 p99 109.96; |tpi| p50 0.0045 p90 0.0800 p97 0.1393 p99 0.1940
+BORDER seed 912345 gw 2048 s 0.00: linear 0.936 (border px 3754), high ground 0.178/0.200 = x0.89, ridge 0.401/0.540 = x0.74, river 0.295/0.194 = x1.52, unowned land 0.0000, worst faction area ratio 1.00, civ 3.9 s
+BORDER seed 912345 gw 2048 s 0.60: linear 0.514 (border px 4660), high ground 0.580/0.200 = x2.90, ridge 0.668/0.540 = x1.24, river 0.252/0.194 = x1.30, unowned land 0.0000, worst faction area ratio 1.19, civ 4.4 s
+RELIEF seed 246371 gw 2048: slope_n p50 0.88 p90 17.41 p97 61.80 p99 97.63; |tpi| p50 0.0037 p90 0.0514 p97 0.1104 p99 0.1578
+BORDER seed 246371 gw 2048 s 0.00: linear 0.945 (border px 5060), high ground 0.178/0.200 = x0.89, ridge 0.603/0.646 = x0.93, river 0.236/0.217 = x1.09, unowned land 0.0002, worst faction area ratio 1.00, civ 4.5 s
+BORDER seed 246371 gw 2048 s 0.60: linear 0.438 (border px 5552), high ground 0.332/0.200 = x1.66, ridge 0.658/0.646 = x1.02, river 0.334/0.217 = x1.54, unowned land 0.0002, worst faction area ratio 1.07, civ 4.0 s
+
+2. Shell: `_borders_probe.gd`, windowed, 1600x900, Godot 4.7.2, scratch APPDATA, debug dll
+   built from this tree. Per world: strength 0 -> no line from the engine and the line toggle
+   moves 0 px; strength 0.6 -> a line, and line on vs off moves pixels (the positive control).
+     912345 2048: 10 runs, 2769 px    483920 2048: 7 runs, 2422 px    246371 2048: 6 runs, 3564 px
+     483920 384:   9 runs, 4041 px    912345 384:  5 runs, 3938 px    246371 384: 13 runs, 3284 px
+   All 0 failed. `--mutate noline` (an empty line list at 0.6): DRAWN 0 px, FAIL, exit 1.
+   The shell's worlds are not the census's worlds (the bridge's New World request differs from
+   params::defaults in fields this lane did not chase), so the close-ups were picked on the
+   shell's own fit frames.
+
+3. Frames (map area cropped from the window captures; left before, right after):
+   <seed>_<grid>_before_after.png  fit view, civ.border_friction 0 | 0.6, Territory layer on.
+   483920_2048_x4_upland_edge.png  x4: the seam on the edge of an upland block.
+   912345_2048_x4_range_foot.png   x4: the seam at the foot of a range (one side holds it), and
+                                   along a river at the bottom right.
+   912345_2048_x4_range_neck.png   x4: the seam across the saddle where two ranges meet.
+   483920_2048_x4_river.png        x4: the seam down an estuary's bank.
+   246371_2048_x4_flat_straight.png x4: on flat land with no feature the seam stays straight.
+
+4. Re-record attribution: with civ.border_friction forced to 0 in params::defaults (restored),
+   `cargo test -p cartalith-godot --lib baseline -- --ignored`: 12 passed, 0 failed. At 0.6:
+   9 passed, 3 failed (fh_r2_m1, g1_0, ea0), re-recorded: relations 20 of 20, manpower 20 of 20.
+
+5. Mutants (Python, exact literal, occurs once, restored and hashed in `finally`):
+   border_terrain.rs (`cargo test -p cartalith-civ --lib border_terrain`):
+     river along branch, bank crossing, diagonal slip, strength-0 control flow (`<= 0` to
+     `< 0`), valleys-not-walls clamp, pass discount, biome multiplier, settlement undo, walls
+     block the flood, no line on a coast, line keeps its junction ends, short-fragment filter:
+     12 of 12 KILLED (the strength-0 and fragment mutants first SURVIVED: the river fixtures were
+     9 rows tall, under the 32-cell fragment floor, so no snap ran; the fixtures are 40 rows now
+     and `short_wall_fragments_are_dropped` was added; both then KILLED).
+   cartalith-godot: compute_civilisation's `opts.border_friction > 0.0` gate (killed by
+     `border_friction_moves_territory_not_roads`), the app default 0.6 and the absent-key 0
+     (killed by `params_mapping.rs`): 3 of 3 KILLED.
+   Shell: `_borders_probe.gd --mutate noline`: FAIL as required.
+
+6. After rebasing onto 4208748b (F29 / Ruling GQ, the tectonic peak): the census re-ran with the
+   same numbers on all twelve rows, and `cargo test -p cartalith-godot --lib baseline -- --ignored`
+   passed 12 of 12 against the re-recorded tables. The window frames were captured before that
+   rebase; the peak change moves no territory input (the tables held).
+   The three knowledge fixtures (`knowledge_eval_*.json`) were regenerated with
+   `cargo test -p cartalith-godot --lib regenerate_knowledge_fixtures -- --ignored`: their
+   worlds are app-default worlds, so their territory moved.

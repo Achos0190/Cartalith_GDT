@@ -1134,6 +1134,19 @@ pub struct CivParams {
     /// (`params::LOADS_WHEN_ABSENT`). Read fresh by `civ_military_bridge.rs` at
     /// every garrison read, never by `compute_civilisation`.
     pub loose_garrisons: bool,
+    /// Owner Ruling GO (2026-11-22): **borders follow terrain**, as a strength
+    /// in `0..=1` (`cartalith_civ::border_terrain`). Above 0 the territory sweep
+    /// runs over a friction field (relief, ridges and canyons dear, rivers cheap
+    /// along and dear across, passes discounted, forest/marsh/desert as
+    /// multipliers) instead of the road cost, its seams are snapped onto nearby
+    /// ridges, canyons and major rivers, and the shell draws a thin border line.
+    /// The road cost itself is untouched at every strength.
+    ///
+    /// **`0.0` here, `0.6` in the shipped app** (`params::defaults`, the owner's
+    /// accepted research Q7 default), the `DECISIONS.md` §7p split: `0.0` is the
+    /// weighted cost-distance Voronoi of §7b exactly, by control flow. A save
+    /// without the key loads `0.0`.
+    pub border_friction: f64,
 }
 
 impl CivParams {
@@ -1897,6 +1910,8 @@ impl WorldParams {
                 base_ag_tech: 1,
                 // Ruling GK: MM-6 gives an unclaimed place of a faction world no garrison.
                 loose_garrisons: false,
+                // Ruling GO: the §7b territory, with no friction, snap or line.
+                border_friction: 0.0,
             },
             use_gpu: false,
             // Off: the streak spike's ablations are measurement-only; see

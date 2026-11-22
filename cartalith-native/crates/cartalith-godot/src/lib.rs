@@ -60,6 +60,10 @@ mod wall_gap_census;
 mod town_river_census;
 #[cfg(test)]
 mod sea_site_census;
+// Owner Ruling GO (2026-11-22): the border straightness and terrain census of
+// `BORDER_FORMATION_RESEARCH.md` §1.4, an ignored measurement that pins nothing.
+#[cfg(test)]
+mod border_harness;
 // Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
 // the way join off and on, and the river stretches offered along them; an
 // ignored measurement through the real pipeline.
@@ -6009,19 +6013,42 @@ fn compute_civilisation(
         })
         .collect();
 
-    // Every raster below was read for the last time by the explanations
-    // above -- the suitability inputs, the six-field-lighter `resources`, the
-    // deferred `coast_sdf` and the river grids. Released before the territory
-    // sweep rather than at function exit, so its heap and distance grids do
-    // not stack on top of them (`MEMORY_OPTIMIZATION_SCOPE.md`, 2026-09-27).
-    drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources, confluence));
-
     // Territory (`DECISIONS.md` §7b): reuses the same real terrain
     // travel-cost field the road network above already computed --
     // capitals only (villages/non-capital settlements don't project
     // territory, `assign_territory`'s own `if !capital continue`), so
     // whether villages were added above doesn't change this at all.
-    let territory = cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world);
+    // Owner Ruling GO (`civ.border_friction`): above 0 the sweep runs over a
+    // terrain friction built from that cost (which stays as it is: the roads
+    // above already read it) and its seams snap to ridges, canyons and rivers.
+    // At 0 it is `assign_territory` after the drop, exactly as before. Above 0
+    // it runs before the drop below because it reads the river, biome
+    // and corridor rasters.
+    let terrain_territory = (opts.border_friction > 0.0).then(|| {
+        let t = cartalith_civ::border_terrain::BorderTerrain {
+            field: &ws.field,
+            river_order: &river_order,
+            biome: &biome,
+            corridors: &corridors,
+            flow: &ws.flow_discharge,
+            flow_thresh,
+            gw,
+            gh,
+            sea: sea_level,
+            world,
+        };
+        cartalith_civ::border_terrain::assign_territory_terrain(&settlements, &cost, &t, opts.border_friction)
+    });
+    // Every raster below was read for the last time by the explanations
+    // above and the territory -- the suitability inputs, the six-field-lighter
+    // `resources`, the deferred `coast_sdf` and the river grids. Released before
+    // the provinces, continents and sea routes rather than at function exit
+    // (`MEMORY_OPTIMIZATION_SCOPE.md`, 2026-09-27). Ruling GO moved this below
+    // the territory sweep, which reads the river, biome and corridor
+    // rasters; at strength 0 the sweep runs after the drop as it always did, so
+    // only a strength-above-0 world's peak grows.
+    drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources, confluence));
+    let territory = terrain_territory.unwrap_or_else(|| cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world));
     // Provinces (`_civGenerateProvinces`, PHASE2_SCOPE.md) over
     // `assign_territory`'s output above, the same per-cell shape (`Vec<i32>`
     // faction id, 0 = unowned) as the reference's `civTerritory`, which its
@@ -13850,6 +13877,37 @@ impl WorldGen {
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+
+    /// Owner Ruling GO's O4: the faction borders as smoothed polylines
+    /// (`cartalith_civ::border_terrain::border_polylines`), one
+    /// `PackedVector2Array` per run between junctions, in the roads'
+    /// continuous grid coordinates, for `map_overlay.gd`'s border line (which
+    /// the export's overlay copy draws too). Read from the live claim grid, so
+    /// hand paint shows. Empty when `civ.border_friction` is 0 (worlds made
+    /// before the ruling, and `WorldParams::defaults`: the wash alone, as
+    /// before), with no world, or with no claim grid.
+    #[func]
+    fn civ_border_lines(&self) -> VarArray {
+        let mut out = VarArray::new();
+        if self.params.civ.border_friction <= 0.0 {
+            return out;
+        }
+        let Some(civ) = self.civ.as_ref() else { return out };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return out,
+        };
+        if civ.territory.len() != gw * gh || field.len() != gw * gh {
+            return out;
+        }
+        for line in cartalith_civ::border_terrain::border_polylines(&civ.territory, field, self.sea_level, gw, gh) {
+            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
+            out.push(&pts.to_variant());
+        }
+        out
     }
 
     /// Phase 2 civilisation layer (`cartalith-civ`): one `Dictionary` per

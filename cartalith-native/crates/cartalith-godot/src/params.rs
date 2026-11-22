@@ -380,6 +380,10 @@ pub fn defaults() -> WorldParams {
     // garrison in a world with factions too. Off in `WorldParams::defaults`,
     // MM-6's rule (`DECISIONS.md` section 7p). See `CivParams::loose_garrisons`.
     p.civ.loose_garrisons = true;
+    // Owner Ruling GO (2026-11-22): borders follow terrain at the research's Q7
+    // default strength. 0 in `WorldParams::defaults` (section 7p). See
+    // `CivParams::border_friction`.
+    p.civ.border_friction = 0.6;
     // Ruling FF item 5 (owner 2026-11-15): town siting (Ruling N's river term)
     // and the road network's crossing costs read the map's own river network,
     // not the civ pass's rebuild. Off in `WorldParams::defaults`, the
@@ -1126,6 +1130,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.loose_garrisons", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Unclaimed settlements keep their own garrison", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.loose_garrisons), set_fn: |p, v| p.civ.loose_garrisons = v != 0.0 },
+    // Owner Ruling GO (2026-11-22): how strongly borders follow terrain. 0.6 at
+    // the app boundary, 0 in `WorldParams::defaults` (today's territory exactly);
+    // no reference control. A save without the key loads 0. Read by
+    // `compute_civilisation`'s territory.
+    ParamSpec { key: "civ.border_friction", group: "civ", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.05,
+        label: "Borders follow terrain", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.civ.border_friction), set_fn: |p, v| p.civ.border_friction = v },
     // Ruling EU item 1 (2026-11-12): shared road trunks. ON at the app
     // boundary, OFF in `WorldParams::defaults`; no reference control (the
     // reference has no such pass). A save without the key loads OFF
@@ -1520,6 +1531,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.garrison_exposure_scale", ""),
     // Ruling GK: no reference control; the reference has no garrisons.
     ("civ.loose_garrisons", ""),
+    // Ruling GO: no reference control; the reference draws no generated territory.
+    ("civ.border_friction", ""),
     // Ruling EU item 1: no reference control; the reference has no trunk pass.
     ("civ.merge_ways", ""),
     // Ruling EX: no reference control; the reference has no frontage term.
@@ -1802,6 +1815,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling GK (2026-11-22): every save without the key read its unclaimed
     // places with no garrison (MM-6), so it reopens reading them that way.
     ("civ.loose_garrisons", Value::Bool(false)),
+    // Ruling GO (2026-11-22): every save without the key swept its territory over
+    // the road cost, with no snapping and no drawn line.
+    ("civ.border_friction", Value::Num(0.0)),
     // Ruling FF items 5 and 6 (2026-11-15): every save without the keys sited
     // its towns and roads on the rebuilt network and badged harbours on the
     // radius alone, so a regenerate puts them back there.

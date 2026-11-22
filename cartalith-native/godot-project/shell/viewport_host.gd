@@ -3293,6 +3293,9 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	## Ruling GO's O4: the drawn border line rides with the territory wash.
+	if overlay.has_method("set_border_lines"):
+		overlay.set_border_lines(_bridge.border_lines())
 	refresh_urban_boxes()
 	## A new river network makes a traced branch or a catchment from the old
 	## one describe rivers that are no longer there. The rivers themselves are
@@ -3621,7 +3624,11 @@ func label_px_per_cell() -> float:
 ## unknown id is ignored.
 func set_layer_visible(layer: String, shown: bool) -> void:
 	match layer:
-		"territory": territory_view.visible = shown
+		"territory":
+			territory_view.visible = shown
+			## Ruling GO's O4: the border line is part of the territory layer.
+			if overlay.has_method("set_show_border_lines"):
+				overlay.set_show_border_lines(shown)
 		"provinces": province_view.visible = shown
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)

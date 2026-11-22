@@ -1454,6 +1454,15 @@ func territory_opacity_default() -> float:
 func province_boundary_texture() -> Texture2D:
 	return world_gen.build_province_boundary_texture()
 
+## Ruling GO's O4: `WorldGen.civ_border_lines`, the faction borders as smoothed
+## polylines (one `PackedVector2Array` per run, continuous grid coordinates).
+## Empty for a world made with `civ.border_friction` at 0, before any world, or
+## against a binary without the `#[func]`.
+func border_lines() -> Array:
+	if not _has("civ_border_lines"):
+		return []
+	return world_gen.civ_border_lines()
+
 ## `WorldGen.get_settlements`: one dictionary per settlement (x, y, name,
 ## population, kind, ...). Indices into this array are the `index` other wrappers take.
 ##
