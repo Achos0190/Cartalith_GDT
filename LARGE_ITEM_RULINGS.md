@@ -4043,3 +4043,12 @@ Owner: *"update the underlying compression algorithm keep it backwards compatibl
 ## Ruling GY: PS-3 answers (owner, 2026-11-22)
 
 PS-3 measured a no-go (`4d540795`, `PARALLEL_STREETS_SCOPE.md` section 15). **Q20 (a):** restate the 83 m+ depth bar **by area** (traced plans 32-40 %) and build the back-street tier **together with PS-5's platting**, which owns the needle lots and rear lanes. **Q21:** drop the spindle market. **Q22:** PS-2's baseline on today's world is **58.5 % quads** (the census world moved under Rulings GQ, F27 and GO).
+
+## Ruling GZ: town layouts kept in the save without graphics (owner, 2026-11-22)
+
+Owner: *"how we can save town layouts without it being graphics (I'm think a hash string or something like that) that way if a user maps poi or pins a town that information won't be lost."* Today a layout is regenerated from the seed, the settlement and the generator rules (not stored); POIs are stored in absolute grid coordinates (`SAVEFILE_COMPAT.md` §11.2a), so a rules change can move the town under a pin. Approved design, to be scoped (`TOWN_LAYOUT_SAVE_SCOPE.md`) before any build:
+1. **Recipe** per town: its layout inputs plus a generator-rules version and the `urban_*` switches it was made with.
+2. **Fingerprint**: a hash of the generated layout; on open, a mismatch is reported, never silently accepted.
+3. **Frozen layout**: a town freezes automatically the first time the user places a pin or POI in it (or edits it); its streets, plots and buildings are stored as compact vector data (integer coordinates, Zstandard), never images; a frozen town never changes with later rules. The City Viewer offers "regenerate with current rules" with a before/after.
+4. **Anchors**: a pin also records what it sits on (building, street, plot) so it re-attaches after a regenerate.
+New slot `entities/town_layouts.json` (format 3, no version bump); a save without it regenerates as today.

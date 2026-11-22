@@ -123,6 +123,7 @@ GUI, then engine, then the LLM interface).
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
+- **Ruling GZ: town layouts in the save without graphics** (recipe + rules version, layout hash, auto-freeze as vector data on first pin/POI, pin anchors; `entities/town_layouts.json`). Scope `TOWN_LAYOUT_SAVE_SCOPE.md` first (not written), then build. Queued next.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
