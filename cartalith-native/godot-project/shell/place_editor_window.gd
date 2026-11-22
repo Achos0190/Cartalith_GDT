@@ -2765,6 +2765,10 @@ func _build_footer(parent: Control) -> void:
 		+ "importance and Trade volume -- NamedSettlement carries neither field.")
 
 
+## The place-editor fields a town's layout reads (`urban_bridge.rs::place_overrides`): an edit of one to a frozen town
+## asks before its drawing changes (`TOWN_LAYOUT_SAVE_SCOPE.md` §5, Ruling HA Q5).
+const TOWN_PLAN_FIELDS := ["specialisation", "traits", "walls", "age", "culture", "rules_preset", "variant"]
+
 ## One engine call, then a refresh. `civ_edit_settlement` is all-or-nothing:
 ## a rejected value applies nothing, so a `false` here means the form and the
 ## engine disagree and the form must be rebuilt from the engine's truth,
@@ -2776,6 +2780,9 @@ func _apply(fields: Dictionary) -> void:
 		app.set_status("hint", "Edit refused — a value was outside the engine's own vocabulary.", "accent")
 		_rebuild()
 		return
+	## Ruling HA Q5: an edit that reaches the town plan never silently redraws a frozen town; it asks first.
+	if fields.keys().any(func(k) -> bool: return String(k) in TOWN_PLAN_FIELDS):
+		CityViewerWindow.ask_relay_frozen(self, bridge, _index)
 	place_changed.emit()
 
 

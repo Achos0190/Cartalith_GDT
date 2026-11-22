@@ -5943,10 +5943,38 @@ func _on_measure_save() -> void:
 	var e: Dictionary = {"mode": _measure_mode, "points": pts,
 		"value": float(p["value"]), "unit": String(p["unit"])}
 	_saved_measurements.append(e)
+	## Ruling HA Q6 (`TOWN_LAYOUT_SAVE_SCOPE.md`): a saved measurement inside a town freezes it, as a pin does, so the
+	## streets it measures are not redrawn under it by a later rule change. One undo step in the engine.
+	if bridge != null:
+		bridge.town_freeze_points(pts)
 	app.set_status("hint",
 		"saved #%d (%s) -- it goes into the project file on the next save" % [
 			_saved_measurements.size(), _saved_value_text(e)], "accent")
 	_rebuild()
+
+## Ruling HA Q6: before the City Viewer applies "Re-lay with current rules" to settlement `index`, every saved
+## measurement with a point in that town follows it: its points move as pins do (`town_relay_map_points`, a point that
+## finds no match stays put). Its stored value and unit are dropped together (the row then dashes, the store's own rule
+## above), since the old number no longer measures the moved points; Recall measures them again. Not undone with the
+## re-lay: the shell owns this store, and the points stay valid places on the map either way.
+func follow_town_relay(index: int) -> void:
+	if bridge == null:
+		return
+	var moved := 0
+	for i in _saved_measurements.size():
+		var e: Dictionary = _saved_measurements[i]
+		var pts: PackedVector2Array = e.get("points", PackedVector2Array())
+		if not Array(pts).any(func(q: Vector2) -> bool: return bridge.town_at_point(q) == index):
+			continue
+		var to := bridge.town_relay_map_points(index, pts)
+		if to.size() != pts.size() or to == pts:
+			continue
+		e["points"] = to
+		e.erase("value")
+		e.erase("unit")
+		moved += 1
+	if moved > 0:
+		_rebuild()
 
 ## Saved row's `recall` button: re-arms Measure in that entry's mode with its exact points
 ## through `GlobalTools.recall_measurement`, so the reading is recomputed, not replayed. Ignores a

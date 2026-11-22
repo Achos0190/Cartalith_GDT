@@ -1,6 +1,6 @@
 # Town layouts in the save — scope for Ruling GZ (2026-11-22)
 
-Defines, does not track: status is `cartalith-native/docs/STATUS.md`'s. Scope written 2026-11-22; **build not started.**
+Defines, does not track: status is `cartalith-native/docs/STATUS.md`'s (scope written 2026-11-22; how far the build has got is STATUS's answer, not this line's).
 Source ruling: `LARGE_ITEM_RULINGS.md` "Ruling GZ" (owner: *"how we can save town layouts without it being graphics (I'm think a hash
 string or something like that) that way if a user maps poi or pins a town that information won't be lost."*). Documentation and
 measurement only: no product code was changed; the measurement harness was scratch and is not in the tree.
@@ -294,7 +294,9 @@ it was drawn" independently of "have the rules moved".
 
 - **Choosing the feature at freeze or at pin placement:** the smallest containing building; else the containing plot; else the nearest
   street segment within 6 m (with `u`); else a gate within 12 m; else the plaza or a market square if inside; else `ground` (offset from
-  the market, never re-attaching, kept at its absolute place).
+  the market, never re-attaching, kept at its absolute place). **As built (2026-11-22), gates and bridges are tried before streets:** a
+  gate is where a road meets the wall and a bridge carries a road, so in the order above no pin could ever bind to either
+  (`cartalith_civ::town_freeze::choose_anchor`).
 - **Ids stay stable within a frozen town** because every array is stored in order and the anchor stores the index, not the
   `bld<n>` string. Re-freezing the same town (an explicit Freeze after a re-lay) issues new indices and rewrites the anchors in the same
   step, in one undo group.
@@ -302,8 +304,10 @@ it was drawn" independently of "have the rules moved".
   an anchor; the saved bytes of every older world stay identical). A POI deleted later leaves an anchor with no pin: the reader drops
   it and counts it; a pin with no anchor in a frozen town gets one the next time the town is frozen (it is placed on a frozen town, so
   it anchors at placement).
-- **Which marks** (Q6): POIs only. Labels, icons and measurements keep absolute positions as today. Generated (derived) town pins are
-  recomputed from the frozen layout, so they cannot drift.
+- **Which marks** (Q6): **answered by Ruling HA: POIs, labels, icons and measurements.** (The default here was POIs only.) Labels and
+  icons have no stable id, so they store no anchor: theirs is computed from their position on the frozen layout at re-lay time, which
+  is the same function of the same inputs; a saved measurement follows its town through `town_relay_map_points`. Generated (derived)
+  town pins are recomputed from the frozen layout, so they cannot drift.
 
 **Re-attach after an explicit re-lay.** The new layout `L'` is made with the current rules; for each anchor, in order:
 

@@ -136,6 +136,7 @@ mod substrate;
 /// GF-8's save slice: the geology column in a project archive (`SAVEFILE_COMPAT.md` §8.4).
 mod geology_save;
 mod timeline_bridge;
+mod town_layout_bridge;
 /// TOOLING_PLAN.md M1: the shell's hook onto `cartalith-trace` (`Trace.start/stop/event`).
 mod trace_bridge;
 mod travel_bridge;
@@ -7747,6 +7748,14 @@ struct WorldGen {
     /// without the library. **Not part of any undo snapshot** (an entry is content-addressed, so a stale one is harmless);
     /// pruned to the ids a pin still uses when saved. Cleared with `pois`.
     custom_pins: Vec<cartalith_civ::poi::CustomPin>,
+    /// `TOWN_LAYOUT_SAVE_SCOPE.md` (Rulings GZ, HA): the frozen towns, saved as `entities/town_layouts.json`. Copy on
+    /// write: every change replaces the `Arc`, inside `anno_scope_multi`, which records before and after on the mark's
+    /// own undo row. Cleared with `pois` (a new world, a load); restored by `project_open`.
+    town_layouts: std::sync::Arc<town_layout_bridge::TownTable>,
+    /// Counts changes to `town_layouts` (`town_layouts_rev`), so the shell forgets the towns it drew.
+    town_rev: u64,
+    /// True while a re-lay commits, so the marks it moves do not re-trigger a freeze (`anno_scope_multi`).
+    town_relaying: bool,
 
     /// `STORY_PLANNING_SCOPE.md` SP-4: every drawn conflict. Emptied with
     /// the world (`absorb`, `load_save`, a recentre); anchors detached when
@@ -8153,6 +8162,9 @@ impl IRefCounted for WorldGen {
             pois: Vec::new(),
             poi_next_id: 1,
             custom_pins: Vec::new(),
+            town_layouts: std::sync::Arc::new(town_layout_bridge::TownTable::default()),
+            town_rev: 0,
+            town_relaying: false,
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             world_art: std::collections::BTreeMap::new(),
@@ -8586,6 +8598,8 @@ impl WorldGen {
         self.pois.clear();
         self.poi_next_id = 1;
         self.custom_pins.clear();
+        // TOWN_LAYOUT_SAVE_SCOPE.md: the outgoing world's frozen towns go with its pins.
+        self.town_install(std::sync::Arc::new(town_layout_bridge::TownTable::default()));
         self.civ_tools = None;
         self.paint = None;
         self.labels = None;
@@ -11416,6 +11430,8 @@ impl WorldGen {
         self.pois.clear();
         self.poi_next_id = 1;
         self.custom_pins.clear();
+        // TOWN_LAYOUT_SAVE_SCOPE.md: the outgoing world's frozen towns go with its pins.
+        self.town_install(std::sync::Arc::new(town_layout_bridge::TownTable::default()));
         // Same restriction as `civ` above, for the same reason: a loaded
         // save has no `territory` for `civ_tools_bridge::CivTools::
         // territory_base` to be a snapshot OF (`project_open` builds one

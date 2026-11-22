@@ -15,7 +15,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 2. **River follow-ups:** RR-T1 and RR-T2's town side are built and pushed (`urban_river_smooth`). Left: (a) the harbour-front sea extension (Ruling HC item 3): smooth the `to_sea` river of a river-mouth town too, same switch; (b) RR-T2 in the app: a world with two or more stream towns to measure quay and port counts and frame them (seed 483920 has none: its 20 undrawn river towns are merged `parallel_of` runs, not streams), and "not river-front typed"; (c) re-run `_rivertown_probe.gd` with `--mutate off` (not yet run). Owner `RIVER_REALISM_SCOPE.md` RR-T1, RR-T2. (c) the 20 towns per world on a merged `parallel_of` run keep the raw path at river width while the map draws the same water on the parent run 1-2 cells away: bind them to the parent drawn run (coordinator, 2026-11-22); (d) the probe's `--mutate off` run and the re-run of its edited ONE CURVE bar.
 2a. **Ruling HG (running): settlements sit on the river bank, not in it** -- measure how many markers sit inside the drawn river, then nudge to the bank on the market's side, behind a §7p switch.
 2b. **Self-signed code signing in the build** (owner 2026-11-22: self-signed now, SignPath later): cert `CN=Cartalith (self-signed)` in the user store (non-exportable; public `.cer` in the D: folder); v.26.11.22-002's exe, dll and setup were signed by hand. Left: put the signing step into `tools/build_installer.sh` (Inno `SignTool` or `Set-AuthenticodeSignature`) and `TOOLCHAIN.md`.
-3. **Town layouts in the save (running)** (Rulings GZ, HA): TL-0..TL-8 of `TOWN_LAYOUT_SAVE_SCOPE.md`; then a new APK for both devices and the Windows build to the D: folder (owner).
+3. **A new APK for both devices and the Windows build to the D: folder** after the town-layout save build (owner; the build itself is in STATUS.md, "Town layouts in the save: TL-0 to TL-8").
 4. **The small open rows** (each under its area below): the way tool's waypoint spacing so Corridor and Pull act (Ruling HJ), the 0-degree bearing disclosure (Ruling HJ), F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
    leftovers, the docked assistant on a 1000 px tablet.
 5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
@@ -120,7 +120,7 @@ GUI, then engine, then the LLM interface).
 
 ### Vault and save format
 - Vault window editor toolbar clipped at the right edge at 1600x900 (found 2026-11-22).
-- **Ruling GZ: town layouts in the save without graphics** (recipe + rules version, layout hash, auto-freeze as vector data on first pin/POI, pin anchors; `entities/town_layouts.json`). Scope `TOWN_LAYOUT_SAVE_SCOPE.md`: **scope written; Ruling HA answered (all defaults, plus labels, icons and measurements anchored); build TL-0..TL-8 after PS-4 and the river smoothing, then an APK** (milestones TL-0…TL-8, owner questions Q1-Q11 with defaults; TL-0 lands after PS-4 and river smoothing). Queued next.
+- Ruling GZ's device leg (TL-5): freeze the 64 census towns on x86-64, re-lay them on the 6T or the Pad with the next APK, expect 64 of 64 equal or "same within rounding". `TOWN_LAYOUT_SAVE_SCOPE.md` §8.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 

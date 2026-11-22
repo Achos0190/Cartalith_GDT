@@ -311,6 +311,7 @@ func _ready() -> void:
 	## worker count only means anything while nothing has run a `par_iter()`
 	## yet. See `_restore_cpu_pref` for the full reasoning.
 	_restore_cpu_pref()
+	_town_rev_api = world_gen.has_method("town_layouts_rev")
 	sized_api = _has("generate_sized") \
 		and _has("reference_grid_height") \
 		and _has("get_map_height_km")
@@ -446,6 +447,14 @@ func _process(_delta: float) -> void:
 		var mb := _pending_undo_budget_mb
 		_pending_undo_budget_mb = -1
 		set_undo_budget_mb(mb)
+	## TOWN_LAYOUT_SAVE_SCOPE.md TL-3: a freeze, a re-lay, or an undo or redo of one changes which towns are served from the
+	## save; every caller (a POI, label or icon tool, the assistant, an import, the undo keys) goes through the engine, so
+	## one poll here covers them all. Listeners of `urban_params_changed` already re-ask for the towns they drew.
+	if not generating and _town_rev_api:
+		var rev := int(world_gen.town_layouts_rev())
+		if rev != _town_rev_seen:
+			_town_rev_seen = rev
+			urban_params_changed.emit()
 	if not progress_api or not generating:
 		return
 	var snap: Dictionary = _progress.snapshot()
@@ -1719,6 +1728,12 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 	if not _has("urban_layouts"):
 		return []
 	var got: Array = world_gen.urban_layouts(indices)
+	_dress_layouts(got)
+	return got
+
+## The shell-side keys every served town layout carries (`urban_layouts`, and the re-lay's before and after, TL-6, so
+## a preview draws the same ground and title as the town it previews).
+func _dress_layouts(got: Array) -> void:
 	## CL-1 (Ruling EW): every layout carries the ground its own terrain gives it, so the City
 	## Viewer, the map's town layer, the thumbnail and the export (all of which fetch through
 	## here) draw one ground without each re-deriving it. Absent when the map has no texture yet.
@@ -1738,7 +1753,6 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 				var kd := String((places[si] as Dictionary).get("kind", ""))
 				if kd != "":
 					(d as Dictionary)["place_kind"] = kd
-	return got
 
 ## The image behind `color_texture()`'s last build, read back from the GPU once per texture and
 ## kept (a readback per town would stall a frame each). `null` before the first `color_texture()`.
@@ -4306,6 +4320,92 @@ func set_undo_budget_mb(mb: int) -> void:
 ## An undo budget (MB) asked for while `generating`, applied by `_process` once the run ends;
 ## `-1` is "none pending" (a real budget is never negative). See `set_undo_budget_mb`.
 var _pending_undo_budget_mb := -1
+
+# -- Frozen towns (TOWN_LAYOUT_SAVE_SCOPE.md, Rulings GZ and HA) -------------------------------------------------------
+#
+# Thin wrappers over `town_layout_bridge.rs`. Each answers its safe empty value while `generating` (the worker holds
+# `WorldGen`, see `settlements()`) or against a DLL without the call.
+
+## Whether the loaded DLL has the frozen-town calls; probed once.
+var _town_rev_api := false
+## The last `town_layouts_rev` seen by `_process`.
+var _town_rev_seen := -1
+
+## `{frozen, manual, year, pop, pop_now, chip, rules_version, rules_version_now, anchors, detached, damaged, reasons}`
+## for settlement `index` (`reasons` only with `check`, which builds the town's context: tens of milliseconds).
+func town_state(index: int, check := false) -> Dictionary:
+	if generating or not _has("town_state"):
+		return {}
+	return world_gen.town_state(index, check)
+
+## "Freeze this town": one undo step; `false` when already frozen or not laid out.
+func town_freeze(index: int) -> bool:
+	if generating or not _has("town_freeze"):
+		return false
+	var ok: bool = world_gen.town_freeze(index)
+	if ok:
+		mark_dirty()
+	return ok
+
+## Freezes the towns any of `points` (grid) stand in (a saved measurement, Ruling HA Q6). Returns how many froze now.
+func town_freeze_points(points: PackedVector2Array) -> int:
+	if generating or not _has("town_freeze_points"):
+		return 0
+	var n := int(world_gen.town_freeze_points(points))
+	if n > 0:
+		mark_dirty()
+	return n
+
+## The drift check of one frozen town: `{ok, verdict, reasons}` (lays it out once).
+func town_check(index: int) -> Dictionary:
+	if generating or not _has("town_check"):
+		return {}
+	return world_gen.town_check(index)
+
+## "Check frozen towns": `{count, unchanged, rounding, changed, damaged, gone, rows}`.
+func towns_check_all() -> Dictionary:
+	if generating or not _has("towns_check_all"):
+		return {}
+	return world_gen.towns_check_all()
+
+## The before/after of "Re-lay with current rules": `{ok, before, after, report}`. Changes nothing.
+func town_relay_preview(index: int) -> Dictionary:
+	if generating or not _has("town_relay_preview"):
+		return {}
+	var p: Dictionary = world_gen.town_relay_preview(index)
+	if bool(p.get("ok", false)):
+		_dress_layouts([p["before"], p["after"]])
+	return p
+
+## Where `points` (grid) would move under the re-lay of `index` (saved measurements follow their town).
+func town_relay_map_points(index: int, points: PackedVector2Array) -> PackedVector2Array:
+	if generating or not _has("town_relay_map_points"):
+		return points
+	return world_gen.town_relay_map_points(index, points)
+
+## "Re-lay with current rules": one undo step; the report with `ok`.
+func town_relay_apply(index: int) -> Dictionary:
+	if generating or not _has("town_relay_apply"):
+		return {}
+	var r: Dictionary = world_gen.town_relay_apply(index)
+	if bool(r.get("ok", false)):
+		mark_dirty()
+	return r
+
+## "Re-lay all frozen towns": one undo step; the pooled report with `ok` and `towns`.
+func towns_relay_all() -> Dictionary:
+	if generating or not _has("towns_relay_all"):
+		return {}
+	var r: Dictionary = world_gen.towns_relay_all()
+	if int(r.get("towns", 0)) > 0:
+		mark_dirty()
+	return r
+
+## Settlement index whose town grid point `p` is in, or -1.
+func town_at_point(p: Vector2) -> int:
+	if generating or not _has("town_at_point"):
+		return -1
+	return int(world_gen.town_at_point(p.x, p.y))
 
 ## Drops every undo step (`WorldGen.clear_undo`), which is what Preferences > Memory
 ## offers to give memory back. A no-op without the binding.

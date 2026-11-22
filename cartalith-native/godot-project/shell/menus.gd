@@ -133,6 +133,10 @@ const ID_TRAVEL_LIBRARY := 48
 const ID_VAULT := 45  ## Records ▸ Markdown vault… (overview, no entity scope; Ctrl+Shift+V since PC-9).
 const ID_WORLD_DATA := 47  ## Records ▸ World data tables….
 const ID_NAME_STYLES := 736  ## Records ▸ Name styles… (Ruling FZ).
+## `TOWN_LAYOUT_SAVE_SCOPE.md` §6, Ruling HA Q7: the frozen towns' bulk commands (Records ▸ TECHNICAL), which the command
+## index lists because it walks this menu.
+const ID_CHECK_FROZEN_TOWNS := 737  ## Records ▸ Check frozen towns….
+const ID_RELAY_FROZEN_TOWNS := 738  ## Records ▸ Re-lay all frozen towns….
 ## SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK): Records ▸ RECORDS ▸ Places… (World ▸ until Ruling DY),
 ## which opens CIVIL ▸ Settlements (`DccShell.select_domain_category`). 721 and
 ## 722 were unused (`grep ":= 72"` over `shell/`, 2026-10-18).
@@ -3315,6 +3319,10 @@ func _data(p: PopupMenu) -> void:
 	## Ruling FZ: the owner called it `Data > Name styles…`; the Data menu is Records since Ruling DY.
 	_live(p, "Name styles…", ID_NAME_STYLES)
 	p.set_item_tooltip(p.item_count - 1, "Import a CSV name style, preview it per section, give it to the world or a faction, and Rename all with it. Hand-given names are never touched.")
+	_live(p, "Check frozen towns…", ID_CHECK_FROZEN_TOWNS)
+	p.set_item_tooltip(p.item_count - 1, "Lays every frozen town out again with the current rules and says, for each, whether it would be unchanged, the same within rounding, or different, and why. Changes nothing.")
+	_live(p, "Re-lay all frozen towns…", ID_RELAY_FROZEN_TOWNS)
+	p.set_item_tooltip(p.item_count - 1, "Re-lays every frozen town with the current rules, after asking. Pins, labels and icons follow their places; one that finds no match stays where it is and is listed. One undo step.")
 	_route_submenu(p, "Import", "WorldImport", ["Import"])
 	_route_submenu(p, "Sources & validation", "WorldSources", ["Sources", "Validation"])
 	## SM-3 (§3.1, Q4's default): the Export submenu moved to File ▸ Export
@@ -3535,6 +3543,8 @@ func _on_data(id: int) -> void:
 		ID_DATA_MANAGER: _host.open_data_manager()
 		ID_WORLD_DATA: _host.open_world_data()
 		ID_NAME_STYLES: _host.open_name_styles()
+		ID_CHECK_FROZEN_TOWNS: _host.open_frozen_towns_report(false)
+		ID_RELAY_FROZEN_TOWNS: _host.open_frozen_towns_report(true)
 		## PC-9 (finding W6): through `_open_factions()`, which opens on the
 		## current faction once the host can name one.
 		ID_FACTIONS: _open_factions()

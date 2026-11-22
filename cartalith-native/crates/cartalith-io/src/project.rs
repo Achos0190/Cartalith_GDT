@@ -653,6 +653,9 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/conflicts.json",
     "entities/religions.json",
     "entities/name_styles.json",
+    // TOWN_LAYOUT_SAVE_SCOPE.md TL-2 (Rulings GZ, HA; registered 2026-11-22): the frozen towns, engine-owned
+    // (`town_layout_bridge.rs`). Written only when a town is frozen, so older archives stay byte-identical.
+    "entities/town_layouts.json",
     "history/timeline.json",
     "history/events.json",
     "annotations/labels.json",

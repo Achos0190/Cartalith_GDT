@@ -146,13 +146,59 @@ impl WorldGen {
         repoint: Option<Repoint>,
         f: impl FnOnce(&mut WorldGen) -> R,
     ) -> R {
-        let pre = self.anno_snap(store);
+        self.anno_scope_multi(&[store], label, stream, repoint, f)
+    }
+
+    /// [`Self::anno_scope`] over several stores at once (`TOWN_LAYOUT_SAVE_SCOPE.md` TL-4: a town re-lay moves pins,
+    /// labels and icons together): one ledger row whose main store is the first of `stores` that changed and whose
+    /// `also` holds the rest that changed. **Every scope also watches the frozen-town table** (TL-3): a pin, label or
+    /// icon placed or moved in a town freezes it inside the same step ([`Self::town_on_marks`]), so undoing the
+    /// placement unfreezes the town it froze (scope §5's last row), and a step that changed only the table (a manual
+    /// "Freeze this town") is still recorded.
+    pub(crate) fn anno_scope_multi<R>(
+        &mut self,
+        stores: &[AnnoStore],
+        label: String,
+        stream: Option<String>,
+        repoint: Option<Repoint>,
+        f: impl FnOnce(&mut WorldGen) -> R,
+    ) -> R {
+        let pre: Vec<Option<AnnoSnap>> = stores.iter().map(|s| self.anno_snap(*s)).collect();
+        let towns_pre = Arc::clone(&self.town_layouts);
         let r = f(self);
-        if let (Some(pre), Some(post)) = (pre, self.anno_snap(store)) {
-            if pre != post {
-                self.anno_record(store, label, stream, repoint, pre, post);
+        let post: Vec<Option<AnnoSnap>> = stores.iter().map(|s| self.anno_snap(*s)).collect();
+        // TL-3: marks that landed in a town freeze it (or anchor on its frozen layout), inside this same step.
+        if !self.town_relaying {
+            for (a, b) in pre.iter().zip(&post) {
+                if let (Some(a), Some(b)) = (a, b) {
+                    if a != b {
+                        self.town_on_marks(a, b);
+                    }
+                }
             }
         }
+        let towns = (!Arc::ptr_eq(&towns_pre, &self.town_layouts) && *towns_pre != *self.town_layouts)
+            .then(|| (towns_pre, Arc::clone(&self.town_layouts)));
+        let mut changed: Vec<(AnnoSnap, AnnoSnap)> = Vec::new();
+        let mut first_any: Option<(AnnoSnap, AnnoSnap)> = None;
+        for (a, b) in pre.into_iter().zip(post) {
+            if let (Some(a), Some(b)) = (a, b) {
+                if a != b {
+                    changed.push((a, b));
+                } else if first_any.is_none() {
+                    first_any = Some((a, b));
+                }
+            }
+        }
+        if changed.is_empty() {
+            // Only the town table moved (a manual freeze): recorded under the first store, unchanged.
+            match (towns.is_some(), first_any) {
+                (true, Some(p)) => changed.push(p),
+                _ => return r,
+            }
+        }
+        let (main_pre, main_post) = changed.remove(0);
+        self.anno_record(main_pre.store(), label, stream, repoint, main_pre, main_post, changed, towns);
         r
     }
 
@@ -160,15 +206,26 @@ impl WorldGen {
     /// it is that gesture's next sample, else appends a new ledger row.
     /// A new row is a new operation: the height redo tail and every undone
     /// annotation go (an undone way drag dies on its ledger stamp).
-    fn anno_record(&mut self, store: AnnoStore, label: String, stream: Option<String>, repoint: Option<Repoint>, pre: AnnoSnap, post: AnnoSnap) {
+    #[allow(clippy::too_many_arguments)]
+    fn anno_record(
+        &mut self,
+        store: AnnoStore,
+        label: String,
+        stream: Option<String>,
+        repoint: Option<Repoint>,
+        pre: AnnoSnap,
+        post: AnnoSnap,
+        also: Vec<(AnnoSnap, AnnoSnap)>,
+        towns: Option<(Arc<crate::town_layout_bridge::TownTable>, Arc<crate::town_layout_bridge::TownTable>)>,
+    ) {
         let after = Arc::new(post);
         // Inside a compound every edit is the compound's, under its name and one shared key.
         let (label, key) = match self.anno_undo.compound_label() {
             Some(c) => (c.to_string(), Some(crate::annotation_undo::COMPOUND_KEY.to_string())),
             None => (label, stream.filter(|_| self.anno_undo.is_streaming())),
         };
-        if let Some(k) = key.as_deref() {
-            if self.anno_undo.merge_stream(self.ledger.last_seq(), store, k, &pre, Arc::clone(&after), repoint.map(|r| r.to)) {
+        if let (Some(k), true) = (key.as_deref(), also.is_empty()) {
+            if self.anno_undo.merge_stream(self.ledger.last_seq(), store, k, &pre, Arc::clone(&after), repoint.map(|r| r.to), towns.clone()) {
                 return;
             }
         }
@@ -176,11 +233,20 @@ impl WorldGen {
         // held: judged against the world as it stood BEFORE this edit (the
         // `record_delete` rule, for the same reason -- pruning against the
         // post-edit store would drop every earlier entry of this store).
-        let live = self.anno_undo.live_seqs(&|s| if s.store() == store { *s == pre } else { self.anno_matches(s) });
+        let live = self.anno_undo.live_seqs(&|s| {
+            if s.store() == store {
+                *s == pre
+            } else if let Some((b, _)) = also.iter().find(|(b, _)| b.store() == s.store()) {
+                s == b
+            } else {
+                self.anno_matches(s)
+            }
+        });
         self.anno_undo.retain_seqs(&live);
         let before = self.anno_undo.shared_before(store, &pre);
         let seq = self.ledger.record("annotations", label.clone(), "", undo::EntryKind::Annotation);
-        self.anno_undo.push(AnnoEntry { seq, label, store, before, after, stream: key, repoint });
+        let also = also.into_iter().map(|(b, a)| (Arc::new(b), Arc::new(a))).collect();
+        self.anno_undo.push(AnnoEntry { seq, label, store, before, after, stream: key, repoint, also, towns });
         self.anno_undo.note_recorded();
         self.redo.clear();
     }
@@ -219,6 +285,12 @@ impl WorldGen {
     /// [`Self::undo_anno_step`] for the one held entry `seq` (the caller has established it is live).
     pub(crate) fn undo_anno_seq(&mut self, seq: u64) -> Option<String> {
         let e = self.anno_undo.remove(seq)?;
+        for (b, _) in &e.also {
+            self.anno_apply(b);
+        }
+        if let Some((b, _)) = &e.towns {
+            self.town_install(Arc::clone(b));
+        }
         self.anno_apply(&e.before);
         if let Some(r) = e.repoint {
             self.anno_repoint(r, true);
@@ -255,6 +327,12 @@ impl WorldGen {
         self.anno_redo_offer()?;
         let top = self.anno_undo.pop_redo()?;
         let AnnoRedo { entry, .. } = top;
+        for (_, a) in &entry.also {
+            self.anno_apply(a);
+        }
+        if let Some((_, a)) = &entry.towns {
+            self.town_install(Arc::clone(a));
+        }
         self.anno_apply(&entry.after);
         if let Some(r) = entry.repoint {
             self.anno_repoint(r, false);

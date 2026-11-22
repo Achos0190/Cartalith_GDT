@@ -225,6 +225,9 @@ const SLOT_RELIGIONS: &str = "entities/religions.json";
 const SLOT_COLOUR_PAINT: &str = "appearance_paint.json";
 /// Ruling FZ: the world's name styles (copies it uses, its default, whether hand-given names are recorded).
 const SLOT_NAME_STYLES: &str = "entities/name_styles.json";
+/// `TOWN_LAYOUT_SAVE_SCOPE.md` TL-2 (Rulings GZ, HA): the frozen towns (`town_layout_bridge`), written only when one is
+/// frozen, as compact canonical JSON (`SAVEFILE_COMPAT.md` §9.10).
+const SLOT_TOWN_LAYOUTS: &str = crate::town_layout_bridge::SLOT;
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -292,6 +295,9 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // Ruling FZ: the payload is `WorldGen::name_styles` plus `CivData::names_tracked`, engine state the shell reaches
     // only through the `ns_*` funcs -- the landmarks slot's reason.
     SLOT_NAME_STYLES,
+    // TL-2: the payload is `WorldGen::town_layouts`, engine state the shell reaches only through the `town_*` funcs --
+    // the landmarks slot's reason.
+    SLOT_TOWN_LAYOUTS,
 ];
 
 // ===================== the document schemas =====================
@@ -3774,6 +3780,11 @@ impl WorldGen {
         if let Some(doc) = poi_bridge::pois_to_doc(&self.pois, self.poi_next_id, &self.custom_pins) {
             insert_doc(&mut documents, SLOT_POIS, &doc);
         }
+        // TL-2: the frozen towns, only when one is frozen (or the document was kept verbatim), as their own compact
+        // canonical text so a load then save is byte-identical (`town_layout_bridge::save_text`).
+        if let Some(text) = crate::town_layout_bridge::save_text(&self.town_layouts, &self.town_live_pois()) {
+            documents.insert(SLOT_TOWN_LAYOUTS.to_string(), text);
+        }
 
         insert_doc(
             &mut documents,
@@ -4333,6 +4344,18 @@ impl WorldGen {
             self.poi_next_id = got.next_id;
             self.custom_pins = got.custom_pins;
             restored.push("pois");
+        }
+        // TL-2: the frozen towns, after the POIs (an anchor whose pin is gone is dropped and counted). An archive without
+        // the slot (every older save) opens with none and every town is generated as before; an unusable part is kept
+        // verbatim and named (`SAVEFILE_COMPAT.md` §9.10).
+        let towns = crate::town_layout_bridge::restore(data.text_of(SLOT_TOWN_LAYOUTS), data.document(SLOT_TOWN_LAYOUTS), &self.town_live_pois(), &mut restore_warnings);
+        if !towns.rows.is_empty() || towns.verbatim.is_some() || !towns.orphans.is_empty() {
+            restored.push("town_layouts");
+        }
+        self.town_install(std::sync::Arc::new(towns));
+        // Scope §6's open-report line: frozen towns drawn by older rules or other switches (never laid out here).
+        if let Some(line) = self.town_open_report() {
+            restore_warnings.push(line);
         }
 
         let hand_drawn = data

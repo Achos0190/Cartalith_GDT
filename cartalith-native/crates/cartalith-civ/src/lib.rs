@@ -122,6 +122,9 @@ pub mod travel_library;
 /// See its own module doc for the exact function-by-function boundary and for
 /// why it is not golden-verified.
 pub mod urban_adapter;
+/// `TOWN_LAYOUT_SAVE_SCOPE.md` (Rulings GZ, HA): frozen town layouts' pure half -- the rules version, the switch
+/// record, `site_hash`, the integer codec, the fingerprint and pin anchors. The save slot is `cartalith-godot`'s.
+pub mod town_freeze;
 /// Ruling CD item 1: the river-channel classes (navigability gate, current
 /// strength, `JP_TERRAIN.river` row, current band) the Journey Planner and the
 /// mixed-domain router both read. Beside `way_class`; see the module doc.

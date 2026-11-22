@@ -7144,6 +7144,83 @@ const NAME_STYLES_WINDOW := preload("res://shell/name_styles_window.gd")
 var name_styles_window: AcceptDialog = null
 
 ## Records ▸ Name styles… (Ruling FZ): import, preview, assign and Rename all. Returns the window (the probes drive it).
+## Records ▸ Check frozen towns… and Re-lay all frozen towns… (`TOWN_LAYOUT_SAVE_SCOPE.md` §6, Ruling HA Q7). `relay`
+## false: the drift check of every frozen town, as a count line and a row per town that would change. `relay` true:
+## asks first, then re-lays them all as one undo step and reports how many pins followed and which found no match.
+## Returns the dialog (a probe reads its text); null when there is no world.
+func open_frozen_towns_report(relay: bool) -> AcceptDialog:
+	if not bridge.has_world:
+		set_status("hint", "No world yet — generate one first.", "warn")
+		return null
+	var d: AcceptDialog
+	var r := bridge.towns_check_all()
+	var n := int(r.get("count", 0))
+	if relay and n > 0:
+		var q := ConfirmationDialog.new()
+		q.title = "Re-lay all frozen towns"
+		q.dialog_text = "Re-lay %d frozen town%s with the current rules? Pins, labels and icons follow their places; any that find no match stay where they are and are listed. One undo step." % [n, "" if n == 1 else "s"]
+		q.ok_button_text = "Re-lay all"
+		q.confirmed.connect(func():
+			var got := bridge.towns_relay_all()
+			var det: Array = got.get("detached", [])
+			var text := "Re-laid %d town%s. %d pin%s followed their places." % [int(got.get("towns", 0)), "" if int(got.get("towns", 0)) == 1 else "s",
+				int(got.get("attached", 0)) + int(got.get("ground", 0)), "" if int(got.get("attached", 0)) + int(got.get("ground", 0)) == 1 else "s"]
+			if not det.is_empty():
+				var names: Array[String] = []
+				for x in det:
+					names.append("%s %s (%s)" % [String((x as Dictionary).get("what", "")), String((x as Dictionary).get("name", "")), String((x as Dictionary).get("kind", ""))])
+				text += "
+%d found no match and were left in place:
+" % det.size() + "
+".join(names)
+			_frozen_report_dialog("Re-lay all frozen towns", text))
+		q.visibility_changed.connect(func(): if not q.visible: q.queue_free())
+		var qphone := DccWidgets.phone_window(q, self)
+		add_child(q)
+		if qphone:
+			phone_fit(q, 1.0)
+		if not DccWidgets.phone_present(q, self):
+			q.popup_centered()
+		return q
+	var lines: Array[String] = []
+	if n == 0:
+		lines.append("No town is frozen in this world. A town freezes when you place a pin, label, icon or measurement in it, or with Freeze this town in the City Viewer.")
+	else:
+		lines.append("%d frozen: %d unchanged, %d the same within rounding, %d drawn differently by the current rules%s%s." % [n,
+			int(r.get("unchanged", 0)), int(r.get("rounding", 0)), int(r.get("changed", 0)),
+			"" if int(r.get("damaged", 0)) == 0 else ", %d damaged (drawn from the rules)" % int(r.get("damaged", 0)),
+			"" if int(r.get("gone", 0)) == 0 else ", %d kept for a settlement that no longer exists" % int(r.get("gone", 0))])
+		for row in r.get("rows", []):
+			var x: Dictionary = row
+			if String(x.get("verdict", "")) == "changed":
+				var why: Array = Array(x.get("reasons", PackedStringArray()))
+				lines.append("• %s: %s" % [String(x.get("name", "")), "; ".join(why) if not why.is_empty() else "the generator draws it differently now"])
+	d = _frozen_report_dialog("Check frozen towns", "
+".join(lines))
+	return d
+
+## The report dialog of the two frozen-town commands: a wrapped label in the shell's dialog path (phone fit included).
+func _frozen_report_dialog(title_text: String, text: String) -> AcceptDialog:
+	var d := AcceptDialog.new()
+	d.title = title_text
+	d.name = "FrozenTownsReport"
+	d.size = Vector2i(560, 260)
+	var phone := DccWidgets.phone_window(d, self)
+	d.wrap_controls = not phone
+	add_child(d)
+	var l := Label.new()
+	l.name = "ReportText"
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 300
+	d.add_child(l)
+	d.visibility_changed.connect(func(): if not d.visible: d.queue_free())
+	if phone:
+		phone_fit(d, 1.0)
+	if not DccWidgets.phone_present(d, self):
+		d.popup_centered()
+	return d
+
 func open_name_styles() -> AcceptDialog:
 	if name_styles_window == null:
 		name_styles_window = NAME_STYLES_WINDOW.new()

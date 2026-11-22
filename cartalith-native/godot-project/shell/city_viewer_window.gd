@@ -250,6 +250,13 @@ func setup(b: EngineBridge, host = null) -> void:
 		_zoom_button(head, "+", 1.0)
 		_zoom_button(head, "−", -1.0)
 	left.add_child(head)
+	## TL-6 (`TOWN_LAYOUT_SAVE_SCOPE.md` §6): the frozen-town banner above the plan -- the mismatch line, the timeline
+	## chip, the re-lay's before/after and its report. Hidden when there is nothing to say; non-modal.
+	_banner = VBoxContainer.new()
+	_banner.name = "FrozenBanner"
+	_banner.add_theme_constant_override("separation", 4)
+	_banner.visible = false
+	left.add_child(_banner)
 
 	_canvas = Control.new()
 	_canvas.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -321,6 +328,222 @@ func setup(b: EngineBridge, host = null) -> void:
 
 ## The town-look dropdown (`DccSettings.CITY_LOOKS` order: map first here, ink second).
 var _look_picker: OptionButton
+
+# -- Frozen towns (TOWN_LAYOUT_SAVE_SCOPE.md TL-6/TL-7, Rulings GZ and HA) ---------------------------------------------
+#
+# A town a user pinned is frozen: `urban_layouts` serves its stored layout, whatever the rules have become since, and
+# nothing replaces it but the user's explicit "Re-lay with current rules", which shows the before and after first.
+
+## The banner above the plan (`setup()`).
+var _banner: VBoxContainer
+## The re-lay preview while one is open: `bridge.town_relay_preview()`'s `{ok, before, after, report}`; `{}` otherwise.
+var _preview: Dictionary = {}
+## Which side of the preview the plan shows.
+var _preview_after := true
+## The settlement index whose mismatch banner the user dismissed with Keep (this session); -1 none.
+var _kept_index := -1
+## The last re-lay's report line, shown until the next reload of another town.
+var _relay_note := ""
+## Touch forms' minimum button height in dp (the project's 44 dp rule, `_zoom_button`).
+const TOUCH_MIN_DP := 44.0
+
+## A banner or section button: `DccWidgets.action`, raised to 44 dp on touch forms.
+func _frozen_button(parent: Control, text: String, on_press: Callable, primary := false) -> Button:
+	var b := DccWidgets.action(parent, text, on_press, primary)
+	if _phone or DccTheme.is_tablet():
+		b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, TOUCH_MIN_DP)
+	return b
+
+## "1 234" for a population, the viewer's own thin-space-free grouping.
+static func _pop_text(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	while s.length() > 3:
+		out = " " + s.substr(s.length() - 3) + out
+		s = s.substr(0, s.length() - 3)
+	return ("-" if n < 0 else "") + s + out
+
+## The badge text for a frozen town (scope §6): "Frozen · year 412 · pop 2 207 · rules v1 (current v1)".
+static func frozen_badge(st: Dictionary) -> String:
+	var parts := ["Frozen"]
+	if st.has("year"):
+		parts.append("year %d" % int(st["year"]))
+	if st.has("pop"):
+		parts.append("pop " + _pop_text(int(st["pop"])))
+	if st.has("rules_version"):
+		parts.append("rules v%d (current v%d)" % [int(st["rules_version"]), int(st.get("rules_version_now", 0))])
+	return " · ".join(parts)
+
+## The Frozen town section of the side column: the badge, Re-lay and, for a town not frozen, Freeze this town.
+func _build_frozen_section() -> void:
+	if _index < 0 or not bridge.has_method("town_state"):
+		return
+	var st := bridge.town_state(_index)
+	if st.is_empty():
+		return
+	var sec := DccWidgets.section(_info, "Frozen town")
+	sec.name = "FrozenSection"
+	if st.has("damaged"):
+		DccWidgets.note(sec, "This town's saved layout is damaged (%s). It is drawn from the rules until you freeze it again." % String(st["damaged"]))
+		_frozen_button(sec, "Freeze this town", _freeze_now)
+		return
+	if not bool(st.get("frozen", false)):
+		DccWidgets.note(sec, "Not frozen: this town is drawn from the rules each time. Placing a pin, label, icon or measurement in it freezes it, so later rule changes cannot move it under your marks.")
+		_frozen_button(sec, "Freeze this town", _freeze_now).name = "FreezeTown"
+		return
+	var badge := DccTheme.label(frozen_badge(st), "text", DccTheme.FS_SMALL)
+	badge.name = "FrozenBadge"
+	badge.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sec.add_child(badge)
+	var marks := int(st.get("anchors", 0))
+	var det := int(st.get("detached", 0))
+	var tail := "%d point%s of interest anchored to it." % [marks, "" if marks == 1 else "s"]
+	if det > 0:
+		tail += " %d did not find a match at the last re-lay and stay where they were." % det
+	DccWidgets.note(sec, tail)
+	_frozen_button(sec, "Re-lay with current rules", _relay_open, true).name = "RelayButton"
+
+## "Freeze this town" (Ruling HA Q10).
+func _freeze_now() -> void:
+	if bridge.town_freeze(_index):
+		_reload(true)
+
+## Rebuilds the banner from the town's state: the preview when one is open, else the cheap tier's reasons and the
+## timeline chip for a frozen town (scope §6's "Mismatch banner", §5's chip), else the last re-lay's report.
+func _refresh_banner() -> void:
+	for n in _banner.get_children():
+		_banner.remove_child(n)
+		n.queue_free()
+	var lines: Array[String] = []
+	if not _preview.is_empty():
+		_build_preview_banner()
+		_banner.visible = true
+		return
+	var st: Dictionary = bridge.town_state(_index, true) if _index >= 0 and bridge.has_method("town_state") else {}
+	if bool(st.get("frozen", false)) and _kept_index != _index:
+		var reasons: Array = Array(st.get("reasons", PackedStringArray()))
+		if not reasons.is_empty():
+			lines.append("Since this town was drawn: " + "; ".join(reasons) + ".")
+		if bool(st.get("chip", false)):
+			lines.append("Drawn at pop %s, year %d; this year pop %s." % [_pop_text(int(st.get("pop", 0))), int(st.get("year", 0)), _pop_text(int(st.get("pop_now", 0)))])
+	if lines.is_empty() and _relay_note == "":
+		_banner.visible = false
+		return
+	if _relay_note != "":
+		var rn := DccTheme.label(_relay_note, "text_secondary", DccTheme.FS_SMALL)
+		rn.name = "RelayReport"
+		rn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_banner.add_child(rn)
+	if not lines.is_empty():
+		var msg := DccTheme.label("\n".join(lines), "text", DccTheme.FS_SMALL)
+		msg.name = "MismatchText"
+		msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_banner.add_child(msg)
+		## Phone: the two buttons stack (scope §6); elsewhere they sit in a row.
+		var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		_banner.add_child(row)
+		_frozen_button(row, "Re-lay", _relay_open, true).name = "BannerRelay"
+		_frozen_button(row, "Keep", func(): _kept_index = _index; _refresh_banner()).name = "BannerKeep"
+	_banner.visible = true
+
+## The before/after banner: which side is shown, the changed share, the re-attach count, and Show before / after,
+## Apply and Cancel. The plan itself shows `_preview`'s side (`_shown_layout`).
+func _build_preview_banner() -> void:
+	var rep: Dictionary = _preview.get("report", {})
+	var det := int(rep.get("detached_count", 0))
+	var att := int(rep.get("attached", 0)) + int(rep.get("ground", 0))
+	var txt := "Re-lay preview, showing %s: %d%% of the buildings change. %d of %d pins follow their places%s." % [
+		"AFTER (current rules)" if _preview_after else "BEFORE (frozen)",
+		int(round(100.0 * float(rep.get("changed_share", 0.0)))), att, att + det,
+		"" if det == 0 else "; %d find no match and would stay where they are" % det]
+	var l := DccTheme.label(txt, "text", DccTheme.FS_SMALL)
+	l.name = "PreviewText"
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_banner.add_child(l)
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	_banner.add_child(row)
+	_frozen_button(row, "Show before" if _preview_after else "Show after", _flip_preview).name = "PreviewFlip"
+	_frozen_button(row, "Apply", _relay_apply, true).name = "PreviewApply"
+	_frozen_button(row, "Cancel", _relay_cancel).name = "PreviewCancel"
+
+## Opens the re-lay's before/after (scope §5: Apply or Cancel; nothing changes until Apply).
+func _relay_open() -> void:
+	var p := bridge.town_relay_preview(_index)
+	if not bool(p.get("ok", false)):
+		_relay_note = "This town could not be laid out with the current rules, so it stays as it is."
+		_refresh_banner()
+		return
+	_preview = p
+	_preview_after = true
+	_relay_note = ""
+	_layout = _preview["after"]
+	_canvas.queue_redraw()
+	_refresh_banner()
+
+## Flips the plan between the frozen town and today's (tap; no swipe needed on the phone, scope §6).
+func _flip_preview() -> void:
+	if _preview.is_empty():
+		return
+	_preview_after = not _preview_after
+	_layout = _preview["after"] if _preview_after else _preview["before"]
+	_canvas.queue_redraw()
+	_refresh_banner()
+
+## Cancel: back to the frozen town; nothing changed.
+func _relay_cancel() -> void:
+	_preview = {}
+	_reload(true)
+
+## Apply: one undo step (the engine's `town_relay_apply`); the saved measurements in the town follow it too (Ruling
+## HA Q6, `right_dock.gd::follow_town_relay`). The report names every pin that found no match; none is deleted.
+func _relay_apply() -> void:
+	var host = _host_ref if _host_ref != null else get_parent()
+	if host != null and "right_dock_ctrl" in host and host.right_dock_ctrl != null and host.right_dock_ctrl.has_method("follow_town_relay"):
+		host.right_dock_ctrl.follow_town_relay(_index)
+	var r := bridge.town_relay_apply(_index)
+	_preview = {}
+	if bool(r.get("ok", false)):
+		var det: Array = r.get("detached", [])
+		_relay_note = "Re-laid with current rules. %d pin%s followed %s place%s." % [int(r.get("attached", 0)) + int(r.get("ground", 0)),
+			"" if int(r.get("attached", 0)) + int(r.get("ground", 0)) == 1 else "s", "its" if int(r.get("attached", 0)) + int(r.get("ground", 0)) == 1 else "their",
+			"" if int(r.get("attached", 0)) + int(r.get("ground", 0)) == 1 else "s"]
+		if not det.is_empty():
+			var names: Array[String] = []
+			for d in det:
+				names.append("%s %s" % [String((d as Dictionary).get("what", "")), String((d as Dictionary).get("name", ""))])
+			_relay_note += " %d did not find a matching %s and %s left in place: %s." % [det.size(), String((det[0] as Dictionary).get("kind", "feature")),
+				"was" if det.size() == 1 else "were", ", ".join(names)]
+	_reload(true)
+
+## Ruling HA Q5: a Town plan or place-editor edit to a frozen town never silently applies to its drawing. Returns
+## true when the town is frozen and the question was asked (the caller does nothing more); the answer Yes re-lays it
+## with the new settings, No keeps the frozen drawing (the setting stays recorded). `then` runs after either answer.
+static func ask_relay_frozen(parent: Node, b, index: int, then: Callable = Callable()) -> bool:
+	if b == null or not b.has_method("town_state") or not bool(b.town_state(index).get("frozen", false)):
+		return false
+	## One question at a time: a slider (the place editor's age) writes on every step.
+	var open_q = parent.get_meta("frozen_ask", null)
+	if open_q != null and is_instance_valid(open_q):
+		return true
+	var dlg := ConfirmationDialog.new()
+	parent.set_meta("frozen_ask", dlg)
+	dlg.title = "Frozen town"
+	dlg.dialog_text = "This town is frozen. Re-lay it with the new settings? Pins will follow."
+	dlg.ok_button_text = "Re-lay"
+	dlg.cancel_button_text = "Keep the frozen town"
+	dlg.confirmed.connect(func():
+		b.town_relay_apply(index)
+		if then.is_valid():
+			then.call())
+	dlg.canceled.connect(func():
+		if then.is_valid():
+			then.call())
+	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
+	parent.add_child(dlg)
+	dlg.popup_centered()
+	return true
 
 ## Look dropdown handler: stores the choice, then redraws the plan and rebuilds the legend (whose swatches
 ## follow the look). Row 0 is the map look, row 1 the ink plan. The map's own town layer re-reads the setting on
@@ -448,6 +671,8 @@ func _on_pick(item: int) -> void:
 func _reload(keep_view := false) -> void:
 	_layout = {}
 	_settlement = {}
+	## A reload ends a re-lay preview (TL-6): the plan shown is the engine's again.
+	_preview = {}
 	var places := bridge.settlements()
 	if _index >= 0 and _index < places.size():
 		_settlement = places[_index]
@@ -960,6 +1185,7 @@ func _rebuild_side() -> void:
 		_info.remove_child(n)
 		n.queue_free()
 
+	_refresh_banner()
 	if _layout.is_empty():
 		DccWidgets.note(_info, _no_layout_reason())
 		return
@@ -1010,6 +1236,7 @@ func _rebuild_side() -> void:
 	_swatch(leg, DRAW.ROUTE_END, "Approach roads",
 		"Where the roads running to the town meet the frame.")
 
+	_build_frozen_section()
 	_build_town_plan()
 
 	var sec := DccWidgets.section(_info, "Settlement")
@@ -1133,7 +1360,7 @@ func _rebuild_side() -> void:
 ## it moves territory and roads, which a town plan must not. Nor is the
 ## GDScript-only `SettlementTypeStore` (a drop-time field bundle).
 ##
-## **Regenerate is a new variant.** `urban_layouts()` keeps no cache and is
+## **New variant** (named Regenerate until Ruling HA Q5). `urban_layouts()` keeps no cache and is
 ## deterministic, so re-running it with unchanged inputs redraws the same town
 ## (`place_editor_window.gd::_build_layout`'s own finding). The button
 ## therefore bumps a stored `variant` that re-keys this settlement's seed and
@@ -1210,8 +1437,11 @@ func _build_town_plan() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	sec.add_child(row)
-	var regen := DccWidgets.action(row, "Regenerate", func(): _set_plan({"variant": variant + 1}), true)
-	regen.tooltip_text = "Re-plan this settlement alone with a new seed. No other settlement, road or border is touched."
+	## Ruling HA Q5: today's Regenerate is "New variant" (it re-keys the seed and draws a different town); the action
+	## that keeps the settings and applies today's rules is the Frozen town section's "Re-lay with current rules".
+	var regen := DccWidgets.action(row, "New variant", func(): _set_plan({"variant": variant + 1}), true)
+	regen.name = "NewVariant"
+	regen.tooltip_text = "Re-plan this settlement alone with a new seed: a different town. No other settlement, road or border is touched. A frozen town asks first."
 	if variant != 0:
 		DccWidgets.action(row, "Original", func(): _set_plan({"variant": 0}))
 
@@ -1240,14 +1470,17 @@ func _fit_column(ob: OptionButton) -> void:
 ## if the engine accepted them, regenerates it on the next idle frame.
 func _set_plan(fields: Dictionary) -> void:
 	if bridge.civ_set_town_plan(_index, fields):
-		_regenerate.call_deferred()
+		## A frozen town asks first (Ruling HA Q5): Re-lay applies the new settings, Keep leaves the frozen drawing.
+		if not ask_relay_frozen(self, bridge, _index, func(): _reload(true)):
+			_regenerate.call_deferred()
 
 
 ## Writes the wall override (-1 auto, 0 none, 1 fortified) through the same
 ## stored field the place editor edits, then regenerates if accepted.
 func _set_walls(w: int) -> void:
 	if bridge.civ_edit_settlement(_index, {"walls": w}):
-		_regenerate.call_deferred()
+		if not ask_relay_frozen(self, bridge, _index, func(): _reload(true)):
+			_regenerate.call_deferred()
 
 
 ## Re-runs this one settlement's layout, keeping the camera, and drops only its

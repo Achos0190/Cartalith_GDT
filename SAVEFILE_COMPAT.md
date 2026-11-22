@@ -349,6 +349,7 @@ entities/                             discrete, id-bearing things — see §9
   landmarks.json              MAY
   conflicts.json              MAY
   religions.json              MAY       FH-R1, since 2026-10-05 (§9.9)
+  town_layouts.json           MAY       Rulings GZ, HA, since 2026-11-22 (§9.10)
 
 history/                              recorded past states — see §10
   timeline.json               MAY
@@ -2003,6 +2004,98 @@ such row (or a malformed `custom:` key) — MUST be preserved on write-back, MUS
 NOT be re-pointed at a built-in, and behaves as `"none"` (no religion) in the
 engine; this implementation shows it as "Missing religion (custom:<id>)" and
 warns once per faction on open.
+
+### 9.10 `entities/town_layouts.json` — frozen town layouts
+
+**Written since 2026-11-22** (`TOWN_LAYOUT_SAVE_SCOPE.md`, Rulings GZ and HA). **Normative**: this section is the
+specification; `cartalith_civ::town_freeze` (the codec) and `cartalith-godot`'s `town_layout_bridge.rs` (the slot) are
+this implementation of it. Engine-owned (`ENGINE_OWNED_SLOTS`). **Additive, no `format_version` change**: written only
+when at least one town is frozen, so a world with none (every archive written before this section) re-saves byte for
+byte, and an older reader ignores it (§6.3).
+
+**What it is for.** A town layout is generated on demand from the world under the town, the place editor, the
+`urban_*` switches, the rules and the generator's own code; any of them can move a town with no change to its
+settings. A town a user has marked (a point of interest, a label, an icon or a saved measurement placed in it: Ruling
+HA's Q6) is **frozen**: its drawn geometry is stored here as integer vector data and drawn from here in preference to
+generating it, so the marks stay on the houses and streets they were placed on. A town not frozen has no row and is
+generated exactly as before.
+
+```json
+{ "version": 1,
+  "towns": [
+    { "id": 12,
+      "frozen": { "year": 412, "pop": 2207 },
+      "recipe": { "rules_version": 1, "switches": { "urban_riverbank": true }, "seed": 2918471, "cell": [104, 57],
+                  "pop": 2207, "site_kind": "river", "wall_style": "palisade", "walls": true, "fortified": false,
+                  "culture": "", "faith": "", "specialisation": "", "variant": 0,
+                  "rules": { "preset": "" }, "site_hash": "9c1e0d2b44a1f3e7" },
+      "enc": "q10d1",
+      "layout_hash": "a41f33b0c2d9e671",
+      "geom": { "box": [17000, 12500], "orient": "0000000000000000", "pin": [8500, 6250], "strs": ["lane", "..."],
+                "nodes": [...], "edges": [...], "buildings": { "poly": { "n": [...], "d": [...] }, ... }, ... },
+      "anchors": [ { "poi": 4, "kind": "building", "fid": 211, "off": [12, -8], "tag": "house|market", "at": [104620, 57310] } ] } ] }
+```
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `version` | integer | MUST | `1`. A reader that meets a greater one keeps the whole document verbatim (below). |
+| `towns[].id` | integer | MUST | The settlement's stable id (§9.1 `settlements[].id`). Rows are written in ascending `id`, unique. |
+| `towns[].frozen` | object | MAY | `year` (the timeline year shown when it was frozen) and `pop` (the settlement's population then), integers. |
+| `towns[].recipe` | object | MUST | How the town was made, as plain values: `rules_version` (this implementation's `URBAN_RULES_VERSION`), `switches` (each `urban_*` name to the value **in effect** for the layout; **a switch absent from `switches` MUST be read as off**, so a build that adds a switch does not make every older town differ), the generator seed, `cell`, `pop` (clamped as generated), `site_kind`, `wall_style`, `walls`, `fortified`, the place-editor fields (`culture`, `specialisation`, `variant`, and `age_override` / `walls_override` when set), the ruling faction's rite `faith`, `rules` (`preset`, plus `table`, each rules field to the 16-hex bit pattern of its `f64`, when the town's rules are not the defaults), and `site_hash` (16 hex, FNV-1a 64 over a canonical stream of the world-derived layout context: site box and stretch plan, water mask, river path, terrain, route ends, primary paths). A reader uses it only to say **why** a town differs; it is never used to regenerate silently. |
+| `towns[].enc` | string | MUST | `"q10d1"`: coordinates in the layout's local metres at a **0.1 m quantum** (integers, `round(v * 10)`), vertex lists delta-coded. A reader that does not know the value keeps the row verbatim. |
+| `towns[].layout_hash` | string | MUST | 16 lowercase hex: FNV-1a 64 over the canonical text of `geom` (compact JSON, keys sorted, as written). A writer MUST compute it from that text; a reader MUST check it before serving the row. |
+| `towns[].geom` | object | MUST | The drawn town (below). |
+| `towns[].anchors` | array | MAY | Where each point of interest inside the town sits, keyed by its `pois.json` id (`poi`): `kind` (`building`, `plot`, `street`, `gate`, `bridge`, `plaza`, `market` or `ground`), `fid` (the feature's index in its `geom` array; absent for `plaza` and `ground`), `off` (offset from the feature's anchor point in the feature's own axes, 0.1 m integers), `tag` (the feature's class, for same-kind matching after a re-lay), `at` (the pin's grid position when anchored, thousandths of a cell), `u` (street only: position along the segment, per mille) and `det: 1` when the last re-lay found no match for it. Omitted when empty. Labels, icons and measurements are anchored from their positions at re-lay time and store nothing here. |
+| `towns[].manual` | integer | MAY | `1` when the user froze the town by hand ("Freeze this town"). |
+
+**`geom`.** Integer arrays and a few strings only. Keys: `box` (`[wm, hm]`), `market`, `pin` (points `[x, y]`), `orient`
+(the exact `f64` bit pattern, 16 hex: it rotates the whole town about `pin`), `site_kind`, `wall_spec`, `market_prov`,
+`scalars` (seven exact `f64` bit patterns: street length, housed population, target length, reach, target population,
+age, river width), `real` (`[uses real water, uses real terrain]` as 0/1), `water`, `river`, `route_ends`, `mask_runs`
+(the water mask's rectangles, corner pairs), `bridge_pt`, `bridges` (`[x, y, dx, dy, class]` each, the direction at
+1e-4), `ford`, `harbour_pt`, `harbour` (`piers`, `mole`, `pt`), `nodes` and `edges` (the street graph as a node table
+and `[a, b, class, width]` quadruples: a segment's id is its index), `blocks`, `block_plaza`, `plaza` (`c`, `poly`,
+`kind`), `parcels` (`poly`, `cls`, `tone`, `district`), `buildings` (`poly`, `ridge`, `kind`, `district`, `court`,
+`tone`, and `intra` on a walled town), `wall` (`ring`, `style`, `gates` as `[x, y, water]`, `spurs`, `centroid`,
+`fort` with `trace` and `ravelins`), `citadel`, `hug` (the wall hug's outcome), `markets` (`poly`, `c`, `name`), `farm`
+and `details` (columns: `kind`, geometry type `g` 0 point / 1 segment / 2 polygon, `pts`, sparse `rr` and `orchard`),
+`faith` (one object per place of worship) and `strs`, the row's own **string table**: every class, district and kind
+attribute is an index into it, so a later build that renames a string cannot relabel a frozen town.
+
+A single vertex list is `[x0, y0, dx1, dy1, ...]`, the first vertex absolute. A list of lists is `{"n": [vertex count
+of each], "d": [...]}`, one stream for all of them: each list's first vertex is a delta from the previous list's last
+vertex, its second and third are deltas, and from the fourth on each vertex is the residual from the parallelogram
+prediction `p[k-1] + p[k-3] - p[k-2]`. Tones are integers at 1e-3. Fields the drawing does not read (building and lot
+ids, the harbour quay and defence, the citadel's approach, the fort's bastions and moats beyond its trace and ravelins,
+`parallel_*`) are not stored.
+
+**MUST.** A writer MUST write the member only when a town is frozen (or a document was kept verbatim, below); MUST
+write it as compact canonical JSON (sorted keys, integers, no whitespace) with rows in ascending `id`, so a load then a
+save is byte-identical; MUST NOT write a row whose `layout_hash` it did not compute. A reader MUST serve a readable
+row in preference to generating that town and MUST NOT replace it without the user's explicit action (this
+implementation's "Re-lay with current rules", which lays the town out with the current rules, moves every mark
+inside it to the same kind of feature where one is found and **never deletes one**: a mark with no match stays where
+it is and is listed). A reader MUST keep and write back a row it cannot use.
+
+**Reading, by the damage ladder (§6.4a).**
+
+| Damage | Result |
+|---|---|
+| Member absent (every older archive) | No frozen town; every town is generated; marks keep their absolute positions. No warning. |
+| `version` greater than known, or no `version`/`towns` | The whole document is kept verbatim and written back untouched; every town is generated; one warning. While it is held no town can be frozen. |
+| Not valid JSON | `cartalith-io` skips the entry with a warning (§6.4) and a writer refuses to write invalid JSON, so the document is lost on the next save; every town is generated. (The rule that keeps a document verbatim cannot keep one that is not JSON.) |
+| A row with an unknown `enc`, a `layout_hash` that does not match `geom`, a missing member or an out-of-range index | That row is kept verbatim, its town generated this session, one warning naming the row; the other rows are used. The row is replaced only by the user freezing that town again, never by an automatic placement. |
+| A row with no `id`, or a second row with the same `id` | Kept verbatim and written after the others; warned. |
+| An anchor whose `poi` no longer exists, or whose `fid` is out of range | Dropped and counted in one warning; the town is unaffected. |
+| A row whose settlement no longer exists | Kept verbatim (Ruling HA Q11), reported by "Check frozen towns". |
+
+**Older build, newer save.** A build before this section ignores the member, draws generated towns and keeps every
+mark at its absolute position; **a re-save from it drops the member**, so the freezing is lost, never a mark or its
+note. **`pois.json` is unchanged** by anchoring: a pin does not know it has an anchor, and §13.3.4's `poi` ids are not
+touched.
+
+**Sizes, measured 2026-11-22** (TL-1 census: 64 towns of seeds 483920 and 912345 at 384 columns, deflated rows): see
+`TOWN_LAYOUT_SAVE_SCOPE.md` TL-1 and `STATUS.md`.
 
 ---
 

@@ -168,6 +168,30 @@ pub struct AnnoEntry {
     pub stream: Option<String>,
     /// A note re-pointing the edit made, reversed by undo.
     pub repoint: Option<Repoint>,
+    /// The other annotation stores the same one action changed, `(before, after)` each
+    /// (`TOWN_LAYOUT_SAVE_SCOPE.md` TL-4: a re-lay moves the pins, labels and icons of a town in one step). An entry
+    /// is live only while **every** store it touched is live ([`AnnoUndo::live_seqs`]); empty for a one-store edit.
+    pub also: Vec<(Arc<AnnoSnap>, Arc<AnnoSnap>)>,
+    /// The frozen-town table before and after, when the action froze, re-laid or unfroze a town (a pin placed in a
+    /// town freezes it in the same step, scope §5). Undo writes `before` back, redo `after`. **Not part of liveness**:
+    /// every write to the table goes through `anno_scope`, so the table is exactly what the entry chain says.
+    pub towns: Option<(Arc<crate::town_layout_bridge::TownTable>, Arc<crate::town_layout_bridge::TownTable>)>,
+}
+
+impl AnnoEntry {
+    /// The `(before, after)` this entry holds for `store`, its own or one of [`Self::also`]; `None` when it did not
+    /// touch `store`.
+    pub fn pair(&self, store: AnnoStore) -> Option<(&AnnoSnap, &AnnoSnap)> {
+        if self.store == store {
+            return Some((&self.before, &self.after));
+        }
+        self.also.iter().find(|(b, _)| b.store() == store).map(|(b, a)| (&**b, &**a))
+    }
+
+    /// How many stores this entry touched.
+    fn store_count(&self) -> usize {
+        1 + self.also.len()
+    }
 }
 
 /// One undone entry waiting to be redone.
@@ -294,21 +318,29 @@ impl AnnoUndo {
     /// the entry above it found (`before`). The first mismatch ends that
     /// store's chain.
     pub fn live_seqs(&self, matches: &dyn Fn(&AnnoSnap) -> bool) -> Vec<u64> {
-        let mut out = Vec::new();
+        // A multi-store entry (`also`) is in each of its stores' chains, and live only when it is live in all of them.
+        let mut hits: BTreeMap<u64, usize> = BTreeMap::new();
         for store in AnnoStore::ALL {
             let mut above: Option<&AnnoSnap> = None;
-            for e in self.entries.iter().rev().filter(|e| e.store == store) {
+            for e in self.entries.iter().rev() {
+                let Some((before, after)) = e.pair(store) else { continue };
                 let ok = match above {
-                    None => matches(&e.after),
-                    Some(b) => *e.after == *b,
+                    None => matches(after),
+                    Some(b) => *after == *b,
                 };
                 if !ok {
                     break;
                 }
-                out.push(e.seq);
-                above = Some(&e.before);
+                *hits.entry(e.seq).or_insert(0) += 1;
+                above = Some(before);
             }
         }
+        let mut out: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|e| hits.get(&e.seq).copied().unwrap_or(0) == e.store_count())
+            .map(|e| e.seq)
+            .collect();
         out.sort_unstable_by(|a, b| b.cmp(a));
         out
     }
@@ -348,6 +380,7 @@ impl AnnoUndo {
             .find(|e| e.store == store)
             .filter(|e| *e.after == *pre)
             .map_or_else(|| Arc::new(pre.clone()), |e| Arc::clone(&e.after))
+        // An entry that touched `store` only through `also` is not shared from: a fresh clone is correct, only larger.
     }
 
     /// Merges a streamed sample into the newest entry when it is the same
@@ -355,15 +388,30 @@ impl AnnoUndo {
     /// (`ledger_last`), carries `key`, is of `store`, and its `after` is the
     /// state the sample started from (`pre`). Replaces its `after`. Returns
     /// whether it merged.
-    pub fn merge_stream(&mut self, ledger_last: u64, store: AnnoStore, key: &str, pre: &AnnoSnap, after: Arc<AnnoSnap>, repoint_to: Option<i64>) -> bool {
+    /// `towns` is the sample's frozen-town change, if it made one: the entry keeps its first `before` and takes the
+    /// sample's `after` (a drag that enters a town freezes it once, on the sample that entered).
+    #[allow(clippy::too_many_arguments)]
+    pub fn merge_stream(
+        &mut self,
+        ledger_last: u64,
+        store: AnnoStore,
+        key: &str,
+        pre: &AnnoSnap,
+        after: Arc<AnnoSnap>,
+        repoint_to: Option<i64>,
+        towns: Option<(Arc<crate::town_layout_bridge::TownTable>, Arc<crate::town_layout_bridge::TownTable>)>,
+    ) -> bool {
         if !self.stream_open {
             return false;
         }
         let Some(e) = self.entries.last_mut() else { return false };
-        if e.seq != ledger_last || e.store != store || e.stream.as_deref() != Some(key) || *e.after != *pre {
+        if e.seq != ledger_last || e.store != store || !e.also.is_empty() || e.stream.as_deref() != Some(key) || *e.after != *pre {
             return false;
         }
         e.after = after;
+        if let Some((b, a)) = towns {
+            e.towns = Some((e.towns.take().map_or(b, |(first, _)| first), a));
+        }
         if let (Some(r), Some(to)) = (e.repoint.as_mut(), repoint_to) {
             r.to = to;
         }
@@ -408,7 +456,8 @@ impl AnnoUndo {
     /// (`matches`). `None` otherwise; a stale offer is never made.
     pub fn redo_ready(&self, ledger_last: u64, height_depth: usize, matches: &dyn Fn(&AnnoSnap) -> bool) -> Option<&AnnoRedo> {
         let top = self.redo.last()?;
-        (top.mark == ledger_last && top.height_depth == height_depth && matches(&top.entry.before)).then_some(top)
+        let all_before = matches(&top.entry.before) && top.entry.also.iter().all(|(b, _)| matches(b));
+        (top.mark == ledger_last && top.height_depth == height_depth && all_before).then_some(top)
     }
 }
 
@@ -428,7 +477,7 @@ mod tests {
     }
 
     fn entry(seq: u64, store: AnnoStore, before: AnnoSnap, after: AnnoSnap, stream: Option<&str>) -> AnnoEntry {
-        AnnoEntry { seq, label: format!("e{seq}"), store, before: Arc::new(before), after: Arc::new(after), stream: stream.map(str::to_string), repoint: None }
+        AnnoEntry { seq, label: format!("e{seq}"), store, before: Arc::new(before), after: Arc::new(after), stream: stream.map(str::to_string), repoint: None, also: Vec::new(), towns: None }
     }
 
     /// Protects: the liveness chain. The newest entry is live only while the
@@ -477,19 +526,19 @@ mod tests {
         let (a, b, c) = (names(&[("a", "1")]), names(&[("a", "2")]), names(&[("a", "3")]));
         let mut u = AnnoUndo::new();
         u.push(entry(7, AnnoStore::Names, names(&[]), a.clone(), Some("move")));
-        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(b.clone()), None), "no gesture is open");
+        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(b.clone()), None, None), "no gesture is open");
         u.stream_open = true;
-        assert!(u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(b.clone()), None));
+        assert!(u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(b.clone()), None, None));
         assert_eq!(*u.entries[0].after, b);
         assert_eq!(*u.entries[0].before, names(&[]), "the gesture keeps its first before");
-        assert!(!u.merge_stream(8, AnnoStore::Names, "move", &b, Arc::new(c.clone()), None), "another row is on top");
-        assert!(!u.merge_stream(7, AnnoStore::Names, "size", &b, Arc::new(c.clone()), None), "a different key");
-        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(c.clone()), None), "the sample did not start from the held after");
+        assert!(!u.merge_stream(8, AnnoStore::Names, "move", &b, Arc::new(c.clone()), None, None), "another row is on top");
+        assert!(!u.merge_stream(7, AnnoStore::Names, "size", &b, Arc::new(c.clone()), None, None), "a different key");
+        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &a, Arc::new(c.clone()), None, None), "the sample did not start from the held after");
         u.end_stream();
-        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &b, Arc::new(c.clone()), None), "the gesture closed");
+        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &b, Arc::new(c.clone()), None, None), "the gesture closed");
         u.begin_stream();
         assert!(u.is_streaming());
-        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &b, Arc::new(c), None), "a new gesture starts a new step");
+        assert!(!u.merge_stream(7, AnnoStore::Names, "move", &b, Arc::new(c), None, None), "a new gesture starts a new step");
     }
 
     /// Protects: redo is offered only at the stamp, depth and store state the
@@ -520,15 +569,15 @@ mod tests {
         assert_eq!(u.compound_label(), Some("Add label"));
         assert!(u.is_streaming());
         u.push(entry(7, AnnoStore::Names, names(&[]), a.clone(), Some(COMPOUND_KEY)));
-        assert!(u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &a, Arc::new(b.clone()), None));
-        assert!(u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &b, Arc::new(c.clone()), None));
+        assert!(u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &a, Arc::new(b.clone()), None, None));
+        assert!(u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &b, Arc::new(c.clone()), None, None));
         assert_eq!(*u.entries[0].after, c);
         assert_eq!(*u.entries[0].before, names(&[]));
         u.end_compound();
         assert_eq!(u.compound_label(), None);
         assert!(!u.is_streaming());
         u.begin_compound("Add label");
-        assert!(!u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &c, Arc::new(a), None), "a second compound is its own step");
+        assert!(!u.merge_stream(7, AnnoStore::Names, COMPOUND_KEY, &c, Arc::new(a), None, None), "a second compound is its own step");
     }
 
     /// Protects: the step counter rises with every recorded step and survives `clear`, so a shell comparing it never mistakes a new step for an old one.

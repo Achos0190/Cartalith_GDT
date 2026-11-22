@@ -10,6 +10,8 @@ description = "civilisation-layer affordance fields: lithology, soil fertility, 
 name = "cartalith_civ"
 
 [dependencies]
+# TOWN_LAYOUT_SAVE_SCOPE.md TL-1: the frozen town form is JSON (`town_freeze`); already in the lockfile.
+serde_json = "1.0.151"
 cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }

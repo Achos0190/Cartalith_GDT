@@ -61,6 +61,12 @@
 //! rule or switch is a new key and never reads a stale verdict: the town's
 //! next layout costs one `generate()`, and `urban_layout_boxes` reports the
 //! box it is drawn in. No layout is kept.
+//!
+//! **Frozen towns are not a cache** (`TOWN_LAYOUT_SAVE_SCOPE.md`, Rulings GZ and HA, 2026-11-22): a town a user pinned
+//! is served from `WorldGen::town_layouts` (`town_layout_bridge`), the layout it was drawn with when the pin landed,
+//! saved in the project as `entities/town_layouts.json`. It is user data with its own invalidation (none: only the
+//! user's "Re-lay with current rules" replaces it), so [`WorldGen::urban_layouts`] serves it before generating and
+//! every surface that reads this one call sees the same frozen town.
 
 use godot::prelude::*;
 
@@ -128,7 +134,7 @@ fn empty_resource_potentials() -> ResourcePotentials {
 /// the sea (`cartalith_urban::Town::pin`), so with that switch off it is
 /// `_umDrawLayout`'s anchor exactly.
 #[allow(clippy::too_many_lines)]
-fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
+pub(crate) fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     let pt = |p: UVec2| Vector2::new(p.x as f32, p.y as f32);
     let poly = |pts: &[UVec2]| -> PackedVector2Array { pts.iter().map(|p| pt(*p)).collect() };
     // A,B,A,B... segment pairs -- the shape `Control._draw`'s `draw_multiline`
@@ -802,7 +808,7 @@ impl WorldGen {
     /// Settlement `e`'s rule set: empty follows the world's active rules,
     /// "default" pins `DEFAULT_RULES` (the `None` case), anything else a
     /// named preset. `set_town_plan` refused unknown ids on the way in.
-    fn own_rules(&self, e: &crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules> {
+    pub(crate) fn own_rules(&self, e: &crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules> {
         match e.rules_preset.as_str() {
             "" => self.urban_rules,
             "default" => None,
@@ -924,17 +930,54 @@ impl WorldGen {
     /// Empty before the first `generate()` and on a world opened without its substrate
     /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3). A reopened project that carries its substrate lays
     /// its towns out exactly as the world it was saved from.
+    ///
+    /// **A frozen town is served from the save** (`TOWN_LAYOUT_SAVE_SCOPE.md` TL-3, Rulings GZ and HA): a settlement
+    /// whose town a user pinned is drawn from its frozen layout (`town_layout_bridge`), whatever the rules, switches
+    /// or world have become since, and carries `"frozen" => true` plus `frozen_year`, `frozen_pop` and
+    /// `frozen_rules_version` (`town_state` has the rest). Only the towns not frozen are generated, and the river
+    /// trace is paid only when one is.
     #[func]
     fn urban_layouts(&self, indices: PackedInt32Array) -> Array<VarDictionary> {
-        let out = Array::new();
-        let (Some(WorldSource::Generated(ws)), Some(civ)) =
-            (self.source.as_ref(), self.civ.as_ref())
-        else {
+        let mut out = Array::new();
+        let (Some(WorldSource::Generated(_)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
             return out;
         };
+        let mut rest: Vec<usize> = Vec::new();
+        for i in indices.as_slice() {
+            let Ok(idx) = usize::try_from(*i) else { continue };
+            let Some(s) = civ.settlements.get(idx) else { continue };
+            match self.town_frozen_dict(idx, s.tid) {
+                Some(d) => out.push(&d),
+                None => rest.push(idx),
+            }
+        }
+        for (idx, layout) in self.town_batch(&rest, |_, _, ctx, rules, _, _| self.stretch_layout(ctx, rules)) {
+            if let Some(l) = layout {
+                out.push(&layout_dict(idx as i64, &l));
+            }
+        }
+        out
+    }
+
+    /// Runs `f` on the layout context of each settlement index in `indices` (skipping an index out of range), exactly
+    /// as [`Self::urban_layouts`] builds it: one river trace and at most one ore build for the whole batch, the place
+    /// editor's overrides, the ruling faction's faith, every live `urban_*` switch and the town's own rules. `f` gets
+    /// `(index, settlement, context, rules, overrides, river_kind_from_map)`. Empty before the first `generate()`, on a
+    /// world without its substrate, and for an empty `indices` (no trace is paid then). One builder for the drawn
+    /// town, a freeze and a re-lay (`town_layout_bridge`), so the recipe a town is frozen with is the one it was
+    /// drawn from.
+    pub(crate) fn town_batch<R>(
+        &self,
+        indices: &[usize],
+        mut f: impl FnMut(usize, &cartalith_civ::NamedSettlement, &urban_adapter::UrbanContext, Option<&urban_adapter::Rules>, &urban_adapter::PlaceOverrides, bool) -> R,
+    ) -> Vec<(usize, R)> {
+        let mut res = Vec::new();
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            return res;
+        };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw == 0 || gh == 0 || civ.settlements.is_empty() {
-            return out;
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() || indices.is_empty() {
+            return res;
         }
 
         // The one full-grid pass, hoisted out of the per-settlement loop --
@@ -971,30 +1014,25 @@ impl WorldGen {
         // make `um_ore_bearing` answer "no ore in any direction", which is a
         // legal bearing-free answer and would read as measured. `None` is its
         // own documented no-potentials case instead.
-        let wants_ore = indices.as_slice().iter().any(|i| {
-            usize::try_from(*i)
-                .ok()
-                .and_then(|idx| civ.settlements.get(idx))
-                .is_some_and(|s| civ.place_extras.get(s.tid).specialisation == "mining")
-        });
+        let wants_ore = indices
+            .iter()
+            .any(|idx| civ.settlements.get(*idx).is_some_and(|s| civ.place_extras.get(s.tid).specialisation == "mining"));
         let resources = self.ore_potentials(ws, civ, wants_ore);
 
-        let mut out = out;
         let drawn = self.drawn_river_runs();
         // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
         // call, so a stretched river town stops short of the others.
         let stretch_others: Vec<(f64, f64, f64)> =
             civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
-        for i in indices.as_slice() {
-            let Ok(idx) = usize::try_from(*i) else { continue };
+        for &idx in indices {
             let Some(s) = civ.settlements.get(idx) else { continue };
             let e = civ.place_extras.get(s.tid);
             let o = self.place_overrides(civ, s, &e, resources.as_ref(), &stretch_others, &drawn);
-            if let Some(layout) = self.stretch_layout(&urban_adapter::um_place_context_with(&world, s, &civ.ways, &o), self.own_rules(&e).as_ref()) {
-                out.push(&layout_dict(idx as i64, &layout));
-            }
+            let ctx = urban_adapter::um_place_context_with(&world, s, &civ.ways, &o);
+            let rules = self.own_rules(&e);
+            res.push((idx, f(idx, s, &ctx, rules.as_ref(), &o, world.river_kind_from_map)));
         }
-        out
+        res
     }
 
     /// **Ruling FQ** (owner, 2026-11-16): the box each stretched river town's
@@ -1395,33 +1433,43 @@ impl WorldGen {
 /// name, and the design canvas's own parameter tables are grouped the same
 /// way.
 fn rules_to_dict(r: &cartalith_civ::urban_adapter::Rules) -> VarDictionary {
-    let (s, p, t, m) = (&r.street, &r.parcels, &r.settlement, &r.meta);
-    vdict! {
-        "street.branch_angle_jitter" => s.branch_angle_jitter,
-        "street.continuation_jitter" => s.continuation_jitter,
-        "street.exploration_start" => s.exploration_start,
-        "street.exploration_decay" => s.exploration_decay,
-        "street.exploration_minimum" => s.exploration_minimum,
-        "street.segment_length_median" => s.segment_length_median,
-        "street.segment_length_variance" => s.segment_length_variance,
-        "street.pierce_chance" => s.pierce_chance,
-        "street.junction_angle_limit" => s.junction_angle_limit,
-        "street.market_gradient_decay" => s.market_gradient_decay,
-        "street.parallel_street_spacing" => s.parallel_street_spacing,
-        "street.dead_end_bias" => s.dead_end_bias,
-        "street.bridgehead_distance" => s.bridgehead_distance,
-        "street.bridgehead_probability" => s.bridgehead_probability,
-        "parcels.frontage_width_variance" => p.frontage_width_variance,
-        "parcels.plot_depth_variance" => p.plot_depth_variance,
-        "parcels.subdivision_cap" => p.subdivision_cap,
-        "settlement.wall_generation_threshold" => t.wall_generation_threshold,
-        "settlement.wall_generation_min_age_gap" => t.wall_generation_min_age_gap,
-        "settlement.wall_generation_extramural_share" => t.wall_generation_extramural_share,
-        "settlement.max_wall_generations" => t.max_wall_generations,
-        "settlement.carrying_capacity_weight" => t.carrying_capacity_weight,
-        "meta.wildness" => m.wildness,
-        "meta.plot_chaos" => m.plot_chaos,
+    let mut d = VarDictionary::new();
+    for (k, v) in rules_pairs(r) {
+        d.set(k, v);
     }
+    d
+}
+
+/// Every `Rules` field as `(dotted key, value)`, in the table's order: the one key list [`rules_to_dict`] and a
+/// frozen town's recipe (`town_layout_bridge`, which records a town's rules as values, scope §4.1) both read.
+pub(crate) fn rules_pairs(r: &cartalith_civ::urban_adapter::Rules) -> [(&'static str, f64); 24] {
+    let (s, p, t, m) = (&r.street, &r.parcels, &r.settlement, &r.meta);
+    [
+        ("street.branch_angle_jitter", s.branch_angle_jitter),
+        ("street.continuation_jitter", s.continuation_jitter),
+        ("street.exploration_start", s.exploration_start),
+        ("street.exploration_decay", s.exploration_decay),
+        ("street.exploration_minimum", s.exploration_minimum),
+        ("street.segment_length_median", s.segment_length_median),
+        ("street.segment_length_variance", s.segment_length_variance),
+        ("street.pierce_chance", s.pierce_chance),
+        ("street.junction_angle_limit", s.junction_angle_limit),
+        ("street.market_gradient_decay", s.market_gradient_decay),
+        ("street.parallel_street_spacing", s.parallel_street_spacing),
+        ("street.dead_end_bias", s.dead_end_bias),
+        ("street.bridgehead_distance", s.bridgehead_distance),
+        ("street.bridgehead_probability", s.bridgehead_probability),
+        ("parcels.frontage_width_variance", p.frontage_width_variance),
+        ("parcels.plot_depth_variance", p.plot_depth_variance),
+        ("parcels.subdivision_cap", p.subdivision_cap),
+        ("settlement.wall_generation_threshold", t.wall_generation_threshold),
+        ("settlement.wall_generation_min_age_gap", t.wall_generation_min_age_gap),
+        ("settlement.wall_generation_extramural_share", t.wall_generation_extramural_share),
+        ("settlement.max_wall_generations", t.max_wall_generations),
+        ("settlement.carrying_capacity_weight", t.carrying_capacity_weight),
+        ("meta.wildness", m.wildness),
+        ("meta.plot_chaos", m.plot_chaos),
+    ]
 }
 
 /// The mutable `f64` slot on `r` that dotted key `key` names, or `None` for
