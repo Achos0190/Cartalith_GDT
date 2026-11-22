@@ -2986,11 +2986,43 @@ pub enum StretchChoice {
 /// The verdict is what [`run_layout_as`] replays with one `generate()`
 /// call, so a host can cache it by [`stretch_choice_key`] instead of
 /// laying a town out up to three times per question. Same layouts, in the
-/// same order, as `run_layout` has laid out since Ruling FQ.
+/// same order, as `run_layout` has laid out since Ruling FQ, with
+/// `urban_parallel_streets` off; with it on, a stretched town takes the
+/// switch-off town's choice (fix E, Ruling HB, below).
 pub fn run_layout_choosing(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<(UrbanLayout, Option<StretchChoice>)> {
     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
         return None;
     }
+    // **Not the reference** (fix E, owner Ruling HB Q24, 2026-11-22;
+    // `PARALLEL_STREETS_SCOPE.md` sections 16-17): with `urban_parallel_streets`
+    // on, a stretched town is stretched exactly where the switch-off town is.
+    // The base's choice (full, milder or plain) is made with the switch off and
+    // replayed with it on, so the grain never flips a town between its
+    // stretched and its square shape (PS-4, at 384 x 288: PS-2 made another
+    // choice than the switch-off town for 8 of the census's 38 towns, and 4 of
+    // them kept under 70 % of the switch-off footprint), and the towns refused
+    // their stretch are the base's. It costs the switch-off layouts once more
+    // per stretched town with the switch on (hosts cache the verdict by
+    // `stretch_choice_key`, whose hash carries `parallel_streets`). Nothing
+    // changes with the switch off. (`plain` is carried only by a stretched
+    // context.)
+    if ctx.parallel_streets && ctx.plain.is_some() {
+        let choice = choose_stretch(ctx, rules, true)?.1?;
+        return run_layout_as(ctx, rules, choice).map(|l| (l, Some(choice)));
+    }
+    choose_stretch(ctx, rules, false)
+}
+
+/// [`run_layout_choosing`]'s Ruling FQ choice (the body it had before fix E),
+/// with `base` laying every layout out with `parallel_streets` off: the
+/// switch-off town's choice, which fix E (Ruling HB) replays with the switch on. With
+/// `base` false the layouts are the context's own, as before. Must never lay
+/// out a grain with `base` true.
+fn choose_stretch(ctx: &UrbanContext, rules: Option<&Rules>, base: bool) -> Option<(UrbanLayout, Option<StretchChoice>)> {
+    let layout_opts = |c: &UrbanContext, r: Option<&Rules>| {
+        let o = layout_opts(c, r);
+        GenOpts { parallel_streets: o.parallel_streets && !base, ..o }
+    };
     let opts = layout_opts(ctx, rules);
     let t = generate(ctx.seed, &opts);
     let (Some(plan), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {

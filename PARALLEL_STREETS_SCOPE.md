@@ -1475,3 +1475,83 @@ PS-6? [build it on its own: the frames of 483920 #3 and 912345 #20 are the base'
 bar is out of reach while the grain over-houses (median 126 % of target): restate it against PS-2's 3.8 / 3.5 %, or
 make PS-5's rear households and platting carry it (fewer, deeper lots at the same housing)? [carry it with PS-5;
 restate against PS-2 meanwhile]
+
+## 17. Ruling HB built and measured (2026-11-22): fix E BUILT, OFF at both boundaries; the water gate NO-GO, reverted
+
+**Fix E is built** (Q24): with `urban_parallel_streets` on, a stretched town takes the switch-off town's stretch choice
+(Ruling FQ's full, milder or plain), which is then replayed with the switch on (`urban_adapter::run_layout_choosing`,
+`choose_stretch`). It is section 16's prototype, re-applied unchanged but for its prose. Nothing changes with the switch
+off; an unstretched town is laid out once, as before. Hosts cache the verdict by `stretch_choice_key`, whose hash
+carries `parallel_streets` (read at the symbol). The switch stays OFF at both boundaries. **The water gate (Q23 (a)) was
+built, measured, framed and reverted**: it meets PS-4's riverside bar at both sizes for the first time, but it raises
+PS-2's needle-lot baseline at both sizes, which Ruling GM forbids (section 15 declared PS-3 a no-go on the same row).
+Evidence: `cartalith-native/docs/evidence/parallel-streets-E-gate-2026-11-22/` (`summary.txt` lists every file).
+
+**Numbers** (census world as section 15, today's tree `origin/main` `7cd2de2b`; before = switch off, mid = PS-2 as
+shipped, E = what ships, gate = E plus the water gate; quads over the 24 towns' outside-core blocks, every other row over
+the 38 / 39 towns of 1 500+; housed from `both_banks_audit`). Before and mid reproduce section 16's figures exactly, and
+E's rows reproduce its E rows:
+
+| bar | 384 before / mid / **E** / gate | 2 048 before / mid / **E** / gate |
+|---|---|---|
+| riverside, river towns 1 500+ (PS-4's 4.3 / 3.7 %; Q25: judged against PS-2's 3.8 / 3.5 %) | 4.1 / 3.8 / **4.1** / 4.5 % | 3.9 / 3.5 / **3.4** / 4.0 % |
+| stretched towns refused (no more than off) | 2 / 4 / **2** / 2 | 0 / 1 / **0** / 0 |
+| buildings in water; stretch-water flags | 0; 0 in every column | 0; 0 in every column |
+| quads outside the core (PS-2's 58.5 % not worse) | 51.8 / 58.5 / **58.8** / 59.5 % | 48.4 / 57.7 / **57.9** / 58.2 % |
+| needle lots (PS-2's 12.0 % not worse); needle buildings | 11.5 / 12.0 / **11.6** / 12.1 %; 0.50 / 0.62 / **0.60** / 0.56 % | 11.4 / 12.1 / **12.2** / 12.6 %; 0.60 / 0.64 / **0.64** / 0.67 % |
+| FS-1: towns keeping 85 % of the off footprint (PS-4's prototype 22 / 20) | 38 / 16 / **22** / 21 of 38 | 39 / 21 / **20** / 21 of 39 |
+| FS-2 delta max, market-street / organic / river-front | 0 / 0.164, 0.433, 0.207 / **0.164, 0.433, 0.163** / 0.158, 0.428, 0.163 | 0 / 0.202, 0.392, 0.228 / **0.202, 0.392, 0.228** / 0.230, 0.391, 0.218 |
+| wall over hull p90 / max; sharp vertices total | 1.099 / 1.167; 162 -- 1.088 / 1.130; 134 -- **1.106 / 1.131; 140** -- 1.088 / 1.130; 144 | 1.099 / 1.125; 170 -- 1.073 / 1.117; 120 -- **1.092 / 1.117; 118** -- 1.097 / 1.113; 124 |
+| housed p10 | 91 / 97 / **96** / 96 | 91 / 101 / **100** / 104 |
+| unbuilt patches inside the wall over 1 ha; squares outside the wall | 0; 1 / 5; 0 / **4; 1** / 4; 0 | 0; 1 / 2; 0 / **3; 0** / 3; 0 |
+| water lanes laid in walled towns with a grain, summed over `generate()` calls (not towns) | | 85 / 599 (E / gate) | 41 / 407 |
+
+**E against its bars.** At 384 E meets every bar it was given: FS-1's kept share 22 (the prototype's 22), refused 2 (off
+2), needles 11.6 % and quads 58.8 % (PS-2 12.0 / 58.5), riverside 4.1 % against PS-2's 3.8 %. **At 2 048 it is not green
+on three rows**, as section 16 already measured and the owner ruled Q24 with those figures in hand: riverside 3.4 %
+against PS-2's 3.5 %, needles 12.2 % against 12.1 %, FS-1 20 against 21 towns. E changes one town at 2 048, so these are
+that town's moves. The switch-off layouts are untouched: the towns CSV's off rows are identical to `origin/main`'s but
+for the `ptype` label of 4 towns, which the audit takes from the switch-on plan; `both_banks_audit` off is identical but
+for timing.
+
+**The water gate, as measured** (`scratch_code/water_gate.diff.txt`): `riverbank::lay_back_street_with(.., water_gate)`
+laid a water lane through the town's wall instead of refusing it (`crosses_wall`), and `generate`, after the wall hug and
+the shore snap, opened a `Gate { water: true }` wherever a live water lane crossed the finished circuit
+(`riverbank::water_gates`), so `cleanup::clear_fort_zone` kept the lane. It applied to a town with a grain only, the
+predicate PS-2 uses for "only a town with a grain changes". **Which switch:** `urban_parallel_streets`, not
+`urban_riverbank`, which owns change 5. It is a PS-4 piece, and putting it behind `urban_riverbank` would change shipped
+towns with no ruling. Its two tests passed (8 lanes and 8 gates on the 20 m wall fixture; 89 lanes kept through the wall
+at gates over seeds 4240-4251, none with the switch off). Laid lanes rose about sevenfold (table). The riverside share
+rose to 4.5 / 4.0 %, which meets PS-4's own bar at both sizes, and 384's housed p10 held. But the lots it adds are mostly
+needles: at 384, 1 110 more lots and 638 more needle lots. **Needle lots rose to 12.1 / 12.6 % against PS-2's 12.0 /
+12.1 %**, and at 2 048 needle buildings rose too (0.67 against 0.64 %). On the frames it changes 21 of the 27 settlements shot. Some
+look more like the switch-off town (912345 #4 gets its far bank back; 483920 #6 loses PS-2's small walled annex on the
+far bank). One goes the other way at first sight: 483920 #7 (2 056 people) turns from PS-2's compact walled town into a
+long wall round a mostly empty field, as the switch-off town has it. The frame shows this; its cause was not traced.
+Neither the shell nor the reference draws water gates (`wall_water_gates` is skipped), so a gated lane would cross the
+drawn curtain with no opening drawn. **By Ruling GM the gate is a no-go; it is reverted and E ships alone.**
+
+**A correction to section 16.** Its B piece found "change 5's water lanes have never been laid in a walled town". That is
+too strong. Without the gate, walled towns with a grain lay 85 lanes at 384 and 41 at 2 048 (per `generate()` call), where
+a back line inside the wall stands clear of the riverside curtain. The finding holds for most lanes, not all.
+
+**Frames** (owner condition): City Viewer, the shell's world at 384 x 288, windowed under the lock, opening frame and x4
+market-centred, before / mid / E / gate for every town of 1 500+ (26) and the village 483920 #2. They are in
+`contact_<seed>.png` and `frames/quad_*.png` (kept for the changed towns and the controls), with the combined sheet in
+`combined.png`. All were looked at. The probe passed in all six runs, and the before frames of the three sessions are
+pixel-identical (108 of 108). E changes three settlements, each back to the switch-off town's stretched shape:
+483920 #3 (5 097 to 4 773 buildings), 483920 #21 (2 870 to 2 956; PS-2's far-bank sprawl gone, the V-shaped two-bank
+town again) and 912345 #20 (3 614 to 3 239; its x4 frame, empty in PS-2's layout, is the town again). The controls are
+unchanged under E: 483920 #5 and #13, the village #2, and 912345 #8 and #32. The frames came from a debug DLL built from
+the tree with the scratch knobs in.
+
+**Mutants** on E (`mutants.txt`): 7 literal mutants, 6 killed by
+`urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is`. The seventh (the switch test
+dropped) is equivalent, as in section 16. E ships no numeric constant.
+
+**What this leaves for the owner.** **Q26.** The water gate meets PS-4's riverside bar at both sizes (4.5 / 4.0 %), but
+it adds needle lots over PS-2's baseline (12.1 / 12.6 %). Build it with PS-5, whose platting is to carry the needles and
+the riverside bar (Q25), or drop it? If it comes back, the shell must draw a postern where a gated lane crosses the
+curtain. [build it with PS-5, measured with PS-5's platting; draw the postern with it] **Q27.** E misses PS-2 at 2 048 on
+riverside (3.4 / 3.5 %), needles (12.2 / 12.1 %) and FS-1 (20 / 21) through the one town it changes there. Accept it as
+Q24 did, or hold it? [accept: those are section 16's figures, which Q24 ruled on]

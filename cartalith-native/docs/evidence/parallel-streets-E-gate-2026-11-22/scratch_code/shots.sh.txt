@@ -1,0 +1,24 @@
+#!/bin/bash
+# fix E / water gate frames: City Viewer, the shell's world at 384 x 288, two sessions per seed (each off, then on live):
+#   mid   = PS-2 as shipped (PSE_E=0 PSE_GATE=0)
+#   after = $AFTER_ENV (E alone: PSE_GATE=0; E + gate: none)
+# Holds C:/cw/.win_lock (MISTAKES #26): mkdir in an until-loop, owner file at once, removed only when ours.
+G="/c/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+S=C:/cw/psE_scratch
+L=C:/cw/.win_lock
+ME="psE-frames $$ $(date +%s)"
+until mkdir "$L" 2>/dev/null; do sleep 20; done
+echo "$ME" > "$L/owner_psE"
+echo "lock taken: $ME"
+cd C:/cw/psE/cartalith-native/godot-project
+declare -A IDS=( [483920]="0,1,3,4,5,6,7,8,10,12,13,16,21,29,2" [912345]="0,1,2,3,4,6,7,8,11,20,30,32" )
+for seed in 483920 912345; do
+  PSE_E=0 PSE_GATE=0 APPDATA=$S/appdata timeout 3000 "$G" --path . --resolution 1600x1000 _psE_probe.tscn -- --seed $seed --grid 384x288 --quick 1 --parallel 2 --shots $S/shots_mid --ids "${IDS[$seed]}" > $S/mid_${seed}.log 2>&1
+  echo "$seed mid rc $?"
+  PSE_GATE=0 APPDATA=$S/appdata timeout 3000 "$G" --path . --resolution 1600x1000 _psE_probe.tscn -- --seed $seed --grid 384x288 --quick 1 --parallel 2 --shots $S/shots_e --ids "${IDS[$seed]}" > $S/e_${seed}.log 2>&1
+  echo "$seed e rc $?"
+  APPDATA=$S/appdata timeout 3000 "$G" --path . --resolution 1600x1000 _psE_probe.tscn -- --seed $seed --grid 384x288 --quick 1 --parallel 2 --shots $S/shots_g --ids "${IDS[$seed]}" > $S/g_${seed}.log 2>&1
+  echo "$seed g rc $?"
+done
+if [ "$(cat "$L/owner_psE" 2>/dev/null)" = "$ME" ]; then rm -rf "$L"; echo "lock released"; else echo "lock not ours, left alone"; fi
+echo SHOTSDONE

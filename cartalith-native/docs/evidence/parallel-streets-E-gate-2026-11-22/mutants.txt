@@ -1,0 +1,8 @@
+E1 E branch asks the grain's own choice: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+E2 base does not switch the grain off: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+E3 grain forced on outside base: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is, urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+E4 E branch for unstretched towns too: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+E5 E branch off: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+E6 E branch returns the base layout: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+E7 E branch for every switch state: SURVIVED
+restored, hash ok

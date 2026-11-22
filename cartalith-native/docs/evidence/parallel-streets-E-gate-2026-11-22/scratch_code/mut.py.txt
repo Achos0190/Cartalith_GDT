@@ -1,0 +1,50 @@
+"""fix E + water gate literal mutants (exact replace, occurs-once check, restore in a finally, hash checked).
+KILLED if the named tests fail; BUILD_ERROR kept separate."""
+import hashlib, os, subprocess
+R = 'C:/cw/psE/cartalith-native/crates/'
+UA = R + 'cartalith-civ/src/urban_adapter.rs'
+RB = R + 'cartalith-urban/src/riverbank.rs'
+GN = R + 'cartalith-urban/src/generate.rs'
+CIV = ['cargo', 'test', '-p', 'cartalith-civ', '--lib', 'stretch']
+URB = ['cargo', 'test', '-p', 'cartalith-urban', '--lib', 'water_']
+M = [
+    ('E1 E branch asks the grain\'s own choice', UA, 'let choice = choose_stretch(ctx, rules, true)?.1?;', 'let choice = choose_stretch(ctx, rules, false)?.1?;', CIV),
+    ('E2 base does not switch the grain off', UA, 'GenOpts { parallel_streets: o.parallel_streets && !base, ..o }', 'GenOpts { parallel_streets: o.parallel_streets, ..o }', CIV),
+    ('E3 grain forced on outside base', UA, 'GenOpts { parallel_streets: o.parallel_streets && !base, ..o }', 'GenOpts { parallel_streets: !base, ..o }', CIV),
+    ('E4 E branch for unstretched towns too', UA, 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if ctx.parallel_streets {', CIV),
+    ('E5 E branch off', UA, 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if false && ctx.parallel_streets && ctx.plain.is_some() {', CIV),
+    ('E6 E branch returns the base layout', UA, 'return run_layout_as(ctx, rules, choice).map(|l| (l, Some(choice)));', 'return choose_stretch(ctx, rules, true);', CIV),
+    ('E7 E branch for every switch state', UA, 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if ctx.plain.is_some() {', CIV),
+#    ('G1 lay ignores the gate', RB, '(water_gate || !crosses_wall(b, w, wall))', '(!crosses_wall(b, w, wall))', URB),
+#    ('G2 lay always gated', RB, '(water_gate || !crosses_wall(b, w, wall))', '(true || !crosses_wall(b, w, wall))', URB),
+#    ('G3 wrapper passes true', RB, '    lay_back_street_with(site, g, wall, plaza, seed, false)', '    lay_back_street_with(site, g, wall, plaza, seed, true)', URB),
+#    ('G4 gates on every edge', RB, '.filter(|e| e.alive && e.prov == WATER_LANE_PROV)', '.filter(|e| e.alive)', URB),
+#    ('G5 gates on dead lanes', RB, '.filter(|e| e.alive && e.prov == WATER_LANE_PROV)', '.filter(|e| e.prov == WATER_LANE_PROV)', URB),
+#    ('G6 land gate', RB, 'Gate { pt, water: true, prov: WATER_GATE_PROV.to_string() }', 'Gate { pt, water: false, prov: WATER_GATE_PROV.to_string() }', URB),
+#    ('G7 gate for every town', GN, 'let water_gate = parallel.as_ref().is_some_and(|p| p.field.is_some());', 'let water_gate = true;', URB),
+#    ('G8 gates not opened', GN, '        wall_state.gates.extend(gates);', '        let _ = gates;', URB),
+#    ('G9 generate passes no gate', GN, 'plaza.as_ref().map(|p| p.poly.as_slice()), seed, water_gate))', 'plaza.as_ref().map(|p| p.poly.as_slice()), seed, false))', URB),
+]
+env = dict(os.environ, CARGO_TARGET_DIR='C:/cw/psE_target')
+files = {f: open(f, 'rb').read() for f in (UA,)}
+hs = {f: hashlib.sha256(b).hexdigest() for f, b in files.items()}
+try:
+    for name, f, old, new, cmd in M:
+        raw = files[f]
+        assert raw.count(old.encode()) == 1, name
+        open(f, 'wb').write(raw.replace(old.encode(), new.encode()))
+        r = subprocess.run(cmd, cwd='C:/cw/psE/cartalith-native', env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        out = r.stdout + r.stderr
+        open(f, 'wb').write(raw)
+        if 'error[' in out or 'could not compile' in out:
+            v = 'BUILD_ERROR'
+        elif r.returncode != 0:
+            v = 'KILLED ' + ', '.join(l.split()[1] for l in out.splitlines() if l.startswith('test ') and l.endswith('FAILED'))
+        else:
+            v = 'SURVIVED'
+        print(f'{name}: {v}', flush=True)
+finally:
+    for f, b in files.items():
+        open(f, 'wb').write(b)
+        assert hashlib.sha256(open(f, 'rb').read()).hexdigest() == hs[f]
+    print('restored, hash ok')

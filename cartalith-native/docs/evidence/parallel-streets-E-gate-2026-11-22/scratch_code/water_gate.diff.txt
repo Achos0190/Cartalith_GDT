@@ -1,0 +1,179 @@
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 2d2f4496..25ccc397 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -1337,14 +1337,20 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+     // waterfront back street and water lanes, laid first so the embankment
+     // below runs along all of it and the strip between closes into waterfront
+     // blocks. Organic plan only (the radial plan lays its own rings).
++    // **Not the reference** (owner Ruling HB Q23 (a), 2026-11-22): a town with
++    // a grain under `urban_parallel_streets` lays its water lanes through the
++    // riverside wall, and a water gate is opened where each crosses the finished
++    // circuit (below, before the rampart sweep). Off is change 5 exactly.
++    let water_gate = parallel.as_ref().is_some_and(|p| p.field.is_some()) && std::env::var("PSE_GATE").map_or(true, |v| v != "0"); // SCRATCH-PSE
+     let waterfront = if riverbank && pop_target >= BOTH_BANKS_MIN_POP && profile.planning != "radial" {
+-        Some(crate::riverbank::lay_back_street(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed))
++        Some(crate::riverbank::lay_back_street_with(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed, water_gate))
+     } else {
+         None
+     };
+     let embankment = if riverbank {
+         let wf = waterfront.unwrap_or_default();
+         let e = crate::riverbank::build_embankment_with(&site, &mut g, wall_state.ring.as_deref(), Some(seed), &wf.water_pts);
++        if std::env::var("PSE_LANES").is_ok() { eprintln!("PSELANES seed {seed} pop {pop_target} grain {} walled {} streets {} lanes {}", parallel.as_ref().is_some_and(|p| p.field.is_some()), wall_state.ring.is_some(), wf.streets.len(), wf.lanes); } // SCRATCH-PSE
+         Some(crate::riverbank::Embankment { back_streets: wf.streets, water_lanes: wf.lanes, ..e })
+     } else {
+         None
+@@ -1398,6 +1404,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+         // Not a bastioned trace (its ring is the gorge, not the drawn wall).
+         crate::wallhug::snap_wall_to_shore(&mut wall_state, &site);
+     }
++    // Ruling HB Q23 (a): the water gates of the lanes laid through the wall,
++    // on the circuit as it now stands (`crate::riverbank::water_gates`).
++    if water_gate && let Some(ring) = wall_state.ring.as_deref() {
++        let gates = crate::riverbank::water_gates(&g, ring);
++        wall_state.gates.extend(gates);
++    }
+     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
+     // backing onto the wall from inside, and a faubourg against it outside.
+     // Appended after every street-platted lot and drawn from their own
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank.rs b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+index 78c3facb..593c0723 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+@@ -38,6 +38,7 @@
+ use crate::districts::TERRAIN_BUILD_MIN;
+ use crate::geom::{Vec2, dist_pt_seg, js_or, point_in_poly, seg_int, simplify};
+ use crate::graph::Graph;
++use crate::growth::{Gate, ring_crossings};
+ use crate::plaza::PLAZA_MARKET_POP;
+ use crate::rng::stream;
+ use crate::routes::Anchors;
+@@ -630,6 +631,19 @@ const WATER_LANE_PROV: &str = "Water lane (not the reference; 2026-11-15, TOWN_G
+ /// box, across the town wall (`wall`) or through the square, and it adds edges
+ /// only.
+ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32) -> Waterfront {
++    lay_back_street_with(site, g, wall, plaza, seed, false)
++}
++
++/// [`lay_back_street`], and with `water_gate` (**not the reference**; owner
++/// Ruling HB Q23 (a), 2026-11-22, `PARALLEL_STREETS_SCOPE.md` section 17) a
++/// water lane is laid through the town's wall instead of refused by it: the
++/// wall of a one-bank river town follows its bank between the back line and
++/// the embankment (`fortify`), so without this every water lane of a walled
++/// town crosses it and none is laid (PS-4). `generate` then opens a water
++/// gate where each such lane crosses the finished circuit ([`water_gates`]),
++/// so the rampart sweep keeps it. `false` is [`lay_back_street`] exactly. It
++/// must never let a back street or a tie through the wall: only the lanes.
++pub fn lay_back_street_with(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32, water_gate: bool) -> Waterfront {
+     let mut out = Waterfront::default();
+     let r = &site.river;
+     if !site.riverbank() || r.len() < 2 {
+@@ -794,7 +808,7 @@ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza:
+             at.push(run.len() - 1);
+             for k in at {
+                 let (b, _, w) = run[k];
+-                if dry_on_side_w(site, b, w, side, WATER_LANE_W) && !crosses_wall(b, w, wall) && !crosses_plaza(b, w) {
++                if dry_on_side_w(site, b, w, side, WATER_LANE_W) && (water_gate || !crosses_wall(b, w, wall)) && !crosses_plaza(b, w) {
+                     g.add_street(b.x, b.y, w.x, w.y, "lane", WATER_LANE_W, 0, WATER_LANE_PROV);
+                     out.lanes += 1;
+                 }
+@@ -809,6 +823,27 @@ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza:
+     out
+ }
+ 
++/// The provenance string of a water gate [`water_gates`] opens.
++const WATER_GATE_PROV: &str = "Water gate (not the reference; 2026-11-22, owner Ruling HB Q23 (a)): a postern in the      riverside wall where a water lane runs from the waterfront back street down to the bank.";
++
++/// **Not the reference** (owner Ruling HB Q23 (a), 2026-11-22): a water gate
++/// at every point where a live water lane ([`lay_back_street_with`] with
++/// `water_gate`) crosses the finished circuit `ring`, so
++/// `cleanup::clear_fort_zone` keeps the lane (it kills an edge crossing the
++/// ring with no gate within its reach). Called after the wall is refitted and
++/// set on the shore, so the gates stand on the circuit that is drawn. Gates
++/// are `water: true`: the reference draws no water gate, and the wall lots
++/// (`crate::wallside`) read only the land gates. Must never open a gate on an
++/// edge that is not a water lane.
++pub fn water_gates(g: &Graph, ring: &[Vec2]) -> Vec<Gate> {
++    g.edges
++        .iter()
++        .filter(|e| e.alive && e.prov == WATER_LANE_PROV)
++        .flat_map(|e| ring_crossings(ring, g.nodes[e.a].pt(), g.nodes[e.b].pt()))
++        .map(|pt| Gate { pt, water: true, prov: WATER_GATE_PROV.to_string() })
++        .collect()
++}
++
+ /// What [`lay_town_bridge`] found or laid.
+ #[derive(Debug, Clone, Copy, PartialEq)]
+ pub enum TownBridge {
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+index 7dd14fae..dcc45291 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+@@ -1528,3 +1528,66 @@ fn a_town_with_a_grain_is_judged_against_a_quarter_over_its_target() {
+     no_grain.parallel = None;
+     assert_eq!(second_pass(&no_grain), None, "no grain, no slack");
+ }
++
++/// Protects the water gate (owner Ruling HB Q23 (a), `lay_back_street_with`
++/// and `water_gates`, literals from a run): with the 20 m wall of
++/// `the_waterfront_points_carry_the_embankment`, which refuses every water
++/// lane, `water_gate` lays the same back street and its lanes through the
++/// wall, and `water_gates` opens one gate on the wall's water side (20 m out)
++/// per lane; a street or tie never passes the wall, and with `water_gate`
++/// false nothing changes.
++#[test]
++fn a_water_lane_passes_the_riverside_wall_at_a_water_gate() {
++    let r = RIVER_Y;
++    let ring = [Vec2::new(0.0, r - 20.0), Vec2::new(1700.0, r - 20.0), Vec2::new(1700.0, r - 400.0), Vec2::new(0.0, r - 400.0)];
++    let (site, g0) = bank_site_and_streets(&stand_back_town());
++    let (mut g, mut ga, mut gb) = (g0.clone(), g0.clone(), g0.clone());
++    let off = super::lay_back_street_with(&site, &mut ga, Some(&ring), None, 5, false);
++    assert_eq!(off, super::lay_back_street(&site, &mut gb, Some(&ring), None, 5), "false is lay_back_street");
++    assert_eq!(off.lanes, 0, "premise: the wall refuses every lane");
++    assert!(super::water_gates(&ga, &ring).is_empty(), "no lane, no gate");
++    let on = super::lay_back_street_with(&site, &mut g, Some(&ring), None, 5, true);
++    assert_eq!(on.streets, off.streets, "the same back street");
++    assert_eq!(on.lanes, 8, "lanes through the wall");
++    let gates = super::water_gates(&g, &ring);
++    assert_eq!(gates.len(), 8, "one gate per lane");
++    for gt in &gates {
++        assert!(gt.water && (gt.pt.y - (r - 20.0)).abs() < 1e-9, "a water gate on the water side: {:?}", gt.pt);
++    }
++    // Only lanes cross the wall.
++    for e in g.edges.iter().filter(|e| e.alive && !crate::growth::ring_crossings(&ring, g.nodes[e.a].pt(), g.nodes[e.b].pt()).is_empty()) {
++        assert_eq!(e.cls, "lane", "a {} edge crosses the wall", e.cls);
++    }
++    // A street through the wall opens no water gate, and a dead lane none.
++    g.add_street(100.0, r - 60.0, 100.0, r + 60.0, "street", 6.0, 0, "test");
++    assert_eq!(super::water_gates(&g, &ring).len(), 8, "a street is not a water lane");
++    let lane = g.edges.iter().find(|e| e.alive && e.prov == super::WATER_LANE_PROV).map(|e| e.id).unwrap();
++    crate::cleanup::kill_edge(&mut g, lane);
++    assert_eq!(super::water_gates(&g, &ring).len(), 7, "a dead lane keeps no gate");
++}
++
++/// Protects `generate`'s water gates (owner Ruling HB Q23 (a)): on the
++/// fixture's straight river, a walled chartered town (6 000) with a grain
++/// (`parallel_streets`) keeps water lanes through its finished wall on some of
++/// the seeds 4240-4251, every crossing of the wall by a live water lane has a
++/// water gate on it (so the rampart sweep kept the lane), and with the switch
++/// off no water lane crosses the wall.
++#[test]
++fn a_walled_river_town_keeps_its_water_lanes_at_water_gates() {
++    let mut gated = 0;
++    for s in 4240..4252u32 {
++        for on in [false, true] {
++            let t = generate(s, &GenOpts { walls: Some(true), parallel_streets: on, ..opts(true, true) });
++            let Some(ring) = t.wall.ring.as_deref() else { continue };
++            let nodes = &t.graph.nodes;
++            for e in t.graph.edges.iter().filter(|e| e.prov == super::WATER_LANE_PROV) {
++                for cp in crate::growth::ring_crossings(ring, nodes[e.a].pt(), nodes[e.b].pt()) {
++                    assert!(on, "seed {s}: a water lane crosses the wall with the switch off");
++                    assert!(t.wall.gates.iter().any(|g| g.water && g.pt.dist(cp) < 1e-6), "seed {s}: a lane crosses the wall at {cp:?} with no water gate");
++                    gated += 1;
++                }
++            }
++        }
++    }
++    assert_eq!(gated, 89, "water lanes kept through the wall over the twelve seeds");
++}

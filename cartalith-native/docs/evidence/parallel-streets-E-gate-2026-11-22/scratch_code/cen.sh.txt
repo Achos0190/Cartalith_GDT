@@ -1,0 +1,12 @@
+#!/bin/bash
+# cen.sh <exe> <outdir> <gw:gh> [extra env...]: parallel_streets_audit (off vs on CSVs) + ps1_agg, and both_banks/stretch_water off and on.
+EXE=$1; OUT=$2; sz=$3; gw=${sz%%:*}; gh=${sz##*:}; shift 3
+cd /c/cw/psE/cartalith-native/crates/cartalith-godot
+mkdir -p $OUT/$gw
+env "$@" TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 PS1_CSV=$OUT/$gw $EXE parallel_streets_audit --ignored --nocapture --test-threads 1 > $OUT/audit_$gw.txt 2>&1
+python C:/cw/psE_scratch/ps1_agg.py $OUT/$gw $gw > $OUT/agg_$gw.txt 2>&1
+for pv in 0 1; do
+  env "$@" TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_PARALLEL=$pv $EXE both_banks_audit --ignored --nocapture --test-threads 1 > $OUT/bb_${gw}_p$pv.txt 2>&1
+  env "$@" TOWN_RIVER_GW=$gw TOWN_RIVER_GH=$gh TOWN_RIVER_VILLAGES=1 TOWN_RIVER_PARALLEL=$pv $EXE stretch_water_audit --ignored --nocapture --test-threads 1 > $OUT/sw_${gw}_p$pv.txt 2>&1
+done
+echo done $OUT $gw

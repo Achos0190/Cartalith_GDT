@@ -2711,3 +2711,38 @@ fn a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content() {
     walled.plain.as_mut().unwrap().walls = !walled.plain.as_ref().unwrap().walls;
     assert_ne!(stretch_choice_key(&walled, None), Some(k), "the plain context is in the key too");
 }
+
+/// Protects fix E, Ruling HB's stretch rule (`run_layout_choosing`, `PARALLEL_STREETS_SCOPE.md` sections 16-17): with
+/// `urban_parallel_streets` on, a stretched town takes the switch-off town's choice, not its own. On the fixture's
+/// straight river, the town of 20 000 with a plan of 900 m each way and 450 m across is kept stretched (`Full`) when
+/// the grain's layout judges itself, but the switch-off layout fails Ruling FQ's bars and is laid out in the
+/// reference's box (`Plain`): with the switch on the verdict is `Plain`, the layout is in the reference's box and is
+/// the switch-on plain town (`run_layout_as`). With the switch off the verdict is `Plain` too (the base's own).
+/// All three verdicts are literals from a run. An unstretched town with the switch on still gets its one layout.
+#[test]
+fn a_town_with_a_grain_is_stretched_where_the_switch_off_town_is() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 20_000);
+    let alone = [(20.0, 20.0, 20_000.0)];
+    let plan = cartalith_urban::stretch::StretchPlan { ahead_m: 900.0, behind_m: 900.0, across_m: 450.0 };
+    let ctx_with = |parallel_streets: bool| {
+        let mut c = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_stretch: Some(&alone), parallel_streets, ..Default::default() });
+        c.river_stretch = Some(plan);
+        c
+    };
+    let (on, off) = (ctx_with(true), ctx_with(false));
+    assert_eq!(choose_stretch(&on, None, false).unwrap().1, Some(StretchChoice::Full), "premise: the grain's own verdict");
+    assert_eq!(run_layout_choosing(&off, None).unwrap().1, Some(StretchChoice::Plain), "premise: the switch-off verdict");
+    let (l, c) = run_layout_choosing(&on, None).expect("a layout");
+    assert_eq!(c, Some(StretchChoice::Plain), "the switch-off town's verdict");
+    assert_eq!((l.wm, l.hm), (SITE_WM, SITE_HM), "laid out in the reference's box");
+    let replay = run_layout_as(&on, None, StretchChoice::Plain).unwrap();
+    assert_eq!((l.buildings.len(), l.pop), (replay.buildings.len(), replay.pop), "the switch-on plain town");
+    // An unstretched town with the switch on is laid out once, as before, with no verdict.
+    let flat = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, parallel_streets: true, ..Default::default() });
+    assert!(flat.river_stretch.is_none(), "premise");
+    assert_eq!(run_layout_choosing(&flat, None).map(|x| x.1), Some(None), "unstretched: a layout and no verdict");
+}

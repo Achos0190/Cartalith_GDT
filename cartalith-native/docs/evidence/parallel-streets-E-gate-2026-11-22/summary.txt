@@ -1,0 +1,30 @@
+Ruling HB (2026-11-22): fix E BUILT behind urban_parallel_streets (OFF at both boundaries); the water gate MEASURED and
+REVERTED (no-go on PS-2's needle baseline, Ruling GM). Scope section 17 has the result; this file lists the evidence.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, the app's params::defaults; release test binaries of
+origin/main 7cd2de2b (base.exe) and of 7cd2de2b plus E plus the gate with three scratch env knobs (PSE_E, PSE_GATE,
+PSE_LANES; scratch_code/water_gate.diff.txt has the gate, the knobs are not in it). 384 x 288 and 2048 x 1311.
+  census/r_base   origin/main: [off] = BEFORE, [proto] = MID (PS-2)
+  census/r_e      E alone (PSE_GATE=0): [proto] = AFTER. Its off rows are layout-identical to r_base's (towns CSV: only
+                  the 'ptype' label column differs for 4 towns, which the audit takes from the switch-on plan; bb_p0
+                  identical but for timing and line interleaving)
+  census/r_g      E + the water gate (reverted), same checks
+  Each: agg_<gw>.txt (ps1_agg.py), bb_<gw>_p0|p1.txt (both_banks_audit off | on; the PSELANES lines are the scratch lane
+  count per generate() call), sw_<gw>_p0|p1.txt (stretch_water_audit), <gw>/towns_<gw>.csv. scratch_code/bars.py.txt
+  prints the bar lines; cen.sh.txt runs one census.
+
+Frames: City Viewer, the shell's world at 384 x 288, windowed under C:/cw/.win_lock (scratch APPDATA), three sessions
+per seed (each: off, then on live): MID (PSE_E=0 PSE_GATE=0 = PS-2), E (PSE_GATE=0), E + gate. Debug DLL built from
+the knob tree. All 26 towns of 1 500+ and the village 483920 #2 shot; probe RESULT: PASS in all six runs
+(probe_logs/); the BEFORE frames of the three sessions pixel-identical (108 of 108).
+  contact_<seed>.png   rows = towns; columns BEFORE | MID | E | E+GATE at the opening frame, then the same at x4
+  frames/quad_<seed>_<id>_z1|z4.png   full size, for the towns E or the gate changes and the controls
+  combined.png         the sheet to send: E's three towns (483920 #3, #21, 912345 #20), the gate's (483920 #7, #6,
+                       912345 #4), controls (483920 #13, the village #2, 912345 #8)
+
+mutants.txt   E1-E7 (scratch_code/mut.py.txt; the gate's G mutants are commented out, the gate does not ship): 6 killed,
+              E7 equivalent (an off context takes its own choice and replays it to the same layout).
+scratch_code/water_gate.diff.txt   lay_back_street_with, riverbank::water_gates, generate's hand-over and two tests
+              (a_water_lane_passes_the_riverside_wall_at_a_water_gate: 8 lanes and 8 gates on the fixture's 20 m wall;
+              a_walled_river_town_keeps_its_water_lanes_at_water_gates: 89 lanes kept through the wall at gates over
+              seeds 4240-4251, none with the switch off), plus the two scratch lines (SCRATCH-PSE).
