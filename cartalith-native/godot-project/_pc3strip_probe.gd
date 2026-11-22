@@ -7,7 +7,7 @@ extends Node
 ##
 ## **Windowed, never `--headless`**, from a project copy with its own `config/name` and a wiped
 ## `app_userdata/<name>` (`MISTAKES.md`: a probe that reads `user://` can be green for reasons that have
-## nothing to do with the code). Reads `--force-touch` and `--shots <dir>`; anything else exits 2.
+## nothing to do with the code). Reads `--force-touch`, `--density <v>` (the shell's form switch) and `--shots <dir>`; anything else exits 2.
 ## The phone (393x852) is not driven: it keeps its shipped strip (CIVIL only), which the pixel-identity
 ## captures of the PC-3 commit cover.
 ##
@@ -190,6 +190,10 @@ func _ready() -> void:
 		var a := args[k]
 		if a == "--force-touch":
 			pass
+		elif a.begins_with("--density="):
+			pass  # the shell's own form switch (tablet = --density=1.0), read by the shell, not by this probe
+		elif a == "--density" and k + 1 < args.size():
+			k += 1
 		elif a == "--shots" and k + 1 < args.size():
 			k += 1
 			_shots = args[k]
@@ -215,6 +219,12 @@ func _ready() -> void:
 	await _settle(6)
 	_mode = "tablet" if DccTheme.is_tablet() else "desktop"
 	print("== mode %s ==" % _mode)
+	if DccTheme.is_phone():
+		# Ruling GT: the phone keeps its own strip (the transport panel behind `_tl_phone_button`), which this PC-3 probe's
+		# domains-and-clicks route does not reach; `tools/ladder_drive.gd` drives the phone ladder. Said out loud, never silently green.
+		print("SKIP: the PC-3 year strip is not on the phone (its ladder is driven by tools/ladder_drive.gd)")
+		get_tree().quit(0)
+		return
 	_bridge = _app.bridge
 	_bridge.generate({"seed": 4242, "width_km": 2400.0, "grid_w": 256, "grid_h": 192,
 		"archetype": "", "villages": true, "sea_level": 0.45})

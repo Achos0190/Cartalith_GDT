@@ -25403,7 +25403,7 @@ impl WorldGen {
     ///   `confirm_overwrite: true` to proceed.
     /// * `{"ok": true, "rejected": PackedStringArray, "steps": int, "end_year": int,
     ///   "died": int, "migrated": int, "unplaced": int, "failed": int, "grew": int,
-    ///   "final_settlements": int}` on success -- the timeline cursor is left at
+    ///   "final_settlements": int, "hamlets": int}` on success (`hamlets`: junction hamlets adopted into the live list) -- the timeline cursor is left at
     ///   `end_year` (`CivData::civ_goto_year`, reusing milestone 4's own method, so
     ///   `territory` is already reloaded for that year by the time this returns).
     #[func]
@@ -25443,30 +25443,31 @@ impl WorldGen {
         // Owner finding F27 / Ruling GL: in recovery, roads that have returned found hamlets at their
         // junctions as the years pass (`cartalith_civ::junction`), each step a share of a century of
         // the generation chance, on its own stream per year. Off: `None`, by control flow.
-        let found_on = self.params.civ.junction_settlements && req.mode == cartalith_civ::timeline::SimulateMode::Recovery;
+        let found_on = junction_founding_on(self.params.civ.junction_settlements, req.mode);
         let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         let mut next_tid = civ.next_tid;
         let step_scale = (req.step_years.max(1) as f64 / 100.0).min(1.0);
         let (field, flow) = (&ws.field, &ws.flow_discharge);
         let dry = |x: usize, y: usize| field[y * gw + x] as f64 >= sea_level;
         let river = |x: usize, y: usize| flow[y * gw + x] as f64 >= flow_thresh;
-        let jw = cartalith_civ::junction::JunctionWorld { gw, gh, map_width_km, dry: &dry, river: &river, cultures: &[] };
-        let mut found = |year: i64, standing: &[cartalith_civ::NamedSettlement], ways: &[cartalith_civ::Way]| {
-            let mut rng = cartalith_rng::Mulberry32::new(cartalith_civ::junction::JUNCTION_STREAM_SEED ^ (year as u32).wrapping_mul(2_654_435_761));
-            cartalith_civ::junction::civ_junction_settlements(ways, standing, &jw, step_scale, &mut rng)
-                .into_iter()
-                .map(|v| {
-                    let mut h = junction_hamlet(v);
-                    h.tid = cartalith_civ::timeline::civ_assign_tid(0, &mut next_tid);
-                    h
-                })
-                .collect::<Vec<_>>()
-        };
+        // The roster's cultures name each hamlet as generation does (the founder is the nearest larger place's faction).
+        let cultures = civ.faction_roster.cultures();
+        let jw = cartalith_civ::junction::JunctionWorld { gw, gh, map_width_km, dry: &dry, river: &river, cultures: &cultures };
+        // Every hamlet founded, with the step's year: after a run that happened they join the live list
+        // ([`adopt_junction_hamlets`]), so the founding year is a fact the place carries, not only the snapshots.
+        let mut founded_log: Vec<(cartalith_civ::NamedSettlement, i64)> = Vec::new();
+        let mut found = junction_step_hook(&jw, step_scale, &mut next_tid, &mut founded_log);
         let outcome = timeline_bridge::run_collapse_simulation_with(
             &mut civ.timeline, active_year, &civ.settlements, &civ.ways, &civ.territory, &world, &req,
             if found_on { Some(&mut found) } else { None },
         );
+        drop(found); // the hook's borrows of `next_tid` and the log end here
         civ.next_tid = civ.next_tid.max(next_tid);
+        let mut hamlets = 0usize;
+        if matches!(outcome, timeline_bridge::CollapseSimOutcome::Ran(_)) {
+            // Village-flagged, so (as with Seed villages) no derived layer goes stale: the shell only repaints.
+            hamlets = adopt_junction_hamlets(civ, founded_log, self.params.civ.founding_year);
+        }
         match outcome {
             timeline_bridge::CollapseSimOutcome::NoSettlements => {
                 fail("No settlements to simulate. Auto-populate the world first.")
@@ -25501,10 +25502,64 @@ impl WorldGen {
                     "failed" => i64::from(report.failed),
                     "grew" => i64::from(report.grew),
                     "final_settlements" => report.final_settlement_count as i64,
+                    // Junction hamlets that joined the live list (finding F27); the shell repaints the pins when > 0.
+                    "hamlets" => hamlets as i64,
                 }
             }
         }
     }
+}
+
+/// The recovery step's founding rule as `run_collapse_simulation_with` takes it (owner finding F27): per
+/// step, `cartalith_civ::junction::civ_junction_settlements` over the carried-forward ways on a stream of
+/// the step's year, each hamlet given a fresh tid from `next_tid` and logged with that year into `log`.
+/// Shared by the `#[func]` and its tests so the tests drive the shipped wiring, not a copy of it.
+pub(crate) fn junction_step_hook<'a>(
+    jw: &'a cartalith_civ::junction::JunctionWorld<'a>,
+    step_scale: f64,
+    next_tid: &'a mut u64,
+    log: &'a mut Vec<(cartalith_civ::NamedSettlement, i64)>,
+) -> impl FnMut(i64, &[cartalith_civ::NamedSettlement], &[cartalith_civ::Way]) -> Vec<cartalith_civ::NamedSettlement> + 'a {
+    move |year, standing, ways| {
+        let mut rng = cartalith_rng::Mulberry32::new(cartalith_civ::junction::JUNCTION_STREAM_SEED ^ (year as u32).wrapping_mul(2_654_435_761));
+        cartalith_civ::junction::civ_junction_settlements(ways, standing, jw, step_scale, &mut rng)
+            .into_iter()
+            .map(|v| {
+                let mut h = junction_hamlet(v);
+                h.tid = cartalith_civ::timeline::civ_assign_tid(0, next_tid);
+                log.push((h.clone(), year));
+                h
+            })
+            .collect()
+    }
+}
+
+/// Owner finding F27 / Ruling FO item 1: puts the hamlets a recovery run founded into the live list, each
+/// stamped (with `stamp`, `civ.founding_year`) as founded in its step's year and flagged a village (`village_tids`), as
+/// generation flags them. Returns how many joined (the
+/// shell repaints; village-flagged, no derived layer goes stale). A tid already live is skipped, so a
+/// repeat can never double a place. Must never be called for a run that did not happen; with no hamlets
+/// it changes nothing at all.
+pub(crate) fn adopt_junction_hamlets(civ: &mut CivData, founded: Vec<(cartalith_civ::NamedSettlement, i64)>, stamp: bool) -> usize {
+    let mut n = 0;
+    for (h, year) in founded {
+        if civ.settlements.iter().any(|s| s.tid == h.tid) {
+            continue;
+        }
+        if stamp {
+            civ.place_extras.stamp_founded(h.tid, year);
+        }
+        civ.village_tids.insert(h.tid); // flagged as generation flags them: not a road-network node (`CivData::village_tids`)
+        civ.settlements.push(h);
+        n += 1;
+    }
+    n
+}
+
+/// Whether a timeline run founds junction hamlets: `civ.junction_settlements` on **and** recovery mode (collapse
+/// never founds). The `#[func]`'s only gate, lifted out so a test can hold it (owner finding F27).
+pub(crate) fn junction_founding_on(switch: bool, mode: cartalith_civ::timeline::SimulateMode) -> bool {
+    switch && mode == cartalith_civ::timeline::SimulateMode::Recovery
 }
 
 /// A founded junction hamlet as a settlement: a village's shape (`pop` 0, no suitability, hamlet tier),
@@ -30397,3 +30452,8 @@ Threads:	43
         assert!(process_resident_bytes_impl() > 1 << 20);
     }
 }
+
+/// Owner finding F27 / Ruling FO item 1: the recovery run's founded hamlets join the live list.
+#[cfg(test)]
+#[path = "junction_timeline_tests.rs"]
+mod junction_timeline_tests;

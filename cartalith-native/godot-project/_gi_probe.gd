@@ -188,7 +188,7 @@ func _remove_all(w: Node) -> void:
 		if d == null:
 			return
 		if n == 1:
-			_check("the last one's prompt says what the world becomes", d.dialog_text.contains("the last one") and d.dialog_text.contains("own garrison"), d.dialog_text)
+			_check("the last one's prompt says what the world becomes", (d.dialog_text + " " + _texts(d)).contains("the last one") and (d.dialog_text + " " + _texts(d)).contains("own garrison"), d.dialog_text + " | " + _texts(d))
 			if d.is_embedded():
 				await _shot("confirm_last")
 			else:
@@ -246,7 +246,14 @@ func _ready() -> void:
 	app._tl_expanded = true
 	app._fill_timeline_strip()
 	await _frames(30)
+	# The phone has no inline strip: its timeline is the transport panel behind `_tl_phone_button` (Ruling GT keeps the ladder there).
+	if app.is_phone() and app._tl_phone_button != null:
+		app._tl_phone_button.pressed.emit()
+		await _frames(30)
 	var chron: Node = app.timeline_row.find_child("ChronosItems", true, false) if app.timeline_row != null else null
+	if chron == null:
+		for n in app.find_children("ChronosItems", "VBoxContainer", true, false):
+			chron = n
 	_check("the chronos strip exists", chron != null)
 	if chron != null:
 		# Ruling GT: the ladder keeps its faction filter in a static and prunes it against the roster on every refresh
@@ -260,10 +267,10 @@ func _ready() -> void:
 	_check("the Factions window opened", w != null and w.visible)
 	await _remove_all(w)
 	if chron != null:
-		var fd2: Dictionary = chron.filter_dict()
-		var cfg := ConfigFile.new()
-		cfg.load(DccSettings.CONFIG_PATH)
-		_check("GK: with every faction deleted the chronos filter names none, saved too", not fd2.has("factions") and String(cfg.get_value("timeline_items", "factions", "x")) == "", "%s / %s" % [fd2, cfg.get_value("timeline_items", "factions", "x")])
+		# Ruling GT: the ladder's filter is a static, not a saved setting (the Ruling GK probe read `filter_dict()` and a config key
+		# of the retired chip list); after the last faction goes the next refresh must leave no faction named.
+		chron._refresh()
+		_check("GK: with every faction deleted the chronos filter names none", Array(chron._s_factions).is_empty(), str(chron._s_factions))
 	_check("the rest deleted through the button", int(bridge.civ_faction_count()) == 0)
 	var rm := _find(w, "Button", "− Remove last") as Button
 	_check("with none left Remove last is disabled, and says why", rm != null and rm.disabled and rm.tooltip_text.contains("No faction is left"), rm.tooltip_text if rm != null else "")

@@ -8298,6 +8298,8 @@ func _tl_run_simulation(confirm_overwrite: bool) -> void:
 		return
 	_tl_sim_out = _tl_format_sim_result(result)
 	_tl_refresh_territory_view()
+	if int(result.get("hamlets", 0)) > 0:
+		_after_civ_layer_replaced()  # finding F27: junction hamlets joined the live list, repaint pins and staleness
 	_rebuild_timeline()
 
 ## `_civRunCollapseSimulation`'s own blocking `confirm()` (reference line

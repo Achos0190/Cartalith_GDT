@@ -1,0 +1,10 @@
+skip live-tid check KILLED
+stamp always KILLED
+year 0 KILLED
+no push KILLED
+log year+1 KILLED
+gate drops mode KILLED
+gate drops switch KILLED
+no village flag KILLED
+tid fixed KILLED
+restored True
