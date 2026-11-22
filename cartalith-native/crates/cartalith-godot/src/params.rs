@@ -1194,7 +1194,7 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.port_shore", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Port towns move to the shore", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.port_shore), set_fn: |p, v| p.civ.port_shore = v != 0.0 },
-    // Owner finding F16/F39 (2026-11-21): sea lanes call at ports, keep off the shore,
+    // Owner finding F16/F39 (2026-11-21): sea lanes call at ports,
     // lose their big arcs and share trunks. ON at the app boundary, OFF in `WorldParams::defaults`; no
     // reference control. A save without the key loads OFF. Read by
     // `compute_civilisation`'s sea routes.

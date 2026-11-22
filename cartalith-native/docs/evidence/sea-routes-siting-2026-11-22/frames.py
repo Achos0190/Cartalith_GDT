@@ -7,6 +7,10 @@ import json, sys, os
 import numpy as np
 from PIL import Image, ImageDraw
 
+# One colour per lane: threaded (side-by-side) lanes show as two colours, a shared trunk as one.
+PALETTE = [(200, 30, 30), (20, 20, 20), (150, 40, 190), (230, 130, 0), (10, 130, 60), (200, 20, 130), (90, 60, 20), (0, 90, 160)]
+
+
 def load(p):
     return json.load(open(p))
 
@@ -24,11 +28,12 @@ def draw(d, scale, box=None, lanes=True, label=""):
     im = base(d, scale)
     dr = ImageDraw.Draw(im)
     if lanes:
-        for pts in d["lanes"]:
+        for li, pts in enumerate(d["lanes"]):
+            col = PALETTE[li % len(PALETTE)]
             for a, b in zip(pts, pts[1:]):
                 if abs(a[0] - b[0]) > d["gw"] / 2:
                     continue
-                dr.line([(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)], fill=(170, 30, 30), width=max(2, int(scale * 1.6)))
+                dr.line([(a[0] * scale, a[1] * scale), (b[0] * scale, b[1] * scale)], fill=col, width=max(2, int(scale * 1.6)))
     for t in d["towns"]:
         r = max(2, int(scale * 1.2))
         dr.ellipse([t[0] * scale - r, t[1] * scale - r, t[0] * scale + r, t[1] * scale + r], fill=(60, 60, 60))

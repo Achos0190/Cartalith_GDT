@@ -10805,7 +10805,7 @@ pub fn civ_sea_routes(
 
 /// [`civ_sea_routes`] with `civ.sea_lanes` (owner findings F16 and F39,
 /// 2026-11-21): `lanes` true splits a lane at the ports it sails past, keeps it
-/// off the shore away from ports, reins in a big arc and shares trunks between lanes (`sea_lanes`). `false` is
+/// reins in a big arc and shares trunks between lanes (`sea_lanes`). `false` is
 /// [`civ_sea_routes`] exactly, by control flow.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_sea_routes_lanes(
@@ -10995,7 +10995,7 @@ pub fn civ_sea_routes_lanes(
         let weight: Vec<f64> = ports.iter().map(|p| p.pop as f64).collect();
         sea_lanes::lane_paths(
             &edges,
-            &sea_lanes::LaneIn { cost: cost_ref, rw, rh, world, cell_km: map_width_km / rw as f64, rp: &rp, prev: &prevs, weight: &weight, base: &base },
+            &sea_lanes::LaneIn { cost: cost_ref, rw, rh, world, rp: &rp, prev: &prevs, weight: &weight, base: &base },
         )
     });
     let jobs: Vec<(usize, usize)> = match &lane_cells {
@@ -11066,6 +11066,27 @@ pub fn civ_sea_routes_lanes(
             km: sm.km,
             name,
         });
+    }
+    // `civ.sea_lanes`: each lane was smoothed alone, so lanes that shared cells drift 1 to 2
+    // cells apart; merge them onto one trunk (`sea_lanes::snap_parallel`). A lane with a seam
+    // break is passed as an empty polyline, which the merge leaves alone.
+    if lanes {
+        let ocean = |x: f64, y: f64| {
+            let (cx, cy) = ((x as usize).min(gw - 1), (y as usize).min(gh - 1));
+            water_bodies[cy * gw + cx] == 1
+        };
+        let mut polys: Vec<Vec<(f64, f64)>> =
+            routes.iter().map(|r| if r.brks.is_empty() { r.pts.clone() } else { Vec::new() }).collect();
+        let (_, sc) = routing_grid_scale(gw);
+        if sea_lanes::snap_parallel(&mut polys, sea_lanes::SNAP_CELLS / sc, &ocean) > 0 {
+            let km_cell = map_width_km / gw as f64;
+            for (r, p) in routes.iter_mut().zip(polys) {
+                if !p.is_empty() && p != r.pts {
+                    r.km = p.windows(2).map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1)).sum::<f64>() * km_cell;
+                    r.pts = p;
+                }
+            }
+        }
     }
     routes
 }

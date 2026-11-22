@@ -15,8 +15,10 @@
 //! `sea_lanes::CALL_RADIUS_CELLS` routing cells of without ending there, and
 //! `skipped5km`: the same within 5 km), and the
 //! **mean distance off the coast**, length-weighted along every lane, and the
-//! **minimum standoff** (Ruling GR): the least distance to land at any sample
-//! of a lane farther than the standoff band plus the call radius from every port.
+//! **threading** (`thread_km`, owner Ruling GS addendum): km of lane drawn
+//! side by side (within 20 degrees) with another lane across open sea, 0.75 to 4 routing cells apart, away from ports; and the
+//! **minimum standoff** (reported, not enforced since Ruling GS): the least
+//! distance to land at any sample of a lane farther than the call radius from every port.
 //!
 //! **Site rows** (`site_census`), `civ.site_map_terms` off then on, lanes held
 //! off: settlements, how many sit within the confluence reach of a confluence
@@ -274,6 +276,7 @@ struct SeaRow {
     skipped5km: usize,
     off_coast_km: f64,
     min_standoff_km: f64,
+    thread_km: f64,
 }
 
 fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
@@ -311,10 +314,9 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
         r.skipped5km += usize::from(skipped5);
     }
     let ld = land_distance(&c.water_bodies, gw, gh);
-    // Ruling GR: the standoff is judged away from ports, so samples inside the
-    // exemption (the standoff band plus the call radius, in routing cells) of any port are skipped.
-    let band = cartalith_civ::sea_lanes::standoff_cells(km_cell / sc);
-    let exempt = (band as f64 + cartalith_civ::sea_lanes::CALL_RADIUS_CELLS) / sc;
+    // The nearest approach to land is judged away from ports, so samples within the call
+    // radius (in map cells) of any port are skipped.
+    let exempt = cartalith_civ::sea_lanes::CALL_RADIUS_CELLS / sc;
     let at_ld = |x: f64, y: f64| ld[(y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1)] as f64 * km_cell;
     let mut min_standoff = f64::INFINITY;
     for s in &c.sea_routes {
@@ -328,6 +330,54 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
                 }
             }
         }
+    }
+    // Owner's "threading" (Ruling GS addendum, 2026-11-22): lane drawn side by side with another
+    // lane, 0.75 to 4 routing cells apart (so not on the same cells), away from ports (8 routing
+    // cells, the junction where lanes leave one harbour). Counted in km of lane.
+    {
+        let step = (0.5 / sc).max(0.25);
+        let samples: Vec<(usize, f64, f64, f64, f64)> = c
+            .sea_routes
+            .iter()
+            .enumerate()
+            .flat_map(|(li, s)| {
+                s.pts.windows(2).filter(|w| (w[1].0 - w[0].0).abs() < gw as f64 / 2.0).flat_map(move |w| {
+                    let l = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+                    let n = ((l / step).ceil() as usize).max(1);
+                    (0..n).map(move |k| {
+                        let t = k as f64 / n as f64;
+                        let (ux, uy) = ((w[1].0 - w[0].0) / l.max(1e-9), (w[1].1 - w[0].1) / l.max(1e-9));
+                        (li, w[0].0 + (w[1].0 - w[0].0) * t, w[0].1 + (w[1].1 - w[0].1) * t, ux, uy)
+                    })
+                })
+            })
+            .collect();
+        let (lo, hi, junction) = (0.75 / sc, 4.0 / sc, 8.0 / sc);
+        let mut n = 0usize;
+        for &(li, x, y, tx, ty) in &samples {
+            if ports.iter().any(|pp| (pp.0 - x).hypot(pp.1 - y) <= junction) {
+                continue;
+            }
+            // Lanes either side of a thin spit of land are not threaded: every point of the straight line between the two samples must be ocean.
+            // Parallel means within 20 degrees: two lanes converging on a trunk are not threaded.
+            let cos_max = 20f64.to_radians().cos();
+            let sea = |ox: f64, oy: f64| {
+                (0..=8).all(|k| {
+                    let t = k as f64 / 8.0;
+                    let (mx, my) = (x + (ox - x) * t, y + (oy - y) * t);
+                    c.water_bodies[(my as usize).min(gh - 1) * gw + (mx as usize).min(gw - 1)] == 1
+                })
+            };
+            let d = samples
+                .iter()
+                .filter(|o| o.0 != li && (o.3 * tx + o.4 * ty).abs() >= cos_max && sea(o.1, o.2))
+                .map(|o| (o.1 - x).hypot(o.2 - y))
+                .fold(f64::INFINITY, f64::min);
+            if d > lo && d <= hi {
+                n += 1;
+            }
+        }
+        r.thread_km = n as f64 * step * km_cell;
     }
     r.min_standoff_km = if min_standoff.is_finite() { min_standoff } else { f64::NAN };
     let (mut sum, mut len) = (0.0, 0.0);
@@ -376,8 +426,8 @@ fn sea_lane_census() {
             let ms = t.elapsed().as_millis();
             let r = sea_row(&c, &p);
             println!(
-                "SEA {:<12} lanes={} lanes_n={:<3} km={:<8.1} bundles={:<3} conv={:<3} shared={:<3} ports={:<3} unlaned={:<2} skipped={:<2} skipped5km={:<2} off_coast_km={:.2} min_standoff_km={:.2} ({} ms)",
-                w.tag, if lanes { "on " } else { "off" }, r.lanes, r.km, r.bundles, r.bundles_conv, r.shared, r.ports, r.unlaned, r.skipped, r.skipped5km, r.off_coast_km, r.min_standoff_km, ms
+                "SEA {:<12} lanes={} lanes_n={:<3} km={:<8.1} bundles={:<3} conv={:<3} shared={:<3} ports={:<3} unlaned={:<2} skipped={:<2} skipped5km={:<2} off_coast_km={:.2} min_standoff_km={:.2} thread_km={:.2} ({} ms)",
+                w.tag, if lanes { "on " } else { "off" }, r.lanes, r.km, r.bundles, r.bundles_conv, r.shared, r.ports, r.unlaned, r.skipped, r.skipped5km, r.off_coast_km, r.min_standoff_km, r.thread_km, ms
             );
             dump(w.tag, if lanes { "lanes_on" } else { "lanes_off" }, &c, &p, &[]);
         }
