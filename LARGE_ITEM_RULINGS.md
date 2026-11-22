@@ -3967,3 +3967,10 @@ After step 0b (`f0ba5f2b`, `PARALLEL_STREETS_SCOPE.md` §12: FS-1 against the re
 ## Ruling GK: loose settlements always keep their own garrison, at the world's base tech (owner, 2026-11-22)
 
 After Ruling GI (`4f803210`): (1) **an unclaimed settlement always keeps its own garrison** (`garrison::loose_garrison`), also in a world that has factions -- a §7p switch, new worlds only, since it changes output for worlds with factions; (2) **loose settlements read the world's base agricultural tech** (`civ.base_ag_tech`), not the Unclaimed row's default.
+
+## Ruling GL: findings F25-F29 (owner, 2026-11-22)
+
+- **F25 borders: research first** -- a research note on how real borders form (natural barriers, rivers, watersheds, passes, travel cost, historical examples), read against how borders are drawn today at the symbols, with options and owner questions before any build.
+- **F26 city-states: spheres of influence, no automatic factions; and also beside nations** -- sizeable towns are city-states with a sphere of influence that loose settlements align to; the user decides when a cluster becomes a faction (no auto-promotion); city-states exist whether or not nations are present.
+- **F27 junction settlements: both** -- road junctions get a waypoint/hamlet founding chance (higher near a river and midway between larger settlements) at generation and over the timeline as roads appear; §7p, new worlds only.
+- **F29 peak altitude: from tectonics, no hard cap** -- peak height follows plate-collision energy and map size; the 4 000 m default stops being a cap; the slider becomes an optional override; §7p, new worlds only.
