@@ -127,6 +127,7 @@ GUI, then engine, then the LLM interface).
 
 ### Vault and save format
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
+- **Ruling GX: new save compression** (shuffle + zstd, delta if measured better; `format_version` 3 for every new save; every older archive still opens; the HTML can no longer read new saves, accepted). `cartalith-io` `project.rs` `PROJECT_FORMAT_VERSION`, `SAVEFILE_COMPAT.md` §3.3/§8/§18. Queued next, built with GW.
 - **Ruling GW: embed the art the world uses in the save** (`library/art/<key>.png`; merged into the device library on open; unused items not embedded). `SAVEFILE_COMPAT.md` §16.5, `project_bridge.rs` `SLOT_ASSETS`. Queued next.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 

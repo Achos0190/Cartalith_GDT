@@ -4030,3 +4030,12 @@ Answers to `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §6, written into `WORLD_S
 ## Ruling GW: a save carries the art its world uses (owner, 2026-11-22)
 
 `SAVEFILE_COMPAT.md` §16.5: the archive stores `library/assets.json` (index, name, transform) but not the pixels, which live per device in `user://asset_library/` (Ruling FR). Owner: **embed the used art in the save** -- only the images the world actually places (pins, sprites, stamps) are written into the `.zip` under `library/art/<key>.png`; opening the world on another device adds any missing ones to that device's library (never replacing an existing key with different bytes without asking). Unused library items are not embedded. A save without `library/art/` opens as today. Also from this pass: VE-7's "drawn chronos track" row is superseded by Ruling GT's ladder.
+
+## Ruling GX: a newer save compression, backwards compatible (owner, 2026-11-22)
+
+Owner: *"update the underlying compression algorithm keep it backwards compatible. But saves from today should use the new compression."* Today (`format_version` 2, Ruling AJ): byte-plane shuffle + deflate (method 8). The measured candidate (`SAVEFILE_COMPAT.md` §18.1; `TERRAIN_COMPUTE_METHODS_RESEARCH.md` §6, whose recommendation is "zstd with byte-plane shuffle and delta"): **shuffle (+ delta if measured better) + Zstandard** for the raster entries -- at 2048x1311, shuffle+zstd-9 15.6 MiB vs shuffle+deflate 16.7 MiB; at 4096², write 1.92 s -> 0.52 s (zstd-3) or 85 vs 97 MiB (zstd-9). Rules:
+- **Every save written from today uses the new compression**; `format_version` 3.
+- **The reader opens every older archive** (format 1 and 2, deflate, with and without the shuffle) exactly as before; a round-trip test per older version.
+- Pick level and delta by measurement on real 2k and 4k worlds (size, write and read ms, on the PC and the 6T), recorded in `SAVEFILE_COMPAT.md` §18.
+- **Known price, accepted by this ruling:** §18.3 -- the legacy HTML reader and JSZip reject an archive with any zstd entry, so the HTML app can no longer open new saves (HTML work is on hold, owner 2026-11-08). Saves stay valid zip containers (method 93).
+- Built together with Ruling GW (art in the save) as one format-3 change.
