@@ -6565,6 +6565,14 @@ func tl_range() -> Dictionary:
 				years.append(int(cd["start_year"]))
 			if cd.has("end_year"):
 				years.append(int(cd["end_year"]))
+		## CT view issue 1 (owner's vault, 2026-11-22): linked and imported note events are the world's
+		## dated things too. Events at 3000-4769 on a -400..1200 track pinned the playhead to the end.
+		## Unlike `tl_selection_events()` this is every linked note and every import, not the selection's,
+		## so selecting a place still never moves the axis.
+		var ext := _tl_note_extent(bridge)
+		if not ext.is_empty():
+			years.append(ext[0])
+			years.append(ext[1])
 	if years.is_empty():
 		return {"min": TL_YEAR_MIN, "max": TL_YEAR_MAX, "from_world": false}
 	var lo: int = years[0]
@@ -6578,6 +6586,30 @@ func tl_range() -> Dictionary:
 		lo -= short / 2
 		hi += short - short / 2
 	return {"min": lo, "max": hi, "from_world": true}
+
+## `[min, max]` over every Note and Imported item (`WorldGen.timeline_items`' `year_min`/`year_max`), or `[]`.
+## Linked notes are read from disk, and `tl_range()` runs several times a frame, so the answer is kept for
+## `_TL_EXT_TTL_MS` (a labelled judgement: a note edited outside the app shows within two seconds) and
+## dropped when `timeline_records_changed` fires.
+const _TL_EXT_TTL_MS := 2000
+var _tl_ext_cache: Array = []
+var _tl_ext_at := -1000000
+
+func _tl_note_extent(bridge: Object) -> Array:
+	var now := Time.get_ticks_msec()
+	if now - _tl_ext_at < _TL_EXT_TTL_MS:
+		return _tl_ext_cache
+	_tl_ext_at = now
+	if not timeline_records_changed.is_connected(_tl_ext_drop):
+		timeline_records_changed.connect(_tl_ext_drop)
+	_tl_ext_cache = []
+	var got: Dictionary = bridge.world_gen.timeline_items({"kinds": PackedStringArray(["Note", "Imported"])})
+	if bool(got.get("ok", false)) and got.has("year_min"):
+		_tl_ext_cache = [int(got["year_min"]), int(got["year_max"])]
+	return _tl_ext_cache
+
+func _tl_ext_drop() -> void:
+	_tl_ext_at = -1000000
 
 ## The track's first year (`tl_range()["min"]`).
 func tl_range_min() -> int:

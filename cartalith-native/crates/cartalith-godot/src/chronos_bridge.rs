@@ -232,7 +232,7 @@ impl WorldGen {
     ///
     /// `{ok, items: [{key, source, start_year, start_month?, start_day?, end_year?, end_month?,
     /// end_day?, open_end, title, entity_kind?, entity_id?, factions, precision, private,
-    /// rel?}], hidden, total, year_min?, year_max?}`. **Optional keys are absent, never 0.**
+    /// rel?}], hidden, total, year_min?, year_max?}` (the extent is of the rows the filter keeps, not of every item). **Optional keys are absent, never 0.**
     /// A founding for a settlement with no founding year is absent (never year 0). A journey is a range
     /// when its saved plan gives a timeline (`arrival_offset_days`), else a point.
     /// Items from a private note carry `private: true`; the assistant's tools and every export must
@@ -251,6 +251,7 @@ impl WorldGen {
                 "title" => i.title.as_str(),
                 "precision" => match i.precision { ti::Precision::Year => "year", ti::Precision::Date => "date", ti::Precision::Range => "range" },
                 "private" => i.private,
+                "also_linked" => i.also_linked,
             };
             md_set(&mut d, "start", i.start.1);
             if let Some((y, md)) = i.end {
@@ -271,7 +272,9 @@ impl WorldGen {
         out.set("items", &rows);
         out.set("hidden", shown.hidden as i64);
         out.set("total", items.len() as i64);
-        if let Some((lo, hi)) = ti::year_extent(&items) {
+        // the extent of what the filter KEEPS, not of every item: the strip asks for the Note and Imported lanes
+        // alone (CT view issue 1), and a founding at -635 must not widen that answer
+        if let Some((lo, hi)) = ti::year_extent(shown.visible.iter().copied()) {
             out.set("year_min", lo);
             out.set("year_max", hi);
         }

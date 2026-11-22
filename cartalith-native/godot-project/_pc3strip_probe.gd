@@ -400,12 +400,16 @@ func _ready() -> void:
 	_ok(await _tick_drawn(280), "...and the span 250~320 (sampled at 280)")
 	await _shot("carto_chronos")
 	var ev_btn: Button = null
-	var evrow: Node = _app.timeline_row.find_child("TimelineEvents", true, false)
+	# CT view issue 2: the entry is listed once, in the Items rows (real form), no longer as a start-year pill
+	var evrow: Node = _app.timeline_row.find_child("ChronosItems", true, false)
+	var pills: Node = _app.timeline_row.find_child("TimelineEvents", true, false)
+	if pills != null:
+		_ok(pills.find_children("*", "Button", true, false).filter(func(b): return (b as Button).text.contains("The first wall")).is_empty(), "the EVENTS row no longer repeats the chronos entry")
 	if evrow != null:
 		for b in evrow.find_children("*", "Button", true, false):
 			if (b as Button).has_meta("tl_year") and int((b as Button).get_meta("tl_year")) == 200:
 				ev_btn = b
-	_ok(ev_btn != null and ev_btn.text.contains("The first wall") and ev_btn.text.contains("Note"), "the event row lists the entry with its source note ('%s')" % ("" if ev_btn == null else ev_btn.text))
+	_ok(ev_btn != null and ev_btn.text.contains("The first wall"), "the Items rows list the entry ('%s')" % ("" if ev_btn == null else ev_btn.text))
 	if ev_btn != null:
 		await _click_control(ev_btn)
 	_ok(_app.tl_year() == 200, "a click on the event row moved the year to 200 (got %d)" % _app.tl_year())

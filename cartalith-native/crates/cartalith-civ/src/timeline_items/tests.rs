@@ -92,14 +92,21 @@ fn note_and_imported_rows_and_sort_order() {
         imported: doc.events.clone(),
         ..Default::default()
     };
+    // imported onto settlement 42 AND linked to it: one row per line, not two (CT view issue 3)
     let v = build(&src);
-    assert_eq!(v.len(), 4);
+    assert_eq!(v.len(), 2);
     let years: Vec<i64> = v.iter().map(|i| i.start.0).collect();
-    assert_eq!(years, vec![1190, 1190, 1204, 1204], "sorted by start");
-    let n = v.iter().find(|i| i.source == ItemSource::NoteEvent && i.title == "Coronation").unwrap();
+    assert_eq!(years, vec![1190, 1204], "sorted by start");
+    assert!(v.iter().all(|i| i.source == ItemSource::Imported && i.also_linked));
+    // the same note linked to a DIFFERENT entity than the import is not the same event: all four show
+    let mut other = src.clone();
+    other.note_events[0].entity = Some((EntityKind::Faction, 2));
+    let w = build(&other);
+    assert_eq!(w.len(), 4);
+    let n = w.iter().find(|i| i.source == ItemSource::NoteEvent && i.title == "Coronation").unwrap();
     assert_eq!(n.origin.as_ref().unwrap().relative_path, "K.md");
-    assert!(!n.private && n.entity == Some((EntityKind::Settlement, 42)));
-    let i = v.iter().find(|i| i.source == ItemSource::Imported && i.title.starts_with("Coronation")).unwrap();
+    assert!(!n.private && n.entity == Some((EntityKind::Faction, 2)) && !n.also_linked);
+    let i = w.iter().find(|i| i.source == ItemSource::Imported && i.title.starts_with("Coronation")).unwrap();
     assert_eq!(i.title, "Coronation (source removed)");
     assert!(i.private);
     assert_eq!(chronos::format_date(i.start.0, i.start.1), "1204-03-14");
@@ -202,4 +209,61 @@ fn item_source_labels_round_trip() {
         assert_eq!(ItemSource::parse(&k.label().to_lowercase()), Some(k));
     }
     assert_eq!(ItemSource::parse("nope"), None);
+}
+
+/// Protects the owner's case (CT view issue 3): a 21-event note linked AND imported counts 21, not 43,
+/// including a shifted import (`epoch_offset` moves the years, never the line identity), a point and a
+/// range keep their real forms once each, and an imported-only or linked-only note is untouched.
+#[test]
+fn linked_and_imported_note_counts_once() {
+    let mut text = String::from("```chronos
+");
+    for i in 0..19 {
+        text.push_str(&format!("* [{}] Point {i}
+", 3000 + i * 90));
+    }
+    text.push_str("- [3000~4000] Long reign
+@ [4100~4769] Late age
+```
+");
+    let c = detect_forms(&text, &[Form::Chronos]).remove(0);
+    assert_eq!(c.events.len(), 21);
+    let mut doc = EventsDoc::default();
+    doc.import(&c, "v", "K.md", "settlement", 42, 100, false);
+    let linked = NoteEventsInput {
+        link_id: "L1".into(), vault_id: "v".into(), relative_path: "K.md".into(),
+        entity: Some((EntityKind::Settlement, 42)), factions: vec![], private: false, events: c.events.clone(),
+    };
+    let both = build(&ItemSources { note_events: vec![linked.clone()], imported: doc.events.clone(), ..Default::default() });
+    assert_eq!(both.len(), 21, "was 42 before the cross-source dedup");
+    let ranges = both.iter().filter(|i| i.end.is_some()).count();
+    assert_eq!(ranges, 2, "a range stays one range row, a point one point row");
+    assert!(both.iter().all(|i| i.also_linked));
+    let only_linked = build(&ItemSources { note_events: vec![linked], ..Default::default() });
+    let only_imported = build(&ItemSources { imported: doc.events.clone(), ..Default::default() });
+    assert_eq!((only_linked.len(), only_imported.len()), (21, 21));
+    assert!(only_imported.iter().all(|i| !i.also_linked));
+}
+
+/// Protects CT view issue 1: the strip widens its track to the Note and Imported lanes only, so the
+/// extent is taken over the rows a filter keeps -- a founding at -635 must not drag the track back.
+#[test]
+fn year_extent_over_a_filtered_view_ignores_other_lanes() {
+    let c = detect_forms("```chronos
+* [3000] A
+- [4100~4769] B
+```
+", &[Form::Chronos]).remove(0);
+    let src = ItemSources {
+        founding: vec![FoundingInput { id: 1, name: "Kelv".into(), founded: Some(-635), faction: 1 }],
+        note_events: vec![NoteEventsInput {
+            link_id: "L".into(), vault_id: "v".into(), relative_path: "K.md".into(),
+            entity: Some((EntityKind::Settlement, 1)), factions: vec![], private: false, events: c.events,
+        }],
+        ..Default::default()
+    };
+    let v = build(&src);
+    assert_eq!(year_extent(&v), Some((-635, 4769)));
+    let notes = apply(&v, &Filter { kinds: vec![ItemSource::NoteEvent], ..Default::default() });
+    assert_eq!(year_extent(notes.visible.iter().copied()), Some((3000, 4769)));
 }

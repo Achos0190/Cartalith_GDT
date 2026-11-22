@@ -4336,13 +4336,14 @@ func _build_timeline_events() -> Control:
 			"conflict": int(c["id"]),
 			"tip": "Conflict, %s%s." % [_tl_format_year(int(c["start"])),
 				(" to " + _tl_format_year(int(c["end"]))) if c.has("end") else ", still open"]})
-	for ce in tl_selection_events():
-		var e: Dictionary = ce
-		rows.append({"year": int(e["start"]), "text": "%s · %s" % [String(e["name"]), String(e["rel"]).get_file().get_basename()],
-			"tip": "Chronos entry in %s, %s." % [String(e["rel"]), _tl_format_year(int(e["start"]))]})
+	## CT view issue 2 (owner's vault, 2026-11-22): this row also listed the selection's chronos entries, at
+	## their START year only, while the Items rows below list the same entries in their real form
+	## ("3000~4000"), so every ranged entry showed twice, once as a point and once as a range. The parser was
+	## right (`chronos::parse` keeps `end`); the Items Note lane is the one list, and the track still draws
+	## each entry as a tick or bar (`_tl_chronos`). Conflicts stay here: their pills select the conflict.
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["year"]) < int(b["year"]))
 	if rows.is_empty():
-		flow.add_child(DccTheme.mono_label("none: no conflicts, and the selection has no chronos entries",
+		flow.add_child(DccTheme.mono_label("none: no conflicts",
 			"text_ghost", DccTheme.role_px("fs_timeline"), 0))
 		return flow
 	var shown := 0

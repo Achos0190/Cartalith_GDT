@@ -105,6 +105,9 @@ pub struct TimelineItem {
     pub origin: Option<Origin>,
     /// From a private note (design §4.5): hidden from the assistant and from exports.
     pub private: bool,
+    /// An imported row whose source line is also read live from a linked note: the note's own row is
+    /// dropped by [`build`] (one row, both badges), so the line is not counted twice.
+    pub also_linked: bool,
 }
 
 /// A settlement as the founding lane needs it.
@@ -184,6 +187,7 @@ fn item(key: String, source: ItemSource, start: When, end: Option<When>, open_en
         precision: precision(start, end, open_end),
         origin: None,
         private: false,
+        also_linked: false,
     }
 }
 
@@ -247,9 +251,22 @@ pub fn build(src: &ItemSources) -> Vec<TimelineItem> {
         });
         out.push(item(format!("journey:{}", j.id), ItemSource::Journey, start, end, false, j.name.clone()));
     }
+    // Design s.4.5's dedup, across sources: an imported row and a linked note's live line are the same
+    // event when they name the same entity, note and line (`line_key` hashes kind, dates and name).
+    // The imported row is the one kept; the note's is dropped and the survivor says so.
+    let imported_at = |entity: Option<(EntityKind, i64)>, rel: &str, key: &str| {
+        src.imported.iter().any(|r| {
+            r.relative_path == rel && r.line_key == key && EntityKind::parse(&r.entity_kind).map(|k| (k, r.entity_id)) == entity
+        })
+    };
+    let mut linked_too: Vec<(String, String)> = Vec::new();
     for n in &src.note_events {
         for e in &n.events {
             let key = cartalith_vault::timelines::line_key(e);
+            if imported_at(n.entity, &n.relative_path, &key) {
+                linked_too.push((n.relative_path.clone(), key));
+                continue;
+            }
             let mut it = event_item(format!("note:{}:{key}", n.link_id), ItemSource::NoteEvent, e, e.name.clone());
             it.entity = n.entity;
             it.factions = n.factions.clone();
@@ -265,6 +282,7 @@ pub fn build(src: &ItemSources) -> Vec<TimelineItem> {
         it.entity = EntityKind::parse(&r.entity_kind).map(|k| (k, r.entity_id));
         it.private = r.private;
         it.origin = Some(Origin { vault_id: r.vault_id.clone(), relative_path: r.relative_path.clone(), line_key: r.line_key.clone() });
+        it.also_linked = linked_too.iter().any(|(p, k)| *p == r.relative_path && *k == r.line_key);
         out.push(it);
     }
     out.sort_by(|a, b| {
@@ -309,8 +327,8 @@ pub fn without_private(items: &[TimelineItem]) -> Vec<&TimelineItem> {
 
 /// `(min, max)` over every year any item reaches -- what `tl_range` widens its track to, so a
 /// founding at year -340 is reachable. An open end contributes its start only.
-pub fn year_extent(items: &[TimelineItem]) -> Option<(i64, i64)> {
-    let mut it = items.iter().flat_map(|i| std::iter::once(i.start.0).chain(i.end.map(|e| e.0)));
+pub fn year_extent<'a>(items: impl IntoIterator<Item = &'a TimelineItem>) -> Option<(i64, i64)> {
+    let mut it = items.into_iter().flat_map(|i| std::iter::once(i.start.0).chain(i.end.map(|e| e.0)));
     let first = it.next()?;
     Some(it.fold((first, first), |(lo, hi), y| (lo.min(y), hi.max(y))))
 }

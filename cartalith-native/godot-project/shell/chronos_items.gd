@@ -290,7 +290,11 @@ func _refresh() -> void:
 	var items: Array = got.get("items", [])
 	_hidden_total = int(got.get("hidden", 0))
 	if _items_btn != null:
-		_items_btn.text = "Items (%d)" % items.size()
+		# CT view issue 4: the button said 22, 21, 43 as the selection filter and the sources changed with
+		# no reason shown. It now says what is shown of what exists ("21 of 43") and the line below names
+		# the scope that hid the rest.
+		var total := int(got.get("total", items.size()))
+		_items_btn.text = "Items (%d)" % items.size() if total == items.size() else "Items (%d of %d)" % [items.size(), total]
 	var cur: int = int(_shell.tl_year()) if _shell != null else 0
 	var shown: Array = items.duplicate()
 	var founding: Array = shown.filter(func(i): return String(i["source"]) == "Founding")
@@ -311,7 +315,14 @@ func _refresh() -> void:
 	if more > 0:
 		parts.append("+%d more (the %d nearest the cursor are shown)" % [more, ROWS_MAX])
 	if _hidden_total > 0:
-		parts.append("%d hidden by filters" % _hidden_total)
+		var why: Array = []
+		if filter_dict().has("entities"):
+			why.append("the selection (%s)" % String((filter_dict()["entities"] as PackedStringArray)[0]).replace(":", " "))
+		if not _kinds.is_empty():
+			why.append("lanes")
+		if not _factions.is_empty():
+			why.append("factions")
+		parts.append("%d hidden by filters (%s)" % [_hidden_total, ", ".join(PackedStringArray(why))])
 	if items.is_empty():
 		parts.append("no dated items" if _hidden_total == 0 else "nothing matches the filters")
 	_count.text = " · ".join(parts)
@@ -419,6 +430,8 @@ func _row_button(parent: Control, it: Dictionary) -> Button:
 	elif bool(it.get("open_end", false)):
 		when += "~"
 	var text := "%s  %s" % [when, String(it["title"])]
+	if bool(it.get("also_linked", false)):
+		text += "  [note + imported]"
 	if bool(it.get("private", false)):
 		text += "  [private]"
 	var b := DccWidgets.segment(parent, text, func(): pass)
