@@ -3987,3 +3987,7 @@ On `BORDER_FORMATION_RESEARCH.md` Q1: *"Terrain features, like mountain ridges, 
 ## Ruling GO: borders -- terrain friction plus snapping to features (owner, 2026-11-22)
 
 On `BORDER_FORMATION_RESEARCH.md`: build **O1, a territory friction field** (relief, ridges and canyons dear; rivers cheap along and dear across; passes discounted; forest, marsh and desert as multipliers; the road cost untouched) **plus O2, snapping the settled border seam to the nearest ridge, canyon or river**, and **O4, a thin smoothed border line** drawn over the wash. Unclaimed or thin margins (O5) where friction is high follow. New worlds only (§7p), a strength slider where 0 reproduces today's territory; re-baselining the manpower ecological bars and the FH-R2/G1 worlds is accepted (research Q10 default). Q4 rivers as connectors-and-barriers (both signs), Q6 passes pull borders, Q9 no era-dependent friction for now.
+
+## Ruling GP: build the tooling plan (owner, 2026-11-22)
+
+On `TOOLING_PLAN.md` (`ea0d8ace`): **build all four** -- (1) install the `cartalith-playtest` skill under `.claude/skills/` (done by the coordinator the same day); (2) the Fennara launcher on the real shell, TP-2/TP-3 (scratch copy, all three forms, `dump_ui` / `type_text` / `menu_open` helpers in a project script, the MIT addon unmodified); (3) the `cartalith-trace` logging crate (TR-0 approved: the `tracing` and `tracing-subscriber` dependencies, MIT), off by default, JSON lines, never notes, keys or prompts; (4) the eight F12 assistant terrain-edit fixes.
