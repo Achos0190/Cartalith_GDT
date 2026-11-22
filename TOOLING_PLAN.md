@@ -56,8 +56,7 @@ copy and any environment**, submits one `res://` runtime script and prints the s
 `--selftest` builds a scratch project (the addon without its editor binaries, one scene with a Button, a probe script
 that calls `ctx.click_button`), imports it and asserts `pressed_count=1`. **Run today, windowed, under
 `C:/cw/.win_lock`: `selftest ok`, the script completed in about 0.7 s after the first frame.** It is windowed-only; it
-does not touch the owner's editor or settings; it is not wired to the shell yet (the real shell needs a built
-`cartalith_godot.dll`, which this worktree did not build).
+does not touch the owner's editor or settings; TP-2 below wired it to the shell.
 
 ### Plan: use, extend, or build a control server?
 
@@ -65,15 +64,17 @@ does not touch the owner's editor or settings; it is not wired to the shell yet 
 missing is a launcher and three helpers, and a second server would be a second input-injection path to keep honest.
 
 1. **TP-1 (this commit): the launcher** above. Verified on a scratch project.
-2. **TP-2: point it at the real shell.** A scratch copy of `godot-project` with a unique `config/name`, `APPDATA=<empty
-   dir>`, `--resolution 1600x900` (desktop) or `-- --force-touch --vp 1080x2340 --density 2.8125` (phone), a Fennara
-   runtime script that waits `ctx.until_exists("/root/App/...")`, clicks through New World and takes a frame. Bar: a
-   frame of the generated world on all three forms, opened and looked at; the owner's `cartalith_settings.cfg` hash
-   unchanged.
-3. **TP-3: a project helper, `res://tools/drive_ctx.gd` (ours, not an edit of the MIT addon, which stays upgradable):**
-   `dump_ui()` (every visible Control: path, class, rect, text, disabled), `type_text(node, s)` (focus + one key event
-   per character), `menu_open("File/Open…")` (click the bar entry, then the item by text). Bars: each one demonstrated by a
-   probe that goes red when the helper is mutated.
+2. **TP-2 (built 2026-11-22): the real shell.** `fennara_drive.py --shell desktop|tablet|phone` copies `godot-project` (without
+   the `_*` probes) to a scratch root (default `C:/cw/drive_scratch`) with `config/name="cartalith_drive_scratch"`, puts
+   `target/debug/cartalith_godot.dll` beside it (`--dll`, copied once: delete the root to refresh it or after a `.rs` change),
+   imports it once, and runs `res://shell/app.tscn` with `APPDATA` and `LOCALAPPDATA` pointing at an empty scratch dir (the
+   owner's settings, worlds and Vault are never read). Forms: desktop `--resolution 1600x900`; tablet `--resolution 1700x1000 --
+   --force-touch --density=1.0`; phone `--resolution 450x975 -- --force-touch --density 1.094`. The window lock
+   (`C:/cw/.win_lock`, `mkdir`) is taken after the import and released the moment the window is gone, only by the process that made
+   it; a busy lock is waited for (other lanes hold it for minutes at a time). The whole process tree is killed by pid
+   (`taskkill /T /F /PID`, the `_console.exe` is a launcher), never by image name.
+3. **TP-3 (built 2026-11-22): `res://tools/drive_ctx.gd` (class `DriveCtx`), ours; the MIT addon is untouched.** API below.
+   Proven by `res://tools/drive_proof.gd` on all three forms and killed by three mutants (`tools/drive_mutant.py`).
 4. **TP-4 (only if wanted): a thin MCP of our own**, a stdio server of about 100 lines exposing
    `cartalith_run(script, form, density, seed)` -> `{status, log_lines, frame_paths}`, which does TP-2's launch. It
    replaces Fennara's `runtime_session` for this project because it adds what Fennara lacks (form, density, scratch
@@ -84,6 +85,45 @@ missing is a launcher and three helpers, and a second server would be a second i
 
 Risks: a runtime session shares the mouse (lock); `ctx` calls after `await` need re-fetching nodes (the shell rebuilds
 windows); the helper's polling is every sixth frame, so a script's first call has up to ~0.1 s latency.
+
+### Using the launcher (TP-2 / TP-3, built 2026-11-22)
+
+```
+python -I cartalith-native/tools/fennara_drive.py GODOT --shell desktop|tablet|phone res://tools/my_script.gd        --dll <target>/debug/cartalith_godot.dll --out <dir> [--root C:/cw/drive_scratch] [--timeout 90]
+```
+`GODOT` is the 4.7.2 console exe. Exit 0 = the script completed and printed no line containing `FAIL` (a `ctx.error` is printed
+as `FAIL ctx.error: ...`); 1 = a failure; screenshots and `game.log` land in `<dir>` (`<dir>/captures/*.png`, emptied first).
+A script is `extends RefCounted` with `func run(ctx)` and sits in `godot-project/tools/` (copied into the scratch root on every
+run; a NEW `class_name` needs the root deleted so the import re-registers it). Parse-check it first, headless and lock-free:
+`godot --headless --check-only --script res://tools/x.gd` in the scratch root, grading on "Error" in the output. **Boot state per form:**
+desktop and tablet open a modal welcome card ("Continue without a world" dismisses it; nothing else is clickable until then);
+the phone opens the worlds list over the shell ("+ NEW WORLD", then CANCEL, reaches the shell).
+
+`DriveCtx` (all `static`, coroutines take `ctx` first; `await` them):
+
+| Call | What it does |
+|---|---|
+| `dump_ui(ctx, contains="") -> Array` | every VISIBLE Control as `{path, class, text, rect:[x,y,w,h], enabled, tooltip}`, plus a `PopupMenu.item` entry per row of each open popup. Rects are in click space (root canvas, see `rect_of`). `contains` filters on text or path, case-insensitively. Read-only |
+| `rect_of(control) -> Rect2` | where a click must land: `get_screen_transform() * rect`. `get_global_rect()` is wrong inside the shell's embedded dialogs (window offset and the phone's 1.09 content scale) |
+| `click(ctx, pos)` | real mouse move, press, release into the root viewport |
+| `type_text(ctx, node_or_path, s, replace=true) -> String` | focuses by a real click (errors if focus is not taken), Ctrl+A when `replace`, then one key press and release per character; `"
+"` is Enter. Returns the control's text, but assert from `dump_ui`, the independent read |
+| `tap_key(ctx, keycode)` | one real key press and release |
+| `menu_open(ctx, name, item="") -> bool` | `name` a bar menu (`"File"`, `"Preferences"`; a click on the `MenuButton`), or the phone's MENU tab then row then item, or `"ring"` (the cartwheel: Q over the map, then a slot by label), or an already-open popup by name; `item` is matched by label, case-insensitive, trailing ellipsis ignored, prefix as fallback. Errors list the rows that exist |
+| `click_popup_item(ctx, popup, label)` | Down until that row is focused, then Enter |
+
+**Known limits.** A popup row is chosen by real Down and Enter keys, not a mouse click: a PopupMenu has no row-rect API and its
+embedded window's `position`/`size` do not match root pixels, so a hover scan never focused a row (measured). The ring path
+is written against `radial_ring.gd`'s `debug_state()` and `_slots` but **has not been exercised** (it needs a world and a map
+under the pointer). Popups that hang off another embedded dialog are not offset. Windowed only, one run at a time machine-wide
+(the lock); expect minutes of queueing when other lanes are running.
+
+**The proof and its mutants.** `drive_proof.gd` on each form: get past the welcome card or worlds list with real clicks, `menu_open`
+File > New world, `type_text` `424242` into the seed field, read it back from `dump_ui` (and require it to have changed from the
+random seed it showed), capture the screen; it never presses Create. `python -I cartalith-native/tools/drive_mutant.py GODOT DLL
+OUT` runs the unmutated baseline and then three exact-literal mutants of `drive_ctx.gd` on the desktop form, restoring the file in
+a `finally`: `type_text` dropping its last character, a menu row never activated (Escape for Enter), and `rect_of` falling back
+to `get_global_rect()`. Each must go red; a mutant that survives, or cannot run, is reported separately.
 
 ---
 
@@ -292,4 +332,4 @@ ridge about 300 m high.") is **one request of 5 163 bytes, 1 863 prompt tokens, 
 1. TR-0 needs an owner ruling (a new dependency); M3's skill and M2's launcher are in this commit.
 2. F12 items 1, 2, 3, 7 are small prompt or app changes for the assistant lane (route: `LLM_ASSISTANT_SCOPE.md` s.5c/5i);
    4, 5, 6, 8 are measured one at a time with the live-run scenarios in `llm-live-2026-11-17/` as the A/B.
-3. TP-2 and TP-3 next for M2; TP-4 only if the owner wants Claude to drive the app without going through a shell.
+3. TP-2 and TP-3 are built (see `Using the launcher`); TP-4 only if the owner wants Claude to drive the app without going through a shell.

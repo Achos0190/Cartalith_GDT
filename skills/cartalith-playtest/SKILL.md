@@ -32,5 +32,19 @@ Design: `TOOLING_PLAN.md` (M3). Read `MISTAKES.md`'s preflight first; its rows o
 ## Bug-hunt order
 Walk menus (`_fgui2_walk_probe.gd` presses every window-opening command), then each form, then odd sizes; check every window for overflow past the screen edge (`get_combined_minimum_size().x` against the screen). Report: form, steps, the frame path, the symbol, the check that now goes red.
 
-## Driving without writing a probe
-`python -I cartalith-native/tools/fennara_drive.py <godot> <project copy> res://script.gd -- --resolution 1600x900` runs one Fennara runtime script (ctx.click_at, ctx.snapshot, ctx.capture) against a game it launches itself. Same lock and scratch rules apply.
+## Driving the real shell without writing a probe (TP-2/TP-3, built 2026-11-22; full usage in `TOOLING_PLAN.md`)
+```
+python -I cartalith-native/tools/fennara_drive.py <godot 4.7.2 console exe> --shell desktop|tablet|phone res://tools/my_script.gd        --dll <target>/debug/cartalith_godot.dll --out <dir>
+```
+It copies `godot-project` to a scratch root (`C:/cw/drive_scratch`: own `config/name`, empty `APPDATA`; delete it after a `.rs` or
+dll change), runs the real shell at that form (desktop 1600x900; tablet 1700x1000 `--force-touch --density=1.0`; phone 450x975
+`--force-touch --density 1.094`), holds `C:/cw/.win_lock` only while the window is open (waits if another lane has it), kills only its
+own process tree, and exits 0 / 1 on a `FAIL` line. Your script (`extends RefCounted`, `func run(ctx)`, in `godot-project/tools/`)
+uses `DriveCtx`: `dump_ui(ctx, contains)` (every visible control: path, class, text, rect, enabled, tooltip, plus open popup rows),
+`click(ctx, pos)`, `type_text(ctx, node, s)` (real key events), `menu_open(ctx, "File", "New world")` (bar menu, phone MENU tab, or
+`"ring"`), `rect_of(control)` (click space: never `get_global_rect()` inside a dialog), and Fennara's `ctx.capture(label)` for the
+frame to Read. Boot: desktop/tablet show a modal welcome card ("Continue without a world" first); the phone shows the worlds list
+("+ NEW WORLD" then CANCEL). `drive_proof.gd` is the worked example on all three forms; `drive_mutant.py` shows how a helper is
+mutation-tested. Parse-check your script headless in the scratch root before spending a lock turn. Popup rows are chosen with Down and
+Enter keys, not a mouse click; the ring path is untested. The older form, `fennara_drive.py <godot> <project copy> res://script.gd -- <args>`,
+still runs a script against any project copy you made yourself.
