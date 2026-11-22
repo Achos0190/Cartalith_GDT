@@ -4,6 +4,8 @@
 
 **Short answer.** The task the model must do is narrow (read a short catalogue, call one tool with valid numbers in the right direction, decline what cannot be done), which is exactly what a 1-4B model can be fine-tuned to do, and the evidence we already have says the *failure of weak models here is a protocol failure, not an intelligence failure* (s.3). Two things should come first, before any training: **(1)** measure whether an *unmodified* 4B model already clears the bar (s.9, SL-0), and **(2)** the app already speaks the OpenAI-compatible wire, so the cheapest "no Ollama" runtime is a bundled `llama-server` sidecar (s.2). Fine-tuning is justified only if (1) fails.
 
+> **2026-11-22 pointer:** `TOOLING_PLAN.md` (F12) documents byte for byte what an Edit Send carries, why Qwen's terrain edits underwhelm (six causes, three of them ours: the prompt offers `raise` as a ridge, no stroke geometry, a flat schema) and what a training set for the edit task would be (the app's validator as the label checker). Do the app fixes there before generating data, so the training prompt equals the shipped one.
+
 ## 1. Where the idea fits what exists [verified]
 
 - The app already has a provider-agnostic path: a Rust protocol crate (`crates/cartalith-llm`) over Godot `HTTPClient`, an OpenAI-compatible adapter, a presets list (llama.cpp's `llama-server` is one, port 9931 corrected after a vendor-doc pass per `OUTSTANDING_WORK.md`), the local GPU rule (Ruling DF), a consent screen and a zero-socket-when-off bar. A bundled local server is just another *local* preset; no new adapter is needed (`LLM_ASSISTANT_SCOPE.md` s.2, s.5, s.5a, s.9).
