@@ -195,6 +195,7 @@ fn zero_factions_recompute_keeps_the_world_loose() {
     let (ws, civ, gh, p) = zero_faction_world(SEEDS[0], 800.0);
     let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, GW, gh, p.world, ws.sea_level, &p);
     let keep = crate::KeptCiv {
+        seed_villages: false,
         settlements: civ.settlements.clone(),
         next_tid: civ.next_tid,
         village_tids: civ.village_tids.clone(),
