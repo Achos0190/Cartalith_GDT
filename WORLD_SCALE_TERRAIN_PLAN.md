@@ -15,7 +15,8 @@ Source documents (read them for the full evidence; this file summarises and link
 | `cartalith-native/docs/evidence/world-emboss-fg-2026-11-16/` (`a673a1df`) | the Ruling FG build: bars before/after, deep-zoom frames |
 | `ZOOM_REFINEMENT_SCOPE.md` (`9460f1e6`, ZR-0 results appended in `1ca8d859`) | the per-tile refinement design, the atlas inventory, the ZR-0 no-go |
 | `cartalith-native/docs/evidence/zoom-refine-zr0-2026-11-16/` | ZR-0 sheets, `VERDICT.md`, `metrics.txt` |
-| `LARGE_ITEM_RULINGS.md` Rulings CI, FG, FH | the owner's rulings |
+| `LARGE_ITEM_RULINGS.md` Rulings CI, FG, FH, GV | the owner's rulings |
+| `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` | the review of a ChatGPT regenerate-from-source proposal: claims checked at their symbols, the halo per stage, the two-resolution measurement |
 | `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`, `LOD_DETAIL_SCOPE.md`, `LOD_TILING_BASE_SCOPE.md` | earlier research and scopes this builds on |
 
 ---
@@ -87,6 +88,13 @@ Burn rivers / Micro-erode passes are not ported (off by default there, and two d
 - **Ruling FG** (2026-11-15): build F1-F3 (done).
 - **Ruling FH** (2026-11-16): refine as deep as the LOD goes; **on save, ask how many refined levels to include, with a
   size estimate**; the disk cap is a Preferences setting (defaults 2 GB desktop, 512 MB phone); ZR-0 first (done: no-go).
+- **Ruling GV** (2026-11-22, after `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md`): three cut-out modes (§9). Keep
+  **New world from selection** (fidelity A), add the constrained **Regenerate region from source**, and also a free
+  **Re-simulate region** (fidelity B, §9a), labelled honestly and, for now, a proof of concept behind a default-off
+  setting. Also: a `region_source` manifest on region worlds, a generation-rules version and a field digest in every
+  save (§8); cell-unit parameters in ground units for new worlds, behind a switch, with the tiled-pipeline scope
+  (§6); the cut-out is a mode, not a third save type; Generate on a region world warns. All of it stays parked behind
+  the refactor.
 - **Direction, discussed, not scheduled** (2026-11-16):
   1. **Generate the base height at 16k-32k** so real landforms exist, shown through the existing LOD pyramid (2k
      overview at level 0; the full base at the top level).
@@ -118,9 +126,17 @@ generate -- not up front. Per area it is cheap: 200 × 200 km at 50 m is 16 M ce
 | Local | climate→biome, colour, shading, soils | per tile |
 | Neighbourhood | erosion, slope, smoothing, coast distance | per tile with a halo (seams proven exact in ZR-0) |
 | Global | drainage accumulation, sea/lake fill, plates, wind/rain shadow, routes, civ | a **coarse whole-world pass** gives long-range fields; the fine per-tile pass uses them as boundary conditions (river inflow at edges, spill levels, climate); civ stays coarse |
+| Global normalisers | `normalize_field`'s min/max, the stress maxima (`normalize_by_abs_max`) and `compute_flexure`'s, `build_age_field`'s maximum distance, the World-Structure sea anchor | computed once by the coarse whole-world pass and passed to every tile and block as constants; never recomputed over a tile, a block or a cut-out (review §2.3) |
 
 Requirements: results independent of tile order; new worlds only, behind a switch (§7p); the reference baseline
 untouched.
+
+- Cell-unit parameters (`tect.blur_r`, `ROUGH_WAVELENGTH_CELLS`, the erosion iteration and pass counts, the fill
+  tilt's per-step rise, cell-list RNG draws) are expressed in ground units or map fraction for the new pipeline,
+  behind a switch (§7p), with the reference width 2048 so default-resolution worlds stay byte-identical (Ruling GV).
+  Measured for `blur_r` alone (review §4.1, 18 comparisons): river agreement across a resolution change 25.5 % ->
+  49.7 % median, height r 0.959 -> 0.994. Until then, a 16k generate of a seed is a different world from its 2k
+  generate. The stage-by-stage census of these terms and of each stage's halo starts from review §2.2 and §2.4.
 
 ## 7. Storage options
 
@@ -146,6 +162,16 @@ Rough total for a 32k world down to about 1 km detail, land only: a few GB.
 | Works | view, pan, zoom, click, cards and notes, add/edit pins/labels/notes, planner on existing routes, PNG export | everything (restyle, Inspect, sculpt, regenerate, rerun civ); derived layers rebuilt on view |
 | Not | sculpt, regenerate, restyle (images fixed), detailed Inspect | -- |
 | Size | mostly images: tens to hundreds of MB | larger; first view costs drawing time |
+| Provenance | the rules version and rules hash when the seed is kept | `generation_rules_version`, the rules hash (`world_key_signature`), a digest of `heightmap` and `flow_discharge`; on a region world, `world.region_source` (parent seed, rules version, rules hash, digest, grid, extent, wrap, bounds in parent cells and map fractions) |
+
+**Provenance (Ruling GV).** The rules version follows `ZOOM_REFINEMENT_SCOPE.md` §4.3's pattern for
+`generate_terrain`: a literal beside a committed hash of a fixture world, both bumped together, and a mutant of the
+version alone must go red. The switch rows (`cartalith_godot::params::LOADS_WHEN_ABSENT`, Ruling EV) cover switched
+changes only; the version covers the rest (Ruling EZ item 3's GPU-world change kept no switch). A regenerate compares
+version, rules hash and digest before it claims to reproduce a world. `world.region_source` is a MAY, additive member
+of `project.json` with no `format_version` bump (`SAVEFILE_COMPAT.md` §6.3, §7). Today `generator` is
+`cartalith-native 0.1.0` in every build and a region world keeps only `origin: "region"` and the parent's seed. The
+cut-out is a world-construction mode (§9), not a third save type.
 
 A light save made from a full project is a one-way publish; its annotations (pins, notes) can merge back. Open
 question: whether the light save should store biome and shade layers instead of finished images, so restyling stays
@@ -156,9 +182,27 @@ possible.
 Today `File > New world from selection` (`region_export::extract_region_as_world`) only upsamples and amplifies the
 selected heights; civ is cleared.
 
-Proposed:
+**Three modes (Ruling GV).** Each opens a **new world** and never writes to the parent.
+
+| Mode | Fidelity | Rivers and coasts | Towns and the civ layer |
+|---|---|---|---|
+| **New world from selection** (shipped) | A: `amplify_region` + `infer_tectonics` | the parent's, upsampled, plus noise | cleared, as today |
+| **Regenerate region from source** (below) | constrained: real landforms grown inside the parent's geography | pinned by the parent's inflow, outlets and water levels | copied 1-to-1 |
+| **Re-simulate region** (§9a, proof of concept, off by default) | B: a free re-simulation | knowingly allowed to move | re-sited by the generator, not copied |
+
+**Regenerate region from source does not re-run the substrate.** The plates, stress, flexure, age, crust and the
+global normalisers come from the parent's stored rasters, upsampled. Their supports (stress ±33, flexure ±102 parent
+cells at `blur_r` 18; review §2.4) exceed any margin, so the margin cannot supply them; it serves the fine-grid
+erosion and drainage only. Climate is interpolated from the parent's grids, not re-simulated: a non-wrapping block
+resets its upwind edge to ocean humidity (`simulate_weather_with`), which would erase rain shadows cast from outside
+it. A free re-run at the finer grid was measured to move about half of the major river cells by more than one parent
+cell (review §4.1), which is incompatible with step 4's 1-to-1 copy; that is why the free re-run is a separate mode.
+
+Proposed (Regenerate region from source):
 1. Inputs: seed, settings, rules version, the cut-out's coordinates, and the world's coarse fields over the cut-out
-   **plus a 15-25 % margin** (height as initial shape, rock and plates, climate, sea and lake levels, river flow).
+   **plus a 15-25 % margin** (height as initial shape, rock and plates, climate, sea and lake levels, river flow),
+   plus the parent's `region_source` manifest (§8), so the result records its parent and can be checked against it
+   and snapped back (step 5).
 2. Boundary conditions: inject the world's river inflow where rivers cross the margin edge, honour its outlets, keep
    its water levels, interpolate climate.
 3. Regenerate the whole block at e.g. 98 m/cell with **full erosion at once** (a 4 000 × 4 000 block, about 400 km,
@@ -169,6 +213,48 @@ Proposed:
 5. Optionally snap the regenerated region back into the world as its fine levels (the bridge to section 6).
 
 Cost: about 16 M cells for 400 × 400 km at 98 m -- about the size of today's 4k map, a minute or two on PC.
+
+### 9a. Re-simulate region (fidelity B, Ruling GV): a proof of concept
+
+The owner's answer to the review's Q1: *"Also offer free B"*, then *"Do note for now it's proof of concept and check
+how it sits with your research"*. A free re-simulation of the cut-out at the finer grid, which knowingly lets rivers,
+lakes and coasts move. It is **a new world inspired by the region**, and the UI says so in those words before it runs;
+the parent's towns are not carried over.
+
+**It is a proof of concept, not a product mode:**
+
+- an experimental mode behind a **default-off setting**, so nothing reaches it unless the user turns it on;
+- **no save-format promises**: it adds no `project.json` member, raster or `format_version` rule of its own, and a
+  world it makes may be saved only as an ordinary world (with `world.region_source` where §8's provenance exists,
+  which is §8's promise, not this mode's);
+- a **measured PoC bar** (below), not a product bar. Promotion to a product mode is a separate owner ruling on the
+  PoC's numbers (review §8).
+
+What it re-runs: the height composition at the fine grid, volcanism and craters inside the block, erosion, depression
+filling, drainage and rivers over the whole block plus the margin, with no river inflow pinned at the edges; then the
+civilisation generator over the new block (towns re-sited, roads and borders rebuilt).
+
+What it must still keep, and the PoC bar (thresholds are labelled judgements anchored on review §4.1, where a
+corrected free re-run reached medians of 98.6 % land agreement and height r 0.994, worst 90.7 % and 0.72):
+
+1. **The parent's plate layout**: the parent's plate list and boundaries (replayed from the parent's seed and
+   parameters at the parent's grid, or its stored `plate_id`/`boundary_*` rasters), never a new plate set in the
+   cut-out's frame. Measured: `plate_id` block-reduced to the parent grid against the parent's (expected 100 % by
+   construction; anything less is a bug).
+2. **The parent's coarse climate**: temperature and rainfall interpolated from the parent's grids as the large-scale
+   field; the block never runs as a stand-alone climate with ocean-humid edges.
+3. **The parent's normalisers and sea level** (§6), not the block's own.
+4. **The coarse geography**, measured at the parent's resolution over the cropped block: land/ocean agreement (PoC
+   bar at least 95 %) and sea-relative height r (at least 0.95). Rivers carry no bar; the share of the parent's major
+   river cells within one parent cell is reported.
+5. **Landforms**: the PoC must show what the mode is for, real sub-cell landforms. Measured against a native map at
+   equal km per pixel with the ZR-0 metric (`bind_r` within 0.15 of native; land luma gradient at least 0.6 of
+   native), on frames looked at side by side.
+6. **It never overwrites the parent**: it opens as a new, unsaved world; the parent's project is untouched (the
+   parent's save hashes identically before and after).
+
+It stays parked behind the refactor with the rest of this plan. The cheapest PoC and what would justify promoting it
+are in review §8.
 
 ## 10. Cheaper ways to the same result
 
@@ -203,12 +289,15 @@ shading, tile drawing) may use floats freely since they change no saved data. Me
 
 1. **16k test run on the PC** (owner, 2026-11-16): CPU alone, then CPU + discrete GPU, then CPU + iGPU + GPU, with each GPU stage checked for a bit-identical result against the CPU and across devices
    (RX 7800 XT and the 9800X3D's integrated Radeon; 31 GB RAM). Per stage: time, peak memory, page-file use.
+   State which cell-unit correction the run applies: with defaults, a 16k world is not the 2k world of the same seed
+   at a higher resolution (§6).
 2. **32k measurement**, run in full using the SSD page file (owner: *"don't worry"*); stages in RAM and paging
    reported separately; page-file size and free SSD space checked first and reported, never changed without asking.
 3. **Cut-out measurement**: one 400 km cut-out regenerated at 98 m with world boundary conditions against a native
    200 km map (landform quality, `bind_r`, seam and river continuity, time).
 4. Then a scope for the tiled two-level pipeline (stage-by-stage locality census, a two-level drainage prototype at
-   16k in 4k blocks, storage measurements) and the two save types.
+   16k in 4k blocks, storage measurements) and the two save types. The census starts from
+   `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §2.2 (cell-unit terms) and §2.4 (halo per stage).
 
 
 ### What the PC runs of 2026-11-16 mean (`PERFORMANCE_BENCHMARKS.md` §13; items 1 and 2 above are measured, 32k only as far as the commit limit allows)

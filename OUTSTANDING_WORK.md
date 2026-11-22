@@ -26,7 +26,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
    serial generation floor (Ruling FL item 3, see Performance).
 8. **World-scale terrain** (`WORLD_SCALE_TERRAIN_PLAN.md`; parked until the refactor). It absorbs ZR's no-go decision
    and FG's open bars (see Terrain).
-   - Review of ChatGPT's regenerate-from-source proposal: proposed plan edits and owner questions Q1-Q6 (A versus B, a `region_source` manifest, a generation-rules version and digest, cell units). `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §5-§6.
+   - Ruling GV (cut-out modes and provenance; folded into the plan, parked with it): a `region_source` manifest, a generation-rules version and field digest in every save, cell units in ground units, a warning on Generate over a region world, Regenerate region from source (plan §9), and Re-simulate region as a default-off proof of concept (plan §9a; cheapest PoC and promotion bar in `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §8).
 
 After the whole list: the **performance pass across devices** (owner, 2026-11-08), then the LLM line (priority order:
 GUI, then engine, then the LLM interface).

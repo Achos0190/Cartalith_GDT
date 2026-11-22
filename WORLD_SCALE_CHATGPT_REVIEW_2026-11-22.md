@@ -434,6 +434,9 @@ stronger form.
 
 ## 6. Owner questions, each with a default
 
+**Answered by Ruling GV (owner, 2026-11-22):** Q1 *"Also offer free B"* (as a proof of concept, §8); Q2-Q6 the
+defaults below. The edits of §5 are applied to `WORLD_SCALE_TERRAIN_PLAN.md` with the ruling.
+
 **Q1 (ChatGPT's own question): keep the original heights identical with detail between them (A), or re-run the
 simulation at a higher resolution (B)?**
 
@@ -502,3 +505,88 @@ on a region-origin world warn, or offer "Regenerate region from source" instead?
   - no timing.
 
 No code was changed and no test was added.
+
+---
+
+## 8. Free B ("Re-simulate region") as a proof of concept: how it sits with this research
+
+Added after Ruling GV. The owner: *"Do note for now it's proof of concept and check how it sits with your research"*.
+The mode is defined in `WORLD_SCALE_TERRAIN_PLAN.md` §9a: off by default, no save-format promises, a measured PoC
+bar.
+
+### 8.1 Against each source
+
+- **This review's measurement (§4.1)** `[measured]` + `[inference]`. A free re-run keeps the coarse geography once
+  `blur_r` is in ground units (median land 98.6 %, height r 0.994) and moves about half the major river cells
+  (49.7 % within one coarse cell, worst 7.8 %). Uncorrected it is clearly worse (25.5 %, r 0.959). So **the PoC must
+  run with the cell-unit terms corrected**, at least `blur_r`, and say which of §2.2's other terms it left in cells.
+  The measurement re-ran the whole substrate; §9a keeps the parent's plates, normalisers and climate, so its coarse
+  geography should hold at least as well. That is an expectation, not a result.
+- **ZR-0's no-go (`ZOOM_REFINEMENT_SCOPE.md` §8)** `[read]` + `[inference]`. ZR-0 failed because per-tile steps
+  cannot grow structure at 5-50 km from a smooth cell (`bind_r` 0.10-0.25 against native 0.47-0.59). Free B is not a
+  per-tile step: it erodes and drains the whole block at once, which is the form the plan's §9.3 argues can grow
+  real drainage. **ZR-0 is therefore not evidence against B, and B is the first direct test of that argument.** Two
+  ZR-0 findings carry over as risks:
+  - physical-unit steps fought the per-map normalisation (one talus pass moved 1.6 M texels), so B must use the
+    parent's normalisers (§9a item 3) and check slopes at the finer cell;
+  - ZR-0's `bind_r` and land-gradient metrics are the right landform bar, and §9a item 5 uses them.
+- **`WORLD_EMBOSS_FINDINGS_2026-11-15.md` §2.5** `[read]` + `[inference]`. The findings say real dendritic valleys
+  at the viewed scale are out of reach for any noise law, because a native map's landforms come from the generation
+  pipeline at its own cell size. Free B *is* the pipeline at the finer cell size, so it tests that statement directly.
+  One trap the PoC must measure: a native 400 km map gets its own plates (six in the harnesses) across 400 km, while a
+  400 km cut-out of a 36-plate planet may lie inside one plate with no boundary. A faithful B can then look *calmer*
+  than a native map of the same extent. That would not be a defect of B; it is the native maps compressing tectonics
+  into a small extent. B also does not close FG's B4 for the zoomed world: it makes a separate world.
+- **`TERRAIN_COMPUTE_METHODS_RESEARCH.md`** `[read]`. It makes the cost plausible: Braun-Willett implicit stream power
+  is O(n) and was measured at about 4× the iterative kernel (ZR-0: 20 ms per tile); Priority-Flood is exact and has a
+  tiled parallel form for larger blocks. Its GPU rule binds the PoC: generation kernels stay CPU or integer, since a
+  float GPU kernel makes a different world per device.
+
+### 8.2 What a PoC can and cannot show
+
+**Can show:**
+
+- whether a re-simulated block grows landforms near a native map's (`bind_r`, land gradient, frames side by side);
+- how far rivers, lakes and coasts move against the parent;
+- whether the coarse-geography bars hold with the parent's plates, normalisers and climate;
+- the cost and peak memory of a 16 M-cell block on the PC, and determinism across thread counts.
+
+**Cannot show:**
+
+- whether users accept moved rivers and re-sited towns: that is the owner's judgement on frames;
+- the product UI, the save behaviour or snap-back, none of which the PoC promises;
+- the GPU path, the phone and tablet, or worlds beyond the seeds it runs;
+- a full ground-unit pipeline, unless the PoC converts every §2.2 term.
+
+### 8.3 The cheapest PoC
+
+Two steps, both an `#[ignore]`d harness with no shell work:
+
+1. **Whole-parent re-run, then crop.** Parent: a 1 200 km region at 1024 wide, seed 1200. Re-simulate the whole
+   parent at 4096 wide with `blur_r` × 4, crop a 400 km window, and compare it with the parent's window (§9a bars 1-4)
+   and with a native 400 km map at fit (bar 5). This needs no new windowed code; it is §4.1's harness at a larger
+   ratio plus ZR-0's metrics and frames. It answers "does the pipeline at a finer cell grow landforms" for minutes of
+   compute.
+2. **Only if step 1 earns it: the block form on a planet.** One 400 km cut-out of the 40 075 km / 2048 world at
+   about 98 m (about 4 000 × 4 000 cells), with the parent's plates, substrate rasters, normalisers and climate. The
+   new code is a windowed height composition evaluated in the parent's frame. Same bars, plus cost and memory.
+
+Each step: one CPU run per seed, three seeds (1200, 42, 51127), side-by-side frames at the parent's fit and at two
+deeper zooms, opened and looked at.
+
+### 8.4 What would justify promoting it
+
+All of these, then a separate owner ruling:
+
+1. Bars 1-4 of §9a met on all three seeds.
+2. Bar 5 met where ZR-0 failed: `bind_r` within 0.15 of the native map in at least 5 of ZR-0's 6 place-and-zoom
+   cells (ZR-0 met 1), and land gradient at least 0.6 of native.
+3. A 16 M-cell block in a couple of minutes on the PC, within the 4k world's peak memory, and identical at 1, 4 and
+   16 threads.
+4. The owner's (or Fable's) look at the frames prefers B's landforms to A's and accepts the moved rivers.
+5. Measured against the constrained mode (plan §9, §11 step 3) where that exists. If the constrained mode meets bar
+   5 too, B adds only the "new world inspired by the region" use, and promoting it is a choice, not a need.
+
+If step 1 fails bar 5 the way ZR-0 did, that is a finding in itself: the native maps' richness comes from their plate
+density per extent, not from the finer cell, and neither B nor the constrained mode will reach it without a
+landform process at the 5-50 km scale.

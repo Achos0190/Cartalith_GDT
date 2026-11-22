@@ -4012,3 +4012,13 @@ L0 a minimal strip (period bands, at most five landmark ticks: the vault's `=` m
 ## Ruling GU: a long lane keeps its own open-sea course (owner, 2026-11-22)
 
 After `46b53f7d` (Ruling GS: no coast pricing, threading merged; seed 83744's south-west lane joined the coast trunk at 1.4 km offshore against 4.2 before): **keep that lane's own open-sea course** -- weaken trunk sharing for long lanes (or where joining a trunk pulls a lane far toward the coast), so the arc stays offshore, while threading stays merged.
+
+## Ruling GV: cut-out regeneration modes and world provenance (owner, 2026-11-22)
+
+Answers to `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §6, written into `WORLD_SCALE_TERRAIN_PLAN.md` §5, §6, §8, §9 and §9a. All of it stays parked behind the refactor with the rest of world-scale terrain.
+1. **Q1, A versus B:** *"Also offer free B"*. Three modes, each opening a new world and never writing to the parent: keep **New world from selection** (fidelity A, as shipped); add the constrained **Regenerate region from source** (plan §9: parent substrate, normalisers and climate taken, rivers pinned, civ copied 1-to-1); and add a free **Re-simulate region** (fidelity B, plan §9a) that knowingly lets rivers and coasts move. B is labelled honestly in the UI: a new world inspired by the region, with towns re-sited, not copied. It must still keep the parent's plate layout, coarse climate, normalisers and sea level. Then, mid-answer: *"Do note for now it's proof of concept and check how it sits with your research"*. So B is a **proof of concept**: an experimental mode behind a default-off setting, with no save-format promises and a measured PoC bar (plan §9a), not a product bar; promoting it needs a later ruling on the PoC's numbers (review §8).
+2. **Q2:** a `world.region_source` manifest on every region world (parent seed, rules version and hash, digest, grid, extent, wrap, bounds). MAY, additive, no `format_version` bump.
+3. **Q3:** a `generation_rules_version` with a fixture-hash guard, and a digest of `heightmap` and `flow_discharge`, in every save; built before the tiled pipeline.
+4. **Q4:** cell-unit parameters in ground units for new worlds, behind a switch (§7p), scheduled with the tiled-pipeline scope; reference width 2048, so default-resolution worlds stay byte-identical.
+5. **Q5:** the cut-out is a world-construction mode, not a third save type; the plan's two save types stay.
+6. **Q6:** Generate on a region-origin world warns now (if the shell does not already), and offers Regenerate region from source once it exists.
