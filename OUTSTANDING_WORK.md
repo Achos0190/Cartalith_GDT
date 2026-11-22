@@ -115,6 +115,7 @@ Order (owner): finish this list -> the codebase refactor (`CODEBASE_REFACTOR_PRO
 
 **Open from 2026-11-13: owner reports from the 6T and verifier leftovers** (rows only; the work happens in the owning
 document, and `STATUS.md` records what lands)
+- **Ruling GT (owner, 2026-11-22) to build: the timeline ladder** (`design/timeline-designs-2026-11-22/timeline_designs.html`, option C): L0 minimal strip, L1 lanes, L2 table, L3 generated read-only Chronos Markdown document; the quieter prompt. Build order from the design: one mark per event, L1 lanes, the prompt rows, L0, L2, L3 (the track already fits its items since `a55bad8c`). Not built.
 - **Chronos view on the owner's vault (screenshots 2026-11-22):** items (1)-(4) built 2026-11-22 and probed on a synthetic vault (`_ctview_probe.gd`; evidence in `cartalith-native/docs/evidence/chronos-view-2026-11-22/`); status and cause are in `STATUS.md` (Ruling GD/GE) and `CHRONOS_TIMELINE_DESIGN.md` s.10 (Commit 5). **Still open:** (5) vertical streak artefacts on white/ice areas of the map (renderer); the owner's real-vault CT-0 pass.
 - **Assistant panel clips at the right edge on a 393 px phone** (Settings and Clear region buttons; seen in `e156c1d8`'s phone frame, not investigated). Not done.
 - **Trace leftovers (after `bb12c00a`):** a Preferences switch for tracing (TR-4's other half), Android (TR-7), spans on the LOD tile workers and the assistant request lifecycle, the on-at-info cost bar at 2048x1024. Not done.
