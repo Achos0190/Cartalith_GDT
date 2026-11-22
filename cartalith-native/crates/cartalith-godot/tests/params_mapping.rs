@@ -1394,6 +1394,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.founding_year = false;
     // And Ruling GK: a save without the key read its unclaimed places with no garrison.
     expect.civ.loose_garrisons = false;
+    // And Ruling GL / F29: a save without the key kept its stored peak_m as typed.
+    expect.peak_auto = false;
     // And Ruling FN: a save without the key laid its river towns out in the
     // reference's box.
     expect.urban_river_stretch = false;
@@ -1595,6 +1597,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.site_map_terms = false; // finding F36 (2026-11-22)
     neutral.civ.founding_year = false;
     neutral.civ.loose_garrisons = false;
+    neutral.peak_auto = false; // Ruling GL / F29 (2026-11-22)
     neutral.urban_river_stretch = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
@@ -1911,4 +1914,20 @@ fn world_structure_dials_derive_tectonics_once_when_editable() {
     set(&mut parity, "world_structure.enabled", 1.0);
     set(&mut parity, "world_structure.fragmentation", 0.9);
     assert_eq!(parity.tect.plates, cartalith_engine::WorldParams::defaults(64, 48, 1).tect.plates, "switch off: no derivation");
+}
+
+/// Protects: Ruling GL / F29's switch -- peak altitude from tectonics is ON in the app's
+/// `params::defaults()`, a save without the key loads OFF (so its stored `peak_m` is kept as typed),
+/// and the switch is an ordinary bool row (`WorldGen::set_params` clears it when `peak_m` is typed). `WorldParams::defaults` (the goldens' baseline) stays off.
+#[test]
+fn peak_auto_is_on_in_the_app_off_when_absent_and_cleared_by_an_override() {
+    assert!(params::defaults().peak_auto);
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).peak_auto);
+    assert!(params::LOADS_WHEN_ABSENT.iter().any(|&(k, v)| k == "peak_auto" && v == Value::Bool(false)));
+    let mut p = params::defaults();
+    assert_eq!(params::set(&mut p, "peak_m", Value::Num(5000.0)), Outcome::Applied);
+    assert_eq!(params::set(&mut p, "peak_auto", Value::Bool(false)), Outcome::Applied);
+    assert!(!p.peak_auto && p.peak_m == 5000.0);
+    assert_eq!(params::set(&mut p, "peak_auto", Value::Bool(true)), Outcome::Applied);
+    assert!(p.peak_auto);
 }

@@ -9365,6 +9365,12 @@ impl WorldGen {
                 Some(value) => params::set(&mut self.params, &key, value),
                 None => params::Outcome::Rejected,
             };
+            // Ruling GL / F29: typing a peak altitude is the override, so it ends the derivation
+            // -- unless this same call also names `peak_auto`, which then decides. (Not in `params::set`:
+            // a save's keys arrive in alphabetical order, `peak_auto` before `peak_m`.)
+            if key == "peak_m" && outcome != params::Outcome::Rejected && !values.contains_key("peak_auto") {
+                self.params.peak_auto = false;
+            }
             match outcome {
                 params::Outcome::Applied => {}
                 params::Outcome::Clamped => clamped.push(&GString::from(&key)),
@@ -10108,7 +10114,11 @@ impl WorldGen {
             return;
         }
         let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
-        let p = self.call_params(seed, width_km, gw, gh);
+        let mut p = self.call_params(seed, width_km, gw, gh);
+        // Ruling GL / F29: derive the peak from the plates when `peak_auto` (a no-op off), and
+        // keep the stored dial equal to what generated the world, as every metres reader uses it.
+        cartalith_engine::resolve_peak(&mut p);
+        self.params.peak_m = p.peak_m;
         // The finalize refusal above is this function's only exit that is
         // not `absorb`, and it has already returned. See [`release_world`].
         self.release_world();
@@ -11106,6 +11116,9 @@ impl WorldGen {
         // path -- see the `params` field's own doc comment.
         p.world_structure = world_structure;
         cartalith_engine::apply_world_structure_derivation(&mut p);
+        // Ruling GL / F29, after the archetype set tectonic_energy/plates.
+        cartalith_engine::resolve_peak(&mut p);
+        self.params.peak_m = p.peak_m;
 
         // Both of this function's refusals -- the finalize lock and an
         // unknown archetype name -- have already returned above, so from

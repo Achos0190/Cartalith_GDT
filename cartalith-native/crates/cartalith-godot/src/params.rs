@@ -166,6 +166,9 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, which the goldens compare against a reference
     // that has no fill.
     p.integrate_drainage = true;
+    // Owner Ruling GL / F29 (2026-11-22): peak altitude from tectonics (`cartalith_engine::derived_peak_m`),
+    // `peak_m` becoming an optional override. Off in `WorldParams::defaults`; off when a save lacks the key.
+    p.peak_auto = true;
     // Owner Ruling ER (2026-11-11; `DELTA_GEOMETRY_RESEARCH.md` section 13):
     // new worlds route flow and channels with a seeded sub-grid roughness, so
     // rivers crossing planar slopes wander instead of running as ruler lines
@@ -429,8 +432,13 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "Sea level", unit: "", reference_control: "sea",
         get_fn: |p| Value::Num(p.sea_level), set_fn: |p, v| p.sea_level = v },
     ParamSpec { key: "peak_m", group: "world", kind: Kind::Float, min: 1.0, max: 30000.0, step: 50.0,
-        label: "Peak altitude", unit: "m", reference_control: "peak",
+        label: "Peak override (optional)", unit: "m", reference_control: "peak",
         get_fn: |p| Value::Num(p.peak_m), set_fn: |p, v| p.peak_m = v },
+    // Ruling GL / F29: "Peak override (optional)" -- off means peak_m above is used as typed. `WorldGen::set_params`
+    // clears it when `peak_m` is typed (not here: saves apply their keys alphabetically).
+    ParamSpec { key: "peak_auto", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Peak altitude from tectonics (off = use the override)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.peak_auto), set_fn: |p, v| p.peak_auto = v != 0.0 },
     ParamSpec { key: "carve_rivers", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Carve river valleys on generation", unit: "", reference_control: "carveRiversChk",
         get_fn: |p| Value::Bool(p.carve_rivers), set_fn: |p, v| p.carve_rivers = v != 0.0 },
@@ -1299,6 +1307,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // source's whole block (the `state.erosion` hazard in the module note).
     // Travels in `state.cartalith` only.
     ("integrate_drainage", ""),
+    // Port-only (Ruling GL); the reference's peak is always the slider.
+    ("peak_auto", ""),
     // Port-only (Ruling ER); the reference routes plain D8.
     ("rough_routing", ""),
     // Port-only (F28); the reference's sliders simply stay editable.
@@ -1738,6 +1748,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // GF-5's karst switch: a save without the key was generated with no
     // dissolution and the rain itself seeding its rivers.
     ("geology_karst", Value::Bool(false)),
+    // Ruling GL / F29: a save without the key kept its stored peak_m as typed.
+    ("peak_auto", Value::Bool(false)),
     // GF-6's carve switch: a save without the key was generated with every
     // valley at the rock-blind width.
     ("geology_carve", Value::Bool(false)),

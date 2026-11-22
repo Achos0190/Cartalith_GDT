@@ -142,7 +142,7 @@ const STAGES: Array = [
 	 "gap": "Geoid sea level (the rotation bulge and mantle lifting or lowering local sea level) is computed and can be previewed as Layers ▸ Tectonics ▸ Geoid, but there is no switch yet to apply it during generation, so this world's sea level stays level everywhere. Tides are applied: there is no separate switch here because the Tidal flats (mudflat accretion) switch under Hydrology ▸ 06 Erosion is it -- turning it on computes the tide field, and Layers ▸ Tectonics ▸ Tides previews it. The moons (mass, distance, k₂) have no controls, so the tide field uses one Earth-Moon-like companion at this world's own gravity."},
 	{"name": "Extent & scale", "needs": "01 Planet",
 	 "produces": "land/sea split, all distances → every later stage",
-	 "groups": [], "keys": ["world", "sea_level", "peak_m"],
+	 "groups": [], "keys": ["world", "sea_level", "peak_auto", "peak_m"],
 	 "gap": "Working resolution and the extent's grid-height effect are creation-time call arguments, not stored parameters (\"GRID HEIGHT IS A CALL ARGUMENT, NOT A PARAMETER\" -- main.gd's own rule): set in File ▸ New world, not here."},
 	{"name": "World structure", "needs": "01 Planet",
 	 "produces": "continentality field → 04 Tectonics",

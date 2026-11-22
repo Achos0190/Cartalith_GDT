@@ -123,6 +123,7 @@ pub const DESCS: &[(&str, &str)] = &[
     // ---- world
     ("world", "On: the map is a whole planet that wraps east-west, pole to pole. Off: a framed region between two latitudes."),
     ("sea_level", "Raise: more of the map is sea, less land. Lower: more land; 0 leaves the least sea. A height threshold, not metres."),
+    ("peak_auto", "On: the highest summit comes from plate collision speed and map size (current). Off: Peak override below is used as typed."),
     ("peak_m", "Raise: taller mountains and colder, snowier peaks (it scales all heights). Lower: lower relief, lower mountains, milder heights."),
     ("carve_rivers", "On: rivers cut real valleys into the terrain while generating. Off: no river channels are carved at all."),
     ("river_density", "Raise: more, smaller river channels. Lower: fewer, larger rivers."),

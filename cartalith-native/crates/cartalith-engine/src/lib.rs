@@ -1162,6 +1162,15 @@ pub struct WorldParams {
     pub world: bool,
     pub sea_level: f64,
     pub peak_m: f64,
+    /// **Ruling GL / F29: peak altitude from tectonics** (owner, 2026-11-22). On, the app
+    /// boundary replaces `peak_m` with [`derived_peak_m`] before generating
+    /// ([`resolve_peak`]) and `peak_m` is only the value that call wrote; off, `peak_m`
+    /// is the user's override (the 4 000 m default was a cap that ignored the plates).
+    /// `generate_terrain` itself never reads this: it takes `peak_m` as given, so every
+    /// direct caller (tests, goldens, tools) is unchanged. **`false` here** (the
+    /// goldens' baseline), `true` in `cartalith-godot`'s `params::defaults`, and
+    /// `false` when a save lacks the key (`LOADS_WHEN_ABSENT`). `DECISIONS.md` §7p.
+    pub peak_auto: bool,
     pub map_width_km: f64,
     pub carve_rivers: bool,
     pub river_density: f64,
@@ -1665,6 +1674,7 @@ impl WorldParams {
             world: false,
             sea_level: 0.42,
             peak_m: 4000.0,
+            peak_auto: false,
             map_width_km: 800.0,
             carve_rivers: true,
             river_density: 1.0,
@@ -2807,6 +2817,93 @@ pub(crate) fn world_structure_derived(p: &WorldParams) -> (usize, f64, i32) {
         (plates, vel, volc_count)
     } else {
         (p.tect.plates, p.tect.vel, p.volc.count)
+    }
+}
+
+// ---- F29 / Ruling GL: peak altitude from tectonics --------------------------------------
+//
+// Real orogens, the anchors the law below is fitted to (heights recalled from the standard
+// sources, to be confirmed; convergence rates likewise): Himalaya 8 849 m (Everest) at the
+// India-Eurasia rate of about 4-5 cm/yr (Molnar & Tapponnier 1975, Science 189; Patriat &
+// Achache 1984, Nature 311); Andes 6 961 m (Aconcagua) over Nazca subduction at about 7-8
+// cm/yr (Somoza 1998, J. S. Am. Earth Sci. 11); Alps 4 808 m (Mont Blanc) at under 1 cm/yr
+// and long since slowed; old belts lower still: Appalachians 2 037 m, Urals 1 895 m. A summit
+// ceiling near 9-10 km follows from rock strength and the collapse of over-thick crust
+// (Dalmayrac & Molnar 1981, EPSL 55; England & Houseman 1989) and, at the other end, glaciers
+// cap range height near the snowline (Egholm et al. 2009, Nature 460) -- both are why the law
+// SATURATES instead of growing without bound; neither is a clamp the user sees.
+/// Highest summit of a belt that had no collision at all (a worn old range), in metres. Labelled judgement.
+pub const PEAK_BASE_M: f64 = 2000.0;
+/// What the strongest collision adds on top of [`PEAK_BASE_M`] as it saturates (so ~9 km). Labelled judgement.
+pub const PEAK_RANGE_M: f64 = 7000.0;
+/// One plate-velocity unit (`Plate::vx`, in `[-1, 1]`) in cm/yr. Judgement, calibrated by measurement: at 5 cm/yr the
+/// default world (14 plates, drift 1) put 7-8 km summits everywhere and 50 % of land below 0 C (14 % at the old 4 000 m),
+/// so the typical convergent margin (2-4 cm/yr, 90th percentile of the unit speeds ~1-1.5) is 2 cm/yr per unit.
+pub const PEAK_CM_PER_UNIT: f64 = 2.0;
+/// e-folding convergence rate of the saturation, cm/yr: 1 cm/yr -> 4.0 km, 5 cm/yr -> 7.7 km (the Alps are older and slower than their height implies). Fitted to the anchors above.
+pub const PEAK_DECAY_CM: f64 = 3.0;
+/// e-folding map width, km: a range needs a belt (Himalaya ~250 km wide, ~2 400 km long) to hold its relief. Labelled judgement.
+pub const PEAK_SIZE_KM: f64 = 1000.0;
+/// The proxy grid's width in cells (see [`collision_energy_cm_yr`]).
+const PEAK_PROXY_W: usize = 256;
+
+/// Collision energy of this world's plates, cm/yr: the 90th percentile of the positive
+/// (closing) relative speed over every plate-boundary cell edge, `stress_edge`'s own `c` (so
+/// it scales with `tect.vel` and the archetype's `tectonic_energy`) times
+/// [`PEAK_CM_PER_UNIT`]. Edge counts weight it by boundary length; the percentile keeps one
+/// fast pair from deciding it. Read on a <=256-wide proxy of the grid (same seed, same plates
+/// up to Lloyd's grid dependence) so it costs milliseconds at 8192^2 and does not change with
+/// resolution. 0 when no boundary closes.
+pub fn collision_energy_cm_yr(p: &WorldParams) -> f64 {
+    let (plates_n, vel, _) = world_structure_derived(p);
+    let (gw, gh) = (p.gw.min(PEAK_PROXY_W).max(4), (p.gh * p.gw.min(PEAK_PROXY_W) / p.gw.max(1)).max(4));
+    let cf = p.world_structure.enabled.then(|| {
+        generate_continentality_field(gw, gh, p.world, p.tect.seed, p.world_structure.continentality, p.world_structure.fragmentation)
+    });
+    let ws = cf.as_ref().map(|c| WorldStructure { ocean_depth: p.world_structure.ocean_depth, continental_field: c.as_slice() });
+    let warp = compute_warp(gw, gh, p.tect.seed, p.tect.warp, p.world);
+    let (wx, wy) = match &warp {
+        Some((a, b)) => (Some(a.as_slice()), Some(b.as_slice())),
+        None => (None, None),
+    };
+    let plates = build_plates(gw, gh, p.tect.seed as u32, plates_n, p.tect.lloyd, p.world, ws);
+    let id = assign_plates(gw, gh, p.world, &plates, wx, wy);
+    let mut closing: Vec<f64> = Vec::new();
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let mut nb = [usize::MAX; 3];
+            if x + 1 < gw { nb[0] = i + 1 } else if p.world { nb[0] = y * gw }
+            if y + 1 < gh { nb[1] = i + gw }
+            for &j in nb.iter().filter(|&&j| j != usize::MAX && id[j] != id[i]) {
+                let c = cartalith_terrain::stress_edge(&plates[id[i] as usize], &plates[id[j] as usize], vel).0;
+                if c > 0.0 { closing.push(c) }
+            }
+        }
+    }
+    if closing.is_empty() {
+        return 0.0;
+    }
+    closing.sort_by(|a, b| a.total_cmp(b));
+    closing[(closing.len() - 1) * 9 / 10] * PEAK_CM_PER_UNIT
+}
+
+/// The peak law: `base + range * (1 - e^(-E/decay)) * (1 - e^(-W/size))`, metres. Monotone in both
+/// arguments; saturating at ~9 km, not clamped at any user-facing number.
+pub fn peak_from_energy(energy_cm_yr: f64, map_width_km: f64) -> f64 {
+    PEAK_BASE_M
+        + PEAK_RANGE_M * (1.0 - (-energy_cm_yr.max(0.0) / PEAK_DECAY_CM).exp()) * (1.0 - (-map_width_km.max(0.0) / PEAK_SIZE_KM).exp())
+}
+
+/// The highest summit this world's tectonics and size support, metres.
+pub fn derived_peak_m(p: &WorldParams) -> f64 {
+    peak_from_energy(collision_energy_cm_yr(p), p.map_width_km)
+}
+
+/// The app boundary's one call: with `peak_auto` on, write [`derived_peak_m`] into `peak_m`.
+pub fn resolve_peak(p: &mut WorldParams) {
+    if p.peak_auto {
+        p.peak_m = derived_peak_m(p);
     }
 }
 
