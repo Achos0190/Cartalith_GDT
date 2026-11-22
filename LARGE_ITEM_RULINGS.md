@@ -3991,3 +3991,7 @@ On `BORDER_FORMATION_RESEARCH.md`: build **O1, a territory friction field** (rel
 ## Ruling GP: build the tooling plan (owner, 2026-11-22)
 
 On `TOOLING_PLAN.md` (`ea0d8ace`): **build all four** -- (1) install the `cartalith-playtest` skill under `.claude/skills/` (done by the coordinator the same day); (2) the Fennara launcher on the real shell, TP-2/TP-3 (scratch copy, all three forms, `dump_ui` / `type_text` / `menu_open` helpers in a project script, the MIT addon unmodified); (3) the `cartalith-trace` logging crate (TR-0 approved: the `tracing` and `tracing-subscriber` dependencies, MIT), off by default, JSON lines, never notes, keys or prompts; (4) the eight F12 assistant terrain-edit fixes.
+
+## Ruling GQ: re-fit the tectonic peak for milder defaults (owner, 2026-11-22)
+
+After F29 (`1ee81d3e`: default worlds 4 949-6 233 m, land below 0 °C roughly doubled), owner: **re-fit**. Keep "from tectonics, no hard cap", but tune the law's constants so a default world lands about 4.5-5 km and its cold-land share stays close to today's; strong collisions still reach high (7-9 km). The fit is measured on the three seeds and several drift settings and reported.
