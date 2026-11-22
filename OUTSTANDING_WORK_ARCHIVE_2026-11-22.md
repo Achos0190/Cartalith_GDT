@@ -1,3 +1,6 @@
+> **FROZEN 2026-11-22. Append nothing; trust no status in it.** The live list is `OUTSTANDING_WORK.md`; status is `cartalith-native/docs/STATUS.md`.
+> Old citations of the form "`OUTSTANDING_WORK.md` §N" (and its anchors) now resolve here, in this file, unchanged below.
+
 # Outstanding work
 
 > **Relationship to `cartalith-native/docs/STATUS.md`** (added 2026-08-31, when
