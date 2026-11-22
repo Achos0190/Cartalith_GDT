@@ -143,6 +143,7 @@ func _build_filters() -> void:
 	var b := _bridge()
 	if b != null:
 		var roster: Array = b.get_factions()
+		_prune_factions(b, roster)
 		var n := 0
 		for fa in roster:
 			n += 1
@@ -169,8 +170,27 @@ func _build_filters() -> void:
 		if c is Button:
 			(c as Button).custom_minimum_size.y = maxf((c as Button).custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
 
+## Ruling GK item 3 (owner 2026-11-22): drops every saved faction filter id that `roster`
+## (`get_factions()` of a live world) no longer holds -- a faction deleted since, or all of them
+## (Ruling GI) -- and saves the pruned list, so a stale id cannot silently hide every row.
+## Does nothing while `b` is generating: `get_factions()` answers `[]` then (the worker holds
+## `WorldGen`), which is not "no faction". Callers pass a live bridge only (`_bridge()`).
+func _prune_factions(b: Object, roster: Array) -> void:
+	if bool(b.get("generating")):
+		return
+	var ids := {}
+	for fa in roster:
+		ids[int((fa as Dictionary).get("id", -1))] = true
+	var kept := _factions.filter(func(fid): return ids.has(int(fid)))
+	if kept.size() != _factions.size():
+		_factions = kept
+		_save_prefs()
+
 ## The filter as `WorldGen.timeline_items` takes it.
 func filter_dict() -> Dictionary:
+	var b := _bridge()
+	if b != null:
+		_prune_factions(b, b.get_factions())
 	var d := {}
 	if not _kinds.is_empty():
 		d["kinds"] = PackedStringArray(_kinds)

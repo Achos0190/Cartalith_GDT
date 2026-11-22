@@ -316,6 +316,9 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     // Ruling FO item 1 (2026-11-16): a founding year per settlement; app only.
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.founding_year, "the reference has no founding year");
     assert!(params::defaults().civ.founding_year, "new worlds give settlements a founding year (Ruling FO item 1)");
+    // Ruling GK item 1 (2026-11-22): unclaimed settlements keep their own garrison; app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.loose_garrisons, "MM-6 gives an unclaimed place none");
+    assert!(params::defaults().civ.loose_garrisons, "new worlds give unclaimed settlements their own garrison (Ruling GK)");
 }
 
 /// Protects: the civ group being twenty-one contiguous `civ.`-keyed rows that `groups()` lists,
@@ -333,11 +336,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// `civ.harbour_box` (Ruling FF items 5 and 6, 2026-11-15), plus `civ.port_shore`
 /// and `civ.map_crossings` (Ruling FI, 2026-11-16), plus `civ.port_reach`
 /// (Ruling FK item 2, 2026-11-16), plus `civ.founding_year` (Ruling FO item 1, 2026-11-16), plus
-/// `civ.planner_dominant_biome` (owner finding F33, 2026-11-21).
+/// `civ.planner_dominant_biome` (owner finding F33, 2026-11-21), plus
+/// `civ.loose_garrisons` (Ruling GK item 1, 2026-11-22).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_twenty_four() {
+fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 24, "the civ group is twenty-four rows");
+    assert_eq!(rows.len(), 25, "the civ group is twenty-five rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -382,14 +386,14 @@ fn the_civ_group_is_a_real_contiguous_group_of_twenty_four() {
 /// at all (`None`), and the five re-entrant `#[func]`s would have no way to
 /// tell the shell they are worth pressing.
 ///
-/// **Except `civ.garrison_exposure_scale`**, which `compute_civilisation`
+/// **Except `civ.garrison_exposure_scale` and `civ.loose_garrisons`** (Ruling GK), which `compute_civilisation`
 /// does not read at all -- `civ_military_bridge.rs`'s garrison computation
 /// reads it fresh every time, never through a cached stage -- so it is
 /// excluded here and covered instead by `generation_time_only_parameters_
 /// mark_nothing`.
 #[test]
 fn every_civ_row_marks_civ_stale_and_nothing_else() {
-    for s in params::PARAMS.iter().filter(|s| s.group == "civ" && s.key != "civ.garrison_exposure_scale") {
+    for s in params::PARAMS.iter().filter(|s| s.group == "civ" && s.key != "civ.garrison_exposure_scale" && s.key != "civ.loose_garrisons") {
         assert_eq!(
             params::invalidates(s.key),
             Some(PipelineStage::Climate),
@@ -1385,6 +1389,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.planner_dominant_biome = false;
     // And Ruling FO item 1: a save without the key has no founding years.
     expect.civ.founding_year = false;
+    // And Ruling GK: a save without the key read its unclaimed places with no garrison.
+    expect.civ.loose_garrisons = false;
     // And Ruling FN: a save without the key laid its river towns out in the
     // reference's box.
     expect.urban_river_stretch = false;
@@ -1583,6 +1589,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.port_reach = false;
     neutral.civ.planner_dominant_biome = false;
     neutral.civ.founding_year = false;
+    neutral.civ.loose_garrisons = false;
     neutral.urban_river_stretch = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
@@ -1829,6 +1836,8 @@ fn generation_time_only_parameters_mark_nothing() {
         // `civ_military_bridge.rs`'s garrison computation reads it fresh
         // every time, never through a cached stage.
         "civ.garrison_exposure_scale",
+        // Ruling GK's switch, read at the same garrison read.
+        "civ.loose_garrisons",
     ] {
         assert!(params::spec(key).is_some(), "{key} is not a real parameter");
         assert_eq!(params::invalidates(key), None, "{key}");

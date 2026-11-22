@@ -1,5 +1,6 @@
 extends Node
-## Ruling GI (owner 2026-11-21): every faction may be deleted. One windowed run through the real shell:
+## Ruling GI (owner 2026-11-21): every faction may be deleted; Ruling GK (2026-11-22): unclaimed settlements of a
+## faction world keep their own garrison, and stale chronos faction filters are pruned. One windowed run through the real shell:
 ## delete all six factions with the Factions window's own "− Remove last" button and its confirm card,
 ## read the military model (no faction army; every settlement keeps its own garrison), run the
 ## collapse timeline, save the project, reopen it, and add a faction again.
@@ -224,12 +225,46 @@ func _ready() -> void:
 	var n_settle := (bridge.settlements() as Array).size()
 	_check("the world has six factions and settlements", int(bridge.civ_faction_count()) == 6 and n_settle >= 4, "%d / %d" % [bridge.civ_faction_count(), n_settle])
 
+	## Ruling GK item 1: with factions, an unclaimed settlement keeps its own garrison (the app has the switch on).
+	var m0: Dictionary = bridge.civ_military_summary_at(int(bridge.get_civ_year()))
+	var unclaimed: Array = (m0.get("settlements", []) as Array).filter(func(p): return int((p as Dictionary).get("faction", -1)) == 0)
+	if unclaimed.is_empty():
+		## Generated worlds often claim every settlement: removing the last faction releases its places
+		## (the button path is walked below for the other five).
+		_check("removing one faction leaves unclaimed settlements beside five factions", bridge.civ_remove_faction() and int(bridge.civ_faction_count()) == 5)
+		m0 = bridge.civ_military_summary_at(int(bridge.get_civ_year()))
+		unclaimed = (m0.get("settlements", []) as Array).filter(func(p): return int((p as Dictionary).get("faction", -1)) == 0)
+	if unclaimed.is_empty():
+		_check("an unclaimed settlement exists for Ruling GK", false)
+	else:
+		var g0: Dictionary = bridge.civ_settlement_garrison(int((unclaimed[0] as Dictionary).get("tid", 0)), int(bridge.get_civ_year()))
+		_check("GK: an unclaimed settlement of a faction world keeps its own garrison", bool(g0.get("loose", false)) and g0.has("garrison"), str(g0))
+	## Ruling GK item 3: a saved chronos faction filter naming a faction that does not exist is pruned.
+	## The strip lives in `timeline_row`, filled when CIVIL's timeline is expanded (`_ct_probe.gd`'s own route).
+	app.select_domain("civilization")
+	await _frames(8)
+	app._tl_expanded = true
+	app._fill_timeline_strip()
+	await _frames(30)
+	var chron: Node = app.timeline_row.find_child("ChronosItems", true, false) if app.timeline_row != null else null
+	_check("the chronos strip exists", chron != null)
+	if chron != null:
+		chron._factions = [3, 99]
+		chron._save_prefs()
+		var fd: Dictionary = chron.filter_dict()
+		_check("GK: the chronos filter drops an id the roster lacks and keeps a real one", Array(fd.get("factions", PackedInt32Array())) == [3], str(fd))
+
 	app.open_faction_roster()
 	await get_tree().create_timer(2.0).timeout
 	var w: Node = app.faction_roster_window
 	_check("the Factions window opened", w != null and w.visible)
 	await _remove_all(w)
-	_check("all six deleted through the button", int(bridge.civ_faction_count()) == 0)
+	if chron != null:
+		var fd2: Dictionary = chron.filter_dict()
+		var cfg := ConfigFile.new()
+		cfg.load(DccSettings.CONFIG_PATH)
+		_check("GK: with every faction deleted the chronos filter names none, saved too", not fd2.has("factions") and String(cfg.get_value("timeline_items", "factions", "x")) == "", "%s / %s" % [fd2, cfg.get_value("timeline_items", "factions", "x")])
+	_check("the rest deleted through the button", int(bridge.civ_faction_count()) == 0)
 	var rm := _find(w, "Button", "− Remove last") as Button
 	_check("with none left Remove last is disabled, and says why", rm != null and rm.disabled and rm.tooltip_text.contains("No faction is left"), rm.tooltip_text if rm != null else "")
 	var txt := _texts(w)

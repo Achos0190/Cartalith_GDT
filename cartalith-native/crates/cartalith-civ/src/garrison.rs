@@ -44,10 +44,11 @@
 //! raster is not the grid's size. A real zero -- a village whose quota rounded
 //! down and won no remainder -- is `Some` with `garrison == 0`.
 //!
-//! **A world with no faction at all** (Ruling GI, owner 2026-11-21) is the
-//! one place a settlement of no faction gets a figure: its own garrison,
-//! [`loose_garrison`]. [`civ_garrisons`] itself is unchanged and never
-//! produces one; the caller chooses on the roster's count.
+//! **A settlement of no faction** gets a figure in two cases, both its own
+//! garrison, [`loose_garrison`]: in a world with no faction at all (Ruling GI,
+//! owner 2026-11-21), and in any world when the caller's `civ.loose_garrisons`
+//! switch is on (Ruling GK, 2026-11-22). [`civ_garrisons`] itself is unchanged
+//! and never produces one; the caller chooses.
 
 use crate::SettlementKind;
 
@@ -335,16 +336,18 @@ pub fn civ_garrisons(input: &GarrisonInput) -> Vec<Option<Garrison>> {
 /// with no faction is never read as some faction's government.
 pub const LOOSE_GOVERNMENT: &str = "none";
 
-/// Ruling GI (owner, 2026-11-21): one **loose** settlement's own garrison, in
-/// a world with no faction at all. With no faction there is no faction army to
-/// split, no levy and no war between factions; each settlement keeps its own
-/// defence force, and this is it.
+/// Rulings GI (owner, 2026-11-21) and GK (2026-11-22): one **loose**
+/// (unclaimed) settlement's own garrison. In a world with no faction there is
+/// no faction army to split, no levy and no war between factions, and every
+/// settlement keeps its own defence force; under Ruling GK an unclaimed
+/// settlement of a world with factions keeps one too (the caller's
+/// `civ.loose_garrisons` switch). This is it.
 ///
 /// It is the manpower model's own standing army
 /// ([`crate::manpower::civ_military_manpower`], unchanged) for a polity of one
-/// settlement: its population as the nucleated population, the Unclaimed row's
-/// agricultural technology (`farmers_per_urbanite`, the caller reads it from
-/// roster row 0, the row a loose settlement's faction id `0` names), the
+/// settlement: its population as the nucleated population, the world's base
+/// agricultural technology (`farmers_per_urbanite`; the caller reads it from
+/// `civ.base_ag_tech`, Ruling GK item 2, never from a faction's row), the
 /// [`LOOSE_GOVERNMENT`] key, and its own seat reached in full
 /// (`capital_road_reach = 1`: it is all of itself). Two labelled judgements:
 ///
@@ -358,8 +361,9 @@ pub const LOOSE_GOVERNMENT: &str = "none";
 ///
 /// The share is `1` (the whole of its own force) and the exposure `0` (with no
 /// faction there is no foreign frontier). `None`, never `Some(0)`, when the
-/// population or the reading is not finite. Must never be used in a world that
-/// still has a faction: that world's unclaimed places keep today's `None`.
+/// population or the reading is not finite. In a world with factions the
+/// caller uses it only with the Ruling GK switch on; off, unclaimed places keep
+/// MM-6's `None`.
 pub fn loose_garrison(place: &GarrisonPlace, farmers_per_urbanite: f64) -> Option<Garrison> {
     if !place.pop.is_finite() {
         return None;

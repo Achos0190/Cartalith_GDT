@@ -42,21 +42,23 @@ fn mil<'a>(civ: &'a CivData, ws: &'a cartalith_engine::WorldState, gh: usize, p:
 }
 
 /// The garrisons and manpower rows of one view, through the app's bodies.
-fn read(m: &MilWorld, view: &CivView, wrap: bool) -> (Vec<ManpowerRow>, Vec<Option<Garrison>>) {
+fn read(m: &MilWorld, view: &CivView, wrap: bool, params: &cartalith_engine::CivParams) -> (Vec<ManpowerRow>, Vec<Option<Garrison>>) {
     let defences = m.defences_of(view.settlements, view.overrides());
     let agg = m.aggregates_of(view, &defences, true);
     assert!(!format!("{agg:?}").contains("NaN"), "aggregates carry no NaN");
     let rows = m.manpower_rows_of(view, &agg);
-    let g = garrisons_for(m.civ, view, &defences, &rows, (m.gw, m.gh, wrap), cartalith_civ::garrison::EXPOSURE_SCALE);
+    let g = garrisons_for(m.civ, view, &defences, &rows, (m.gw, m.gh, wrap), params);
     (rows, g)
 }
 
 /// Protects Ruling GI's military half on two real worlds: with every faction deleted there is no
 /// faction army (zero manpower rows), and every settlement holds its own garrison, `Some`, finite,
-/// the whole of its own force, equal to `loose_garrison` read with the Unclaimed row's ag-tech; a
-/// town-sized place has a positive one. Re-adding a faction afterwards brings the faction rules
-/// back (one manpower row, and the still-unclaimed places return to `None`). MUTATION: drop the
-/// `count() == 0` branch in `garrisons_for` and the `Some` assertion fails.
+/// the whole of its own force, equal to `loose_garrison` read with the world's base ag-tech (Ruling
+/// GK item 2); a town-sized place has a positive one, with the switch off too (the zero-faction
+/// branch does not read it). Re-adding a faction afterwards brings the faction rules back: one
+/// manpower row, and the still-unclaimed places keep their own garrison with Ruling GK's switch on
+/// and return to `None` with it off. MUTATION: drop the `count() == 0` branch in `garrisons_for`
+/// and the switch-off `Some` assertion fails.
 #[test]
 fn zero_factions_military_is_settlement_garrisons_only() {
     for (seed, width) in [(SEEDS[0], 800.0), (SEEDS[1], 40_075.0)] {
@@ -64,10 +66,11 @@ fn zero_factions_military_is_settlement_garrisons_only() {
         {
             let m = mil(&civ, &ws, gh, &p, seed);
             let view = CivView::live(&civ);
-            let (rows, g) = read(&m, &view, p.world);
+            let off = cartalith_engine::CivParams { loose_garrisons: false, ..p.civ.clone() };
+            let (rows, g) = read(&m, &view, p.world, &off);
             assert!(rows.is_empty(), "seed {seed}: no faction, no faction army");
             assert_eq!(g.len(), civ.settlements.len());
-            let f = civ_ag_tech_by_key(&civ.faction_roster.0[0].ag_tech).farmers_per_urbanite;
+            let f = civ_ag_tech_by_key(cartalith_civ::roster::AG_TECH_LEVELS[p.civ.base_ag_tech as usize].key).farmers_per_urbanite;
             for (s, g) in civ.settlements.iter().zip(&g) {
                 let g = g.unwrap_or_else(|| panic!("seed {seed}: {} has no garrison", s.name));
                 assert_eq!(g.share, 1.0);
@@ -77,14 +80,17 @@ fn zero_factions_military_is_settlement_garrisons_only() {
             }
             assert!(g.iter().flatten().any(|g| g.garrison > 0), "seed {seed}: some settlement must hold men");
         }
-        // Re-adding a faction: it owns nothing yet, so it reads one (empty) manpower row and the
-        // still-unclaimed places return to the faction world's rule (no garrison).
+        // Re-adding a faction: it owns nothing yet, so it reads one (empty) manpower row.
         assert_eq!(civ.faction_roster.add(), 1);
         let m = mil(&civ, &ws, gh, &p, seed);
-        let (rows, g) = read(&m, &CivView::live(&civ), p.world);
+        assert!(p.civ.loose_garrisons, "premise: the app boundary has Ruling GK's switch on");
+        let (rows, g) = read(&m, &CivView::live(&civ), p.world, &p.civ);
         assert_eq!(rows.len(), 1);
         assert!(!format!("{:?}", rows[0].manpower).contains("NaN"), "an empty faction reads no NaN");
-        assert!(g.iter().all(Option::is_none), "seed {seed}: unclaimed places keep the faction-world rule");
+        assert!(g.iter().all(Option::is_some), "seed {seed}: Ruling GK, unclaimed places keep their own garrison");
+        let off = cartalith_engine::CivParams { loose_garrisons: false, ..p.civ.clone() };
+        let (_, g) = read(&m, &CivView::live(&civ), p.world, &off);
+        assert!(g.iter().all(Option::is_none), "seed {seed}: switch off, MM-6's rule (no garrison)");
     }
 }
 
@@ -110,7 +116,7 @@ fn zero_factions_timeline_runs_collapse_and_recovery() {
     let t = cartalith_civ::timeline::civ_territory_at(&civ.timeline, last.year).unwrap();
     let view = CivView { settlements: &last.settlements, ways: &last.ways, territory: &t, record: Some(&last.record) };
     let m = mil(&civ, &ws, gh, &p, seed);
-    let (rows, g) = read(&m, &view, p.world);
+    let (rows, g) = read(&m, &view, p.world, &p.civ);
     assert!(rows.is_empty());
     assert!(!last.settlements.is_empty() && g.iter().all(Option::is_some), "a recorded year's loose places keep their garrisons");
     assert!(civ.civ_goto_year(last.year), "the cursor loads a recorded zero-faction year");
@@ -210,4 +216,58 @@ fn zero_factions_recompute_keeps_the_world_loose() {
     assert!(merged.settlements.iter().all(|s| s.placement.faction == 0), "a recompute gave a loose settlement a faction");
     let n = merged.faction_roster.0.len() as i32;
     assert!(merged.territory.iter().all(|&t| t >= 0 && t < n), "territory names a faction the roster lacks");
+}
+
+/// Protects Ruling GK on a real world that keeps its six factions: with `civ.loose_garrisons` off
+/// every garrison equals MM-6's (`civ_garrisons`, unclaimed places `None`); with it on, every
+/// faction place keeps exactly the same figure and every unclaimed place gains its own
+/// (`loose_garrison` at the world's base ag-tech), and changing `civ.base_ag_tech` moves the
+/// unclaimed figures only. MUTATION: drop the `if params.loose_garrisons` loop and the "gains its
+/// own" assertion fails; read the base tech from a faction row and the base-tech assertion fails.
+#[test]
+fn loose_garrisons_switch_in_a_world_with_factions() {
+    let mut found = false;
+    for seed in [12345, 707] {
+        let (ws, mut civ, gh, p) = crate::fh_r2_baseline::generate_world(seed, 800.0, 6, GW);
+        // Generated worlds at this size claim every settlement, so the two largest are made
+        // unclaimed by hand (as the place editor's Polity picker would): one claimed place must
+        // remain for the faction half of the check.
+        let mut by_pop: Vec<usize> = (0..civ.settlements.len()).collect();
+        by_pop.sort_by_key(|&i| std::cmp::Reverse(civ.settlements[i].pop));
+        for &i in by_pop.iter().take(2) {
+            civ.settlements[i].placement.faction = 0;
+        }
+        assert!(civ.settlements.iter().any(|s| s.placement.faction > 0), "premise: claimed places remain");
+        found = true;
+        let m = mil(&civ, &ws, gh, &p, seed);
+        let view = CivView::live(&civ);
+        let off = cartalith_engine::CivParams { loose_garrisons: false, ..p.civ.clone() };
+        let (_, g_off) = read(&m, &view, p.world, &off);
+        let (_, g_on) = read(&m, &view, p.world, &p.civ);
+        let tech0 = cartalith_engine::CivParams { base_ag_tech: 0, ..p.civ.clone() };
+        let (_, g_t0) = read(&m, &view, p.world, &tech0);
+        for (i, s) in civ.settlements.iter().enumerate() {
+            if s.placement.faction > 0 {
+                assert_eq!(g_on[i], g_off[i], "seed {seed}: a faction place moved with the switch");
+                assert_eq!(g_t0[i], g_off[i], "seed {seed}: base tech moved a faction place");
+            } else {
+                assert_eq!(g_off[i], None, "seed {seed}: switch off keeps MM-6's none");
+                assert!(g_on[i].is_some(), "seed {seed}: Ruling GK, {} gains its own garrison", s.name);
+                let f0 = civ_ag_tech_by_key(cartalith_civ::roster::AG_TECH_LEVELS[0].key).farmers_per_urbanite;
+                let place = GarrisonPlace { faction: 0, pop: f64::from(s.pop), walled: false, is_capital: false, kind: s.placement.kind, x: 0.0, y: 0.0 };
+                assert_eq!(g_t0[i].map(|g| g.garrison), loose_garrison(&place, f0).map(|g| g.garrison), "base tech 0 is read");
+            }
+        }
+        let differs = civ.settlements.iter().enumerate().any(|(i, s)| s.placement.faction == 0 && s.pop > 500 && g_t0[i] != g_on[i]);
+        assert!(differs, "seed {seed}: base tech must move some unclaimed garrison");
+    }
+    assert!(found, "premise: some seed has both claimed and unclaimed settlements");
+}
+
+/// Protects Ruling GK's §7p split as literals: off at the parity boundary (`WorldParams::defaults`),
+/// on in the app (`params::defaults`). MUTATION: flip either default and this goes red.
+#[test]
+fn loose_garrisons_is_off_at_the_parity_boundary_and_on_in_the_app() {
+    assert!(!cartalith_engine::WorldParams::defaults(64, 32, 1).civ.loose_garrisons);
+    assert!(crate::params::defaults().civ.loose_garrisons);
 }

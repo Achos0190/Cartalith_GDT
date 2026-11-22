@@ -373,6 +373,10 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the reference's placements every golden reads
     // (`DECISIONS.md` section 7p). See `CivParams::river_front`.
     p.civ.river_front = true;
+    // Ruling GK (owner 2026-11-22): an unclaimed settlement keeps its own
+    // garrison in a world with factions too. Off in `WorldParams::defaults`,
+    // MM-6's rule (`DECISIONS.md` section 7p). See `CivParams::loose_garrisons`.
+    p.civ.loose_garrisons = true;
     // Ruling FF item 5 (owner 2026-11-15): town siting (Ruling N's river term)
     // and the road network's crossing costs read the map's own river network,
     // not the civ pass's rebuild. Off in `WorldParams::defaults`, the
@@ -1097,6 +1101,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.garrison_exposure_scale", group: "civ", kind: Kind::Float, min: 0.0, max: 5.0, step: 0.1,
         label: "Garrison border-exposure scale", unit: "\u{d7}", reference_control: "",
         get_fn: |p| Value::Num(p.civ.garrison_exposure_scale), set_fn: |p, v| p.civ.garrison_exposure_scale = v },
+    // Ruling GK (owner 2026-11-22): unclaimed settlements keep their own
+    // garrison in a world with factions too. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control (the reference has no
+    // garrisons). A save without the key loads OFF (`LOADS_WHEN_ABSENT`). Read
+    // fresh at every garrison read, like the exposure scale, so `invalidates`
+    // carves it out of the `civ.*` wildcard too.
+    ParamSpec { key: "civ.loose_garrisons", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Unclaimed settlements keep their own garrison", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.loose_garrisons), set_fn: |p, v| p.civ.loose_garrisons = v != 0.0 },
     // Ruling EU item 1 (2026-11-12): shared road trunks. ON at the app
     // boundary, OFF in `WorldParams::defaults`; no reference control (the
     // reference has no such pass). A save without the key loads OFF
@@ -1473,6 +1486,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // No reference control at all -- the reference has no such setting
     // (`MILITARY_MANPOWER_SCOPE.md` §5.6). Travels in `state.cartalith` only.
     ("civ.garrison_exposure_scale", ""),
+    // Ruling GK: no reference control; the reference has no garrisons.
+    ("civ.loose_garrisons", ""),
     // Ruling EU item 1: no reference control; the reference has no trunk pass.
     ("civ.merge_ways", ""),
     // Ruling EX: no reference control; the reference has no frontage term.
@@ -1747,6 +1762,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // River frontage (Ruling EX, 2026-11-14): every save without the key placed
     // its towns without the term, so a regenerate places them there again.
     ("civ.river_front", Value::Bool(false)),
+    // Ruling GK (2026-11-22): every save without the key read its unclaimed
+    // places with no garrison (MM-6), so it reopens reading them that way.
+    ("civ.loose_garrisons", Value::Bool(false)),
     // Ruling FF items 5 and 6 (2026-11-15): every save without the keys sited
     // its towns and roads on the rebuilt network and badged harbours on the
     // radius alone, so a regenerate puts them back there.
@@ -1950,6 +1968,8 @@ pub fn invalidates(key: &str) -> Option<PipelineStage> {
         // arm's own claim ("every `civ.*` row is read by
         // `compute_civilisation`") stays true of what it actually matches.
         "civ.garrison_exposure_scale" => None,
+        // Ruling GK's switch: read at the same garrison read, never cached.
+        "civ.loose_garrisons" => None,
         // Same node, same reasoning, for the same reason: `Climate`'s only
         // consumer is `civ`, so marking it makes the civ layer stale and runs
         // nothing. Every other `civ.*` row is read by `compute_civilisation`

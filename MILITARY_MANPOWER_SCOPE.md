@@ -1334,7 +1334,7 @@ be deleted. With none left there is no faction army, levy or war: the manpower
 model returns no rows, and each settlement keeps **its own garrison**,
 `cartalith_civ::garrison::loose_garrison` -- the unchanged
 `civ_military_manpower` standing army for a polity of that one settlement,
-read with the Unclaimed row's agricultural technology and government key
+read with the world's base agricultural technology (Ruling GK) and government key
 `none`, its seat reached in full, land equal to its people (ecological factor
 1, Ruling AI's world anchor; labelled judgement) and roads, rivers and sea at 0
 (they feed only the levy chain). A town of 5 000 on `traditionalAgrarian`
@@ -1343,10 +1343,13 @@ is taken in `civ_military_bridge::garrisons_for` on the roster count, so a world
 that keeps a faction is byte-identical, including its unclaimed places (still
 `None`); `civ_settlement_garrison` reports a loose figure with `loose: true`
 and no `faction_garrison`. End-to-end tests: `zero_factions_tests.rs`.
-Open for the owner: whether unclaimed settlements of a world that still has
-factions should also hold their own garrison (today they do not, so adding one
-empty faction to a zero-faction world removes every garrison until it claims
-places).
+**Ruling GK (owner, 2026-11-22)** answered both questions this note left
+open: an unclaimed settlement keeps its own garrison in a world with factions
+too, behind the §7p switch `civ.loose_garrisons` (on in the app, off at the
+parity boundary and for a save without the key; with it off an unclaimed place
+keeps MM-6's `None`); and loose garrisons read the world's `civ.base_ag_tech`,
+not the Unclaimed row's default. Faction garrisons do not move either way
+(`loose_garrisons_switch_in_a_world_with_factions`).
 
 ### 5.7 Manpower across the year cursor (MM-8)
 

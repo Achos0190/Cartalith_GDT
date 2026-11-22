@@ -1104,6 +1104,19 @@ pub struct CivParams {
     /// outside that range reaching this field is read as the reference default rather than panicking
     /// (`FactionRoster::seeded_with_tech`).
     pub base_ag_tech: i32,
+    /// Ruling GK (owner, 2026-11-22): **an unclaimed settlement keeps its own
+    /// garrison** (`cartalith_civ::garrison::loose_garrison`) also in a world
+    /// that has factions. Ruling GI already gives one to every settlement of a
+    /// world with no faction; this extends it to the unclaimed places of a world
+    /// with factions, which changes their garrison readout (and a siege's
+    /// garrison) from none to a figure.
+    ///
+    /// **`false` here, `true` in the shipped app** (`cartalith-godot`'s
+    /// `params::defaults`), the `DECISIONS.md` §7p split: off is the MM-6 rule
+    /// every earlier world was read with. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`). Read fresh by `civ_military_bridge.rs` at
+    /// every garrison read, never by `compute_civilisation`.
+    pub loose_garrisons: bool,
 }
 
 impl CivParams {
@@ -1852,6 +1865,8 @@ impl WorldParams {
                 founding_year: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
+                // Ruling GK: MM-6 gives an unclaimed place of a faction world no garrison.
+                loose_garrisons: false,
             },
             use_gpu: false,
             // Off: the streak spike's ablations are measurement-only; see
