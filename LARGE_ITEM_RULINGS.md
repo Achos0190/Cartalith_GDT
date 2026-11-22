@@ -3983,3 +3983,7 @@ After seeing the real plans beside today's towns and the PS-2 prototype at gain 
 ## Ruling GN: what "continental influence" meant (owner, 2026-11-22)
 
 On `BORDER_FORMATION_RESEARCH.md` Q1: *"Terrain features, like mountain ridges, canyons, rivers historically gave good strategic and defensive positions. Making them natural borders. Like the mountains between France and Spain, the Rhine river etc."* Borders should come to rest on defensible terrain features -- ridges and crests, canyons and gorges, major rivers -- rather than on straight bisectors. The build option is still the owner's to pick after the research summary.
+
+## Ruling GO: borders -- terrain friction plus snapping to features (owner, 2026-11-22)
+
+On `BORDER_FORMATION_RESEARCH.md`: build **O1, a territory friction field** (relief, ridges and canyons dear; rivers cheap along and dear across; passes discounted; forest, marsh and desert as multipliers; the road cost untouched) **plus O2, snapping the settled border seam to the nearest ridge, canyon or river**, and **O4, a thin smoothed border line** drawn over the wash. Unclaimed or thin margins (O5) where friction is high follow. New worlds only (§7p), a strength slider where 0 reproduces today's territory; re-baselining the manpower ecological bars and the FH-R2/G1 worlds is accepted (research Q10 default). Q4 rivers as connectors-and-barriers (both signs), Q6 passes pull borders, Q9 no era-dependent friction for now.
