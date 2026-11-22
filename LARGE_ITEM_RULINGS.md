@@ -3999,3 +3999,7 @@ After F29 (`1ee81d3e`: default worlds 4 949-6 233 m, land below 0 °C roughly do
 ## Ruling GR: sea lanes further offshore; only the big arc reeled in (owner, 2026-11-22)
 
 On the F39 frame for seed 83744 (`3c276bfd`): *"After is way too close, I like before better. Just the big arch could be reeled in a little bit."* The coast pull is too strong. Keep the lanes out in open water as before; reduce only the large detour arc (by the port calls and a mild limit on how far a lane may swing beyond a direct coastal course), and keep a minimum standoff from the shore away from ports.
+
+## Ruling GS: sea lanes keep their original distance from the coast (owner, 2026-11-22)
+
+After `41ea9901`: *"Yea know what just keep it as it originally was for the distance from the coast."* Remove the 2.5 km standoff cost (and no coast discount), so a lane's distance from the shore is decided as it was before F39. The port calls, trunk sharing (F16) and the swing limit that reined in the big arc stay.
