@@ -126,10 +126,9 @@ GUI, then engine, then the LLM interface).
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
-- Drawn chronos track (VE-7): no specification beyond the word. `VAULT_EDITOR_PROPOSAL.md`.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
-- Project archive `library/` art payload in the save (Ruling AP; verify against Rulings FP/FR, which may cover it). `SAVEFILE_COMPAT.md` §16.5.
-- Ruling FH: the save prompt for refined levels and the disk-cap setting wait on the ZR decision.
+- **Ruling GW: embed the art the world uses in the save** (`library/art/<key>.png`; merged into the device library on open; unused items not embedded). `SAVEFILE_COMPAT.md` §16.5, `project_bridge.rs` `SLOT_ASSETS`. Queued next.
+- Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
 ### Assistant (LLM) — after GUI and engine
 - `_llmpanel_probe` flake; `_nethint_probe` phone leg (1 check).
