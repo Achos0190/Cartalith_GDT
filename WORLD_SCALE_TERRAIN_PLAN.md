@@ -223,7 +223,7 @@ the parent's towns are not carried over.
 
 **It is a proof of concept, not a product mode:**
 
-- an experimental mode behind a **default-off setting**, so nothing reaches it unless the user turns it on;
+- **harness only for now** (owner addendum to Ruling GV, 2026-11-22: *"It should not yet be implemented into cartalith as a full thing"*): an ignored test and scratch frames, with no menu entry, setting, save field or shell code; a default-off setting is the shape it would take only if a later ruling promotes it;
 - **no save-format promises**: it adds no `project.json` member, raster or `format_version` rule of its own, and a
   world it makes may be saved only as an ordinary world (with `world.region_source` where §8's provenance exists,
   which is §8's promise, not this mode's);

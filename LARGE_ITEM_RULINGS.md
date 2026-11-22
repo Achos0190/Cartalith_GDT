@@ -4022,3 +4022,5 @@ Answers to `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §6, written into `WORLD_S
 4. **Q4:** cell-unit parameters in ground units for new worlds, behind a switch (§7p), scheduled with the tiled-pipeline scope; reference width 2048, so default-resolution worlds stay byte-identical.
 5. **Q5:** the cut-out is a world-construction mode, not a third save type; the plan's two save types stay.
 6. **Q6:** Generate on a region-origin world warns now (if the shell does not already), and offers Regenerate region from source once it exists.
+
+**Ruling GV, owner addendum (2026-11-22):** *"It should not yet be implemented into cartalith as a full thing."* Free B ("Re-simulate region") is a **proof of concept only**: it lives in an ignored test harness and scratch frames (the review's §8 two-step PoC), **not in the app** -- no menu entry, no setting, no save field, no shell code -- until a later ruling promotes it on the PoC's measured result. Where `WORLD_SCALE_TERRAIN_PLAN.md` §5/§9a say "behind a default-off setting", read "harness only" until then.
