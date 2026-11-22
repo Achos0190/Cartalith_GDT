@@ -1067,6 +1067,14 @@ pub struct CivParams {
     /// `DECISIONS.md` §7p split: the reference badges on its own radius. A save
     /// without the key loads it off.
     pub port_reach: bool,
+    /// F33 (owner finding 2026-11-21: the planner named a desert the route never crossed). A planner stage
+    /// that absorbed a neighbour keeps the neighbour's biome name in the reference; with this on a land stage
+    /// is named for the biome that covers most of its km (`cartalith_civ::JpWorld::dominant_stage_biome`). It
+    /// changes only what the planner prints and the biome-keyed numbers of merged stages, never the world.
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the `DECISIONS.md` §7p split. A
+    /// save without the key loads it off.
+    pub planner_dominant_biome: bool,
     /// Owner Ruling FO item 1 (2026-11-16, `LARGE_ITEM_RULINGS.md`): every settlement a generation places
     /// is given a **founding year**, stored beside its place-editor extras (`PlaceExtras::founded`, saved
     /// as `extras.founded`, `SAVEFILE_COMPAT.md` 9.1). The year is `-um_infer_age(population)`: the
@@ -1838,6 +1846,8 @@ impl WorldParams {
                 map_crossings: false,
                 // Ruling FK item 2: the reference badges ports within its own radius.
                 port_reach: false,
+                // F33: the reference names a merged stage for the survivor's biome.
+                planner_dominant_biome: false,
                 // Ruling FO item 1: the reference has no founding year.
                 founding_year: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).

@@ -103,7 +103,7 @@ impl Sl {
             ocean_field: None,
             wind_field: None,
             river_net: None,
-            measure_slope: slope,
+            measure_slope: slope, dominant_stage_biome: false,
         }
     }
 }

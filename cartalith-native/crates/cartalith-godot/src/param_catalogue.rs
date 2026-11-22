@@ -263,6 +263,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
     ("civ.port_shore", "On: a coastal town whose town map has no sea moves up to 4 km to the shore and becomes a harbour (current). Off: it stays put, as older worlds did."),
     ("civ.map_crossings", "On: roads pay a ford or bridge wherever they cross a river the map draws (current). Off: only bigger rivers cost to cross, as older worlds did."),
+    ("civ.planner_dominant_biome", "On: the planner names a stage for the biome over most of its km (current). Off: a short stage merged into a neighbour keeps the neighbour's biome name."),
     ("civ.port_reach", "On: a town is a port candidate only with the sea within about 4 km (current). Off: up to about 12.5 km, as older worlds did."),
     ("civ.founding_year", "On: each new settlement is given a founding year, shown when you inspect it (current). Off: places have no founding year, as older worlds did."),
     ("civ.base_ag_tech", "Raise: every faction starts with more advanced farming, 0 hoe to 5 industrial. Lower: simpler farming. Applies to a newly generated world."),

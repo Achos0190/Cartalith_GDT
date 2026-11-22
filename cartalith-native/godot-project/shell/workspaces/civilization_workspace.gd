@@ -139,8 +139,8 @@ var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/10
 var _tl_sim_rate := 0.01                ## fraction/yr -- reference slider(tenths-%)/1000
 ## Simulation "Start year" (number field -9999..9999), sent as `start_year`. Default 0 is the reference's `#civSimStartYear` `value` (v2.11 line 1944).
 var _tl_sim_start_year := 0
-## Simulation "Duration (yr)" (1..1000000), sent as `duration`. Default 100 is the reference's `#civSimDuration` `value` (v2.11 line 1946).
-var _tl_sim_duration := 100
+## F11: the run's END year (owner finding 2026-11-21: a field named Duration read as an end year turned 4200 + 4700 into 8900). Sent as `end_year`; the default 100 is the reference's 100-year duration from the default start 0.
+var _tl_sim_end_year := 100
 ## Simulation "Step years" (1..1000000), sent as `step_years`. Default 10 is the reference's `#civSimStepYears` `value` (v2.11 line 1947).
 var _tl_sim_step_years := 10
 ## The Timeline "Exist only" filter; `_tl_apply_filters` returns rows unfiltered when off.
@@ -306,6 +306,9 @@ var _populate_btn: Button
 var _populate_note: Label
 ## The "Clear places & routes" button of the Populate row; disabled while there is no world.
 var _clear_places_btn: Button
+## F24: the Populate section's village-seeding buttons (`_seed_villages`, `_undo_seed_villages`).
+var _seed_villages_btn: Button
+var _undo_villages_btn: Button
 ## `PARITY_AUDIT.md` §23 F13's `civ_regional_population` readout -- held so
 ## `_on_compute_regional_population` can find the label it already built
 ## instead of rebuilding the section, the same reasoning `_recompute_note`
@@ -2802,6 +2805,45 @@ func _populate_world_now() -> void:
 	app.set_status("hint", outcome, "text" if bool(r.get("ok", false)) else "accent")
 	_after_civ_layer_replaced()
 
+## F24: `Seed villages`. Under the busy overlay like Auto-populate, then reports how many were added (or
+## why none were) in the Populate note and the status bar. Not confirmed: it only adds, and
+## `_undo_seed_villages` takes the villages away again.
+func _seed_villages() -> void:
+	var b := _seed_villages_btn
+	if b != null and is_instance_valid(b):
+		b.disabled = true
+	var rv: Variant = await app.busy_run("seeding villages…", bridge.civ_seed_villages_now)
+	var r: Dictionary = rv if rv is Dictionary else {}
+	var outcome := ""
+	if bool(r.get("ok", false)):
+		outcome = "Seeded %d village%s in %.1f s; %d settlements and %d ways now." % [
+			int(r.get("added", 0)), "" if int(r.get("added", 0)) == 1 else "s",
+			float(r.get("ms", 0.0)) / 1000.0, int(r.get("settlements", 0)), int(r.get("ways", 0))]
+	else:
+		outcome = "No villages added. %s" % String(r.get("reason", "Unknown reason."))
+	if _populate_note != null and is_instance_valid(_populate_note):
+		_populate_note.text = outcome
+	app.set_status("hint", outcome, "text" if bool(r.get("ok", false)) else "accent")
+	if bool(r.get("ok", false)):
+		_after_civ_layer_replaced()
+	if b != null and is_instance_valid(b):
+		b.disabled = false
+	if _undo_villages_btn != null and is_instance_valid(_undo_villages_btn):
+		_undo_villages_btn.disabled = not bridge.civ_seed_villages_can_undo()
+
+## F24: `Undo village seeding`: removes exactly the villages the last seeding added.
+func _undo_seed_villages() -> void:
+	var rv: Variant = await app.busy_run("undoing village seeding…", bridge.civ_seed_villages_undo)
+	var r: Dictionary = rv if rv is Dictionary else {}
+	var outcome := "Removed %d village%s." % [int(r.get("removed", 0)), "" if int(r.get("removed", 0)) == 1 else "s"] 		if bool(r.get("ok", false)) else "Nothing undone. %s" % String(r.get("reason", "Unknown reason."))
+	if _populate_note != null and is_instance_valid(_populate_note):
+		_populate_note.text = outcome
+	app.set_status("hint", outcome, "text" if bool(r.get("ok", false)) else "accent")
+	if bool(r.get("ok", false)):
+		_after_civ_layer_replaced()
+	if _undo_villages_btn != null and is_instance_valid(_undo_villages_btn):
+		_undo_villages_btn.disabled = not bridge.civ_seed_villages_can_undo()
+
 ## The reference's Clear places & routes (`#civClearPlacesBtn`), stage 4.
 func _clear_places() -> void:
 	var n := bridge.settlements().size()
@@ -3001,6 +3043,19 @@ func _build_settlement_gaps(parent: Control) -> void:
 	_populate_note = DccWidgets.note(pop_sec,
 		"Keeps the terrain and re-derives the people on it. To re-roll the land as well, "
 		+ "use World ▸ Generate.")
+	## F24 (owner finding 2026-11-21): village seeding after the first generation.
+	_seed_villages_btn = DccWidgets.action(pop_sec, "Seed villages", _seed_villages)
+	_seed_villages_btn.disabled = not bridge.has_world or bridge.settlements().is_empty()
+	_seed_villages_btn.tooltip_text = ("Runs the village pass that generation runs, over the settlements already "
+		+ "on the map, and ADDS hamlet-tier villages where there is room: nothing existing is moved, renamed "
+		+ "or replaced, and each new village gets a dirt track to the network. Works whether or not the "
+		+ "Villages generation option was on. Deterministic. Press again for more where room is left. "
+		+ "Seconds on the main thread, like Recompute civilisation.")
+	_undo_villages_btn = DccWidgets.action(pop_sec, "Undo village seeding", _undo_seed_villages)
+	_undo_villages_btn.disabled = not bridge.civ_seed_villages_can_undo()
+	_undo_villages_btn.tooltip_text = ("Takes away the villages the last Seed villages added and rebuilds "
+		+ "the roads and borders around the settlements that remain. Available until anything else adds "
+		+ "a place.")
 	_clear_places_btn = DccWidgets.action(pop_sec, "Clear places & routes", _clear_places)
 	_clear_places_btn.disabled = not bridge.has_world
 	_clear_places_btn.tooltip_text = ("The reference's #civClearPlacesBtn. Empties the settlement "
@@ -8185,7 +8240,7 @@ func _build_politics_gaps(body: Control) -> void:
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
 
-## Builds the collapsed 'Simulate collapse / recovery' expander: the mode choice, the mode's own parameters (character and severity for collapse, regrowth rate for recovery), start year, duration and step, a Simulate button that calls `_tl_run_simulation(false)` and the last run's output note. Parameters are stored in the `_tl_sim_*` members as the controls change; nothing runs until Simulate is pressed.
+## Builds the collapsed 'Simulate collapse / recovery' expander: the mode choice, the mode's own parameters (character and severity for collapse, regrowth rate for recovery), start year, end year and step, a Simulate button that calls `_tl_run_simulation(false)` and the last run's output note. Parameters are stored in the `_tl_sim_*` members as the controls change; nothing runs until Simulate is pressed.
 func _build_timeline_sim(body: Control) -> void:
 	var grp := category_expander(body, "Simulate collapse / recovery", false)
 	DccWidgets.choice(grp, "Mode", ["Collapse (decline + migration)", "Recovery (regrowth)"],
@@ -8205,8 +8260,8 @@ func _build_timeline_sim(body: Control) -> void:
 			func(v: float): _tl_sim_rate = v / 100.0)
 	DccWidgets.number(grp, "Start year", -9999.0, 9999.0, 1.0, float(_tl_sim_start_year),
 		func(v: float): _tl_sim_start_year = int(v))
-	DccWidgets.number(grp, "Duration (yr)", 1.0, 1000000.0, 1.0, float(_tl_sim_duration),
-		func(v: float): _tl_sim_duration = int(v))
+	DccWidgets.number(grp, "End year", -9999.0, 9999999.0, 1.0, float(_tl_sim_end_year),
+		func(v: float): _tl_sim_end_year = int(v))
 	DccWidgets.number(grp, "Step years", 1.0, 1000000.0, 1.0, float(_tl_sim_step_years),
 		func(v: float): _tl_sim_step_years = int(v))
 	DccWidgets.action(grp, "Simulate", func(): _tl_run_simulation(false), true)
@@ -8229,7 +8284,7 @@ func _tl_run_simulation(confirm_overwrite: bool) -> void:
 		"severity": _tl_sim_severity,
 		"rate": _tl_sim_rate,
 		"start_year": _tl_sim_start_year,
-		"duration": _tl_sim_duration,
+		"end_year": _tl_sim_end_year,
 		"step_years": _tl_sim_step_years,
 		"confirm_overwrite": confirm_overwrite,
 	}

@@ -1201,7 +1201,7 @@ mod tests {
             ocean_field: None,
             wind_field: None,
             river_net: None,
-            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, dominant_stage_biome: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
         let (plan, rejected) = plan_from_pairs(&owned(&[

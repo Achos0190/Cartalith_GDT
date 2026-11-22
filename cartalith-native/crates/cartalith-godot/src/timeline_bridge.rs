@@ -139,6 +139,13 @@ pub struct CollapseSimRequest {
     pub start_year: i64,
     pub duration: i64,
     pub step_years: i64,
+    /// F11 (owner finding 2026-11-21: start 4200 / end 4700 overflowed to 8064). **Not a reference
+    /// field**: the reference has only `duration`, so a user who meant "end" typed it into
+    /// `duration` and got `start + end`. When `Some`, the run ends exactly on this year: `duration`
+    /// is read as `end_year - start_year`, the step count rounds UP, and the last step is clipped
+    /// to the end (see [`step_year`]), so the timeline's last recorded year IS the end year and
+    /// the strip's range stops there. `None` is the reference's own `duration` rule, unchanged.
+    pub end_year: Option<i64>,
     /// Not a reference field -- the reference's own warn-before-overwrite is a
     /// blocking `confirm()` dialog (line 24911); this boundary can't block on one, so
     /// a first call with clobbering years pending returns
@@ -162,6 +169,7 @@ impl Default for CollapseSimRequest {
             start_year: 0,
             duration: 100,
             step_years: 10,
+            end_year: None,
             confirm_overwrite: false,
         }
     }
@@ -208,6 +216,7 @@ pub fn collapse_sim_request_from_pairs(pairs: &[(String, SimValue)]) -> (Collaps
             "start_year" => v.int().map(|n| req.start_year = n).is_some(),
             "duration" => v.int().map(|n| req.duration = n).is_some(),
             "step_years" => v.int().map(|n| req.step_years = n).is_some(),
+            "end_year" => v.int().map(|n| req.end_year = Some(n)).is_some(),
             "confirm_overwrite" => v.flag().map(|b| req.confirm_overwrite = b).is_some(),
             _ => false,
         };
@@ -298,6 +307,14 @@ pub enum CollapseSimOutcome {
     Ran(CollapseSimReport),
 }
 
+/// The year step `t` (1-based) is written at: `start + t * step`, except that with
+/// [`CollapseSimRequest::end_year`] set no year passes the end (F11), so the last, possibly short,
+/// step lands exactly on it.
+fn step_year(req: &CollapseSimRequest, t: i64, step_years: u32) -> i64 {
+    let y = req.start_year + t * i64::from(step_years);
+    req.end_year.map_or(y, |end| y.min(end.max(req.start_year + 1)))
+}
+
 /// `_civRunCollapseSimulation` (reference lines 24896-24950): the impure wiring.
 /// Reads `live_settlements` (reference `state.places.filter(category==='settlement')`
 /// -- this port's settlements list already IS that filtered set) + `req`, runs
@@ -329,12 +346,18 @@ pub fn run_collapse_simulation(
     }
     let step_years = req.step_years.max(1) as u32;
     let duration = req.duration.max(1) as f64;
-    let steps = ((duration / f64::from(step_years)).round() as i64).max(1) as u32;
+    let steps = match req.end_year {
+        Some(end) => {
+            let span = (end - req.start_year).max(1);
+            ((span + i64::from(step_years) - 1) / i64::from(step_years)).max(1) as u32
+        }
+        None => ((duration / f64::from(step_years)).round() as i64).max(1) as u32,
+    };
 
     // Warn-before-overwrite (reference lines 24910-24911): which of the years THIS
     // run would write already carry a recorded entry.
     let clobber_years: Vec<i64> = (1..=i64::from(steps))
-        .map(|t| req.start_year + t * i64::from(step_years))
+        .map(|t| step_year(req, t, step_years))
         .filter(|y| timeline.iter().any(|s| s.year == *y))
         .collect();
     if !clobber_years.is_empty() && !req.confirm_overwrite {
@@ -396,7 +419,7 @@ pub fn run_collapse_simulation(
 
     let mut report = CollapseSimReport { steps, ..Default::default() };
     for (t, snap) in snapshots.iter().enumerate() {
-        let year = req.start_year + (t as i64 + 1) * i64::from(step_years);
+        let year = step_year(req, t as i64 + 1, step_years);
         let named: Vec<NamedSettlement> = snap
             .places
             .iter()
@@ -435,7 +458,7 @@ pub fn run_collapse_simulation(
         }
     }
     timeline.sort_by_key(|s| s.year);
-    report.end_year = req.start_year + i64::from(steps) * i64::from(step_years);
+    report.end_year = step_year(req, i64::from(steps), step_years);
     CollapseSimOutcome::Ran(report)
 }
 
@@ -654,6 +677,33 @@ mod tests {
         let outcome = run_collapse_simulation(&mut timeline, 0, &[], &[], &[], &world, &req);
         assert_eq!(outcome, CollapseSimOutcome::NoSettlements);
         assert!(timeline.is_empty(), "a rejected run must not write anything");
+    }
+
+    /// Protects F11 (2026-11-21: start 4200 / end 4700 overflowed to 8064): with `end_year` set the
+    /// run ends exactly on it. 4200 -> 4700 in 10-year steps writes 50 steps and its last year is
+    /// 4700 (literal); 4200 -> 4700 in 30-year steps writes 17 steps, the last one short, and its last
+    /// year is still 4700, not 4710; without `end_year` the reference rule is unchanged (duration 500
+    /// from 4200 is also 4700, and duration 4700 is 8900, the overflow the owner saw).
+    #[test]
+    fn end_year_is_where_the_run_ends() {
+        let settlements = vec![settlement(1, 3, 3, SettlementKind::Village, 500, "Alpha")];
+        let dens = vec![5.0f32; GW * GH];
+        let field = vec![0.6f32; GW * GH];
+        let world = world_params(&dens, &field);
+        let run = |req: CollapseSimRequest| {
+            let mut timeline = Vec::new();
+            let CollapseSimOutcome::Ran(r) = run_collapse_simulation(&mut timeline, 4200, &settlements, &[], &[0; GW * GH], &world, &req) else { panic!("expected Ran") };
+            (r, timeline.iter().map(|s| s.year).max().unwrap())
+        };
+        let base = CollapseSimRequest { severity: 0.0, start_year: 4200, ..CollapseSimRequest::default() };
+        let (r, last) = run(CollapseSimRequest { end_year: Some(4700), step_years: 10, ..base });
+        assert_eq!((r.steps, r.end_year, last), (50, 4700, 4700));
+        let (r, last) = run(CollapseSimRequest { end_year: Some(4700), step_years: 30, ..base });
+        assert_eq!((r.steps, r.end_year, last), (17, 4700, 4700));
+        let (r, last) = run(CollapseSimRequest { duration: 500, step_years: 10, ..base });
+        assert_eq!((r.steps, r.end_year, last), (50, 4700, 4700));
+        let (r, last) = run(CollapseSimRequest { duration: 4700, step_years: 10, ..base });
+        assert_eq!((r.steps, r.end_year, last), (470, 8900, 8900));
     }
 
     /// Protects: the wiring's own bookkeeping -- 30 years in 10-year steps writes snapshots at

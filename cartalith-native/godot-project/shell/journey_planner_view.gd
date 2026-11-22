@@ -411,6 +411,15 @@ var _route_map_layer_popup: PopupMenu
 ## `"off"` (the pre-existing plain background) by default, so this feature is
 ## purely additive until picked.
 var _route_map_layer_id := "map"
+## F33: the biome a stage row prints. The engine gives a sea stage the biome of the last land point it passed
+## (the reference's rule, kept because the weather odds read it), so printing it named a desert the route
+## never entered whenever a route left a desert coast by sea. A sea stage prints "open water" instead; every
+## other stage prints the engine's name.
+func _stage_biome_label(s: Dictionary) -> String:
+	return "open water" if String(s.get("cat", "land")) == "sea" else String(s.get("biome", "?"))
+
+## F6: true while `_route_map`'s backdrop is current for `_route_map_layer_id` (see `_refresh_route_map_layer_texture`).
+var _layer_tex_fresh := false
 ## Body of the "Route totals" panel, created in `_build_center_panel`; `_rebuild_route_map` clears
 ## it and refills it with `_totals_row` rows.
 var _totals_body: VBoxContainer
@@ -488,6 +497,12 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## `restore_journeys_document()`'s own identity guard means a later stray
 	## call with those same bytes cannot undo it.
 	bridge.generation_finished.connect(func(ok: bool): if ok: clear_journeys())
+	## F6: the backdrop texture is re-fetched only after one of these says it may have changed
+	## (`_refresh_route_map_layer_texture`), not on every compute.
+	bridge.generation_finished.connect(func(_ok: bool): _layer_tex_fresh = false)
+	bridge.world_loaded.connect(func(): _layer_tex_fresh = false)
+	bridge.layer_stack_changed.connect(func(): _layer_tex_fresh = false)
+	bridge.color_texture_rebuilt.connect(func(): _layer_tex_fresh = false)
 	bridge.world_loaded.connect(func(): if not bridge.has_world: clear_journeys())
 	## PC-8: the stop draft and its undo steps name settlements and a route of the world that made them,
 	## so they go with it. Unlike the journeys list, on EVERY `world_loaded`, not only a close: a project
@@ -3002,6 +3017,7 @@ func _on_route_map_layer_picked(id_index: int) -> void:
 	if id_index < 0 or id_index >= _ROUTE_MAP_LAYER_IDS.size():
 		return
 	_route_map_layer_id = _ROUTE_MAP_LAYER_IDS[id_index]
+	_layer_tex_fresh = false
 	_refresh_route_map_layer_texture()
 
 ## Re-fetches the current layer id's texture and redraws. Called on a manual
@@ -3010,6 +3026,12 @@ func _on_route_map_layer_picked(id_index: int) -> void:
 ## whatever world is live, so a texture fetched before that regenerate would
 ## otherwise sit stale (wrong, not crashing) until the next manual pick.
 func _refresh_route_map_layer_texture() -> void:
+	## F6 (owner finding 2026-11-21, "slow, eating processing time"): `color_texture()` renders the
+	## WHOLE world (about 1.2 s at 2048 x 1311, measured by `_feng1_probe.gd`) and `_compute()` ran it
+	## on every plan edit. It is now fetched once per change of the layer or the world
+	## (`_layer_tex_fresh`, cleared by the bridge signals connected in `setup()` and by a layer pick).
+	if _layer_tex_fresh:
+		return
 	var id := _route_map_layer_id
 	var tex: Texture2D = null
 	if id == "off":
@@ -3028,6 +3050,8 @@ func _refresh_route_map_layer_texture() -> void:
 	## The halo pass `_route_line` draws is gated on `backdrop.map_texture !=
 	## null`, which just changed.
 	_route_line.queue_redraw()
+	## After the fetch: building the colour texture emits `color_texture_rebuilt`, which cleared the flag.
+	_layer_tex_fresh = true
 
 ## Pushes the current route, its stage segments, settlement stops and resupply marks into the map views, then rebuilds the totals block (distance, land/water split, ascent, high point, stages, settlements, mean speed).
 ## `world_bounds` is set before the no-route early-out because the no-route case is exactly what consumes it. Must always redraw both `_route_map` and `_route_line`.
@@ -3540,7 +3564,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	## the same line `right_dock.gd`'s Δ vertical readout draws.
 	head.add_child(DccTheme.label("%s · %s · %.0f m · %s" % [
 		String(s.get("terrain", "?")), DccUnits.format_thousands(float(s.get("km", 0.0))),
-		float(s.get("gain", 0.0)), String(s.get("biome", "?"))], "text_faint", DccTheme.FS_MICRO))
+		float(s.get("gain", 0.0)), _stage_biome_label(s)], "text_faint", DccTheme.FS_MICRO))
 	head.add_child(DccTheme.spacer())
 	head.add_child(DccTheme.label("overrides: %d" % ov.size(), "text_ghost", DccTheme.FS_MICRO))
 	if _isolated_stage == idx:
@@ -3917,7 +3941,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		hrs_sb.value_changed.connect(func(v: float): _set_stage_override(i, "hours", ("" if v <= 0.0 else v)))
 		grid.add_child(hrs_sb)
 
-		grid.add_child(DccTheme.mono_label("%s · %s" % [String(s.get("terrain", "?")), String(s.get("biome", "?"))],
+		grid.add_child(DccTheme.mono_label("%s · %s" % [String(s.get("terrain", "?")), _stage_biome_label(s)],
 			"water" if String(s.get("cat", "land")) != "land" else "text_dim", DccTheme.FS_TINY))
 		var eff: Dictionary = r.get("eff", {})
 		grid.add_child(DccTheme.mono_label(String(eff.get("weather_override", "")).capitalize() if String(eff.get("weather_override", "")) != "" else "—",
@@ -4499,7 +4523,7 @@ func _export_stage_table() -> void:
 		var s: Dictionary = stages[i]
 		var r: Dictionary = results[i] if i < results.size() else {}
 		lines.append("%d,%s,%s,%s,%.1f,%.2f,%.2f,%s" % [
-			i + 1, String(s.get("cat", "")), String(s.get("terrain", "")), String(s.get("biome", "")),
+			i + 1, String(s.get("cat", "")), String(s.get("terrain", "")), _stage_biome_label(s),
 			float(s.get("km", 0.0)), float(r.get("days", 0.0)), float(r.get("daily_km", 0.0)),
 			str(bool(r.get("blocked", false)))])
 	DisplayServer.clipboard_set("\n".join(lines))

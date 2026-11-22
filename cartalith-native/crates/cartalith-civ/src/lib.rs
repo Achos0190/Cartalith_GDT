@@ -16598,6 +16598,12 @@ pub struct JpWorld<'a> {
     /// the planner no longer takes it (DECISIONS.md 7p: the superseded input
     /// is removed, not kept beside the new one).
     pub measure_slope: bool,
+    /// F33 (owner finding 2026-11-21: the planner named a desert the route never crossed), `civ.planner_dominant_biome`.
+    /// The reference merges a too-short stage into a neighbour and keeps **the neighbour's** biome name, so a
+    /// merged stage can be named for a few kilometres of desert it absorbed while most of it is grassland. With
+    /// this set a land stage takes the biome that covers most of its km (the first of equals); the km, terrain
+    /// and everything else are the survivor's as before. `false`: the reference's label, bit for bit.
+    pub dominant_stage_biome: bool,
 }
 
 /// The river network [`jp_derive_stages`] reads for River Transport (Ruling CD
@@ -16868,6 +16874,18 @@ struct JpChunk {
     /// Ruling EU item 3: the river leg this chunk belongs to. A leg chunk never
     /// collapses into land, and merges only with chunks of its own leg.
     leg: Option<usize>,
+    /// F33: km of this chunk's land steps by the biome of the point each step arrives at, in order of first
+    /// appearance; merged along with the chunk (`jp_merge_chunk`). Read only under
+    /// [`JpWorld::dominant_stage_biome`].
+    biome_km: Vec<(String, f64)>,
+}
+
+/// F33: adds `km` to `biome`'s entry of a chunk's [`JpChunk::biome_km`] list.
+fn jp_add_biome_km(list: &mut Vec<(String, f64)>, biome: &str, km: f64) {
+    match list.iter_mut().find(|(b, _)| b == biome) {
+        Some((_, k)) => *k += km,
+        None => list.push((biome.to_string(), km)),
+    }
 }
 
 /// `_jpDeriveStages` (reference line 18491): sample the drawn route against
@@ -17104,6 +17122,7 @@ pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan,
                 slope_fall: 0.0,
                 slope_km: 0.0,
                 leg: f.leg,
+                biome_km: Vec::new(),
             });
         }
         let cur = chunks.last_mut().expect("just pushed or matched");
@@ -17114,6 +17133,9 @@ pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan,
             let dy = pts[k].1 - pts[k - 1].1;
             let step_km = adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
             cur.km += step_km;
+            if f.cat == "land" {
+                jp_add_biome_km(&mut cur.biome_km, &f.biome, step_km);
+            }
             let dh =
                 world.height_m(pts[k].0, pts[k].1) - world.height_m(pts[k - 1].0, pts[k - 1].1);
             // Ruling CD item 2: a land step's grade is its own rise over run,
@@ -17288,7 +17310,16 @@ pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan,
         let mid_k = ((c.i0 + c.i1) >> 1).min(pts.len() - 1);
         let mut st = JpDerivedStage {
             cat: c.cat.to_string(),
-            biome: c.biome.clone(),
+            biome: if world.dominant_stage_biome && c.cat == "land" {
+                // F33: the biome over most of the stage's km; the first of equals, and the survivor's own
+                // label when no step was measured (a one-point chunk).
+                c.biome_km
+                    .iter()
+                    .fold(None::<&(String, f64)>, |best, e| if best.is_none_or(|b| e.1 > b.1) { Some(e) } else { best })
+                    .map_or_else(|| c.biome.clone(), |b| b.0.clone())
+            } else {
+                c.biome.clone()
+            },
             terrain: c.terrain.clone(),
             route_cond: String::new(),
             derived_cond: None,
@@ -17380,7 +17411,11 @@ fn jp_merge_chunk(chunks: &mut Vec<JpChunk>, i: usize, nb: usize) {
         let c = &chunks[i];
         (c.km, c.rx, c.gain, c.loss, c.i0, c.i1, c.slope_rise, c.slope_fall, c.slope_km)
     };
+    let absorbed = std::mem::take(&mut chunks[i].biome_km);
     let n = &mut chunks[nb];
+    for (b, k) in &absorbed {
+        jp_add_biome_km(&mut n.biome_km, b, *k);
+    }
     n.km += km;
     n.rx += rx;
     n.gain += gain;
@@ -26903,7 +26938,7 @@ Isle {name},1
             // reference's own derivation (Ruling CD item 2 measures slope only
             // when a world asks). `m5_slope_moves_only_the_land_legs` plans
             // this fixture with it and pins what it moves.
-            measure_slope: false,
+            measure_slope: false, dominant_stage_biome: false,
         }
     }
 
@@ -28285,7 +28320,7 @@ Isle {name},1
         //   so Ruling CG's asymmetry moves none of them.
         let f = m5_fields();
         let pts = m5_pts();
-        let with = JpWorld { measure_slope: true, ..m5_world(&f) };
+        let with = JpWorld { measure_slope: true, dominant_stage_biome: false, ..m5_world(&f) };
         let q = jp_plan(&with, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         let base = jp_plan(&m5_world(&f), &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         assert_eq!(q.stages.len(), 7, "premise: the golden seven stages");

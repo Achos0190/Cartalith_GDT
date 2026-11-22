@@ -5409,6 +5409,30 @@ func civ_populate() -> Dictionary:
 	mark_world_dirty()
 	return world_gen.civ_populate()
 
+## F24: adds villages to the world already on the map (`WorldGen.civ_seed_villages_now`), keeping every
+## place; the reply is the recompute dictionary plus `added`, with `ok` false and a `reason` for no world,
+## no settlements or no room. A running generation refuses, as the other civ rebuilds do.
+func civ_seed_villages_now() -> Dictionary:
+	if not _has("civ_seed_villages_now"):
+		return {"ok": false, "added": 0, "reason": "This build's extension has no civ_seed_villages_now."}
+	if generating:
+		return {"ok": false, "added": 0, "reason": "A generation or landmark pass is still running."}
+	mark_world_dirty()
+	return world_gen.civ_seed_villages_now()
+
+## F24: whether the last seeding can be taken away again (`WorldGen.civ_seed_villages_can_undo`).
+func civ_seed_villages_can_undo() -> bool:
+	return not generating and _has("civ_seed_villages_can_undo") and world_gen.civ_seed_villages_can_undo()
+
+## F24: removes the villages the last seeding added (`WorldGen.civ_seed_villages_undo`); `{ok, removed, reason}`.
+func civ_seed_villages_undo() -> Dictionary:
+	if not _has("civ_seed_villages_undo"):
+		return {"ok": false, "removed": 0, "reason": "This build's extension has no civ_seed_villages_undo."}
+	if generating:
+		return {"ok": false, "removed": 0, "reason": "A generation or landmark pass is still running."}
+	mark_world_dirty()
+	return world_gen.civ_seed_villages_undo()
+
 ## Rebuilds the route network alone (`WorldGen.civ_auto_routes`); the reply carries
 ## `ok` and, when false, a `reason` (also given for no binding or a running generate).
 func civ_auto_routes() -> Dictionary:

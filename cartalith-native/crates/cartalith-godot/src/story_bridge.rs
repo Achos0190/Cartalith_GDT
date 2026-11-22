@@ -215,6 +215,58 @@ pub(crate) struct JpWorldParts {
     // build here per call is gone (DECISIONS.md 7p).
 }
 
+/// F6: the planner's river channels, kept between `jp_compute` calls under a hash of
+/// every input of `fresh_river_channels_with` (see `jp_world_parts`). Rebuilt on any
+/// mismatch; `release_world` need not clear it for correctness.
+pub(crate) struct JpRiverCache {
+    key: u64,
+    order: Vec<i16>,
+    recv: Vec<i32>,
+}
+
+/// An `f32` slice as its raw bytes, for an in-process cache key only (never persisted).
+fn f32_bytes(v: &[f32]) -> &[u8] {
+    // SAFETY: `f32` has no padding and no invalid bit patterns.
+    unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), std::mem::size_of_val(v)) }
+}
+
+/// The [`JpRiverCache`] key: a hash of both rasters and the nine scalars `fresh_river_channels_with` reads
+/// (grid size, wrap, sea level, river density, map width, the two routing flags, the roughness seed). Any
+/// input that moves must move the key; `river_cache_key_moves_with_every_input` pins that.
+fn river_cache_key(field: &[f32], flow: &[f32], scalars: [u64; 9]) -> u64 {
+    let mut key = crate::sample_bridge::hash_bytes(0x6a70_7276, f32_bytes(field));
+    key = crate::sample_bridge::hash_bytes(key, f32_bytes(flow));
+    let scalar_bytes: Vec<u8> = scalars.iter().flat_map(|v| v.to_le_bytes()).collect();
+    crate::sample_bridge::hash_bytes(key, &scalar_bytes)
+}
+
+#[cfg(test)]
+mod river_cache_tests {
+    use super::river_cache_key;
+
+    /// Protects F6's cache: the planner reuses the river channels only while EVERY input is unchanged. Each
+    /// of the nine scalars and a one-cell change in each raster must give a different key, and the same inputs
+    /// the same key. MUTATION: drop any scalar or a raster from `river_cache_key` and its row goes red.
+    #[test]
+    fn river_cache_key_moves_with_every_input() {
+        let (field, flow) = (vec![0.5f32; 64], vec![1.0f32; 64]);
+        let base = [64u64, 32, 0, 0.42f64.to_bits(), 1.0f64.to_bits(), 800.0f64.to_bits(), 1, 7, 0];
+        let k0 = river_cache_key(&field, &flow, base);
+        assert_eq!(k0, river_cache_key(&field.clone(), &flow.clone(), base), "same inputs, same key");
+        for i in 0..base.len() {
+            let mut s = base;
+            s[i] ^= 1;
+            assert_ne!(k0, river_cache_key(&field, &flow, s), "scalar {i} is not in the key");
+        }
+        let mut f2 = field.clone();
+        f2[63] = 0.5000001;
+        assert_ne!(k0, river_cache_key(&f2, &flow, base), "a field cell is not in the key");
+        let mut w2 = flow.clone();
+        w2[0] = 2.0;
+        assert_ne!(k0, river_cache_key(&field, &w2, base), "a flow cell is not in the key");
+    }
+}
+
 /// Rust-internal, so outside the `#[godot_api]` block.
 impl WorldGen {
     /// Every table `jp_compute`'s `JpWorld` needs that no pipeline stage
@@ -254,19 +306,51 @@ impl WorldGen {
         // world tables are built before the plan's transport is final (auto
         // carriage can still change it). Its cost is not measured.
         // Ruling ER: rebuilt along the tree the world was routed with.
-        let (river_order, river_recv) = cartalith_civ::fresh_river_channels_with(
+        // F6 (owner finding 2026-11-21): this call is ~220-280 ms of a ~400 ms
+        // planner compute at 2048 x 1311 (measured with `_feng1_probe.gd`), and a
+        // pure function of the inputs hashed below, so it is cached between calls.
+        // The key reads EVERY argument of `fresh_river_channels_with` (the two
+        // rasters and each scalar, `routing_roughness`' own seed and the basin
+        // flag), so no commit path has to know the cache exists.
+        let key = river_cache_key(
             &ws.field,
             &ws.flow_discharge,
-            gw,
-            gh,
-            ws.sea_level,
-            self.world,
-            self.params.river_density,
-            self.map_width_km,
-            ws.integrated_drainage,
-            cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref(),
-            cartalith_engine::fill_tilt_of(ws.basin_routing),
+            [
+                gw as u64,
+                gh as u64,
+                u64::from(self.world),
+                ws.sea_level.to_bits(),
+                self.params.river_density.to_bits(),
+                self.map_width_km.to_bits(),
+                u64::from(ws.integrated_drainage),
+                ws.routing_roughness.map_or(u64::MAX, |r| r as u64),
+                u64::from(ws.basin_routing),
+            ],
         );
+        let hit = self
+            .jp_river_cache
+            .lock()
+            .ok()
+            .and_then(|c| c.as_ref().filter(|c| c.key == key).map(|c| (c.order.clone(), c.recv.clone())));
+        let (river_order, river_recv) = hit.unwrap_or_else(|| {
+            let built = cartalith_civ::fresh_river_channels_with(
+                &ws.field,
+                &ws.flow_discharge,
+                gw,
+                gh,
+                ws.sea_level,
+                self.world,
+                self.params.river_density,
+                self.map_width_km,
+                ws.integrated_drainage,
+                cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref(),
+                cartalith_engine::fill_tilt_of(ws.basin_routing),
+            );
+            if let Ok(mut c) = self.jp_river_cache.lock() {
+                *c = Some(JpRiverCache { key, order: built.0.clone(), recv: built.1.clone() });
+            }
+            built
+        });
         JpWorldParts { jw, ocean, wind, river_order, river_recv }
     }
 
@@ -306,6 +390,7 @@ impl WorldGen {
             // Ruling CD item 2: land stages measure their along-track grade
             // from `field` (`cartalith_civ::JpSlope`).
             measure_slope: true,
+            dominant_stage_biome: self.params.civ.planner_dominant_biome,
         }
     }
 

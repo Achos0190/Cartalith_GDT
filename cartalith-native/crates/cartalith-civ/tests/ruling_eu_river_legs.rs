@@ -86,7 +86,7 @@ impl Rv {
             ocean_field: None,
             wind_field: None,
             river_net: Some(JpRiverNet { order: &self.order, recv: &self.recv }),
-            measure_slope: false,
+            measure_slope: false, dominant_stage_biome: false,
         }
     }
 }

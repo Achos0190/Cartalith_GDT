@@ -396,6 +396,9 @@ pub fn defaults() -> WorldParams {
     // ocean. Off in `WorldParams::defaults` (section 7p). See
     // `CivParams::port_reach`.
     p.civ.port_reach = true;
+    // F33 (owner finding 2026-11-21): a planner stage is named for the biome over most of its km. Off in
+    // `WorldParams::defaults` (section 7p). See `CivParams::planner_dominant_biome`.
+    p.civ.planner_dominant_biome = true;
     // Ruling FO item 1 (owner 2026-11-16): settlements carry a founding year. Off in
     // `WorldParams::defaults` (section 7p). See `CivParams::founding_year`.
     p.civ.founding_year = true;
@@ -1150,6 +1153,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.port_reach", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Ports only within about 4 km of the sea", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.port_reach), set_fn: |p, v| p.civ.port_reach = v != 0.0 },
+    // F33 (owner finding 2026-11-21): the Journey Planner names a stage for the biome over most of its km, not
+    // the neighbour a short stage was merged into. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control. A save without the key loads OFF. Read when a journey is planned, so it invalidates
+    // nothing.
+    ParamSpec { key: "civ.planner_dominant_biome", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Planner names a stage for its main biome", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.planner_dominant_biome), set_fn: |p, v| p.civ.planner_dominant_biome = v != 0.0 },
     // Ruling FO item 1 (owner 2026-11-16): every generated settlement gets a founding year. ON at the app
     // boundary, OFF in `WorldParams::defaults`; no reference control. A save without the key loads OFF.
     // Read by `compute_civilisation`, which stamps `PlaceExtras::founded`.
@@ -1478,6 +1488,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Ruling FK item 2: no reference control; the reference badges ports within
     // its own radius.
     ("civ.port_reach", ""),
+    // Port-only (F33); the reference names a merged stage for the survivor's biome.
+    ("civ.planner_dominant_biome", ""),
     // Ruling FO item 1: no reference control; the reference has no founding year.
     ("civ.founding_year", ""),
     ("civ.base_ag_tech", ""),
@@ -1747,6 +1759,8 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling FK item 2 (2026-11-16): every save without the key badged its
     // port candidates within the reference's radius.
     ("civ.port_reach", Value::Bool(false)),
+    // F33 (2026-11-21): every save without the key was planned with the reference's stage naming.
+    ("civ.planner_dominant_biome", Value::Bool(false)),
     // Ruling FO item 1 (2026-11-16): every save without the key has no founding years, and stays so.
     ("civ.founding_year", Value::Bool(false)),
 ];

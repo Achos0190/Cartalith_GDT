@@ -249,7 +249,7 @@ fn measure_planner_way_join_and_river_offers() {
             ocean_field: Some(&ocean),
             wind_field: Some(&wind),
             river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
-            measure_slope: true,
+            measure_slope: true, dominant_stage_biome: false,
         };
         let sources = cartalith_civ::jp_road_sources(&civ.ways, &[], &civ.road_edges, gw);
         // The drawn network, as the census audits it, plus room for the route.

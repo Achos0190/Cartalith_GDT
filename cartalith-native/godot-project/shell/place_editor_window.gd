@@ -240,7 +240,8 @@ var _sim_rate := 0.01
 var _sim_start_year := 0
 ## Simulation duration in years (number row minimum 1); default 100 is the reference's
 ## `#civSimDuration` `value` (v2.11 line 1946).
-var _sim_duration := 100
+## F11: the run's END year, sent as `end_year` (see `civilization_workspace.gd::_tl_sim_end_year`).
+var _sim_end_year := 100
 ## Simulation step in years (number row minimum 1); default 10 is the reference's
 ## `#civSimStepYears` `value` (v2.11 line 1947).
 var _sim_step_years := 10
@@ -800,8 +801,8 @@ func _build_timeline(parent: Control) -> void:
 		"Recovery mode only -- regrowth rate per year.")
 	DccWidgets.number(sim, "Start year", -100000.0, 100000.0, 1.0, float(_sim_start_year),
 		func(v: float): _sim_start_year = int(v))
-	DccWidgets.number(sim, "Duration (yr)", 1.0, 100000.0, 1.0, float(_sim_duration),
-		func(v: float): _sim_duration = int(v))
+	DccWidgets.number(sim, "End year", -100000.0, 10000000.0, 1.0, float(_sim_end_year),
+		func(v: float): _sim_end_year = int(v))
 	DccWidgets.number(sim, "Step (yr)", 1.0, 10000.0, 1.0, float(_sim_step_years),
 		func(v: float): _sim_step_years = int(v))
 	DccWidgets.action(sim, "Run simulation", func(): _run_collapse_sim(false))
@@ -859,7 +860,7 @@ func _run_collapse_sim(confirm: bool) -> void:
 		"severity": _sim_severity,
 		"rate": _sim_rate,
 		"start_year": _sim_start_year,
-		"duration": _sim_duration,
+		"end_year": _sim_end_year,
 		"step_years": _sim_step_years,
 		"confirm_overwrite": confirm,
 	}

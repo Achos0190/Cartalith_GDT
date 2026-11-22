@@ -311,6 +311,8 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     // Ruling FK item 2 (2026-11-16): ports within about 4 km of the ocean; app only.
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.port_reach, "the reference badges ports within its own radius");
     assert!(params::defaults().civ.port_reach, "new worlds badge ports within about 4 km (Ruling FK item 2)");
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.planner_dominant_biome, "the reference names a merged stage for the survivor's biome");
+    assert!(params::defaults().civ.planner_dominant_biome, "the app names a planner stage for its main biome (F33)");
     // Ruling FO item 1 (2026-11-16): a founding year per settlement; app only.
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.founding_year, "the reference has no founding year");
     assert!(params::defaults().civ.founding_year, "new worlds give settlements a founding year (Ruling FO item 1)");
@@ -330,11 +332,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// plus `civ.river_front` (Ruling EX, 2026-11-14), plus `civ.map_rivers` and
 /// `civ.harbour_box` (Ruling FF items 5 and 6, 2026-11-15), plus `civ.port_shore`
 /// and `civ.map_crossings` (Ruling FI, 2026-11-16), plus `civ.port_reach`
-/// (Ruling FK item 2, 2026-11-16), plus `civ.founding_year` (Ruling FO item 1, 2026-11-16).
+/// (Ruling FK item 2, 2026-11-16), plus `civ.founding_year` (Ruling FO item 1, 2026-11-16), plus
+/// `civ.planner_dominant_biome` (owner finding F33, 2026-11-21).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_twenty_three() {
+fn the_civ_group_is_a_real_contiguous_group_of_twenty_four() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 23, "the civ group is twenty-three rows");
+    assert_eq!(rows.len(), 24, "the civ group is twenty-four rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -1378,6 +1381,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // box-centre market and badged ports within the reference's radius.
     expect.urban_harbour_front = false;
     expect.civ.port_reach = false;
+    // And F33: a save without the key planned stages under the reference's naming.
+    expect.civ.planner_dominant_biome = false;
     // And Ruling FO item 1: a save without the key has no founding years.
     expect.civ.founding_year = false;
     // And Ruling FN: a save without the key laid its river towns out in the
@@ -1576,6 +1581,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.map_crossings = false;
     neutral.urban_harbour_front = false;
     neutral.civ.port_reach = false;
+    neutral.civ.planner_dominant_biome = false;
     neutral.civ.founding_year = false;
     neutral.urban_river_stretch = false;
     neutral.tect.narrow_plate_base_blur = false;

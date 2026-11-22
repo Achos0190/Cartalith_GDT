@@ -147,7 +147,7 @@ fn replay(seed: i32, villages: bool) {
         ocean_field: Some(&o),
         wind_field: Some(&w),
         river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
-        measure_slope: true,
+        measure_slope: true, dominant_stage_biome: false,
     };
     let plan = JpPlan { transport: "Sea Faring".into(), vessel: "Cog".into(), ..JpPlan::default() };
 

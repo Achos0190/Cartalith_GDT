@@ -723,11 +723,16 @@ enum CivRebuild {
     /// Settlements in, only the route network out —
     /// [`WorldGen::civ_auto_routes`], the reference's Generate Roads.
     Routes,
+    /// F24: [`Downstream`](Self::Downstream) with the village pass run over the kept settlements
+    /// first -- [`WorldGen::civ_seed_villages_now`]. Merges exactly as `Downstream` does.
+    Villages,
 }
 
 /// What [`WorldGen::civ_rebuild`] hands [`compute_civilisation`] to hold
 /// fixed. See that function's `keep` parameter.
 struct KeptCiv {
+    /// F24: run the village-seeding pass over `settlements` (the keep path otherwise never does).
+    seed_villages: bool,
     settlements: Vec<cartalith_civ::NamedSettlement>,
     next_tid: u64,
     village_tids: std::collections::HashSet<u64>,
@@ -775,7 +780,7 @@ fn civ_merge(mode: CivRebuild, mut fresh: CivData, mut old: CivData) -> (CivData
             old.next_tid = old.next_tid.max(fresh.next_tid);
             (old, false)
         }
-        CivRebuild::Downstream => {
+        CivRebuild::Downstream | CivRebuild::Villages => {
             // Boundary state with no terrain input: moved across rather
             // than rebuilt, which is the whole difference between this and
             // `generate`.
@@ -2617,9 +2622,15 @@ mod civ_pipeline_tests {
     /// SG-02's Recompute: `settlements` held fixed, and `from`'s counter,
     /// villages and way tids handed across.
     fn recompute(p: &cartalith_engine::WorldParams, from: &CivData, settlements: Vec<NamedSettlement>) -> CivData {
+        recompute_seeding(p, from, settlements, false)
+    }
+
+    /// [`recompute`] with F24's `seed_villages` flag: the keep path with the village pass run over `settlements`.
+    fn recompute_seeding(p: &cartalith_engine::WorldParams, from: &CivData, settlements: Vec<NamedSettlement>, seed_villages: bool) -> CivData {
         let ws = &world().0;
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
         let keep = super::KeptCiv {
+            seed_villages,
             settlements,
             next_tid: from.next_tid,
             village_tids: from.village_tids.clone(),
@@ -2639,6 +2650,55 @@ mod civ_pipeline_tests {
             cartalith_civ::timeline::civ_snapshot_save(&mut tl, y, c.territory.clone(), c.settlements.clone(), c.ways.clone());
         }
         cartalith_civ::timeline::civ_year_diff(&tl, year)
+    }
+
+    /// Protects F24 (2026-11-21, village seeding only existed inside the first generation): the keep path
+    /// with `seed_villages` adds hamlet villages to a world generated WITHOUT them. Premise: the fixture's
+    /// `civ.villages` is off, so 0 villages exist. After one seeding: `added > 0` (literal bound below),
+    /// every old settlement kept with its tid and name, the new ones tid-unique, in `village_tids`, hamlets
+    /// and with a track each; the same call again on the same input is identical (deterministic); a second
+    /// seeding over the result adds villages of different names; and removing exactly the added tids and
+    /// recomputing gives back the original settlement list (the undo's contract).
+    #[test]
+    fn seeding_villages_after_generation_adds_only_villages_and_is_deterministic_and_reversible() {
+        let mut p = world().1.clone();
+        p.civ.villages = false;
+        let base = civ(&p, &[]);
+        assert!(base.village_tids.is_empty(), "premise: no village exists before the action");
+        let n0 = base.settlements.len();
+
+        let once = recompute_seeding(&p, &base, base.settlements.clone(), true);
+        let added: Vec<&NamedSettlement> = once.settlements.iter().filter(|s| !base.settlements.iter().any(|b| b.tid == s.tid)).collect();
+        assert!(added.len() >= 3, "a 256-wide world has room for villages, got {}", added.len());
+        assert_eq!(once.settlements.len(), n0 + added.len());
+        for (a, b) in base.settlements.iter().zip(once.settlements.iter()) {
+            assert_eq!((a.tid, &a.name, a.placement.x, a.placement.y), (b.tid, &b.name, b.placement.x, b.placement.y), "an old place moved or was renamed");
+        }
+        let mut tids: Vec<u64> = once.settlements.iter().map(|s| s.tid).collect();
+        tids.sort_unstable();
+        tids.dedup();
+        assert_eq!(tids.len(), once.settlements.len(), "tids must stay unique");
+        assert!(added.iter().all(|s| s.tid > 0 && once.village_tids.contains(&s.tid) && s.placement.kind == cartalith_civ::SettlementKind::Hamlet && s.pop == 0));
+        assert_eq!(once.village_tids.len(), added.len());
+        // A village gets its dirt-track connector (`civ_connect_village_addons`), so ways grew over the base.
+        assert!(once.ways.len() > base.ways.len(), "villages were not connected: {} ways vs {}", once.ways.len(), base.ways.len());
+
+        let twice = recompute_seeding(&p, &base, base.settlements.clone(), true);
+        let key = |c: &CivData| c.settlements.iter().map(|s| (s.tid, s.name.clone(), s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        assert_eq!(key(&once), key(&twice), "seeding is not deterministic");
+
+        let again = recompute_seeding(&p, &once, once.settlements.clone(), true);
+        let new2: Vec<&NamedSettlement> = again.settlements.iter().filter(|s| !once.settlements.iter().any(|b| b.tid == s.tid)).collect();
+        for s in &new2 {
+            assert!(!once.settlements.iter().any(|o| o.name == s.name), "a second seeding repeated the name {}", s.name);
+        }
+
+        // The undo's contract: drop exactly the added tids, recompute, and the settlement list is the original.
+        let back_list: Vec<NamedSettlement> = once.settlements.iter().filter(|s| !once.village_tids.contains(&s.tid)).cloned().collect();
+        let mut from = once;
+        from.village_tids.clear();
+        let back = recompute(&p, &from, back_list);
+        assert_eq!(key(&back), key(&base), "removing the added villages did not restore the settlement list");
     }
 
     /// Protects: the fix for `OUTSTANDING_WORK.md` §2.3's row
@@ -5445,7 +5505,9 @@ fn compute_civilisation(
     // placement, so without it both are freed here, before the road network
     // (the civ pass's highest spike). One flag for both sites, so the free and
     // the seeding cannot disagree about whether the grids are still wanted.
-    let seeding_villages = opts.villages && !keeping;
+    // F24: the explicit "Seed villages" action seeds over a kept list too, whatever `civ.villages` says.
+    let seed_now = keep.as_ref().is_some_and(|k| k.seed_villages);
+    let seeding_villages = (opts.villages && !keeping) || seed_now;
     if !seeding_villages {
         suit = Vec::new();
         wb.fill_level = Vec::new();
@@ -5599,6 +5661,14 @@ fn compute_civilisation(
     // path: `name_and_populate_settlements()` is literally
     // `civ_name_rng()` followed by the `_with_rng` call now made here.
     let mut rng = cartalith_civ::civ_name_rng();
+    // F24: a second seeding must not replay the names the first one drew. The stream is advanced by a
+    // count taken from the live tid counter, so the result is a function of the world's state alone
+    // (deterministic) and differs from press to press (`next_tid` grows with every settlement added).
+    if let Some(k) = keep.as_ref().filter(|k| k.seed_villages) {
+        for _ in 0..(k.next_tid * 3 + 1) {
+            rng.next_f64();
+        }
+    }
     // SG-02: naming, village seeding and the recovery phase all *author*
     // settlements. On the keep path they have already run once, and their
     // output is part of what is being kept -- re-running them would rename
@@ -5720,7 +5790,9 @@ fn compute_civilisation(
     // the Route/Way tools and never to this pass.
     {
         let conn_villages: Vec<bool> = if keeping {
-            settlements.iter().map(|s| kept_village_tids.contains(&s.tid)).collect()
+            // `is_village` is all `false` on the keep path except for villages this very call seeded (F24),
+            // which have no `tid` yet and so are not in `kept_village_tids`.
+            settlements.iter().enumerate().map(|(i, s)| kept_village_tids.contains(&s.tid) || is_village.get(i).copied().unwrap_or(false)).collect()
         } else {
             is_village.clone()
         };
@@ -5991,7 +6063,10 @@ fn compute_civilisation(
     // and the moment the positions stop being trustworthy. Empty on the keep
     // path, where `kept_village_tids` is already the answer.
     let village_tids: std::collections::HashSet<u64> = if keeping {
-        kept_village_tids
+        let mut v = kept_village_tids;
+        // F24: the villages this call seeded (positions are still valid: the recovery pass does not run on the keep path).
+        v.extend(settlements.iter().zip(is_village.iter()).filter(|(_, f)| **f).map(|(s, _)| s.tid));
+        v
     } else {
         settlements
             .iter()
@@ -7486,6 +7561,13 @@ struct WorldGen {
     /// return the memory when the world goes away — correctness does not
     /// depend on that line.
     wildlife: Option<sample_bridge::WildlifeCache>,
+    /// F6: `jp_world_parts`' river channels, keyed by a hash of their inputs. A `Mutex`
+    /// because `jp_world_parts` takes `&self`.
+    jp_river_cache: std::sync::Mutex<Option<story_bridge::JpRiverCache>>,
+    /// F24: the `tid`s the last [`WorldGen::civ_seed_villages_now`] added and the tid counter right
+    /// after it, so [`WorldGen::civ_seed_villages_undo`] can take exactly those villages away again
+    /// and refuse (rather than remove unrelated places) once the world has moved on.
+    village_seed_last: Option<(Vec<u64>, u64)>,
     /// The Landmark Generation dock's settings AND last-run result
     /// (`LANDMARK_UI_DESIGN.md` §9) — a `cartalith-civ` type
     /// ([`cartalith_civ::landmark::LandmarkStore`]) rather than two fields
@@ -7969,6 +8051,8 @@ impl IRefCounted for WorldGen {
             vault: cartalith_vault::VaultSession::new(),
             knowledge: crate::knowledge_service::KnowledgeState::new(),
             wildlife: None,
+            jp_river_cache: std::sync::Mutex::new(None),
+            village_seed_last: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
             landmark_user_names: std::collections::BTreeMap::new(),
             landmark_kind_overrides: std::collections::BTreeMap::new(),
@@ -10557,6 +10641,87 @@ impl WorldGen {
         self.civ_rebuild(CivRebuild::Routes)
     }
 
+    /// F24 (owner finding 2026-11-21: village seeding was only possible inside the first generation).
+    /// Runs the existing village pass (`civ_seed_villages_on_rivers`, the same call `generate()` and
+    /// Auto-populate make, with the same river constraint) over the settlements already on the map and
+    /// **adds** hamlet-tier villages where the pass finds room, keeping every existing place, name,
+    /// note, way and the recorded timeline. Works whatever `civ.villages` says: the explicit action
+    /// overrides the generation toggle.
+    ///
+    /// Deterministic: the name stream is advanced by a count taken from the tid counter, so the same
+    /// world gives the same villages. The pass is capped (`CIV_VILLAGE_CAP`) per call and respects
+    /// spacing from every place and village already there, so a second press adds villages only where
+    /// the first left room. Rebuilds what hangs off the settlement list exactly as
+    /// [`Self::recompute_civilisation`] does (same cost), then records the added `tid`s for
+    /// [`Self::civ_seed_villages_undo`].
+    ///
+    /// Returns [`Self::recompute_civilisation`]'s dictionary plus `"added": int`; `ok: false` with a
+    /// `reason` for no world, or when no village fits (`added` 0, nothing changed).
+    #[func]
+    fn civ_seed_villages_now(&mut self) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else {
+            return dict! { "ok" => false, "added" => 0i64, "reason" => "Seed villages needs a generated world with settlements." };
+        };
+        if civ.settlements.is_empty() {
+            return dict! { "ok" => false, "added" => 0i64, "reason" => "Seed villages needs settlements. Auto-populate the world first." };
+        }
+        let before: std::collections::HashSet<u64> = civ.settlements.iter().map(|s| s.tid).collect();
+        let mut out = self.civ_rebuild(CivRebuild::Villages);
+        if !out.get("ok").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false) {
+            out.set("added", 0i64);
+            return out;
+        }
+        let Some(civ) = self.civ.as_ref() else { return out };
+        let added: Vec<u64> = civ.settlements.iter().map(|s| s.tid).filter(|t| !before.contains(t)).collect();
+        out.set("added", added.len() as i64);
+        if added.is_empty() {
+            out.set("ok", false);
+            out.set("reason", "No village fits: every candidate is too close to a place already there.");
+            return out;
+        }
+        self.village_seed_last = Some((added.clone(), civ.next_tid));
+        self.ledger.record(
+            "civ",
+            "Seed villages",
+            format!("{} village(s) added", added.len()),
+            undo::EntryKind::Recorded("undo it with Undo village seeding in Civilisation > Settlements; Edit > Undo does not reach it"),
+        );
+        out
+    }
+
+    /// Whether [`Self::civ_seed_villages_undo`] would do anything: the last seeding's villages are all
+    /// still on the map and nothing has been added since (the tid counter is where that seeding left it).
+    #[func]
+    fn civ_seed_villages_can_undo(&self) -> bool {
+        match (self.village_seed_last.as_ref(), self.civ.as_ref()) {
+            (Some((tids, next)), Some(civ)) => {
+                civ.next_tid == *next && tids.iter().all(|t| civ.village_tids.contains(t) && civ.settlements.iter().any(|s| s.tid == *t))
+            }
+            _ => false,
+        }
+    }
+
+    /// Takes away the villages the last [`Self::civ_seed_villages_now`] added and rebuilds downstream
+    /// exactly as `recompute_civilisation` does, so the world is the one before that press (the rebuild
+    /// is a pure function of the settlement list). Refuses with `ok: false` when
+    /// [`Self::civ_seed_villages_can_undo`] is false, touching nothing.
+    #[func]
+    fn civ_seed_villages_undo(&mut self) -> VarDictionary {
+        if !self.civ_seed_villages_can_undo() {
+            return dict! { "ok" => false, "removed" => 0i64, "reason" => "Nothing to undo: the last seeding is gone or the world changed after it." };
+        }
+        let Some((tids, _)) = self.village_seed_last.take() else { return VarDictionary::new() };
+        if let Some(civ) = self.civ.as_mut() {
+            civ.settlements.retain(|s| !tids.contains(&s.tid));
+            for t in &tids {
+                civ.village_tids.remove(t);
+            }
+        }
+        let mut out = self.civ_rebuild(CivRebuild::Downstream);
+        out.set("removed", tids.len() as i64);
+        out
+    }
+
     /// The reference's **Clear ways & journeys** (`#civClearRoadsBtn`,
     /// reference 26673) — stage 3 of 5.
     ///
@@ -10769,7 +10934,8 @@ impl WorldGen {
         let keep = match mode {
             // Placement is an input on both of these: the settlement list is
             // taken verbatim and only what hangs off it is rebuilt.
-            CivRebuild::Downstream | CivRebuild::Routes => Some(KeptCiv {
+            CivRebuild::Downstream | CivRebuild::Routes | CivRebuild::Villages => Some(KeptCiv {
+                seed_villages: mode == CivRebuild::Villages,
                 settlements: civ.settlements.clone(),
                 next_tid: civ.next_tid,
                 village_tids: civ.village_tids.clone(),
@@ -22861,7 +23027,7 @@ impl WorldGen {
             // (Ruling CD item 1), so building one here would change nothing.
             // If `jp_ensure_plan` ever guesses River Transport, supply it.
             river_net: None,
-            measure_slope: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
+            measure_slope: false, dominant_stage_biome: false, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
         let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));
@@ -25081,6 +25247,10 @@ impl WorldGen {
         let (req, more_rejected) = timeline_bridge::collapse_sim_request_from_pairs(&pairs);
         rejected_vec.extend(more_rejected);
         let rejected: PackedStringArray = rejected_vec.iter().map(GString::from).collect();
+        // F11: an end year at or before the start is a mistake to refuse, never a one-step run.
+        if req.end_year.is_some_and(|e| e <= req.start_year) {
+            return fail("The end year must be after the start year.");
+        }
 
         let refusal = self.full_world_refusal();
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_mut()) else {
