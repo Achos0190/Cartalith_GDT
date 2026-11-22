@@ -69,8 +69,11 @@ func _open_and_wait() -> void:
 	await _settle(3)
 
 
+## Counts the buttons under `root` whose text is `text`, ignoring case: the phone form upper-cases its button captions
+## (`DccWidgets.action` on the phone shows "OPEN APP SETTINGS"), so the literal compare counted 0 there and the settings
+## window's "one button iff Android" check failed on the phone only (2026-11-22; the product was right, this was not).
 func _buttons(root: Node, text: String) -> int:
-	var n := 1 if (root is Button and (root as Button).text == text) else 0
+	var n := 1 if (root is Button and (root as Button).text.to_lower() == text.to_lower()) else 0
 	for c in root.get_children():
 		n += _buttons(c, text)
 	return n

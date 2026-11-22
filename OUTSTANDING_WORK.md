@@ -16,8 +16,8 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 3. **Parallel streets PS-4, then PS-5 with the back-street tier** (PS-3 no-go `4d540795`; Ruling GY: depth bar by area, tier built with PS-5's platting, spindle dropped, PS-2 baseline 58.5 % quads). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-15; switch `urban_parallel_streets` (off).
 4. **River smoothing inside town layouts** (Ruling FE item 4). Owner `RIVER_REALISM_SCOPE.md`.
 5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
-   map streaks, the phone assistant clip at 393 px, the trace leftovers, Ruling GB's leftover towns, name-style
-   leftovers, the `_ms5b` phone probe, the `_llmpanel` flake, seed 483920's 3 km threaded strait.
+   map streaks, the trace leftovers, Ruling GB's leftover towns, name-style
+   leftovers, the `_llmpanel` desktop and tablet leg, seed 483920's 3 km threaded strait.
 6. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
 7. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
@@ -97,8 +97,6 @@ GUI, then engine, then the LLM interface).
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 
 ### Desktop, tablet and phone shell
-- `_ms5b_probe` red on the phone, one check ("triplet of nearby LAND points"), untriaged.
-- Assistant panel clips at the right edge on a 393 px phone (Settings, Clear region). `llm_assistant_window.gd`.
 - New World: Imperial seats, Biome K and Lake water balance under More options (not on a phone); Base technology does not rewrite an existing roster.
 - Generated label list differs between two Creates of one seed on tablet (view-dependent `cull.px_per_cell`; not reproduced). `_regenerate_labels`, `label_px_per_cell()`.
 - Welcome leftovers: tablet-portrait New world Width/Seed fields dark on the light theme; "Continue without a world" only as wide as its text; `_openfailgate_probe` desktop fails 2 checks.
@@ -131,7 +129,7 @@ GUI, then engine, then the LLM interface).
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
 ### Assistant (LLM) — after GUI and engine
-- `_llmpanel_probe` flake; `_nethint_probe` phone leg (1 check).
+- `_llmpanel_probe` red on desktop (1600x900 and 1600x1000) and tablet (1700x1000): the window form's content (the "With your next message" block) is taller than the window, so Send and Save sit under the Close row and the probe's clicks miss. Phone green 16 of 16. The intermittent "trying once more" failure (STATUS, PC-6) did not reproduce in those 16 phone runs, under load too.
 - Trace leftovers (`cartalith-trace`, `bb12c00a`): a Preferences switch (TR-4), Android (TR-7), spans on LOD tile workers and the assistant request, the on-at-info cost bar at 2048x1024. `TOOLING_PLAN.md`.
 - Live runs on tablet and phone, Describe-place prose, the hosted wire. `LLM_ASSISTANT_SCOPE.md`.
 - Region edits: a multi-zoom look at each stamp, a ridge chord across strokes, a per-cell cost, a quality bar for real models; the noise operation. `LLM_ASSISTANT_SCOPE.md` LLM-7, s.5h.

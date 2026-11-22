@@ -255,6 +255,35 @@ func _leg_assist() -> void:
 			_check("%s is on screen" % want, r.position.x >= -0.5 and r.end.x <= vis_w + 0.5, str(r))
 		else:
 			print("F4 note: no visible '%s' button" % want)
+	## Every task, the Edit task's "Clear region" row among them (owner finding: "Settings, Clear region" clipped on a 393 px
+	## phone): no button or label ends past the window's own width, and on touch every button meets the 44 dp floor
+	## (`DccTheme.PHONE_TAP_MIN` on the phone, the `btn_min_h` role on the tablet).
+	var floor_px := 0.0
+	if DccTheme.is_phone():
+		floor_px = float(DccTheme.PHONE_TAP_MIN)
+	elif DccTheme.is_tablet():
+		floor_px = float(DccTheme.role_px("btn_min_h"))
+	for t in ["prose", "story", "note", "commands", "edit"]:
+		aw._pick_task(t)
+		await _frames(8)
+		var tw := 0.0
+		var twho := ""
+		var short := ""
+		for c in aw._host.find_children("*", "Control", true, false):
+			if not (c is Button or c is Label) or not (c as Control).is_visible_in_tree():
+				continue
+			var cr := (c as Control).get_global_rect()
+			if cr.end.x > tw:
+				tw = cr.end.x
+				twho = "%s(%s)" % [c.name, (c as Button).text if c is Button else (c as Label).text.left(20)]
+			if c is Button and floor_px > 0.0 and cr.size.y + 0.5 < floor_px and (c as Button).text != "Close":
+				short += " %s=%.0f" % [(c as Button).text, cr.size.y]
+		_check("task %s: nothing past the right edge" % t, tw <= vis_w + 0.5, "%.1f of %.1f by %s" % [tw, vis_w, twho])
+		_check("task %s: every button meets the %d px floor" % [t, int(floor_px)], short == "", short)
+		if t == "edit":
+			await _shot("assistant_edit")
+			_check("Edit shows Clear region on screen", aw.controls["region_clear"].is_visible_in_tree() and (aw.controls["region_clear"] as Control).get_global_rect().end.x <= vis_w + 0.5)
+	aw._pick_task("prose")
 	if not DccTheme.is_phone() and not DccTheme.is_tablet():
 		var h: float = aw._scroll.size.y
 		print("F4 reply area height %.1f" % h)

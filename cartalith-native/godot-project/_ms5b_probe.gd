@@ -364,9 +364,18 @@ func _run(vw: int, vh: int) -> void:
 	await _t_chip_hold()
 	await _t_arm_peek()
 
-## A screen point on LAND: the Way tool refuses a waypoint on water and Paint is land-only by default, so a point
-## `_find_point()` accepts (any valid grid point) can be sea. Scans the host rect for a point whose cell the engine
-## reports as land (`sample_cell().water` is "land"; MISTAKES.md: check the VALUE, not `has()`).
+## True when nothing but a river would answer a finger at the overlay-local point `lp`: asks `request_at(.., "touch")`, the
+## request a real tap or hold carries, so a way gets its 22 px finger tolerance (`ContextBroker.PICK_LINE_TOUCH_PX`) rather
+## than the mouse's 6 px that `hits_at` alone uses (a way under the finger gives the CIVIL card road rows, not "Start way
+## here"). A river is ignored on purpose: it is picked in the WORLD domain only, rivers lie within reach of about a third
+## of all land points on this 1200 km world, and the armed tools this probe drives take the finger before any pick, so
+## counting it left no land triplet at 393 px. Pins and ways still count.
+func _no_pin_at(lp: Vector2) -> bool:
+	for h in _ov.request_at(lp, "touch").get("hits", []):
+		if String(h["kind"]) != "river":
+			return false
+	return true
+
 ## True when a screen point is covered by something that is not the map: the control row, the strip (grown upward
 ## by 110 dp, because a two-row strip is taller than the one-row strip measured when the scan runs) or the sheet.
 func _covered(p: Vector2) -> bool:
@@ -375,6 +384,30 @@ func _covered(p: Vector2) -> bool:
 	sr = sr.grow_individual(0.0, 110.0 * _dp(), 0.0, 0.0)
 	return navr.has_point(p) or sr.has_point(p) or _app._phone_tool_sheet.get_global_rect().has_point(p)
 
+## Up to `n` screen points on land that nothing at all would answer a finger at (no pin, no way, no river: the CIVIL
+## domain's roads cover most of this map within the 22 px finger tolerance, so the coarse `_find_land_point` grid can
+## find none). Scans the host rect every 8 dp, which is what makes the search dense enough to find the gaps between roads.
+func _free_land_points(n: int) -> Array:
+	var out: Array = []
+	var inv: Transform2D = _ov.get_global_transform().affine_inverse()
+	var r := _host.get_global_rect()
+	var step := 8.0 * _dp()
+	var y := r.position.y + r.size.y * 0.2
+	while y < r.position.y + r.size.y * 0.7 and out.size() < n:
+		var x := r.position.x + step
+		while x < r.end.x - step and out.size() < n:
+			var p := Vector2(x, y)
+			if not _covered(p):
+				var q: Dictionary = _ov._grid_point(inv * p, _ov._displayed_rect(), _ov._interior_rect(_ov._displayed_rect()))
+				if bool(q.get("valid", false)) and String(_app.bridge.sample_cell(int(q.get("gx", -1)), int(q.get("gy", -1))).get("water", "")) == "land" 						and _ov.request_at(inv * p, "touch").get("hits", []).is_empty():
+					out.append(p)
+			x += step
+		y += step * 3.0
+	return out
+
+## A screen point on LAND: the Way tool refuses a waypoint on water and Paint is land-only by default, so a point
+## `_find_point()` accepts (any valid grid point) can be sea. Scans the host rect for a point whose cell the engine
+## reports as land (`sample_cell().water` is "land"; MISTAKES.md: check the VALUE, not `has()`).
 func _find_land_point(skip: int = 0) -> Vector2:
 	var r := _host.get_global_rect()
 	var inv: Transform2D = _ov.get_global_transform().affine_inverse()
@@ -388,7 +421,7 @@ func _find_land_point(skip: int = 0) -> Vector2:
 			if not bool(q.get("valid", false)):
 				continue
 			var c: Dictionary = _app.bridge.sample_cell(int(q.get("gx", -1)), int(q.get("gy", -1)))
-			if not c.is_empty() and String(c.get("water", "")) == "land" and _ov.hits_at(inv * p).is_empty():
+			if not c.is_empty() and String(c.get("water", "")) == "land" and _no_pin_at(inv * p):
 				if skip == 0:
 					return p
 				skip -= 1
@@ -413,7 +446,7 @@ func _land_triplet() -> Array:
 					ok = false
 					break
 				var c: Dictionary = _app.bridge.sample_cell(int(q.get("gx", -1)), int(q.get("gy", -1)))
-				if String(c.get("water", "")) != "land" or not _ov.hits_at(inv * p).is_empty():
+				if String(c.get("water", "")) != "land" or not _no_pin_at(inv * p):
 					ok = false
 					break
 			if ok:
@@ -757,10 +790,7 @@ func _t_arm_peek() -> void:
 	var way: Button = null
 	var held := Vector2.ZERO
 	var cands: Array = T.duplicate()
-	for k in 12:
-		var q := _find_land_point(k)
-		if q.x >= 0.0:
-			cands.append(q)
+	cands.append_array(_free_land_points(12))
 	for pt in cands:
 		held = pt
 		await _down(0, held)

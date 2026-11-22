@@ -107,8 +107,13 @@ func cancel() -> void:
 	set_process(false)
 
 
-func _exit_tree() -> void:
-	cancel()
+## Cancels when the node is DELETED, not when it leaves the tree. `_exit_tree` also runs when a window is reparented
+## (the phone's first `open()` goes through `DccWidgets.reparent_over`), and cancelling there dropped the listing that
+## `open()` had just started, with no signal: the settings status stayed "Listing models..." for good (`_nethint_probe`,
+## phone leg, 2026-11-22). A node that is freed still joins its worker here, so no thread outlives it.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		cancel()
 
 
 func _process(_delta: float) -> void:

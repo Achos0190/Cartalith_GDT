@@ -249,8 +249,10 @@ func _ready() -> void:
 		elif args[i] == "--shots" and i + 1 < args.size():
 			i += 1
 			_shots = args[i]
+		elif args[i] == "--density" and i + 1 < args.size():
+			i += 1   ## read by the shell itself (the 450x975 phone and the tablet run with a density); accepted so the probe does not abort
 		else:
-			print("ABORT: unrecognised argument %s -- this probe reads --force-touch and --shots <dir> only" % args[i])
+			print("ABORT: unrecognised argument %s -- this probe reads --force-touch, --density D and --shots <dir> only" % args[i])
 			get_tree().quit(2)
 			return
 		i += 1
