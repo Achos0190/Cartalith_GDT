@@ -1,0 +1,340 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index edc78351..94d2aa71 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -2991,6 +2991,26 @@ pub fn run_layout_choosing(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<
+     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
+         return None;
+     }
++    // **Not the reference** (PS-4, `PARALLEL_STREETS_SCOPE.md` section 16): with
++    // `urban_parallel_streets` on, a stretched town is stretched exactly where the
++    // switch-off town is. The base's choice (full, milder or plain) is made with the
++    // switch off and replayed with it on, so the grain never flips a town between
++    // its stretched and its square shape (PS-2 did, on 6 of 38 census towns), and
++    // the towns refused their stretch are the base's. Nothing with the switch off.
++    if ctx.parallel_streets && ctx.river_stretch.is_some() && ctx.plain.is_some() && std::env::var("PS4_E").map_or(true, |v| v != "0") {
++        let choice = choose_stretch(ctx, rules, true)?.1?;
++        return run_layout_as(ctx, rules, choice).map(|l| (l, Some(choice)));
++    }
++    choose_stretch(ctx, rules, false)
++}
++
++/// [`run_layout_choosing`]'s Ruling FQ choice, with `base` laying every layout
++/// out with `parallel_streets` off (the switch-off town's choice, PS-4).
++fn choose_stretch(ctx: &UrbanContext, rules: Option<&Rules>, base: bool) -> Option<(UrbanLayout, Option<StretchChoice>)> {
++    let layout_opts = |c: &UrbanContext, r: Option<&Rules>| {
++        let o = layout_opts(c, r);
++        GenOpts { parallel_streets: o.parallel_streets && !base, ..o }
++    };
+     let opts = layout_opts(ctx, rules);
+     let t = generate(ctx.seed, &opts);
+     let (Some(plan), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
+index 42ebd55d..3776251f 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
+@@ -2711,3 +2711,34 @@ fn a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content() {
+     walled.plain.as_mut().unwrap().walls = !walled.plain.as_ref().unwrap().walls;
+     assert_ne!(stretch_choice_key(&walled, None), Some(k), "the plain context is in the key too");
+ }
++
++/// Protects PS-4's stretch rule (`run_layout_choosing`, `PARALLEL_STREETS_SCOPE.md` section 16): with
++/// `urban_parallel_streets` on, a stretched town takes the switch-off town's choice, not its own. On the fixture's
++/// straight river, the town of 20 000 with a plan of 900 m each way and 450 m across is kept stretched (`Full`) when
++/// the grain's layout judges itself, but the switch-off layout fails Ruling FQ's bars and is laid out in the
++/// reference's box (`Plain`): with the switch on the verdict is `Plain`, the layout is in the reference's box and is
++/// the switch-on plain town (`run_layout_as`). With the switch off the verdict is `Plain` too (the base's own).
++/// All three verdicts are literals from a run.
++#[test]
++fn a_town_with_a_grain_is_stretched_where_the_switch_off_town_is() {
++    let f = Fixture::new();
++    let order = vec![4i16; GW * GH];
++    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
++    let w = mouth_world(&f, &order, &polys);
++    let s = settlement(20, 20, 20_000);
++    let alone = [(20.0, 20.0, 20_000.0)];
++    let plan = cartalith_urban::stretch::StretchPlan { ahead_m: 900.0, behind_m: 900.0, across_m: 450.0 };
++    let ctx_with = |parallel_streets: bool| {
++        let mut c = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_stretch: Some(&alone), parallel_streets, ..Default::default() });
++        c.river_stretch = Some(plan);
++        c
++    };
++    let (on, off) = (ctx_with(true), ctx_with(false));
++    assert_eq!(choose_stretch(&on, None, false).unwrap().1, Some(StretchChoice::Full), "premise: the grain's own verdict");
++    assert_eq!(run_layout_choosing(&off, None).unwrap().1, Some(StretchChoice::Plain), "premise: the switch-off verdict");
++    let (l, c) = run_layout_choosing(&on, None).expect("a layout");
++    assert_eq!(c, Some(StretchChoice::Plain), "the switch-off town's verdict");
++    assert_eq!((l.wm, l.hm), (SITE_WM, SITE_HM), "laid out in the reference's box");
++    let replay = run_layout_as(&on, None, StretchChoice::Plain).unwrap();
++    assert_eq!((l.buildings.len(), l.pop), (replay.buildings.len(), replay.pop), "the switch-on plain town");
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/field.rs b/cartalith-native/crates/cartalith-urban/src/field.rs
+index 7e6b3e65..b2d5a141 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field.rs
+@@ -407,7 +407,16 @@ pub fn sources_for(ty: TownType, pop: f64, site: &Site, g: &Graph, market: Vec2,
+     };
+     let mut out = match ty {
+         TownType::NoGrain => return None,
+-        TownType::RiverFront => vec![Source { kind: SourceKind::River, line: site.river.clone(), weight: RIVER_WEIGHT, reach_m: RIVER_REACH_M }],
++        TownType::RiverFront => {
++            // PS-4 (scope section 6): a stretched town's river grain reaches as far inland as the
++            // stretch frame's own depth across (`StretchPlan::across_m`), so the whole stretched town
++            // takes the river's along-direction; unstretched, PS-1's 80 m.
++            let reach_m = match site.stretch() {
++                Some(f) if std::env::var("PS4_A").map_or(true, |v| v != "0") => f.plan().across_m * std::env::var("PS4_AK").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.0),
++                _ => RIVER_REACH_M,
++            };
++            vec![Source { kind: SourceKind::River, line: site.river.clone(), weight: RIVER_WEIGHT, reach_m }]
++        }
+         TownType::MarketStreet => {
+             let (a, b) = spine?;
+             vec![Source { kind: SourceKind::Spine, line: vec![ray(a), market, ray(b)], weight: SPINE_WEIGHT, reach_m: SPINE_REACH_M }]
+diff --git a/cartalith-native/crates/cartalith-urban/src/field/tests.rs b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+index 98246a42..c3461432 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+@@ -347,3 +347,24 @@ fn a_deep_lot_is_served_from_behind_only_by_a_street_within_30_m_of_its_rear_edg
+     assert!((rear_access_m(&lot, &street(65.0)).unwrap() - 25.0).abs() < 1e-12);
+     assert_eq!(rear_access_m(&lot, &[]), None, "no street, no distance");
+ }
++
++/// Protects PS-4's stretch-frame source (`sources_for`, scope section 6): a river-front town's river grain
++/// reaches 80 m (PS-1's `RIVER_REACH_M`) unstretched, and as far as the stretch frame's depth across once the
++/// town is stretched (Ruling FN): 400 m for a frame built with `across_m` 400, 250 m for one with 250. The
++/// weight stays 1.5 either way.
++#[test]
++fn a_stretched_river_fronts_grain_reaches_the_frames_depth_across() {
++    let mut site = build_site(4242, 1700.0, 1250.0, "river", SiteOpts::default());
++    site.real_river = true;
++    let g = Graph::new();
++    let m = site.river[site.river.len() / 2];
++    let river = |site: &Site| sources_for(TownType::RiverFront, 3000.0, site, &g, m, None, &[], 600.0).unwrap();
++    let plain = river(&site);
++    assert_eq!((plain.len(), plain[0].kind, plain[0].weight, plain[0].reach_m), (1, SourceKind::River, 1.5, 80.0));
++    for across in [400.0, 250.0] {
++        let f = crate::stretch::StretchFrame::new(&site.river.clone(), m, crate::stretch::StretchPlan { ahead_m: 900.0, behind_m: 900.0, across_m: across }, 600.0);
++        site.set_stretch(f);
++        let s = river(&site);
++        assert_eq!((s.len(), s[0].weight, s[0].reach_m), (1, 1.5, across), "stretched with across {across}");
++    }
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 2d2f4496..d09085f6 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -1338,7 +1338,16 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+     // below runs along all of it and the strip between closes into waterfront
+     // blocks. Organic plan only (the radial plan lays its own rings).
+     let waterfront = if riverbank && pop_target >= BOTH_BANKS_MIN_POP && profile.planning != "radial" {
+-        Some(crate::riverbank::lay_back_street(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed))
++        // PS-4 ("lanes to the water"): a river-front town with a grain lays its water lanes at
++        // `PARALLEL_WATER_LANE_GAP_M`; every other town at the base spacing.
++        let river_grain = parallel.as_ref().is_some_and(|p| p.field.is_some() && p.town_type == crate::field::TownType::RiverFront);
++        let gap = if river_grain && std::env::var("PS4_B").map_or(true, |v| v != "0") {
++            let k = std::env::var("PS4_BK").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.0);
++            (crate::riverbank::PARALLEL_WATER_LANE_GAP_M.0 * k, crate::riverbank::PARALLEL_WATER_LANE_GAP_M.1 * k)
++        } else {
++            crate::riverbank::WATER_LANE_GAP_M
++        };
++        Some(crate::riverbank::lay_back_street_with(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed, gap))
+     } else {
+         None
+     };
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index 15cfd529..3d232690 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -699,8 +699,7 @@ pub fn grow(
+                         back = Some(perp);
+                         perp
+                     } else {
+-                        let off = (ang - gr.axis + PI / 4.0).rem_euclid(PI / 2.0) - PI / 4.0;
+-                        ang - off * gr.strength * PARALLEL_GAIN * if explore { 0.7 } else { 1.0 }
++                        bend_to_grain(ang, gr, explore)
+                     }
+                 }
+                 None => ang,
+@@ -1018,6 +1017,14 @@ fn refused_by_site(site: &Site, wall_state: &WallState, o: Vec2, b: Vec2) -> boo
+     false
+ }
+ 
++/// PS-2's heading rule (scope 8.3, Ruling GM): `ang` bent toward the nearest axis of the grain `gr`
++/// by [`PARALLEL_GAIN`] times its strength (an exploration continuation by 0.7 of that). Shared by
++/// [`grow`] and, from PS-4, [`grow_far_bank`], so both banks read one rule. Draws nothing.
++fn bend_to_grain(ang: f64, gr: crate::field::Grain, explore: bool) -> f64 {
++    let off = (ang - gr.axis + PI / 4.0).rem_euclid(PI / 2.0) - PI / 4.0;
++    ang - off * gr.strength * PARALLEL_GAIN * if explore { 0.7 } else { 1.0 }
++}
++
+ /// PS-2's grain is "strong" from this field strength up (PS-0's refusal
+ /// threshold, scope 8.3): back streets, cross lanes and the far-end oblique
+ /// refusal act only there.
+@@ -1261,7 +1268,15 @@ pub fn grow_far_bank(
+         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
+             continue;
+         }
+-        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None) else {
++        // PS-4 (scope 9.3: "grow_far_bank's own rule, run in the grain's field"): with a grain, the far
++        // bank's headings bend toward it and its streets keep PS-2's oblique-T refusal, as the market's
++        // bank does. No draw, and nothing with `field` `None`.
++        let par = opts.field.as_ref().filter(|_| std::env::var("PS4_C").map_or(true, |v| v != "0")).map(|f| (f, anchors.market));
++        let ang = match par {
++            Some((f, m)) => bend_to_grain(ang, f.at(o, site.market_dist(o, m)), explore),
++            None => ang,
++        };
++        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, par, None) else {
+             continue;
+         };
+         for eid in made {
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+index 3fb1a06f..623bf8d5 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+@@ -161,3 +161,17 @@ fn a_town_with_a_grain_keeps_its_closed_blocks_through_the_lane_pass() {
+     let on = generate(13, &GenOpts { pop: Some(12000.0), parallel_streets: true, ..GenOpts::default() });
+     assert_eq!(on.graph.edges.len(), 534);
+ }
++
++/// Protects `bend_to_grain`, the heading rule PS-4 shares between `grow` and `grow_far_bank` (literals, worked by
++/// hand from PS-2's gain 0.4): a heading 0.3 rad off an east grain of strength 1 bends to 0.3 - 0.3 x 0.4 = 0.18;
++/// an exploration step by 0.7 of that, to 0.3 - 0.3 x 0.28 = 0.216; at strength 0.5 to 0.24; a heading 1.3 rad off
++/// (0.27 short of the cross axis) bends toward the cross axis, to 1.3 + 0.2708 x 0.4 = 1.40832; and no grain leaves it.
++#[test]
++fn a_heading_bends_toward_the_nearest_axis_of_the_grain_by_its_strength() {
++    let g = |strength: f64| crate::field::Grain { axis: 0.0, strength };
++    assert!((bend_to_grain(0.3, g(1.0), false) - 0.18).abs() < 1e-12);
++    assert!((bend_to_grain(0.3, g(1.0), true) - 0.216).abs() < 1e-12);
++    assert!((bend_to_grain(0.3, g(0.5), false) - 0.24).abs() < 1e-12);
++    assert!((bend_to_grain(1.3, g(1.0), false) - (1.3 + (PI / 2.0 - 1.3) * 0.4)).abs() < 1e-12);
++    assert_eq!(bend_to_grain(0.3, g(0.0), false), 0.3);
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank.rs b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+index 78c3facb..35a5411e 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+@@ -567,6 +567,12 @@ pub struct Waterfront {
+ /// closer than [`RIVER_STEP`] at a bend.
+ pub const BACK_BREAK_DROP: usize = 2;
+ 
++/// PS-4 (`PARALLEL_STREETS_SCOPE.md` section 6, "lanes to the water"; section 2.3: "plots and lanes at
++/// right angles to the bank, so the river front fills"): the water lanes' spacing for a river-front town
++/// with a grain, metres, in place of [`WATER_LANE_GAP_M`]. **A labelled judgement**, set by the PS-4
++/// sweep (scope section 16): half the base spacing, about two riverside plots' depth.
++pub const PARALLEL_WATER_LANE_GAP_M: (f64, f64) = (30.0, 60.0);
++
+ /// The water lane's width, metres. **The reference's** lane width
+ /// (`lanePass`, 2.6 m, `crate::cleanup::lane_pass`).
+ pub const WATER_LANE_W: f64 = 2.6;
+@@ -630,6 +636,13 @@ const WATER_LANE_PROV: &str = "Water lane (not the reference; 2026-11-15, TOWN_G
+ /// box, across the town wall (`wall`) or through the square, and it adds edges
+ /// only.
+ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32) -> Waterfront {
++    lay_back_street_with(site, g, wall, plaza, seed, WATER_LANE_GAP_M)
++}
++
++/// [`lay_back_street`] with the water lanes' spacing `lane_gap` (shortest, longest gap, metres)
++/// in place of [`WATER_LANE_GAP_M`]: PS-4's river-front towns pass [`PARALLEL_WATER_LANE_GAP_M`].
++/// The same draws in the same order; only the spacing differs.
++pub fn lay_back_street_with(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32, lane_gap: (f64, f64)) -> Waterfront {
+     let mut out = Waterfront::default();
+     let r = &site.river;
+     if !site.riverbank() || r.len() < 2 {
+@@ -782,18 +795,19 @@ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza:
+             // Water lanes: at the run's first vertex, then every drawn gap,
+             // and at its last.
+             let mut at: Vec<usize> = vec![0];
+-            let (mut walked, mut next) = (0.0, rng.range(WATER_LANE_GAP_M.0, WATER_LANE_GAP_M.1));
++            let (mut walked, mut next) = (0.0, rng.range(lane_gap.0, lane_gap.1));
+             for k in 1..run.len() {
+                 walked += run[k - 1].2.dist(run[k].2);
+-                if walked >= next && len - walked >= WATER_LANE_GAP_M.0 / 2.0 {
++                if walked >= next && len - walked >= lane_gap.0 / 2.0 {
+                     at.push(k);
+                     walked = 0.0;
+-                    next = rng.range(WATER_LANE_GAP_M.0, WATER_LANE_GAP_M.1);
++                    next = rng.range(lane_gap.0, lane_gap.1);
+                 }
+             }
+             at.push(run.len() - 1);
+             for k in at {
+                 let (b, _, w) = run[k];
++                if std::env::var("PS4_DBG").is_ok() { eprintln!("DBG lane k {k} dry {} wall {} plaza {} b-w {:.1}", dry_on_side_w(site, b, w, side, WATER_LANE_W), crosses_wall(b, w, wall), crosses_plaza(b, w), b.dist(w)); }
+                 if dry_on_side_w(site, b, w, side, WATER_LANE_W) && !crosses_wall(b, w, wall) && !crosses_plaza(b, w) {
+                     g.add_street(b.x, b.y, w.x, w.y, "lane", WATER_LANE_W, 0, WATER_LANE_PROV);
+                     out.lanes += 1;
+@@ -881,6 +895,10 @@ pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
+     // grain houses more on the market's bank than today's layout does, so judged against its bare
+     // target it skipped the far bank today's layout takes. Its target is raised by the slack.
+     let target = t.pop_target * if t.parallel.as_ref().is_some_and(|p| p.field.is_some()) { PARALLEL_FAR_BANK_SLACK } else { 1.0 };
++    if t.both_banks && std::env::var("PS4_D").is_ok_and(|v| v == "1") && t.parallel.as_ref().is_some_and(|p| p.field.is_some() && p.town_type == crate::field::TownType::RiverFront && p.fits(crate::field::F_REQ_MEDIAN)) {
++        let share = if t.pop > 0.0 { (target / t.pop - 1.0).max(std::env::var("PS4_DS").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.25)) } else { FAR_BANK_MAX_RATIO };
++        return Some(RiverbankPass::FarBank { share: share.min(FAR_BANK_MAX_RATIO) });
++    }
+     if t.both_banks && t.pop < target {
+         let share = if t.pop > 0.0 { target / t.pop - 1.0 } else { FAR_BANK_MAX_RATIO };
+         return Some(RiverbankPass::FarBank { share: share.min(FAR_BANK_MAX_RATIO) });
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+index 7dd14fae..feb80229 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+@@ -1528,3 +1528,59 @@ fn a_town_with_a_grain_is_judged_against_a_quarter_over_its_target() {
+     no_grain.parallel = None;
+     assert_eq!(second_pass(&no_grain), None, "no grain, no slack");
+ }
++
++#[test]
++#[ignore = "scratch PS-4"]
++fn scratch_ps4_lanes() {
++    for s in 4240..4252u32 {
++        let t = generate(s, &GenOpts { pop: Some(6000.0), parallel_streets: true, ..opts(true, true) });
++        let ty = t.parallel.as_ref().map(|p| (p.town_type, p.field.is_some()));
++        let wl = t.embankment.as_ref().map_or(0, |e| e.water_lanes);
++        let bs = t.embankment.as_ref().map_or(0, |e| e.back_streets.len());
++        eprintln!("seed {s} type {ty:?} water lanes {wl} back streets {bs} riverbank {}", t.riverbank);
++    }
++}
++
++/// Protects PS-4's far bank in the grain (`crate::growth::grow_far_bank` with `GrowOpts::field`; scope 9.3, "run
++/// in the grain's field"): the fixture of the far-bank cap test, grown with no field and with a river grain along the
++/// fixture's straight river (axis 0, strength 1 everywhere: weight 1.5, reach 400 m, no core). Without the grain
++/// the far bank's new streets are on an axis (within 0.35 rad of east-west or north-south) for 0.7608 of their
++/// length; with it for all of it (a strength-1 grain bends every heading by 0.4 of its offset and the oblique-T
++/// refusal drops the rest). Both literals from a run (seed 7); the market's bank is untouched either way. Removing the
++/// bend or the field hand-over to `legalize_street` turns it red.
++#[test]
++fn the_far_bank_grows_in_the_grain() {
++    let r = RIVER_Y;
++    let mut streets: Vec<(Vec2, Vec2)> = (0..4).map(|k| (Vec2::new(500.0, r - 60.0 - k as f64 * 70.0), Vec2::new(1100.0, r - 60.0 - k as f64 * 70.0))).collect();
++    streets.push((Vec2::new(800.0, r - 40.0), Vec2::new(800.0, r - 300.0)));
++    streets.push((Vec2::new(800.0, r + 30.0), Vec2::new(800.0, r + 120.0)));
++    let anchors = crate::routes::Anchors { market: Vec2::new(800.0, r - 120.0), prov: "test" };
++    let on_axis = |field: Option<crate::field::DirectionField>| {
++        let (site, mut g) = bank_site_and_streets(&streets);
++        let before = g.edges.len();
++        let (n0, _) = bank_lengths(&g);
++        let opts = crate::growth::GrowOpts { max_rf: 720.0, field, ..Default::default() };
++        let ws = crate::growth::WallState::default();
++        crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 1.0, Vec2::new(800.0, r + 30.0));
++        let (n1, _) = bank_lengths(&g);
++        assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
++        let (mut tot, mut on) = (0.0, 0.0);
++        for e in g.edges[before..].iter().filter(|e| e.alive) {
++            let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
++            if north(a.lerp(b, 0.5)) {
++                continue;
++            }
++            let l = a.dist(b);
++            tot += l;
++            if crate::field::axis_off((b.y - a.y).atan2(b.x - a.x), 0.0) <= 0.35 {
++                on += l;
++            }
++        }
++        on / tot
++    };
++    let river = Vec::from([Vec2::new(0.0, r), Vec2::new(1700.0, r)]);
++    let grain = crate::field::DirectionField { sources: vec![crate::field::Source { kind: crate::field::SourceKind::River, line: river, weight: 1.5, reach_m: 400.0 }], core_m: 0.0, ramp_m: 0.0 };
++    let (without, with) = (on_axis(None), on_axis(Some(grain)));
++    assert!((without - 0.7608).abs() < 1e-4, "without the grain {without}");
++    assert!((with - 1.0).abs() < 1e-9, "with the grain {with}");
++}

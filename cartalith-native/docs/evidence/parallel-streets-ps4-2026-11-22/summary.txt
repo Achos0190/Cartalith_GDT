@@ -1,0 +1,36 @@
+PARALLEL_STREETS_SCOPE.md PS-4 measured (2026-11-22): NO-GO on its own riverside bar. Nothing built; every piece
+reverted. Scope section 16 has the result; this file lists the evidence.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, the app's params::defaults; release test binaries of
+origin/main d8a30493 plus the scratch code. Every run is census/<run>/: agg_<gw>.txt (ps1_agg.py over
+parallel_streets_audit's CSVs), audit_<gw>.txt, <gw>/towns_<gw>.csv, bb_<gw>_p0|p1.txt (both_banks_audit with the
+switch off | on: riverside share, stretched / refused, buildings in water, housed), sw_<gw>_p0|p1.txt
+(stretch_water_audit: planned / laid out stretched, flagged). scratch_code/bars.py.txt prints the bar lines,
+pertown.py.txt the per-town deltas.
+
+  r_base     origin/main as built: [off] = BEFORE, [proto] = MID (PS-2), both sizes
+  r_final    the stretch-choice rule (E) as committed-candidate code, both sizes; its off rows (bb_p0, sw_p0, towns
+             CSV off rows) are identical to r_base's but for timing lines (switch off untouched)
+  v1 scratch build (scratch_code/ps4_prototype.diff.txt, env knobs PS4_A/AK/B/BK/C/D/DS), 384 only:
+  r_all      A (stretch frame as the river grain's reach) + B (water lanes every 30-60 m) + C (far bank in the grain)
+  r_a0 / r_b0 / r_c0   the same without A / B / C;  r_d1  all + D (far bank past the shortfall where the gate fits)
+  r_ak075 / r_ak05 / r_ak025   A's reach at 0.75 / 0.5 / 0.25 of the frame's depth;  r_ak05d  0.5 + D
+  v2 scratch build (adds E: the switch-off town's stretch choice, replayed with the switch on):
+  r_e_only   E alone (384 and 2048) = r_final;  r_e_a / r_e_c / r_e_all   E + A / C / A+C;  r_e_ak05  E + A 0.5 + C
+  r_e_d / r_e_d5   E + D (share floor 0.25 / 0.5), r_e_d also at 2048
+
+Frames: City Viewer, the shell's world at 384 x 288, windowed under C:/cw/.win_lock (scratch APPDATA), two sessions
+per seed (each: off, then on live): MID with every PS-4 piece off (= PS-2), AFTER with E (the build of r_e_only).
+16 settlements: river-front 483920 #0 #3 #4 #6 #16, 912345 #0 #1 #2 #4 #6 #20; controls market-street 483920 #5,
+912345 #8; organic-core 483920 #13, 912345 #32; village 483920 #2. Probe RESULT: PASS in all four runs
+(probe_logs/). The BEFORE frames of the two sessions are pixel-identical (32 of 32).
+  contact_<seed>.png   rows = towns; columns BEFORE | MID | AFTER at the opening frame, then the same at x4 market-centred
+  frames/triple_<seed>_<id>_z1|z4.png   full size per town and zoom
+  ps4_combined.png     the sheet to send: 483920 #3, #4, #0, 912345 #20, #0, and the controls 483920 #5, #13, #2
+
+mutants.txt   7 literal mutants on E (scratch_code/mut.py.txt): 6 killed by
+              urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is (in
+              ps4_stretch_choice.diff.txt); 1 equivalent (M7, the switch test dropped: an off context takes its own
+              choice and replays it, the same layout at the cost of one more layout). Reverted with E.
+scratch_code/ps4_prototype.diff.txt   pieces A, B, C, D and E's first form, with their tests and scratch knobs
+scratch_code/ps4_stretch_choice.diff.txt   E alone, as it stood before the revert, with its test

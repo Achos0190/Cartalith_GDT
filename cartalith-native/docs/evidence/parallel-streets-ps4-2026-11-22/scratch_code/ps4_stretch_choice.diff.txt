@@ -1,0 +1,82 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index edc78351..629b6fde 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -2991,6 +2991,34 @@ pub fn run_layout_choosing(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<
+     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
+         return None;
+     }
++    // **Not the reference** (PS-4, `PARALLEL_STREETS_SCOPE.md` section 16): with
++    // `urban_parallel_streets` on, a stretched town is stretched exactly where the
++    // switch-off town is. The base's choice (full, milder or plain) is made with the
++    // switch off and replayed with it on, so the grain never flips a town between
++    // its stretched and its square shape (measured at 384 x 288: PS-2 made another
++    // choice than the switch-off town for 8 of the census's 38 towns, and 4 of them
++    // kept under 70 % of the switch-off footprint), and the towns refused their
++    // stretch are the base's. It costs the switch-off layouts once more per stretched town
++    // with the switch on (hosts cache the verdict, `stretch_choice_key`). Nothing
++    // changes with the switch off.
++    // (`plain` is carried only by a stretched context.)
++    if ctx.parallel_streets && ctx.plain.is_some() {
++        let choice = choose_stretch(ctx, rules, true)?.1?;
++        return run_layout_as(ctx, rules, choice).map(|l| (l, Some(choice)));
++    }
++    choose_stretch(ctx, rules, false)
++}
++
++/// [`run_layout_choosing`]'s Ruling FQ choice (the body it had before PS-4),
++/// with `base` laying every layout out with `parallel_streets` off: the
++/// switch-off town's choice, which PS-4 replays with the switch on. With
++/// `base` false the layouts are the context's own, as before. Must never lay
++/// out a grain with `base` true.
++fn choose_stretch(ctx: &UrbanContext, rules: Option<&Rules>, base: bool) -> Option<(UrbanLayout, Option<StretchChoice>)> {
++    let layout_opts = |c: &UrbanContext, r: Option<&Rules>| {
++        let o = layout_opts(c, r);
++        GenOpts { parallel_streets: o.parallel_streets && !base, ..o }
++    };
+     let opts = layout_opts(ctx, rules);
+     let t = generate(ctx.seed, &opts);
+     let (Some(plan), Some(plain)) = (ctx.river_stretch, ctx.plain.as_deref()) else {
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
+index 42ebd55d..f7338cd3 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter/tests.rs
+@@ -2711,3 +2711,38 @@ fn a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content() {
+     walled.plain.as_mut().unwrap().walls = !walled.plain.as_ref().unwrap().walls;
+     assert_ne!(stretch_choice_key(&walled, None), Some(k), "the plain context is in the key too");
+ }
++
++/// Protects PS-4's stretch rule (`run_layout_choosing`, `PARALLEL_STREETS_SCOPE.md` section 16): with
++/// `urban_parallel_streets` on, a stretched town takes the switch-off town's choice, not its own. On the fixture's
++/// straight river, the town of 20 000 with a plan of 900 m each way and 450 m across is kept stretched (`Full`) when
++/// the grain's layout judges itself, but the switch-off layout fails Ruling FQ's bars and is laid out in the
++/// reference's box (`Plain`): with the switch on the verdict is `Plain`, the layout is in the reference's box and is
++/// the switch-on plain town (`run_layout_as`). With the switch off the verdict is `Plain` too (the base's own).
++/// All three verdicts are literals from a run. An unstretched town with the switch on still gets its one layout.
++#[test]
++fn a_town_with_a_grain_is_stretched_where_the_switch_off_town_is() {
++    let f = Fixture::new();
++    let order = vec![4i16; GW * GH];
++    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
++    let w = mouth_world(&f, &order, &polys);
++    let s = settlement(20, 20, 20_000);
++    let alone = [(20.0, 20.0, 20_000.0)];
++    let plan = cartalith_urban::stretch::StretchPlan { ahead_m: 900.0, behind_m: 900.0, across_m: 450.0 };
++    let ctx_with = |parallel_streets: bool| {
++        let mut c = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_stretch: Some(&alone), parallel_streets, ..Default::default() });
++        c.river_stretch = Some(plan);
++        c
++    };
++    let (on, off) = (ctx_with(true), ctx_with(false));
++    assert_eq!(choose_stretch(&on, None, false).unwrap().1, Some(StretchChoice::Full), "premise: the grain's own verdict");
++    assert_eq!(run_layout_choosing(&off, None).unwrap().1, Some(StretchChoice::Plain), "premise: the switch-off verdict");
++    let (l, c) = run_layout_choosing(&on, None).expect("a layout");
++    assert_eq!(c, Some(StretchChoice::Plain), "the switch-off town's verdict");
++    assert_eq!((l.wm, l.hm), (SITE_WM, SITE_HM), "laid out in the reference's box");
++    let replay = run_layout_as(&on, None, StretchChoice::Plain).unwrap();
++    assert_eq!((l.buildings.len(), l.pop), (replay.buildings.len(), replay.pop), "the switch-on plain town");
++    // An unstretched town with the switch on is laid out once, as before, with no verdict.
++    let flat = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, parallel_streets: true, ..Default::default() });
++    assert!(flat.river_stretch.is_none(), "premise");
++    assert_eq!(run_layout_choosing(&flat, None).map(|x| x.1), Some(None), "unstretched: a layout and no verdict");
++}

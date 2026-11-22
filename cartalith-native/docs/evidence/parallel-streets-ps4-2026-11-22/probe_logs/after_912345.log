@@ -1,0 +1,80 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 5f604a4040fb
+ERROR: Couldn't open directory at path "C:/cw/ps4_scratch/appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5357)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2828)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ad627df500, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ad627df500, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1ad627df500, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  PASS  the world generated (241 settlements)
+canvas (1296.0, 888.0)
+  TOWN #0 at (358,240) pop 21500
+  TOWN #1 at (325,243) pop 8884
+  TOWN #2 at (172,236) pop 24849
+  TOWN #3 at (375,248) pop 1816
+  TOWN #4 at (20,105) pop 25928
+  TOWN #6 at (2,14) pop 24771
+  TOWN #7 at (312,235) pop 2082
+  TOWN #8 at (139,163) pop 19111
+  TOWN #11 at (363,213) pop 1890
+  TOWN #20 at (275,80) pop 24219
+  TOWN #30 at (95,122) pop 1775
+  TOWN #32 at (328,155) pop 18683
+MEASURE seed 912345 grid 384x288: 241 settlements, 0 river-kind, 0 with water geometry, 0 with water in the opening frame, 0 MISS: []
+  PASS  a river 30 m off pulls the frame to it plus one river width, 140 m ([P: (0.0, -10.0), S: (140.0, 110.0)])
+  PASS  a river 100 m off (over 0.6 of 100 m) leaves the frame alone
+  PASS  a river through the built mass leaves the frame alone
+  PASS  no water leaves the frame alone
+  PASS  a 20 m hamlet reaches a river 25 m off (the 30 m floor, [P: (0.0, -3.375), S: (49.0, 23.375)])
+  PASS  a water body 20 m off pulls the frame to it
+  PASS  a map-water mask run 15 m off pulls the frame to it
+  PASS  urban_parallel_streets set live to 0
+  PASS  #0 has no plan with the switch off
+  PARALLEL0 #0 buildings 4114 edges 1371 type - approaches - ratio - ticks 0
+  PASS  #1 has no plan with the switch off
+  PARALLEL0 #1 buildings 2719 edges 1020 type - approaches - ratio - ticks 0
+  PASS  #2 has no plan with the switch off
+  PARALLEL0 #2 buildings 4219 edges 1294 type - approaches - ratio - ticks 0
+  PASS  #4 has no plan with the switch off
+  PARALLEL0 #4 buildings 4755 edges 1518 type - approaches - ratio - ticks 0
+  PASS  #6 has no plan with the switch off
+  PARALLEL0 #6 buildings 4740 edges 1226 type - approaches - ratio - ticks 0
+  PASS  #20 has no plan with the switch off
+  PARALLEL0 #20 buildings 2956 edges 707 type - approaches - ratio - ticks 0
+  PASS  #8 has no plan with the switch off
+  PARALLEL0 #8 buildings 3642 edges 991 type - approaches - ratio - ticks 0
+  PASS  #32 has no plan with the switch off
+  PARALLEL0 #32 buildings 2884 edges 859 type - approaches - ratio - ticks 0
+  PASS  urban_parallel_streets set live to 1
+  PARALLEL1 #0 buildings 4979 edges 1385 type river_front approaches 5 ratio 1.7396071265418 ticks 827
+  PARALLEL1 #1 buildings 3122 edges 958 type river_front approaches 3 ratio 1.9656121045392 ticks 712
+  PARALLEL1 #2 buildings 5216 edges 1191 type river_front approaches 4 ratio 1.65638481449525 ticks 821
+  PARALLEL1 #4 buildings 5100 edges 1573 type river_front approaches 6 ratio 1.48213599692662 ticks 825
+  PARALLEL1 #6 buildings 5160 edges 1193 type river_front approaches 2 ratio 1.71314606741573 ticks 817
+  PARALLEL1 #20 buildings 3239 edges 1048 type organic_core approaches 3 ratio 0.98623315758641 ticks 766
+  PARALLEL1 #8 buildings 3983 edges 999 type market_street approaches 2 ratio 1.54549202858714 ticks 768
+  PARALLEL1 #32 buildings 3192 edges 843 type organic_core approaches 1 ratio 1.91012186865267 ticks 942
+  PASS  the live toggle moved 8 of 8 towns' layouts
+RESULT: PASS (0 failed) checks=19
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

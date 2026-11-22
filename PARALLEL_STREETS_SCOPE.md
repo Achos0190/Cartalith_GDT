@@ -12,7 +12,7 @@ below is rated on both, and section 5 has a bar that fails a fix that looks good
 character.
 
 This document **defines** milestones and holds the design reasoning. It carries no status column: what is built is
-`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built when this scope was written** (PS-1 and PS-2 have been built since: sections 10 and 14; PS-3 was measured and not built: section 15). The only code
+`cartalith-native/docs/STATUS.md`'s answer (CLAUDE.md, "One place holds state"). **Nothing was built when this scope was written** (PS-1 and PS-2 have been built since: sections 10 and 14; PS-3 was measured and not built: section 15; PS-4 likewise: section 16). The only code
 written is a scratch `#[ignore]` measurement (`block_shape_audit`), appended to `town_river_census.rs` in a worktree
 that was then removed; it is kept as `cartalith-native/docs/evidence/parallel-streets-2026-11-17/block_shape_audit.rs.txt`
 and pins nothing. `urban_burgage` stays in and off (Ruling FY; Q8's 56 m census reach kept).
@@ -1386,3 +1386,92 @@ market-street towns' order and adds nothing to 5.3. Keep it for its look (frames
 put it to the owner on the frames] **Q22.** PS-2's quads on today's world are 58.5 %, under the 60 % bar it passed on
 the old world. Accept PS-2 as built (Ruling GM accepted it on look) or re-tune? [accept; record 58.5 % as the
 baseline]
+
+## 16. PS-4 measured (2026-11-22): NO-GO on its own riverside bar; nothing built
+
+**Verdict: no-go.** PS-4's three pieces (section 6: the stretch frame as a field source, lanes to the water, far-bank
+growth past 1.4x where section 9.3's gate passes) and a fourth found on the way (a stretched town takes the
+switch-off town's stretch choice) were prototyped behind `urban_parallel_streets`, measured on the census world at 384
+and 2 048 against PS-4's bars and PS-2's baseline on today's world (Ruling GY), swept, framed and reverted. **No
+setting meets PS-4's riverside bar at both sizes** (4.3 / 3.7 % or better; today, switch off, 4.1 / 3.9 %; PS-2 3.8 /
+3.5 %): the best at 2 048 is 3.5 %. The product code is `scratch_code/ps4_prototype.diff.txt` and
+`ps4_stretch_choice.diff.txt`. Evidence: `cartalith-native/docs/evidence/parallel-streets-ps4-2026-11-22/`
+(`summary.txt` lists every file). Census world as section 15, today's tree `origin/main` `d8a30493`; before = switch
+off, mid = PS-2 as shipped, after = the best candidate, E (below).
+
+**The pieces, each measured on and off (384):**
+- **A, the stretch frame as a field source** (`field::sources_for`): a stretched river-front town's river grain reaches
+  the frame's depth across (`StretchPlan::across_m`, about 450 m) instead of 80 m, so the whole stretched town takes the
+  river's grain. It changes which stretched layouts pass Ruling FQ's `stretch_holds` (refused 4 to 0-2), and it
+  strips 483920 #2's quay (180 m to 0) whenever that town is laid stretched with it: a stretch-water flag, which the
+  bar forbids. At reach 0.25-0.75 of the depth: riverside 3.7-4.2 %, the river-front FS-2 delta 0.244-0.281 against
+  PS-2's 0.207. Dropped.
+- **B, lanes to the water** (`riverbank::lay_back_street`'s water lanes every 30-60 m for a river-front town, half
+  the base spacing): **inert.** Every census run with it is identical to the same run without it to the last digit.
+  The cause, read in the fixture (seeds 4240-4251, a town of 6 000): every water lane is refused by
+  `crosses_wall`, because the wall of a one-bank river town follows its bank (`fortify`, "let the wall follow the bank
+  on the water") between the back line and the embankment, and all 38 / 39 census towns of 1 500+ are walled. So
+  change 5's water lanes (2026-11-15) have never been laid in a walled town, and PS-4's "lanes to the water" needs a
+  rule for passing that wall (a water gate or postern per lane) before it can move anything (Q23). Dropped.
+- **C, the far bank in the grain** (`growth::grow_far_bank` bending its headings and keeping PS-2's oblique-T refusal,
+  section 9.3's "run in the grain's field"): on its unit fixture the far bank's streets are on an axis for 100 % of
+  their length against 76 %; on the census, with E, riverside 3.8-4.1 % (E alone 4.1 %) and no other gain.
+  Dropped.
+- **D, far-bank growth past the shortfall** (`riverbank::second_pass`: a river-front town that fits section 9.3's gate
+  at `F_REQ_MEDIAN` is given the far bank with a share of at least 0.25 or 0.5 even when housed; `FAR_BANK_MAX_RATIO`
+  read, not raised): riverside 4.1-4.3 % at 384, 3.5 % at 2 048; FS-1's area ratio in 0.9-1.4 falls from 30 to 23-27
+  of 38 towns, housed median 133 %. It grows exactly the cross-bank mass section 15 watched for. Dropped.
+- **E, the switch-off town's stretch choice** (`urban_adapter::run_layout_choosing`: with the switch on, Ruling FQ's
+  choice (full, milder, plain) is made from the switch-off layouts and replayed with the switch on): found while
+  reading A. PS-2 makes another choice than the switch-off town for 8 of the 38 towns at 384, and 4 of them keep
+  under 70 % of the switch-off footprint (246371 #0 0.21, 483920 #6 0.68, #11 0.20, #20 0.14); with E they keep 0.86-0.91.
+  It is the best candidate, and it fails at 2 048 (below).
+
+**Bars, E against before and mid** (24 towns' outside-core blocks for quads, as PS-2 and PS-3 reported them; every
+other row over the 38 / 39 towns of 1 500+; housed from `both_banks_audit`):
+
+| bar | 384 before / mid / **after** | 2 048 before / mid / **after** |
+|---|---|---|
+| riverside, river towns 1 500+ (4.3 / 3.7 % or better) | 4.1 / 3.8 / **4.1 %** | 3.9 / 3.5 / **3.4 %** |
+| stretched towns refused (no more than today) | 2 / 4 / **2** | 0 / 1 / **0** |
+| buildings in water; stretch-water flags | 0; 0 / 0; 0 / **0; 0** | 0; 0 / 0; 0 / **0; 0** |
+| quads outside the core (PS-2's 58.5 % not worse) | 51.8 / 58.5 / **58.8 %** | 48.4 / 57.7 / **57.9 %** |
+| needle lots (PS-2's 12.0 % not worse); needle buildings | 11.5 / 12.0 / **11.6 %**; 0.50 / 0.62 / 0.60 % | 11.4 / 12.1 / **12.2 %**; 0.60 / 0.64 / 0.64 % |
+| FS-1: towns keeping 85 % of the off footprint | 38 / 16 / **22** of 38 | 39 / 21 / **20** of 39 |
+| FS-2 delta max, market-street / organic / river-front | 0 / 0.164, 0.433, 0.207 / **0.164, 0.433, 0.163** | 0 / 0.202, 0.392, 0.228 / **0.202, 0.392, 0.228** |
+| wall over hull p90 / max; sharp vertices total | 1.099 / 1.167; 162 -- 1.088 / 1.130; 134 -- **1.106 / 1.131; 140** | 1.099 / 1.125; 170 -- 1.073 / 1.117; 120 -- **1.092 / 1.117; 118** |
+| housed p10 | 91 / 97 / **96** | 91 / 101 / **100** |
+| unbuilt patches inside the wall over 1 ha; squares outside the wall | 0; 1 / 5; 0 / **4; 1** | 0; 1 / 2; 0 / **3; 0** |
+
+At 384 E meets every bar but the scope's 4.3 % (it holds Ruling FS's floor, 4.1 %); at 2 048 it misses the riverside
+bar (3.4 against 3.7 %, and under PS-2's 3.5 %), adds a needle-lot tenth over PS-2's baseline, keeps one town fewer,
+and adds an unbuilt walled patch over 1 ha. It changes one town at 2 048, so its gain there is nil. **Why riverside
+misses:** PS-2 houses more than today (median 126-127 % of target against 106-107 %), and the extra houses stand
+inland, so the riverside share falls whatever the stretch does; the lever that would add houses at the water, B's
+lanes, is held behind the riverside wall.
+
+**Also measured: PS-2 itself leaves unbuilt walled patches over 1 ha** (5 at 384, 2 at 2 048; switch off 0 and 0) and
+fails PS-4's riverside bar; neither was in section 14's table.
+
+**Frames** (owner condition): City Viewer, the shell's world at 384 x 288, windowed under the lock, opening frame and
+x4 market-centred, before / mid / after (E) for 16 settlements (`contact_<seed>.png`, `frames/`, the combined sheet
+`ps4_combined.png`); all looked at; probe PASS in all four runs; the before frames of the two sessions are
+pixel-identical (32 of 32). E changes two of them: 483920 #3 and 912345 #20, each from PS-2's square layout back to
+the switch-off town's stretched one (912345 #20's x4 frame, empty in PS-2's layout, is the town again); 483920 #4 and
+912345 #0, the towns section 15 watched, are PS-2's in both. The controls (483920 #5, #13, the village #2; 912345 #8,
+#32) are unchanged. 912345 #4's opening frame differs between before and mid / after (PS-2's, not PS-4's).
+
+**Mutants** on E (`mutants.txt`): 7 literal mutants, 6 killed by its test; the seventh (dropping the switch test) is
+equivalent: an off context takes its own choice and replays it to the same layout. Reverted with E.
+
+**What this leaves for the owner.** **Q23.** Change 5's water lanes are refused by the riverside wall in every walled
+town, so "lanes to the water" cannot act as written. Options: (a) a water gate (postern) where a lane meets the
+riverside curtain, so the lanes are laid and the wall drawn with a gate there; (b) leave the waterfront to the back
+street and drop the lanes from PS-4; (c) let the riverside curtain stand at the water's edge, outside the lanes. [(a),
+measured first: it is the historical form (water gates on river walls) and the only one that adds houses at the water]
+**Q24.** E (the switch-off town's stretch choice) repairs PS-2's first-sight changes at 384 (4 towns) but gains nothing
+at 2 048 and misses the riverside bar there. Build it on its own as a PS-2 fix, judged on the frames, or fold it into
+PS-6? [build it on its own: the frames of 483920 #3 and 912345 #20 are the base's towns again] **Q25.** PS-4's riverside
+bar is out of reach while the grain over-houses (median 126 % of target): restate it against PS-2's 3.8 / 3.5 %, or
+make PS-5's rear households and platting carry it (fewer, deeper lots at the same housing)? [carry it with PS-5;
+restate against PS-2 meanwhile]

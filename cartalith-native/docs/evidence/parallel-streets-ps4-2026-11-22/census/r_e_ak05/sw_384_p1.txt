@@ -1,0 +1,10 @@
+
+running 1 test
+test town_river_census::stretch_water_audit ... seed 483920 at 384x288: planned stretched 9, laid out stretched 8, flagged 0
+seed 912345 at 384x288: planned stretched 3, laid out stretched 3, flagged 0
+seed 246371 at 384x288: planned stretched 6, laid out stretched 5, flagged 0
+all seeds at 384: planned stretched 18, laid out stretched 16, flagged 0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1472 filtered out; finished in 133.61s
+

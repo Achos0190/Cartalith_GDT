@@ -1,0 +1,23 @@
+
+running 1 test
+test town_river_census::both_banks_audit ...   Ruling FN: stretched towns 16 (Ruling FQ: refused and laid out in the reference box 2); town pairs overlapping (a building centroid within 10 m of the other town's): 0
+all seeds at 384, urban_riverbank Some(true)
+  villages (pop_target < 1500) housed % n 669 min 0 p10 82 median 100 p90 100 max 101; under 80 %: 47; over 200 %: 0
+  towns (pop_target >= 1500) housed % n 38 min 74 p10 96 median 133 p90 187 max 239; under 80 %: 1; over 200 %: 4
+  towns >= 5000 housed % n 23 min 74 p10 92 median 129 p90 208 max 233; under 80 %: 1; over 200 %: 3
+  river-kind towns with houses 683 (35 >= 1500): houses within 1 street width of the bank 2.1 %, within 2 5.9 % (of 195291); every house over 2 street widths: 4
+  river-kind towns >= 1500 with houses 35: houses within 2 street widths of the bank 4.1 % (of 99141); every house over 2 street widths: 0; built reach fronted 66.8 % (4923 of 7370 bank samples; with a riverside street too 77.4 %; per town n 35 min 27 p10 38 median 63 p90 83 max 91)
+  market squares: towns >= 1500 ha n 38 min 0.18 p10 0.22 median 0.29 p90 0.61 max 0.68; towns >= 5000 ha n 23 min 0.23 p10 0.23 median 0.47 p90 0.64 max 0.68; >= 5000 square % of settled area n 23 min 0.24 p10 0.29 median 0.48 p90 0.67 max 0.99 (in 0.4..1.2: 14 of 23); village greens % of settled area n 664 min 0.95 p10 2.07 median 3.15 p90 4.57 max 15.27 (over 4 %: 133 of 664)
+  houses over 40 m from every street: 6146 in 38 towns
+  with a crossing 206 (28 >= 1500); on both banks 217 (26 >= 1500)
+  walled river towns 36: wall crosses the river 13, of which around an empty far bank 4
+  villages' lots with no building: 2021 of 51316 (3.9 %); villages with 10 or more: 34
+  walled towns >= 1500 with houses: wall / hull length n 38 min 1.00 p10 1.00 median 1.03 p90 1.09 max 1.13; vertices / (length / 35 m) n 38 min 0.36 p10 0.52 median 0.61 p90 4.45 max 4.56 (over 1: 12)
+  villages with houses: street m per building n 665 min 4.41 p10 6.94 median 11.13 p90 18.13 max 36.57; green to market point m n 664 min 17 p10 33 median 39 p90 48 max 832 (within 60 m: 635 of 664; of the market point or a river crossing: 635)
+  walled towns with houses 39: market square outside the wall 1; largest unbuilt patch inside the wall (ares, 100 m2) n 39 min 0 p10 0 median 5 p90 147 max 3193; over 0.5 ha 8, over 1 ha 5, over 2 ha 4
+  buildings in water: river channel 0, sea or lake cell 0, water_poly 0; within half river_w of a coast's shoreline polyline (not water) 30
+  plots (towns >= 1500, four-cornered lots 106069): depth / frontage n 106069 min 0.14 p10 0.63 median 1.43 p90 3.17 max 15.00; over 40 m deep 481 (0.5 %); depth m n 106069 min 2.17 p10 6.79 median 11.62 p90 22.13 max 72.75 p95 26.5 p99 34.9; settled area / 0.12 N^0.714 ha (towns >= 5000) n 23 min 0.46 p10 0.58 median 0.77 p90 1.01 max 1.19
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1472 filtered out; finished in 204.77s
+

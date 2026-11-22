@@ -1,0 +1,18 @@
+"""pertown.py <gw> <mid run> <run> ...: per town, type and phi delta (on - off), keep share, housed, mid vs each run (scratch)."""
+import csv, sys
+gw = sys.argv[1]
+def rd(d):
+    return {(x['seed'], x['town'], x['variant']): x for x in csv.DictReader(open(f'{d}/{gw}/towns_{gw}.csv'))}
+runs = [rd(d) for d in sys.argv[2:]]
+B = runs[0]
+keys = sorted({(s, t) for s, t, v in B}, key=lambda k: (k[0], int(k[1])))
+print('seed town pop off_type | per run: type dphi keep housed%')
+for k in keys:
+    o = B[k + ('off',)]
+    cells = []
+    for R in runs:
+        a = R.get(k + ('proto',))
+        if a is None:
+            cells.append('-'); continue
+        cells.append(f"{a['ptype'][:5]} {float(a['phi'])-float(o['phi']):+.3f} {float(a['keep_off']):.2f} {100*float(a['pop'])/float(a['pop_target']):.0f}")
+    print(k[0], k[1], o['pop_target'].split('.')[0], ' | '.join(cells))

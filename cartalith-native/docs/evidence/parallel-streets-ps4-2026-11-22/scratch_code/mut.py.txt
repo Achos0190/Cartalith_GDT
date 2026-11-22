@@ -1,0 +1,33 @@
+"""PS-4 literal mutants on run_layout_choosing / choose_stretch (exact replace, occurs-once check, restore in a finally,
+hash checked). Each mutant runs the urban_adapter stretch tests; KILLED if any fails, BUILD_ERROR kept separate."""
+import hashlib, os, subprocess
+P = 'C:/cw/ps4/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs'
+M = [
+    ('M1 E branch asks the grain\'s own choice', 'let choice = choose_stretch(ctx, rules, true)?.1?;', 'let choice = choose_stretch(ctx, rules, false)?.1?;'),
+    ('M2 base does not switch the grain off', 'GenOpts { parallel_streets: o.parallel_streets && !base, ..o }', 'GenOpts { parallel_streets: o.parallel_streets, ..o }'),
+    ('M3 grain forced on outside base', 'GenOpts { parallel_streets: o.parallel_streets && !base, ..o }', 'GenOpts { parallel_streets: !base, ..o }'),
+    ('M4 E branch for unstretched towns too', 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if ctx.parallel_streets {'),
+    ('M5 E branch off', 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if false && ctx.parallel_streets && ctx.river_stretch.is_some() && ctx.plain.is_some() {'),
+    ('M6 E branch returns the base layout', 'return run_layout_as(ctx, rules, choice).map(|l| (l, Some(choice)));', 'return choose_stretch(ctx, rules, true);'),
+    ('M7 E branch for every switch state', 'if ctx.parallel_streets && ctx.plain.is_some() {', 'if ctx.river_stretch.is_some() && ctx.plain.is_some() {'),
+]
+raw = open(P, 'rb').read()
+h0 = hashlib.sha256(raw).hexdigest()
+env = dict(os.environ, CARGO_TARGET_DIR='C:/cw/ps4_target_dbg')
+try:
+    for name, old, new in M:
+        assert raw.count(old.encode()) == 1, name
+        open(P, 'wb').write(raw.replace(old.encode(), new.encode()))
+        r = subprocess.run(['cargo', 'test', '-p', 'cartalith-civ', '--lib', 'stretch'], cwd='C:/cw/ps4/cartalith-native', env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        out = r.stdout + r.stderr
+        if 'error[' in out or 'could not compile' in out:
+            v = 'BUILD_ERROR'
+        elif r.returncode != 0:
+            v = 'KILLED ' + ', '.join(l.split()[1] for l in out.splitlines() if l.startswith('test ') and l.endswith('FAILED'))
+        else:
+            v = 'SURVIVED'
+        print(f'{name}: {v}', flush=True)
+finally:
+    open(P, 'wb').write(raw)
+    assert hashlib.sha256(open(P, 'rb').read()).hexdigest() == h0
+    print('restored, hash ok')

@@ -1,0 +1,39 @@
+== all towns 1500+ at 2048: 39 towns ==
+ [off] towns 39  housed p10 91 median 106, under 80 %: 2
+  blocks all: n 4968 quads 50.0 tri 10.5 compact tri 6.9 pent+ 39.4 aspect 1.57 rect 0.70 depth 29.2 m, >=83 m 3.5 %
+  blocks outside core: n 3555 quads 49.6 tri 10.0 compact tri 6.7 pent+ 40.5 aspect 1.58 rect 0.70 depth 30.1 m, >=83 m 4.1 %
+  per town phi median 0.084 p90 0.314; entropy/max median 0.974; phi on-off max 0.000; degree 4 9.5 %, dead ends 11.6 %, segment median (town medians) 24.1 m
+  FS-1 settled area / off: min 1.00 median 1.00 max 1.00; in 0.9-1.4: 39/39; off cells kept >= 85 %: 39/39 (median 1.00)
+  lots 89250 (non-quads 0): depth/frontage median 1.44; over 40 m deep 0.3 %; width < 4.15 m 31.4 %; taper (narrow end < half the wide) 23.3 %; depth/width > 3.5 13.4 %, > 6.0 2.5 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 11.4 % (10187)
+  REAR ACCESS (field::rear_served): lots over 30 m deep 2428 (2.7 % of four-cornered); with a street within 30 m of the rear edge 1439 (59.3 %)
+  buildings 90196: needle buildings (short side < 3 m and long/short > 6.0) 0.60 % (544)
+ [proto] towns 39  housed p10 100 median 126, under 80 %: 3
+  blocks all: n 5659 quads 56.1 tri 8.4 compact tri 5.2 pent+ 35.5 aspect 1.57 rect 0.73 depth 29.4 m, >=83 m 4.2 %
+  blocks outside core: n 4179 quads 57.7 tri 8.0 compact tri 4.9 pent+ 34.2 aspect 1.58 rect 0.74 depth 29.9 m, >=83 m 4.6 %
+  per town phi median 0.161 p90 0.392; entropy/max median 0.949; phi on-off max 0.392; degree 4 9.2 %, dead ends 11.9 %, segment median (town medians) 25.6 m
+  FS-1 settled area / off: min 0.68 median 1.16 max 1.76; in 0.9-1.4: 29/39; off cells kept >= 85 %: 21/39 (median 0.85)
+  lots 103964 (non-quads 0): depth/frontage median 1.44; over 40 m deep 0.3 %; width < 4.15 m 32.1 %; taper (narrow end < half the wide) 25.2 %; depth/width > 3.5 14.1 %, > 6.0 2.5 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 12.0 % (12495)
+  REAR ACCESS (field::rear_served): lots over 30 m deep 2666 (2.6 % of four-cornered); with a street within 30 m of the rear edge 1393 (52.3 %)
+  buildings 103210: needle buildings (short side < 3 m and long/short > 6.0) 0.64 % (662)
+== 8 largest towns per seed at 2048: 24 towns ==
+ [off] towns 24  housed p10 90 median 101, under 80 %: 2
+  blocks all: n 4448 quads 49.1 tri 10.7 compact tri 7.0 pent+ 40.2 aspect 1.57 rect 0.70 depth 29.6 m, >=83 m 3.7 %
+  blocks outside core: n 3189 quads 48.4 tri 10.2 compact tri 6.7 pent+ 41.3 aspect 1.58 rect 0.70 depth 30.3 m, >=83 m 4.3 %
+  per town phi median 0.061 p90 0.145; entropy/max median 0.982; phi on-off max 0.000; degree 4 9.5 %, dead ends 11.1 %, segment median (town medians) 23.9 m
+  FS-1 settled area / off: min 1.00 median 1.00 max 1.00; in 0.9-1.4: 24/24; off cells kept >= 85 %: 24/24 (median 1.00)
+  lots 80612 (non-quads 0): depth/frontage median 1.45; over 40 m deep 0.3 %; width < 4.15 m 31.3 %; taper (narrow end < half the wide) 23.0 %; depth/width > 3.5 13.6 %, > 6.0 2.5 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 11.5 % (9280)
+  REAR ACCESS (field::rear_served): lots over 30 m deep 2218 (2.8 % of four-cornered); with a street within 30 m of the rear edge 1335 (60.2 %)
+  buildings 81544: needle buildings (short side < 3 m and long/short > 6.0) 0.59 % (480)
+ [proto] towns 24  housed p10 99 median 113, under 80 %: 2
+  blocks all: n 5127 quads 55.9 tri 8.4 compact tri 5.3 pent+ 35.7 aspect 1.57 rect 0.73 depth 29.5 m, >=83 m 4.3 %
+  blocks outside core: n 3801 quads 57.5 tri 8.1 compact tri 5.0 pent+ 34.4 aspect 1.58 rect 0.74 depth 30.1 m, >=83 m 4.7 %
+  per town phi median 0.105 p90 0.253; entropy/max median 0.967; phi on-off max 0.215; degree 4 9.3 %, dead ends 11.4 %, segment median (town medians) 24.7 m
+  FS-1 settled area / off: min 0.80 median 1.12 max 1.50; in 0.9-1.4: 21/24; off cells kept >= 85 %: 16/24 (median 0.89)
+  lots 94194 (non-quads 0): depth/frontage median 1.45; over 40 m deep 0.3 %; width < 4.15 m 32.3 %; taper (narrow end < half the wide) 25.1 %; depth/width > 3.5 14.2 %, > 6.0 2.5 %; NEEDLES (narrow end < 4.15 m and ratio > 3.5, or ratio > 6.0, or an end < 1 m, or non-quad) 12.2 % (11455)
+  REAR ACCESS (field::rear_served): lots over 30 m deep 2356 (2.5 % of four-cornered); with a street within 30 m of the rear edge 1194 (50.7 %)
+  buildings 92730: needle buildings (short side < 3 m and long/short > 6.0) 0.63 % (583)
+selection: [('246371', '0'), ('246371', '1'), ('246371', '2'), ('246371', '3'), ('246371', '4'), ('246371', '5'), ('246371', '20'), ('246371', '29'), ('483920', '0'), ('483920', '1'), ('483920', '2'), ('483920', '3'), ('483920', '8'), ('483920', '9'), ('483920', '24'), ('483920', '39'), ('912345', '1'), ('912345', '2'), ('912345', '7'), ('912345', '9'), ('912345', '10'), ('912345', '13'), ('912345', '24'), ('912345', '35')]
+== FS-2 by type (towns 1500+) ==
+  market_street: towns 9 phi median 0.342 p90 0.398 max 0.472; on-off delta max 0.202; entropy/max median 0.884
+  organic_core: towns 11 phi median 0.207 p90 0.393 max 0.681; on-off delta max 0.392; entropy/max median 0.933
+  river_front: towns 19 phi median 0.105 p90 0.217 max 0.284; on-off delta max 0.215; entropy/max median 0.967

@@ -1,0 +1,9 @@
+PS-4's stretch-choice rule (E, reverted with the no-go): 7 literal mutants, Python exact replace, occurs-once check, restored in a finally, hash checked (scratch_code/mut.py.txt); each runs cartalith-civ's 'stretch' tests. A first run had the E branch also test ctx.river_stretch.is_some(); that clause was redundant (a context carries plain only when stretched, its own test), its mutant survived, and the clause was removed. M7 is equivalent: without the switch test an off context takes its own choice and replays it to the same layout (one layout more, no output change).
+M1 E branch asks the grain's own choice: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+M2 base does not switch the grain off: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+M3 grain forced on outside base: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is, urban_adapter::tests::a_stretch_verdict_replays_to_the_same_town_and_is_keyed_by_content
+M4 E branch for unstretched towns too: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+M5 E branch off: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+M6 E branch returns the base layout: KILLED urban_adapter::tests::a_town_with_a_grain_is_stretched_where_the_switch_off_town_is
+M7 E branch for every switch state: SURVIVED
+restored, hash ok

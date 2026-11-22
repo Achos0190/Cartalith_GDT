@@ -1,0 +1,54 @@
+"""PS-4 frames: per seed a contact sheet (rows = towns; columns = opening frame BEFORE (off), MID (PS-2), AFTER (PS-4
+prototype), then x4 the same three), full-size triples per town and zoom, and the combined comparison PNG."""
+import re, sys
+from PIL import Image, ImageDraw, ImageChops
+S = 'C:/cw/ps4_scratch'; O = sys.argv[1]
+import os
+os.makedirs(f'{O}/frames', exist_ok=True)
+TW = 360
+def types(log):
+    return {m[0]: (m[1], m[2], m[3]) for m in re.findall(r'PARALLEL1 #(\d+) buildings (\d+) edges (\d+) type (\S+)', open(log, encoding='utf-8', errors='replace').read())}
+def counts0(log):
+    return {m[0]: (m[1], m[2]) for m in re.findall(r'PARALLEL0 #(\d+) buildings (\d+) edges (\d+)', open(log, encoding='utf-8', errors='replace').read())}
+same = []
+rows_all = {}
+for seed in ('483920', '912345'):
+    tm, ta, c0 = types(f'{S}/mid_{seed}.log'), types(f'{S}/after_{seed}.log'), counts0(f'{S}/mid_{seed}.log')
+    rows = []
+    for tid in tm:
+        ims = []
+        for z in ('z1', 'z4'):
+            b = Image.open(f'{S}/shots_mid/viewer_{seed}_{tid}_parallel0_{z}.png').convert('RGB')
+            b2 = Image.open(f'{S}/shots_after/viewer_{seed}_{tid}_parallel0_{z}.png').convert('RGB')
+            same.append((seed, tid, z, ImageChops.difference(b, b2).getbbox() is None))
+            m = Image.open(f'{S}/shots_mid/viewer_{seed}_{tid}_parallel1_{z}.png').convert('RGB')
+            a = Image.open(f'{S}/shots_after/viewer_{seed}_{tid}_parallel1_{z}.png').convert('RGB')
+            W, H = b.size
+            P = Image.new('RGB', (3*W+20, H+26), (255, 255, 255))
+            for k, im in enumerate((b, m, a)):
+                P.paste(im, (k*(W+10), 26))
+            ImageDraw.Draw(P).text((4, 6), f'seed {seed} #{tid} (384 x 288, {"opening frame" if z == "z1" else "x4, market-centred"}), type {tm[tid][2]}: BEFORE switch off (buildings {c0[tid][0]}) | MID PS-2 (buildings {tm[tid][0]}) | AFTER PS-4 (buildings {ta[tid][0]})', fill=(0, 0, 0))
+            P.save(f'{O}/frames/triple_{seed}_{tid}_{z}.png')
+            ims += [b, m, a]
+        rows.append((tid, tm[tid][2], ims)); rows_all[(seed, tid)] = (tm[tid][2], ims)
+    th = int(TW*rows[0][2][0].size[1]/rows[0][2][0].size[0])
+    sheet = Image.new('RGB', (6*TW+80, 30+len(rows)*(th+24)), (255, 255, 255)); d = ImageDraw.Draw(sheet)
+    d.text((6, 8), f'seed {seed}, 384 x 288. Columns: opening frame BEFORE (off), MID (PS-2), AFTER (PS-4); x4 market-centred BEFORE, MID, AFTER.', fill=(0, 0, 0))
+    for k, (tid, ty, ims) in enumerate(rows):
+        y = 30+k*(th+24); d.text((6, y), f'#{tid} type {ty}', fill=(0, 0, 0))
+        for j, im in enumerate(ims):
+            t = im.copy(); t.thumbnail((TW, th)); sheet.paste(t, (6+j*(TW+12)+(10 if j >= 3 else 0), y+16))
+    sheet.save(f'{O}/contact_{seed}.png'); print(seed, len(rows), sheet.size)
+print('before frames identical across the two sessions:', sum(s[3] for s in same), 'of', len(same), [s for s in same if not s[3]][:6])
+pick = [p for p in sys.argv[2:]]
+if pick:
+    sel = [tuple(p.split(':')) for p in pick]
+    TW2 = 420; th = int(TW2*rows_all[sel[0]][1][0].size[1]/rows_all[sel[0]][1][0].size[0])
+    C = Image.new('RGB', (6*TW2+90, 40+len(sel)*(th+26)), (255, 255, 255)); d = ImageDraw.Draw(C)
+    d.text((6, 8), "PS-4 (parallel streets, river-front towns): a stretched town keeps the switch-off town's stretch choice. City Viewer, the shell's world at 384 x 288.", fill=(0, 0, 0))
+    d.text((6, 22), 'Columns: opening frame BEFORE (switch off) | MID (PS-2, as shipped) | AFTER (PS-4); then x4 market-centred, the same three.', fill=(0, 0, 0))
+    for k, s in enumerate(sel):
+        ty, ims = rows_all[s]; y = 40+k*(th+26); d.text((6, y), f'seed {s[0]} #{s[1]}: {ty}', fill=(0, 0, 0))
+        for j, im in enumerate(ims):
+            t = im.copy(); t.thumbnail((TW2, th)); C.paste(t, (6+j*(TW2+12)+(14 if j >= 3 else 0), y+18))
+    C.save(f'{O}/ps4_combined.png'); print('combined', C.size)
