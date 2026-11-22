@@ -11,18 +11,16 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 
 ## Next, in order (owner)
 
-1. ~~**The timeline ladder**~~ landed `6e4d6bad` (STATUS.md).
-2. ~~**Builds**~~ done: v.26.11.22-001 on the 6T and in the D: folder, Windows export rebuilt. Pad installed too. Next APK after the GZ save build (owner).
-3. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; owner Q26 (the water gate with PS-5) and Q27 (E's 2 048 rows) open. Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
-4. **River smoothing, harbour-front follow-up** (Ruling HC item 3): smooth the sea extension of a river-mouth town's river too, same switch (RR-T1 itself is built). Owner `RIVER_REALISM_SCOPE.md`.
-   - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md` (written; build not started).
-5. **The small open rows** (each under its area below): F1 measure-to-journey, the trace leftovers, Ruling GB's leftover towns, name-style
+1. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; owner Q26 (the water gate with PS-5) and Q27 (E's 2 048 rows) open. Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
+2. **River follow-ups (running):** the harbour-front sea extension **and Ruling HE** (a stream is sized as a stream, gets no port, and shows on the map with its town) -- (Ruling HC item 3): smooth the sea extension of a river-mouth town's river too, same switch (RR-T1 itself is built). Owner `RIVER_REALISM_SCOPE.md`.
+3. **Town layouts in the save (running)** (Rulings GZ, HA): TL-0..TL-8 of `TOWN_LAYOUT_SAVE_SCOPE.md`; then a new APK for both devices and the Windows build to the D: folder (owner).
+4. **The small open rows** (each under its area below): F1 measure-to-journey, the trace leftovers, Ruling GB's leftover towns, name-style
    leftovers, the `_llmpanel` desktop and tablet leg.
-6. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
+5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
-7. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
+6. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
    serial generation floor (Ruling FL item 3, see Performance).
-8. **World-scale terrain** (`WORLD_SCALE_TERRAIN_PLAN.md`; parked until the refactor). It absorbs ZR's no-go decision
+7. **World-scale terrain** (`WORLD_SCALE_TERRAIN_PLAN.md`; parked until the refactor). It absorbs ZR's no-go decision
    and FG's open bars (see Terrain).
    - Ruling GV (cut-out modes and provenance; folded into the plan, parked with it): a `region_source` manifest, a generation-rules version and field digest in every save, cell units in ground units, a warning on Generate over a region world, Regenerate region from source (plan §9). Free B (Re-simulate region) dropped by the owner.
 
@@ -32,7 +30,7 @@ GUI, then engine, then the LLM interface).
 ## Open work by area
 
 ### Timeline and story
-- **Ruling HF:** the world's timeline start/end default to the vault's lowest and highest year until the user overrides them (saved per world); world events outside keep their years, counted and listed in L2, not drawn. `tl_range`, `chronos_lanes.gd`, the collapse simulation's span (F-finding: the end date must hold).
+- **Ruling HF (running, with the two phone lines below):** the world's timeline start/end default to the vault's lowest and highest year until the user overrides them (saved per world); world events outside keep their years, counted and listed in L2, not drawn. `tl_range`, `chronos_lanes.gd`, the collapse simulation's span (F-finding: the end date must hold).
 - Phone: with the transport panel open at L0, Back goes straight to "Exit Cartalith"; the back chain in `dcc_shell.gd` does not close the transport panel (predates the ladder).
 - Phone: the ladder's count line, Back and Filter text is about 10 px on the 6T's 1080 px screen.
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
