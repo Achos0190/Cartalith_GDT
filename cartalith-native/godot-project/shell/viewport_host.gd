@@ -730,6 +730,10 @@ var _export_grid_rows := 4
 ## never be skipped -- every `_bridge` read below assumes it ran.
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
+	## Ruling HG: the overlay asks the engine where each settlement's marker stands beside the drawn river, and asks
+	## again when the world's `civ.bank_sites` switch is flipped (no regenerate: the switch moves no settlement).
+	overlay.set_bank_resolver(_bridge.settlement_bank_offsets)
+	_bridge.bank_params_changed.connect(overlay.bank_stale)
 	## AP-5 (Ruling CQ Q3): the engine's feature-icon switch, before any
 	## texture is built (the bridge applies it at every build).
 	bridge.feature_icon_overlay = PACK_FEATURE_ICONS
@@ -839,6 +843,10 @@ func _apply_river_paint() -> void:
 	## only read by the shader when the strength is above 0.
 	mat.set_shader_parameter("river_bank", float(params.get("bank", 0.0)))
 	mat.set_shader_parameter("river_bank_color", params.get("bank_color", Vector3.ZERO))
+	## Ruling HG: everything that changes the river this hands the shader (a repaint, the look's river width, the
+	## window the zoom law reads) also changes where a settlement's marker stands beside it.
+	if overlay != null:
+		overlay.bank_stale()
 	## RR (Ruling ES): the detail field (heads from x4, white water and falls from x16) and the
 	## look's translucency and arid-floodplain strengths. A cdylib without them hands null / 0.0,
 	## which the shader reads as the pre-RR look -- never a plausible strength.

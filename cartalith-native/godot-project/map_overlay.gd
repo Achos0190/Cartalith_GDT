@@ -1416,6 +1416,7 @@ func set_camera_zoom(z: float) -> void:
 	if is_equal_approx(z, _camera_zoom):
 		return
 	_camera_zoom = z
+	_bank_dirty = true   ## Ruling HG: the drawn river's width in cells follows the zoom, and so does each marker's bank point
 	## Unlike `set_civ_data`/`set_show_settlements`, nothing about `_draw()`'s
 	## own *content* changed here -- only how big the already-drawn geometry
 	## needs to be next time, which only a fresh `_draw()` call can apply.
@@ -2426,7 +2427,9 @@ func set_selected_manual_route(index: int) -> void:
 ## position here is derived from `size` through `_displayed_rect()`.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	resized.connect(func(): queue_redraw())
+	resized.connect(func():
+		_bank_dirty = true   ## Ruling HG: this control's size sets the pixels per cell
+		queue_redraw())
 
 
 ## Called by `main.gd` right after a successful `generate()`/
@@ -2500,6 +2503,8 @@ func _draw_border_lines(rect: Rect2) -> void:
 
 func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
 	_settlements = settlements
+	_bank_ppc = -1.0   ## Ruling HG: a new roster has no bank offsets yet
+	_bank_dirty = true
 	_fan_rev += 1   ## Ruling FF: settlement pins join the tilt and declutter rules, which are built from this roster
 	_roads = roads
 	_sea_routes = sea_routes
@@ -4249,6 +4254,73 @@ func _cell_to_screen(cell: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2((cell.x + 0.5) / _gw, (cell.y + 0.5) / _gh) * rect.size
 
 
+## ── Ruling HG (owner, 2026-11-22): a settlement stands on the river bank, not in the river ──
+##
+## *"the settlements detect the edge of a river and sit on the bank, not in it."* A settlement's cell centre can lie
+## inside the river the map draws, and how wide that river is on screen depends on the zoom (it is never under one pixel).
+## So the marker's point is the engine's answer for the density the map is drawn at now
+## (`WorldGen.settlement_bank_offsets`, `bank_site.rs`): an offset in grid cells from the cell centre, zero for a
+## settlement clear of every river. **Every reader of a settlement's marker position goes through `_settle_pos()`**: the
+## pin, its declutter and fan layout, the hover card, hit-testing and the context picks, so what is drawn is what is
+## picked. The settlement's cell (`x`, `y`) is untouched, and so is everything laid on the cell: roads, the town plan
+## (`_draw_urban_layouts`) and the landmark declutter.
+##
+## `_bank_cb` is `Callable(ppc: float, gap_px: float) -> PackedVector2Array` (one offset per settlement, or empty when
+## the world's `civ.bank_sites` switch is off, in which case every marker is at its cell centre as before the ruling).
+## It is an engine read, so an export copy keeps it and asks at its own density.
+var _bank_cb: Callable = Callable()
+## The density the offsets stamped on `_settlements` (`"bank"`) were asked at; negative means "ask again".
+var _bank_ppc := -1.0
+## Set by everything that can change the answer (the zoom, the roster, the resolver, the drawn river, this control's
+## size, an export copy), so `_settle_pos()`, which runs for every settlement in every pass, pays one flag test and not a density
+## computation.
+var _bank_dirty := true
+
+## Density steps per octave of zoom the offsets are refreshed at. The answer for a slightly lower density is a slightly
+## wider river, so rounding the density DOWN to a step keeps every marker clear between steps. A labelled judgement:
+## eight steps is 9 % of a clearance of two or three pixels, well under a pixel, and a continuous zoom then asks the
+## engine once per step and not once per frame.
+const BANK_ZOOM_STEPS := 8.0
+
+func set_bank_resolver(cb: Callable) -> void:
+	_bank_cb = cb
+	bank_stale()
+
+## The answer changed for the same roster and zoom: the switch flipped, or the river the map draws changed (a repaint
+## after a sculpt or an erode, a look with another river width, the window the zoom law reads). The offsets are asked
+## for again, the pins are redrawn in this frame like any content change, and the declutter and fan layouts built
+## from their positions are rebuilt.
+func bank_stale() -> void:
+	_bank_ppc = -1.0
+	_bank_dirty = true
+	_fan_rev += 1
+	queue_redraw()
+
+## Stamps each settlement's bank offset for the density the map is drawn at, when that density or the roster changed.
+func _bank_sync() -> void:
+	_bank_dirty = false
+	if _gw <= 0 or not _bank_cb.is_valid():
+		return
+	var ppc := _displayed_rect().size.x / float(_gw) * (1.0 if _export_mode else _camera_zoom)
+	if ppc <= 0.0:
+		return
+	ppc = pow(2.0, floorf(log(ppc) / log(2.0) * BANK_ZOOM_STEPS) / BANK_ZOOM_STEPS)
+	if is_equal_approx(ppc, _bank_ppc):
+		return
+	_bank_ppc = ppc
+	var off: PackedVector2Array = _bank_cb.call(ppc, -1.0)
+	for i in _settlements.size():
+		(_settlements[i] as Dictionary)["bank"] = off[i] if i < off.size() else Vector2.ZERO
+
+## Where settlement `s`'s marker stands on screen: its cell centre, moved to the river bank where the centre is in a
+## drawn river (Ruling HG, above). Not for what is laid on the cell itself (roads, the town plan).
+func _settle_pos(s: Dictionary, rect: Rect2) -> Vector2:
+	if _bank_dirty:
+		_bank_sync()
+	var b = s.get("bank")
+	return _cell_to_screen(Vector2(float(s["x"]), float(s["y"])) + (b if b is Vector2 else Vector2.ZERO), rect)
+
+
 ## Roads' own `points` are already continuous full-resolution coordinates
 ## (Catmull-Rom-smoothed, not raw cell indices) -- no `+0.5` centering,
 ## unlike `_cell_to_screen`'s settlement markers.
@@ -5847,7 +5919,7 @@ func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step:
 		## strength here, which would hide the fade under the live pin.
 		if _tl_ghost_tids.has(int(s.get("tid", 0))):
 			continue
-		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		var pos := _settle_pos(s, rect)
 		# A settlement whose cell is under the frame has no visible terrain
 		# beneath it at all, so a marker there points at nothing -- it is off
 		# the plate, and off-plate detail is omitted rather than trimmed to a
@@ -7046,7 +7118,7 @@ func _declutter_set(rect: Rect2) -> Dictionary:
 				r = _settlement_pin_radius(String(st["kind"]), canon)
 			else:
 				r = _settlement_head_r(String(st["kind"]), canon)
-			tip = _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon)
+			tip = _settle_pos(st, canon)
 		else:
 			var lm: Dictionary = _landmarks[i]
 			if not _landmark_shown(lm) or (not town_shown and members.has(i)):
@@ -7224,7 +7296,7 @@ func _fan(rect: Rect2) -> Dictionary:
 				continue
 			items.append({"id": _FAN_SETTLE_BASE + i, "r": _settlement_head_r(String(st["kind"]), canon_r),
 				"kind": _settle_display_kind(st),
-				"pos": _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), canon_r)})
+				"pos": _settle_pos(st, canon_r)})
 	var raw := PinMarker.fan_offsets(items, circles)
 	var lay := {} if circles else PinMarker.fan_layout(items, iset)   ## pin rings (FA follow-up): {id: Vector2(tilt, lift px)}
 	var res := {"lm": {}, "poi": {}, "lm_a": {}, "poi_a": {}, "s_a": {}, "lm_l": {}, "poi_l": {}, "s_l": {}}
@@ -7313,7 +7385,7 @@ func _draw_fan_leaders(rect: Rect2, interior: Rect2) -> void:
 			PinMarker.draw_stalk(_cv, t, float(f["poi_a"][i]), float(f["poi_l"][i]), float(_poi_footprint(circles)[0]), w)
 	for i: int in f["s_l"]:
 		var st: Dictionary = _settlements[i]
-		var t := _cell_to_screen(Vector2(float(st["x"]), float(st["y"])), rect)
+		var t := _settle_pos(st, rect)
 		if interior.has_point(t) and not _settlement_hidden(st) and not _settlement_declutter_hidden(i, rect):
 			PinMarker.draw_stalk(_cv, t, float(f["s_a"][i]), float(f["s_l"][i]), _settlement_head_r(String(st["kind"]), rect), w)
 
@@ -8551,7 +8623,7 @@ func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: floa
 ## faith lines (`_faith_lines`), laid out by `_draw_card` at the settlement's
 ## screen position and clamped to `interior`.
 func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
-	var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+	var pos := _settle_pos(s, rect)
 	var kind_label: String = String(s["kind"]).capitalize()
 	var lines := ["%s (%s)" % [s["name"], kind_label], "Population %s" % _format_pop(s["population"])]
 	lines.append_array(_faith_lines(s))
@@ -8790,7 +8862,7 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	var closest_dist := INF
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
-		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		var pos := _settle_pos(s, rect)
 		# Same predicate `_draw` uses: an off-plate settlement has no
 		# marker, so it must not have a hit target either -- otherwise a
 		# hover/click would fill in dock data from what looks like blank
@@ -8911,7 +8983,7 @@ func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
 	var sd := INF
 	if s != -1:
 		var st: Dictionary = _settlements[s]
-		sd = mouse.distance_to(PinMarker.lifted_tip(_cell_to_screen(Vector2(st["x"], st["y"]), rect), _tilt_s(s, rect), _lift_s(s, rect)))   ## pin rings (FA follow-up): the drawn (lifted) point
+		sd = mouse.distance_to(PinMarker.lifted_tip(_settle_pos(st, rect), _tilt_s(s, rect), _lift_s(s, rect)))   ## pin rings (FA follow-up): the drawn (lifted) point
 	var out := {"s": -1, "l": -1, "i": -1, "p": -1}
 	var win := INF   ## the winner's anchor distance, which a POI must beat
 	if s != -1 and sd <= float(lh[1]) and sd <= float(ih[1]):
@@ -9040,7 +9112,7 @@ func hits_at(mouse: Vector2) -> Array:
 	var iset := DccSettings.marker_icon_set()   ## and the icon set whose textured footprint a pin has
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
-		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		var pos := _settle_pos(s, rect)
 		if not interior.has_point(pos) or _settlement_hidden(s):
 			continue
 		var d := mouse.distance_to(pos)
@@ -10160,6 +10232,8 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 	_sym_gain = gain
 	_way_scale *= gain
 	_camera_zoom = 1.0
+	_bank_ppc = -1.0   ## Ruling HG: the copy asks for its markers' bank points at its own density
+	_bank_dirty = true
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hover_index = -1
 	_lm_hover_index = -1

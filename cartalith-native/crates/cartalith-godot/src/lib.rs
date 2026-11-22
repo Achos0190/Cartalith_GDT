@@ -27,6 +27,8 @@ mod annotation_bridge;
 mod poi_bridge;
 mod annotation_undo;
 mod asset_bridge;
+// Ruling HG: where a settlement stands beside the drawn river (the bank point), and its census.
+mod bank_site;
 mod world_art;
 mod bake_bridge;
 // Found-bug sweep 2026-10-11, R8: an ignored measurement over the real pipeline.
@@ -7301,6 +7303,9 @@ struct WorldGen {
     river_field_stats: std::cell::Cell<(usize, usize)>,
     /// `river_geometry`'s cache: its key and the network built for it.
     river_geom_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>)>>,
+    /// Ruling HG: the drawn river indexed for the settlements' bank points (`bank_site::StrokeIndex`), keyed like
+    /// `river_geom_cache` on `river_network_key_str`. Derived; never saved.
+    bank_index_cache: std::cell::RefCell<Option<(String, std::sync::Arc<bank_site::StrokeIndex>)>>,
     /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
     /// height built for it. A rendering input only; never a world field.
     valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
@@ -8122,6 +8127,7 @@ impl IRefCounted for WorldGen {
             river_field_build: std::cell::Cell::new((0.0, 0, 0, 0, 0)),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
+            bank_index_cache: std::cell::RefCell::new(None),
             valley_shade_cache: std::cell::RefCell::new(None),
             valley_shade_timing: std::cell::Cell::new(None),
             forced_lakes: None,

@@ -7891,7 +7891,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach", "civ.sea_lanes", "civ.site_map_terms", "civ.junction_settlements", "civ.planner_dominant_biome", "civ.loose_garrisons", "civ.city_states", "peak_auto", "civ.founding_year", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "urban_river_smooth", "name_unnamed_kinds"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank", "urban_street_village", "urban_market_scale", "urban_harbour_front", "urban_river_stretch", "civ.map_rivers", "civ.harbour_box", "civ.port_reach", "civ.sea_lanes", "civ.site_map_terms", "civ.junction_settlements", "civ.bank_sites", "civ.planner_dominant_biome", "civ.loose_garrisons", "civ.city_states", "peak_auto", "civ.founding_year", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "urban_river_smooth", "name_unnamed_kinds"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7917,6 +7917,8 @@ mod tests {
         assert!(!p.urban_river_stretch, "an old archive keeps its river towns unstretched");
         // Ruling EX (2026-11-14): an archive that predates the river frontage term keeps its placements.
         assert!(!p.civ.river_front, "an old archive places its towns without the frontage term");
+        // Ruling HG (2026-11-22): an archive that predates the bank switch draws its markers at the cell centre.
+        assert!(!p.civ.bank_sites, "an old archive keeps its settlement markers on the cell centre");
         // Ruling GK (2026-11-22): an old archive reads its unclaimed places with no garrison (MM-6).
         assert!(!p.civ.loose_garrisons, "an old archive keeps MM-6's unclaimed garrisons");
         assert!(!p.civ.city_states, "an old archive shows no city-states (F26 / Ruling GL)");
@@ -7941,6 +7943,7 @@ mod tests {
         assert_eq!((p.rough_routing, p.basin_routing, p.lake_balance, p.civ.merge_ways), (true, true, true, true));
         assert!(p.urban_wall_hug, "a new world hugs its town walls (Ruling EW item 1)");
         assert!(p.civ.river_front, "a new world puts river towns on their river (Ruling EX)");
+        assert!(p.civ.bank_sites, "a new world stands its settlement markers on the river bank (Ruling HG)");
         assert!(p.urban_river_kind_map, "a new world calls river towns from the map's rivers (Ruling EX follow-up (c))");
         assert!(p.urban_riverbank, "a new world builds its river towns to the bank (2026-11-15)");
         assert!(p.urban_street_village, "a new world lays its villages along their roads (Ruling FE item 2)");
@@ -7974,7 +7977,7 @@ mod tests {
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
             "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug", "civ.river_front", "urban_river_kind_map", "urban_riverbank",
             "urban_street_village", "urban_market_scale", "civ.map_rivers", "civ.harbour_box", "civ.port_shore", "civ.map_crossings",
-            "urban_harbour_front", "civ.port_reach", "civ.sea_lanes", "civ.site_map_terms", "civ.junction_settlements", "civ.planner_dominant_biome", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "urban_river_smooth", "name_unnamed_kinds", "ws_tect_editable",
+            "urban_harbour_front", "civ.port_reach", "civ.sea_lanes", "civ.site_map_terms", "civ.junction_settlements", "civ.bank_sites", "civ.planner_dominant_biome", "civ.founding_year", "urban_river_stretch", "urban_market_road_bank", "urban_growth_water_widen", "urban_town_bridge_search", "urban_river_smooth", "name_unnamed_kinds", "ws_tect_editable",
             "civ.loose_garrisons", "civ.city_states", "peak_auto",
         ];
         want.sort_unstable();

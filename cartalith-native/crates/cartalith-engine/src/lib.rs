@@ -1100,6 +1100,16 @@ pub struct CivParams {
     /// **`false` here, `true` in the shipped app**, the same section 7p split. A save without the
     /// key loads it off.
     pub junction_settlements: bool,
+    /// Owner Ruling HG (2026-11-22, `LARGE_ITEM_RULINGS.md`): **a settlement's marker stands on the
+    /// river bank, not in the river.** Read by the shell's marker drawing through
+    /// `cartalith_godot::bank_site` (`WorldGen::settlement_bank_offsets`): a marker whose cell centre
+    /// lies inside a drawn river stroke is drawn at the nearest dry point just outside the stroke's
+    /// edge. **It changes no generated output**: every settlement keeps its cell, and nothing in the
+    /// engine reads this field. It is a world parameter so the choice is saved with the world.
+    ///
+    /// **`false` here, `true` in the shipped app**, the same section 7p split. A save without the
+    /// key loads it off.
+    pub bank_sites: bool,
     /// Owner Ruling FO item 1 (2026-11-16, `LARGE_ITEM_RULINGS.md`): every settlement a generation places
     /// is given a **founding year**, stored beside its place-editor extras (`PlaceExtras::founded`, saved
     /// as `extras.founded`, `SAVEFILE_COMPAT.md` 9.1). The year is `-um_infer_age(population)`: the
@@ -1929,6 +1939,7 @@ impl WorldParams {
                 sea_lanes: false,
                 site_map_terms: false,
                 junction_settlements: false,
+                bank_sites: false,
                 // Ruling FI item 2: the reference charges a crossing only above the flow threshold.
                 map_crossings: false,
                 // Ruling FK item 2: the reference badges ports within its own radius.

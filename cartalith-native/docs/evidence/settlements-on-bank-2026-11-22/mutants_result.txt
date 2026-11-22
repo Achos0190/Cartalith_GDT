@@ -1,0 +1,43 @@
+Ruling HG mutants (2026-11-22/23).
+
+RUST (mutants.py: cargo test on bank_site.rs's unit tests and the default tests). The first full run:
+M1 the gap dropped from the clearance -> SURVIVED
+M2 MARKET_FIRST_BANK reversed -> KILLED by bank_site::tests::a_centre_on_the_line_takes_the_markets_first_bank
+M3 dry ground not required -> KILLED by bank_site::tests::a_bank_in_open_water_is_refused
+M4 other strokes not cleared -> KILLED by bank_site::tests::a_bank_in_open_water_is_refused, bank_site::tests::at_a_confluence_the_point_clears_every_stroke
+M5 a hidden river counts as drawn -> SURVIVED
+M6 half the stroke read as a quarter -> KILLED by bank_site::tests::a_bank_in_open_water_is_refused, bank_site::tests::a_centre_in_the_stroke_moves_to_its_own_bank, bank_site::tests::a_centre_on_the_line_takes_the_markets_first_bank, bank_site::tests::at_a_confluence_the_point_clears_every_stroke, bank_site::tests::the_edge_is_the_drawn_stroke_with_its_pixel_floor
+M7 SEARCH_REACH 2.0 -> 0.5 -> KILLED by bank_site::tests::a_bank_in_open_water_is_refused
+M8 SEARCH_DIRS 16 -> 2 -> KILLED by bank_site::tests::at_a_confluence_the_point_clears_every_stroke
+M9 CLEAR_EPS 1e-7 -> -1e-3 -> KILLED by bank_site::tests::a_centre_in_the_stroke_moves_to_its_own_bank, bank_site::tests::a_centre_on_the_line_takes_the_markets_first_bank, bank_site::tests::the_edge_is_the_drawn_stroke_with_its_pixel_floor
+M10 ON_LINE_EPS 1e-6 -> 1.0 -> KILLED by bank_site::tests::a_centre_in_the_stroke_moves_to_its_own_bank, bank_site::tests::at_a_confluence_the_point_clears_every_stroke
+M11 the pixel floor left out of the search reach -> SURVIVED
+M12 app default off -> KILLED by project_bridge::tests::a_new_world_after_opening_a_pre_ruling_er_archive_is_made_by_the_app_rules
+M13 engine default on -> KILLED by exactly_the_ruled_divergences_ship_at_the_app_boundary
+M14 a save without the key loads on -> KILLED by project_bridge::tests::a_new_world_after_opening_a_pre_ruling_er_archive_is_made_by_the_app_rules
+done; residue check: 0
+
+After tightening the tests the three survivors exposed (a gap on no ring step, a fading river, a centre 3.2 cells off a floored stroke), with the gap-in-covering mutant M1b added:
+M1 the gap dropped from the clearance -> KILLED by bank_site::tests::a_centre_in_the_stroke_moves_to_its_own_bank
+M1b the gap dropped from the covering test -> KILLED by bank_site::tests::a_bank_in_open_water_is_refused, bank_site::tests::a_centre_in_the_stroke_moves_to_its_own_bank, bank_site::tests::at_a_confluence_the_point_clears_every_stroke
+M5 a hidden river counts as drawn -> KILLED by bank_site::tests::a_river_the_zoom_hides_moves_nothing
+M11 the pixel floor left out of the search reach -> KILLED by bank_site::tests::the_edge_is_the_drawn_stroke_with_its_pixel_floor
+done; residue check: 0
+
+The no-gap second try (added after the 2 048 snap census left 10 of 222 923 clicks inside):
+M15 no second try without the gap -> KILLED by bank_site::tests::where_the_gap_does_not_fit_the_point_is_still_out_of_the_water
+done; residue check: 0
+
+The tie-break bank after it was set from the three-seed measurement (west, then north; the literal in M2 above is the earlier one):
+M2 MARKET_FIRST_BANK reversed -> KILLED by bank_site::tests::a_centre_on_the_line_takes_the_markets_first_bank
+done; residue check: 0
+
+SHELL (gd_mutants.py: _bankframes_probe.gd --quick, windowed, on the scratch project copy, the rebased tree; the probe's own --mutate off is probe_mutate_off.log):
+G0 control: no mutation -> passes (RESULT: PASS (0 failed) checks=15)
+G1 the bank offset not added to the marker -> KILLED: FAIL  ON THE BANK: with the switch on no marker point is in the river's water (x1 0, x4 0, x16 3)
+G2 the density rounded up to a step -> KILLED: FAIL  THE ZOOM STEP: asked at or below the drawn density and within one step of it (14.6721 against 13.4892)
+G3 BANK_ZOOM_STEPS 8.0 -> 1.0 -> KILLED: FAIL  THE ZOOM STEP: asked at or below the drawn density and within one step of it (8.0000 against 13.4892)
+G4 a zoom change does not ask again -> KILLED: FAIL  THE ZOOM STEP: asked at or below the drawn density and within one step of it (38.0546 against 13.4892)
+G5 the switch is not announced (no live toggle) -> KILLED: FAIL  control: with the switch off the map's river water is under the marker point (x1 0, x4 0 of 3 each): the census and the raster agree
+G6 a river handed to the map again does not mark the offsets stale -> KILLED: FAIL  THE RIVER CHANGED: after the shell hands the map its river again the overlay asks again (1 asks)
+done

@@ -38,6 +38,10 @@ signal params_applied()            ## A generate landed; nothing is stale.
 ## write, not only the first one after a generate: `mark_dirty()` latches, and a second A/B toggle must drop the
 ## cache too.
 signal urban_params_changed()
+## Ruling HG: `civ.bank_sites` landed (`param_write`, `reset_params`), emitted after the engine took it. The switch
+## changes no generated output, only where the map draws each settlement's marker, so nothing needs a regenerate:
+## `viewport_host.gd::setup` has the overlay ask for its markers' bank points again.
+signal bank_params_changed()
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## Edit-from-context: items were REMOVED from a hand-placed store, so the indices of the ones after them shifted.
@@ -885,6 +889,8 @@ func param_write(key: String, value) -> Dictionary:
 		## re-layout reads the new switch.
 		if key.begins_with("urban_"):
 			urban_params_changed.emit()
+		if key == "civ.bank_sites":
+			bank_params_changed.emit()
 	return {"ok": not rejected, "clamped": clamped, "rejected": rejected}
 
 ## Restores the whole table (`WorldGen.reset_params`) or just `keys` from the
@@ -911,6 +917,8 @@ func reset_params(keys: Array = []) -> void:
 	## A whole-table reset may move any `urban_*` switch; a keyed one only when it names one.
 	if keys.is_empty() or keys.any(func(k) -> bool: return String(k).begins_with("urban_")):
 		urban_params_changed.emit()
+	if keys.is_empty() or keys.has("civ.bank_sites"):
+		bank_params_changed.emit()
 
 ## Forwards to `WorldGen.apply_archetype`, which writes the archetype's World
 ## Structure knobs into the persistent parameters. `false` for an unknown name or a
@@ -1673,6 +1681,15 @@ func river_paint_params() -> Dictionary:
 	if generating or not _has("river_paint_params"):
 		return {}
 	return world_gen.river_paint_params()
+
+## Ruling HG (owner, 2026-11-22): each settlement's marker offset from its cell centre, in grid cells, for a map drawn at
+## `ppc` screen pixels per cell, `gap_px` pixels clear of the drawn river's edge (negative: the engine's default)
+## (`WorldGen::settlement_bank_offsets`). Empty while generating, against a binary without it, and when the world's
+## `civ.bank_sites` switch is off: the caller then draws every marker at its cell centre.
+func settlement_bank_offsets(ppc: float, gap_px: float) -> PackedVector2Array:
+	if generating or not _has("settlement_bank_offsets"):
+		return PackedVector2Array()
+	return world_gen.settlement_bank_offsets(ppc, gap_px)
 
 ## Ruling EQ item 4 (owner, 2026-11-11): the map view's live size, the window the river opening share is taken
 ## in (`WorldGen::set_river_view_size`). True when the law's fit moved, so the caller re-applies the shader's

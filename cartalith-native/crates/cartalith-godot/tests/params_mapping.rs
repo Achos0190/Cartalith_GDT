@@ -347,7 +347,7 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 #[test]
 fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 30, "the civ group is thirty rows"); // 29 until `civ.city_states` (F26, 2026-11-22); 28 until `civ.junction_settlements` (F27, 2026-11-22); 27 until `civ.border_friction` (2026-11-22); 25 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22)
+    assert_eq!(rows.len(), 31, "the civ group is thirty-one rows"); // 30 until `civ.bank_sites` (Ruling HG, 2026-11-22); 29 until `civ.city_states` (F26, 2026-11-22); 28 until `civ.junction_settlements` (F27, 2026-11-22); 27 until `civ.border_friction` (2026-11-22); 25 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22)
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -1416,6 +1416,7 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.site_map_terms = false;
     // And finding F27 / Ruling GL: a save without the key founded no junction hamlets.
     expect.civ.junction_settlements = false;
+    expect.civ.bank_sites = false;
     // And Ruling FO item 1: a save without the key has no founding years.
     expect.civ.founding_year = false;
     // And Ruling GK: a save without the key read its unclaimed places with no garrison.
@@ -1628,6 +1629,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.sea_lanes = false; // findings F16/F39 (2026-11-22)
     neutral.civ.site_map_terms = false; // finding F36 (2026-11-22)
     neutral.civ.junction_settlements = false; // finding F27 / Ruling GL (2026-11-22)
+    neutral.civ.bank_sites = false; // Ruling HG (2026-11-22)
     neutral.civ.founding_year = false;
     neutral.civ.loose_garrisons = false;
     neutral.civ.city_states = false; // F26 / Ruling GL (2026-11-22)

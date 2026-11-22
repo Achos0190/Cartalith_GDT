@@ -40,17 +40,17 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 155, "registry rows counted 2026-11-22 (154 until `urban_river_smooth` (RR-T1, 2026-11-22); 153 until `civ.city_states` (F26, 2026-11-22); 152 until `civ.junction_settlements`, F27; 151 until `civ.border_friction` (Ruling GO, 2026-11-22); 150 until `peak_auto`, Ruling GL / F29; 148 until `civ.sea_lanes` and `civ.site_map_terms`; 147 until `civ.loose_garrisons`, Ruling GK; 146 until `civ.planner_dominant_biome`, F33; 145 until `ws_tect_editable`, F28; 144 until `urban_parallel_streets`; 140 until `urban_market_road_bank`); re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 156, "registry rows counted 2026-11-22 (155 until `civ.bank_sites` (Ruling HG, 2026-11-22); 154 until `urban_river_smooth` (RR-T1, 2026-11-22); 153 until `civ.city_states` (F26, 2026-11-22); 152 until `civ.junction_settlements`, F27; 151 until `civ.border_friction` (Ruling GO, 2026-11-22); 150 until `peak_auto`, Ruling GL / F29; 148 until `civ.sea_lanes` and `civ.site_map_terms`; 147 until `civ.loose_garrisons`, Ruling GK; 146 until `civ.planner_dominant_biome`, F33; 145 until `ws_tect_editable`, F28; 144 until `urban_parallel_streets`; 140 until `urban_market_road_bank`); re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
-    assert_eq!(offered.len(), 146); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 143 until `civ.junction_settlements` (F27, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 141 until `peak_auto` (Ruling GL / F29, 2026-11-22); 139 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22); 138 until `civ.loose_garrisons` (Ruling GK, 2026-11-22); 136 until `urban_parallel_streets` (PS-1, 2026-11-18); 133 until `name_unnamed_kinds` (Ruling FZ, 2026-11-17); 132 until `urban_market_road_bank` (2026-11-17); 131 until Ruling FE item 3's `urban_burgage` prototype (2026-11-17); 130 until Ruling FO item 1's `civ.founding_year` (2026-11-16); 129 until Ruling FN's `urban_river_stretch` (2026-11-16); 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach` (2026-11-16); 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings` (2026-11-16); 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box` (2026-11-15); 122 until `urban_market_scale` (judgement change 6, 2026-11-15); 121 until `urban_street_village` (Ruling FE item 2, 2026-11-15); 120 until `urban_riverbank`
+    assert_eq!(offered.len(), 147); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 143 until `civ.junction_settlements` (F27, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 141 until `peak_auto` (Ruling GL / F29, 2026-11-22); 139 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22); 138 until `civ.loose_garrisons` (Ruling GK, 2026-11-22); 136 until `urban_parallel_streets` (PS-1, 2026-11-18); 133 until `name_unnamed_kinds` (Ruling FZ, 2026-11-17); 132 until `urban_market_road_bank` (2026-11-17); 131 until Ruling FE item 3's `urban_burgage` prototype (2026-11-17); 130 until Ruling FO item 1's `civ.founding_year` (2026-11-16); 129 until Ruling FN's `urban_river_stretch` (2026-11-16); 127 until Ruling FK's `urban_harbour_front` and `civ.port_reach` (2026-11-16); 125 until Ruling FI's `civ.port_shore` and `civ.map_crossings` (2026-11-16); 123 until Ruling FF's `civ.map_rivers` and `civ.harbour_box` (2026-11-15); 122 until `urban_market_scale` (judgement change 6, 2026-11-15); 121 until `urban_street_village` (Ruling FE item 2, 2026-11-15); 120 until `urban_riverbank`
     let missing: Vec<&&str> = offered.iter().filter(|k| param_catalogue::desc(k).is_none_or(|d| d.trim().is_empty())).collect();
     assert!(missing.is_empty(), "offered keys with no description: {missing:?}");
     for (k, _) in param_catalogue::DESCS {
         assert!(params::spec(k).is_some(), "DESCS row for a key the registry does not have: {k}");
         assert!(!param_catalogue::EXCLUDED.contains(k), "DESCS describes an excluded key: {k}");
     }
-    assert_eq!(param_catalogue::DESCS.len(), 146, "one row per offered key, no duplicates"); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(param_catalogue::DESCS.len(), 147, "one row per offered key, no duplicates"); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     for (k, gate, _, _) in param_catalogue::INERT_WHEN {
         assert!(params::spec(k).is_some(), "INERT_WHEN row for an unknown key {k}");
         assert_eq!(params::spec(gate).map(|s| s.kind), Some(params::Kind::Bool), "INERT_WHEN gate {gate} must be a switch");
@@ -143,7 +143,7 @@ fn the_generated_schema_is_valid_and_small() {
     let c = fresh();
     assert!(c.problems().is_empty(), "{:?}", c.problems());
     assert_eq!(c.groups.len(), 9);
-    assert_eq!(c.rows.len(), 146); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(c.rows.len(), 147); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     let mut total = 0;
     for g in all_groups(&c) {
         let (_, v, keys) = c.schema_for(Some(&json!([g]))).unwrap();
@@ -401,7 +401,7 @@ fn get_parameters_equals_the_registry_for_every_offered_key() {
             seen += 1;
         }
     }
-    assert_eq!(seen, 146, "every offered key is answered exactly once across the nine groups"); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 136 until `urban_parallel_streets` (2026-11-18)
+    assert_eq!(seen, 147, "every offered key is answered exactly once across the nine groups"); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 136 until `urban_parallel_streets` (2026-11-18)
 }
 
 /// Protects `get_changed_parameters` against an independent diff of the two registry snapshots, and
@@ -461,7 +461,7 @@ fn describe_parameter_equals_the_registry_for_every_offered_key() {
         assert_eq!(v["needs"], needs, "{}", s.key);
         n += 1;
     }
-    assert_eq!(n, 146); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(n, 147); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     for e in param_catalogue::EXCLUDED {
         let v = answer(&QueryCall::Describe { key: (*e).to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
         assert!(v["error"].as_str().unwrap().contains("not offered"), "{e}: {v}");
@@ -492,7 +492,7 @@ fn query_answers_fit_the_result_cap() {
     assert!(total > MAX_RESULT_BYTES, "all 116 at once would not fit, which is why no-argument is an overview: {total}");
     let groups = all["groups"].as_array().unwrap();
     assert_eq!(groups.len(), 9);
-    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 146); // 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
+    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 147); // 146 until `civ.bank_sites` (Ruling HG, 2026-11-22); 145 until `urban_river_smooth` (RR-T1, 2026-11-22); 144 until `civ.city_states` (F26, 2026-11-22); 142 until `civ.border_friction` (Ruling GO, 2026-11-22); 138 until `civ.loose_garrisons` (2026-11-22); 136 until `urban_parallel_streets` (2026-11-18); 132 until `urban_market_road_bank`; 131 until `urban_burgage` (2026-11-17)
     assert!(all.get("settings").is_none(), "the overview carries no values");
     let ch = answer(&QueryCall::Changed, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
     assert_eq!(ch["changed_count"], 0, "a fresh world has nothing changed");
