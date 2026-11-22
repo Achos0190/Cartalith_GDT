@@ -72,6 +72,19 @@ use cartalith_jsmath::{js_exp, smoothstep};
 use cartalith_noise::gpu_hash;
 use rayon::prelude::*;
 
+/// The narrowest the gully noise's first lattice cell may be, in grid cells. A stripe's
+/// period is one lattice cell, so at 2 cells (a 20 km wavelength on 9.4 km cells) it sat
+/// on the grid's Nyquist limit and drew alternate columns 150 m apart on a 256 x 192
+/// world's high plateau: the vertical streaks on the map's snow. Ablated to this term
+/// (`cartalith-godot/tests/ice_column_ripple.rs`, seed 4242 at 2 400 km: `orogen_relief`
+/// off reads 0.64 grid-scale alternation along x, on 1.374). Measured at the first lattice
+/// cell's minimum width 2 / 4 / 5 / 6 / 8 cells: 1.374 / 1.189 / 1.054 / 0.978 / 0.901
+/// (along y 1.224 / 1.140 / 1.052 / 0.973 / 0.914), so 6 is the least that is isotropic
+/// (x within 0.01 of y). A labelled judgement from that sweep. A no-op wherever the grid
+/// already resolves the wavelength: every world with cells under about 3.3 km at 20 km,
+/// which includes the 800 km worlds from 256 cells up.
+pub const MIN_LATTICE_CELLS: f64 = 6.0;
+
 /// The tuning of [`apply_orogen_relief`], of the engine's dissection pass
 /// (`cartalith_engine`'s `orogen_dissect`) and of the late breach
 /// ([`breach_belt_pits`]). None is from the reference, which has no such term.
@@ -352,8 +365,13 @@ pub fn apply_orogen_relief(field: &mut [f32], inp: &OrogenInputs, tn: &OrogenTun
     let floor = inp.sea + unit(tn.floor_m);
     // Kilometre-keyed lattice: `f0` first-octave lattice cells across the map
     // width (a whole number, so the world-wrap period is exact), and as many
-    // octaves as keep a lattice cell at least two grid cells wide.
-    let f0 = (inp.map_width_km / tn.wavelength_km).round().max(1.0);
+    // octaves as keep a lattice cell at least two grid cells wide. `f0` is also
+    // capped so the first lattice cell is at least [`MIN_LATTICE_CELLS`] grid
+    // cells wide: its stripe has a period of one lattice cell, and at two grid
+    // cells that is the grid's own Nyquist limit (alternate columns, the
+    // vertical streaks on a coarse world's snow; 2026-11-22). A no-op wherever
+    // the grid already resolves the wavelength (cells under 5 km at 20 km).
+    let f0 = (inp.map_width_km / tn.wavelength_km).round().max(1.0).min((gw as f64 / MIN_LATTICE_CELLS).floor().max(1.0));
     let cells_per_lattice = gw as f64 / f0;
     // Counted, not `log2`'d, for the cross-platform reason in the module doc.
     let mut octaves = 1u32;
@@ -918,6 +936,50 @@ mod tests {
         }
         // Per row, against the flank rows' (24 of them) across-slope steps.
         assert!(plateau / 16.0 < 0.05 * dx / 24.0, "the plateau carries gullies: {plateau} vs flanks {dx}");
+    }
+
+    /// The gully term's grid-scale alternation: sum |second difference| / sum |first difference| along x, over the
+    /// belt cells of a horizontal uplift line on a `gw x gw` grid of `km` kilometres (the gully term alone: the field
+    /// with gullies minus the same with `gully_amp_m` 0). Alternate columns read near 2, a resolved stripe well under 1.
+    fn gully_alternation(gw: usize, km: f64) -> f64 {
+        let field0 = vec![0.45f32; gw * gw];
+        let t: Vec<f32> = (0..gw * gw).map(|i| if i / gw == gw / 2 { 1.0 } else { 0.0 }).collect();
+        let inp = OrogenInputs { gw, gh: gw, world: false, seed: 9, map_width_km: km, peak_m: 4000.0, sea: 0.42, t: &t };
+        let tn = OrogenTuning { gully_h: 8.0, ..OrogenTuning::default() };
+        let (mut on, mut off) = (field0.clone(), field0);
+        let m = apply_orogen_relief(&mut on, &inp, &tn);
+        apply_orogen_relief(&mut off, &inp, &OrogenTuning { gully_amp_m: 0.0, ..tn });
+        let f: Vec<f64> = on.iter().zip(&off).map(|(&a, &b)| a as f64 - b as f64).collect();
+        let (mut d2, mut d1) = (0.0f64, 0.0f64);
+        for y in 0..gw {
+            for x in 1..gw - 1 {
+                let i = y * gw + x;
+                if m[i] > 0.3 && m[i - 1] > 0.3 && m[i + 1] > 0.3 {
+                    d2 += (f[i - 1] - 2.0 * f[i] + f[i + 1]).abs();
+                    d1 += (f[i + 1] - f[i]).abs();
+                }
+            }
+        }
+        assert!(d1 > 0.0, "the belt carries no gullies");
+        d2 / d1
+    }
+
+    /// Protects: the first gully lattice cell is never narrower than [`MIN_LATTICE_CELLS`] grid cells (the ice-area
+    /// vertical streaks, 2026-11-22). A 9.4 km-cell world (256 cells over 2 400 km) once put its 20 km stripes two
+    /// cells apart, alternate columns on the plateau; the literal bars are measured here: the coarse grid reads
+    /// 1.03 now (the Nyquist alternation, 1.94, with the cap off), and a grid that resolves the
+    /// wavelength (2 km cells) is unchanged by the cap. Mutating the constant to 2.0 or 1.0 turns the first red (1.944).
+    #[test]
+    fn a_coarse_grid_gets_no_nyquist_gullies_and_a_fine_one_is_unchanged() {
+        let coarse = gully_alternation(128, 1200.0);
+        assert!(coarse < 1.2, "coarse-grid gullies alternate at the grid scale: {coarse}");
+        // Measured 1.029; the grid-scale alternation with the cap off reads 1.944, a sinusoid of period 6 reads
+        // 2 sin(pi / 6) = 1.0 and of period 2 reads 2.0.
+        assert!(coarse > 0.9, "a resolved stripe reads about 1.0, not smoother than a sinusoid: {coarse}");
+        // 96 cells over 192 km: 2 km cells, a 9.6-cell lattice, already above the floor: the cap changes nothing,
+        // so this literal (measured 0.649) must hold under any floor up to 9.6.
+        let fine = gully_alternation(96, 192.0);
+        assert!((fine - 0.649).abs() < 0.01, "{fine}");
     }
 
     /// A 3-row strip around a profile: high fixed walls (0.95, `FLANK_NONE`)

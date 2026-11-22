@@ -3542,18 +3542,25 @@ mod adjust_census_tests {
     /// `6f9734dec5cce1ee` -> `c5590351215fe296`, graded `895fa0ef90c68152` -> `fba8a8db18c5affa`, antique
     /// `b7eacdb1e21f4123` -> `fe7083b9d6bc3e13`, js_reference `fbf5e15d04a0fe8f` -> `138e164241a2280f`, satellite
     /// `b599bc24f6ac0d2b` -> `3ee37200d307e9eb`.
+    /// RE-BASELINED 2026-11-22 (F23, `tests/river_solid_tile.rs`): the TILE column of four rows moved, nothing else. The
+    /// deep-zoom tile now takes the crest stroke and the local-contrast delta by one minus the river's coverage on river
+    /// pixels, so a river is solid water and not the ground's relief showing through it; this census's tile carries a river
+    /// layer, so the pixels under it changed. Old -> new: default `9b391be2e04c9805` -> `1d96c060a1724a0c`, graded
+    /// `2b8f957ac4e1e427` -> `e4989a4f1c058e48`, antique `8e06da50b9acb6da` -> `c242464118818f14`, satellite
+    /// `7ff7ed3107406428` -> `56e748849326a7d0`. `js_reference` (no crest, no local contrast) did not move, and the screen,
+    /// river, screen_p3, river_p3, export, banded and crop columns of every row did not move.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0x4def868d09349a96, 0x4def868d09349a96, 0x30b34efdb56d3e74, 0x9b391be2e04c9805, 0xc5590351215fe296],
+            [0x009bb5c7847620b7, 0x9ff7704f8c2792a5, 0xbbfaaaeaa7624b60, 0x2068415b341540cc, 0x4def868d09349a96, 0x4def868d09349a96, 0x30b34efdb56d3e74, 0x1d96c060a1724a0c, 0xc5590351215fe296],
         ),
         (
             "graded",
-            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x3ded135755f23af3, 0x3ded135755f23af3, 0xf851537558febba1, 0x2b8f957ac4e1e427, 0xfba8a8db18c5affa],
+            [0xb8f16f53779f81cf, 0xae19e7cae54b4d07, 0x55bcaa2455414613, 0x9a7b45075c2d5160, 0x3ded135755f23af3, 0x3ded135755f23af3, 0xf851537558febba1, 0xe4989a4f1c058e48, 0xfba8a8db18c5affa],
         ),
         (
             "antique",
-            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x85c78c158b762a2c, 0x85c78c158b762a2c, 0xfa99eb2662562443, 0x8e06da50b9acb6da, 0xfe7083b9d6bc3e13],
+            [0x5f05026b3901c83e, 0x2e9f436d82a51911, 0x3aac1679f075bb1f, 0x6dd863d89db62f09, 0x85c78c158b762a2c, 0x85c78c158b762a2c, 0xfa99eb2662562443, 0xc242464118818f14, 0xfe7083b9d6bc3e13],
         ),
         (
             "js_reference",
@@ -3587,7 +3594,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xdd5a82ba9953187e, 0xdd5a82ba9953187e, 0x2e17edcacce82036, 0x7ff7ed3107406428, 0x3ee37200d307e9eb],
+            [0x9a73323870452c50, 0xa33b0831066d545f, 0x463f5a0be5f900d4, 0x4c7f851cc4fdab98, 0xdd5a82ba9953187e, 0xdd5a82ba9953187e, 0x2e17edcacce82036, 0x56e748849326a7d0, 0x3ee37200d307e9eb],
         ),
     ];
 

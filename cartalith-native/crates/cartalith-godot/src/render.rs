@@ -14352,7 +14352,11 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and
                     // with its own `0.7` (11767-11772).
-                    let cc = if crest_b.is_empty() { cc } else { apply_crest(cc, crest_b[i] as f64 * a.crest_strength * 0.7) };
+                    // F23 (2026-11-22): the crest stroke is a ground relief term, so a river pixel (land only, as this
+                    // branch is) takes it by one minus the river's coverage; at full coverage the water is solid, not
+                    // the ground's ridges showing through it.
+                    let river_cov = rivers.and_then(|l| l.at(x, y)).map_or(0.0, |p| p[3].clamp(0.0, 1.0) as f64);
+                    let cc = if crest_b.is_empty() { cc } else { apply_crest(cc, crest_b[i] as f64 * a.crest_strength * 0.7 * (1.0 - river_cov)) };
                     let cc = if coast_b.is_empty() { cc } else { apply_coast_sdf(cc, coast_b[i] as f64 * cx, a.sdf_coast, gw) };
                     let cc = if river_b.is_empty() { cc } else { apply_river_sdf(cc, river_b[i] as f64 * cx, a.sdf_rivers, gw) };
                     // The toon keyline, in `cell_color`'s slot, in TILE pixels
@@ -14453,6 +14457,14 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
             let cover = border_cover_f(a, wx, wy, gw, gh);
             if cover > 0.0 {
                 delta *= 1.0 - cover;
+            }
+            // F23 (2026-11-22): the detail band is the ground's (`contrast_d` is built from the terrain alone), so a
+            // river pixel takes it by one minus the river's coverage, as the plate frame does above; land pixels
+            // only, because the layer also covers the water at a river mouth and the sea keeps its contrast.
+            if let Some(p) = rivers.and_then(|l| l.at(i % w, i / w))
+                && tile_water_class(ctx, tf, wt[(i / w + pad) * pw + i % w + pad] as f64, wx, wy) == TILE_LAND
+            {
+                delta *= 1.0 - p[3].clamp(0.0, 1.0) as f64;
             }
         }
         delta

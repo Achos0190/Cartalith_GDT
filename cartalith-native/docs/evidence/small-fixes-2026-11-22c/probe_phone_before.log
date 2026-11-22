@@ -1,0 +1,35 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build c1c2f390d328
+S3 ice target px (376, 488) cell (213.9022, 96.28445) snow_samples 325
+S3 mode=ice z=1 snow_px=11591 mean_dx=1.8079 mean_dy=1.3430 streak=1.346
+S3 mode=ice z=4 snow_px=89710 mean_dx=3.1661 mean_dy=2.1689 streak=1.460
+S3 mode=ice z=16 snow_px=142463 mean_dx=2.6275 mean_dy=2.5004 streak=1.051
+S3 river target (24.80844, 119.9918) width_cells 3.12
+S3 mode=river shipped z=1 mask_px=31719 interior_px=19989 river_var=627.997 river_mean=102.76 ring_px=5424 ring_mean=140.173 ring_var=2316.503
+S3 mode=river shipped z=4 mask_px=15914 interior_px=5651 river_var=74.441 river_mean=138.05 ring_px=11125 ring_mean=125.786 ring_var=1905.584
+S3 mode=river shipped z=16 mask_px=7778 interior_px=3 river_var=0.168 river_mean=53.40 ring_px=8584 ring_mean=102.079 ring_var=1124.065
+S3 mode=river shipped z=64 mask_px=12363 interior_px=3660 river_var=12.957 river_mean=52.64 ring_px=3943 ring_mean=78.852 ring_var=416.073
+
+PROBE-RESULT: DONE
+(backtrace disabled, run application with `RUST_BACKTRACE=1` environment variable)
+ERROR: [panic C:\Users\Vincent\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\godot-core-0.5.5\src\storage\mod.rs:26]
+  Gd<T>::bind() failed, already bound; T = cartalith_godot::WorldGen.
+    Make sure to use `self.base_mut()` or `self.base()` instead of `self.to_gd()` when possible.
+    Details: cannot borrow while accessible mutable borrow exists.
+  in WorldGen::timelines_scan()
+   at: godot_core::private::install_godot_rust_hook::{{closure}} (C:\Users\Vincent\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\godot-core-0.5.5\src\private.rs:331)
+   GDScript backtrace (most recent call first):
+       [0] _start_scan (res://shell/chronos_items.gd:786)
+(backtrace disabled, run application with `RUST_BACKTRACE=1` environment variable)
+SCRIPT ERROR: Bug: Invalid call error code 1337.
+   at: _start_scan (res://shell/chronos_items.gd:786)
+   GDScript backtrace (most recent call first):
+       [0] _start_scan (res://shell/chronos_items.gd:786)
+PROBE-FAIL: no river interior at z 16 (shipped)
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

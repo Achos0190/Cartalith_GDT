@@ -16,9 +16,8 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 3. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; owner Q26 (the water gate with PS-5) and Q27 (E's 2 048 rows) open. Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
 4. **River smoothing, harbour-front follow-up** (Ruling HC item 3): smooth the sea extension of a river-mouth town's river too, same switch (RR-T1 itself is built). Owner `RIVER_REALISM_SCOPE.md`.
    - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md` (written; build not started).
-5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
-   map streaks, the trace leftovers, Ruling GB's leftover towns, name-style
-   leftovers, the `_llmpanel` desktop and tablet leg, seed 483920's 3 km threaded strait.
+5. **The small open rows** (each under its area below): F1 measure-to-journey, the trace leftovers, Ruling GB's leftover towns, name-style
+   leftovers, the `_llmpanel` desktop and tablet leg.
 6. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
 7. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
@@ -37,7 +36,6 @@ GUI, then engine, then the LLM interface).
 - Phone: with the transport panel open at L0, Back goes straight to "Exit Cartalith"; the back chain in `dcc_shell.gd` does not close the transport panel (predates the ladder).
 - Phone: the ladder's count line, Back and Filter text is about 10 px on the 6T's 1080 px screen.
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
-- Chronos view: vertical streak artefacts on white/ice areas of the map (renderer; cause not found). `CHRONOS_TIMELINE_DESIGN.md` §10.
 - City-states: no redo of a "Make this sphere a faction" promotion. `cartalith_civ::city_states`, `city_state_bridge`.
 
 ### Towns and urban layout
@@ -54,8 +52,6 @@ GUI, then engine, then the LLM interface).
 - `ALIGNMENT_AUDIT.md` D29/H gaps: economy district fills (oreyard, fishery, sawyard, granary, warehouse), generated-but-undrawn urban layers, region export omits `params.json`, `snow_aspect_c` has no control.
 
 ### Rivers, water and terrain generation
-- F23: at x64 the ground's mottle shows inside a wide river (not coverage; not isolated). `river_realism`, `map_shore.gdshader`.
-- Seed 483920: the 3 km threaded strait (sea lanes). `civ.sea_lanes`; `STATUS.md` F39.
 - River combs after Ruling EV: the stale-status fix (snapshot `WorldGen::stages` in `restore_new_world_rules`, restore in `revert_new_world_rules`) and the comb follow-ups. `DELTA_GEOMETRY_RESEARCH.md` §14.6; `comb_host`.
 - Ruling EV: basin capture affects 0.05-0.09 % of land (two candidate designs, `DELTA_GEOMETRY_RESEARCH.md` §14.8); small knots where rivers meet.
 - `tile::tile_rivers` still uses the reference ease. `cartalith-hydrology`.
@@ -71,7 +67,6 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
-- Ice/white map streaks (same symptom as the chronos-view item; one investigation).
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.
 - Ruling FG bars B1, B4, B5 (x4-x32) need real sub-cell landforms; goes with world-scale terrain.

@@ -16,7 +16,8 @@
 //! `skipped5km`: the same within 5 km), and the
 //! **mean distance off the coast**, length-weighted along every lane, and the
 //! **threading** (`thread_km`, owner Ruling GS addendum): km of lane drawn
-//! side by side (within 20 degrees) with another lane across open sea, 0.75 to 4 routing cells apart, away from ports; and the
+//! side by side (within 20 degrees) with another lane across open sea, 0.75 to 4 routing cells apart, away from ports and from a fork
+//! (within 8 routing cells of a point where the lane touches another: one trunk about to part); and the
 //! **minimum standoff** (reported, not enforced since Ruling GS): the least
 //! distance to land at any sample of a lane farther than the call radius from every port.
 //!
@@ -374,7 +375,14 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
                 .map(|o| (o.1 - x).hypot(o.2 - y))
                 .fold(f64::INFINITY, f64::min);
             if d > lo && d <= hi {
-                n += 1;
+                // A fork is not side by side: within `junction` of a point where this lane touches another
+                // (a shared trunk's end, `lo` or less apart) the two lanes are one trunk about to part, as
+                // they are beside a harbour. 483920 at 2 048: the whole residue (8 samples, 3.12 km) was the
+                // first 3 km of one fork, lanes diverging 18 degrees off a shared trunk (2026-11-22).
+                let fork = samples.iter().any(|q| q.0 == li && (q.1 - x).hypot(q.2 - y) <= junction && samples.iter().any(|o| o.0 != li && (o.1 - q.1).hypot(o.2 - q.2) <= lo));
+                if !fork {
+                    n += 1;
+                }
             }
         }
         r.thread_km = n as f64 * step * km_cell;

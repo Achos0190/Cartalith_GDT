@@ -1,0 +1,41 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build c1c2f390d328
+S3 ice target px (680, 360) cell (183.2421, 94.11369) snow_samples 425
+S3 mode=ice z=1 snow_px=55144 mean_dx=0.9078 mean_dy=0.6823 streak=1.331
+S3 mode=ice z=4 snow_px=311197 mean_dx=1.6311 mean_dy=1.4520 streak=1.123
+S3 mode=ice z=16 snow_px=440334 mean_dx=1.6504 mean_dy=1.6555 streak=0.997
+S3 river target (24.80844, 119.9918) width_cells 3.13
+S3 mode=river shipped z=1 mask_px=137387 interior_px=111560 river_var=615.249 river_mean=105.02 ring_px=13368 ring_mean=141.069 ring_var=1817.184
+S3 mode=river shipped z=4 mask_px=36727 interior_px=19823 river_var=96.238 river_mean=138.03 ring_px=21118 ring_mean=136.403 ring_var=1719.068
+S3 mode=river shipped z=16 mask_px=13447 interior_px=507 river_var=4.191 river_mean=50.46 ring_px=7969 ring_mean=92.397 ring_var=444.169
+S3 mode=river shipped z=64 mask_px=41272 interior_px=26136 river_var=7.709 river_mean=53.91 ring_px=6071 ring_mean=84.272 ring_var=127.622
+
+PROBE-RESULT: DONE
+ERROR: Couldn't open directory at path "C:/cw/small3_scratch/appdata/Godot/app_userdata/small3_scratch/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:881)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:911)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:979)
+       [3] _refresh (res://shell/open_project_dialog.gd:938)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5357)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2828)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20efdc72db0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20efdc72db0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20efdc72db0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
