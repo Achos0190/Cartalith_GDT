@@ -264,7 +264,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.map_rivers", "On: towns are sited and roads priced on the rivers the map draws (current). Off: both use a rebuilt river network, as older worlds did."),
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
     ("civ.border_friction", "Raise: borders hold to ridges, canyons and rivers, with a drawn line (0.6 current). Lower: straighter borders; 0 is the old territory, as older worlds load."),
-    ("civ.sea_lanes", "On: sea lanes call at ports they pass, hug a coast and share trunks (current). Off: each lane is its own route, as older worlds had."),
+    ("civ.sea_lanes", "On: sea lanes call at ports they pass, keep off the shore and share trunks (current). Off: each lane is its own route, as older worlds had."),
     ("civ.site_map_terms", "On: sites beside a river confluence or the coast rank higher (current). Off: ranked without those terms, as older worlds were."),
     ("civ.port_shore", "On: a coastal town whose town map has no sea moves up to 4 km to the shore and becomes a harbour (current). Off: it stays put, as older worlds did."),
     ("civ.map_crossings", "On: roads pay a ford or bridge wherever they cross a river the map draws (current). Off: only bigger rivers cost to cross, as older worlds did."),

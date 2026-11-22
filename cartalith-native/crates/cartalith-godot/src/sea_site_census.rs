@@ -14,7 +14,9 @@
 //! with no lane, **ports skipped** (a port a lane passes within
 //! `sea_lanes::CALL_RADIUS_CELLS` routing cells of without ending there, and
 //! `skipped5km`: the same within 5 km), and the
-//! **mean distance off the coast**, length-weighted along every lane.
+//! **mean distance off the coast**, length-weighted along every lane, and the
+//! **minimum standoff** (Ruling GR): the least distance to land at any sample
+//! of a lane farther than the standoff band plus the call radius from every port.
 //!
 //! **Site rows** (`site_census`), `civ.site_map_terms` off then on, lanes held
 //! off: settlements, how many sit within the confluence reach of a confluence
@@ -271,7 +273,7 @@ struct SeaRow {
     skipped: usize,
     skipped5km: usize,
     off_coast_km: f64,
-    coast_share: f64,
+    min_standoff_km: f64,
 }
 
 fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
@@ -309,7 +311,26 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
         r.skipped5km += usize::from(skipped5);
     }
     let ld = land_distance(&c.water_bodies, gw, gh);
-    let (mut sum, mut len, mut near) = (0.0, 0.0, 0.0);
+    // Ruling GR: the standoff is judged away from ports, so samples inside the
+    // exemption (the standoff band plus the call radius, in routing cells) of any port are skipped.
+    let band = cartalith_civ::sea_lanes::standoff_cells(km_cell / sc);
+    let exempt = (band as f64 + cartalith_civ::sea_lanes::CALL_RADIUS_CELLS) / sc;
+    let at_ld = |x: f64, y: f64| ld[(y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1)] as f64 * km_cell;
+    let mut min_standoff = f64::INFINITY;
+    for s in &c.sea_routes {
+        for w in s.pts.windows(2) {
+            if (w[1].0 - w[0].0).abs() > gw as f64 / 2.0 {
+                continue;
+            }
+            for q in [w[0], ((w[0].0 + w[1].0) / 2.0, (w[0].1 + w[1].1) / 2.0), w[1]] {
+                if ports.iter().all(|pp| (pp.0 - q.0).hypot(pp.1 - q.1) > exempt) {
+                    min_standoff = min_standoff.min(at_ld(q.0, q.1));
+                }
+            }
+        }
+    }
+    r.min_standoff_km = if min_standoff.is_finite() { min_standoff } else { f64::NAN };
+    let (mut sum, mut len) = (0.0, 0.0);
     for s in &c.sea_routes {
         for w in s.pts.windows(2) {
             let l = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
@@ -317,16 +338,12 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
                 continue; // a seam jump
             }
             let (mx, my) = ((w[0].0 + w[1].0) / 2.0, (w[0].1 + w[1].1) / 2.0);
-            let d = ld[(my as usize).min(gh - 1) * gw + (mx as usize).min(gw - 1)] as f64 * km_cell;
+            let d = at_ld(mx, my);
             sum += d * l;
             len += l;
-            if d <= 2.0 * km_cell.max(1.0) {
-                near += l;
-            }
         }
     }
     r.off_coast_km = if len > 0.0 { sum / len } else { f64::NAN };
-    r.coast_share = if len > 0.0 { near / len } else { f64::NAN };
     r
 }
 
@@ -359,8 +376,8 @@ fn sea_lane_census() {
             let ms = t.elapsed().as_millis();
             let r = sea_row(&c, &p);
             println!(
-                "SEA {:<12} lanes={} lanes_n={:<3} km={:<8.1} bundles={:<3} conv={:<3} shared={:<3} ports={:<3} unlaned={:<2} skipped={:<2} skipped5km={:<2} off_coast_km={:.2} within2cells={:.2} ({} ms)",
-                w.tag, if lanes { "on " } else { "off" }, r.lanes, r.km, r.bundles, r.bundles_conv, r.shared, r.ports, r.unlaned, r.skipped, r.skipped5km, r.off_coast_km, r.coast_share, ms
+                "SEA {:<12} lanes={} lanes_n={:<3} km={:<8.1} bundles={:<3} conv={:<3} shared={:<3} ports={:<3} unlaned={:<2} skipped={:<2} skipped5km={:<2} off_coast_km={:.2} min_standoff_km={:.2} ({} ms)",
+                w.tag, if lanes { "on " } else { "off" }, r.lanes, r.km, r.bundles, r.bundles_conv, r.shared, r.ports, r.unlaned, r.skipped, r.skipped5km, r.off_coast_km, r.min_standoff_km, ms
             );
             dump(w.tag, if lanes { "lanes_on" } else { "lanes_off" }, &c, &p, &[]);
         }

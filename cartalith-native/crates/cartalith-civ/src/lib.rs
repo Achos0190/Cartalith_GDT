@@ -10798,8 +10798,8 @@ pub fn civ_sea_routes(
 }
 
 /// [`civ_sea_routes`] with `civ.sea_lanes` (owner findings F16 and F39,
-/// 2026-11-21): `lanes` true splits a lane at the ports it sails past, lets it
-/// follow a coast and shares trunks between lanes (`sea_lanes`). `false` is
+/// 2026-11-21): `lanes` true splits a lane at the ports it sails past, keeps it
+/// off the shore away from ports, reins in a big arc and shares trunks between lanes (`sea_lanes`). `false` is
 /// [`civ_sea_routes`] exactly, by control flow.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_sea_routes_lanes(
@@ -10989,7 +10989,7 @@ pub fn civ_sea_routes_lanes(
         let weight: Vec<f64> = ports.iter().map(|p| p.pop as f64).collect();
         sea_lanes::lane_paths(
             &edges,
-            &sea_lanes::LaneIn { cost: cost_ref, rw, rh, world, rp: &rp, prev: &prevs, weight: &weight, base: &base },
+            &sea_lanes::LaneIn { cost: cost_ref, rw, rh, world, cell_km: map_width_km / rw as f64, rp: &rp, prev: &prevs, weight: &weight, base: &base },
         )
     });
     let jobs: Vec<(usize, usize)> = match &lane_cells {

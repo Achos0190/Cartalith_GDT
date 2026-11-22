@@ -6079,8 +6079,8 @@ fn compute_civilisation(
     // ports here, matching the reference's own hamlet-tier village shape).
     let ports: Vec<cartalith_civ::NamedSettlement> =
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
-    // Findings F16 and F39 (`civ.sea_lanes`): lanes call at ports, hug a coast
-    // and share trunks. Off: `civ_sea_routes`' own lanes, by control flow.
+    // Findings F16 and F39 (`civ.sea_lanes`): lanes call at ports, keep off the
+    // shore, lose their big arcs and share trunks. Off: `civ_sea_routes`' own lanes, by control flow.
     let sea_routes = cartalith_civ::civ_sea_routes_lanes(
         &ports, &ws.field, &wb.classification, gw, gh, world, map_width_km,
         Some(ocean_wind.0), Some(ocean_wind.1), opts.sea_lanes,
