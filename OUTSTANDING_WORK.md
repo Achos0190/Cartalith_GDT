@@ -13,7 +13,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 
 1. ~~**The timeline ladder**~~ landed `6e4d6bad` (STATUS.md). Left: a 6T pass for swipe and system Back, a pass over the owner's real vault, and re-running `_gi_probe` and `_pc3strip_probe`.
 2. ~~**Builds**~~ done: v.26.11.22-001 on the 6T and in the D: folder, Windows export rebuilt. Pad installed too. Next APK after the GZ save build (owner).
-3. **Parallel streets: owner Q23-Q25, then PS-5 with the back-street tier** (PS-3 no-go `4d540795`, Ruling GY; PS-4 measured no-go 2026-11-22: riverside bar missed at both sizes, water lanes blocked by the riverside wall, the stretch-choice fix (E) waiting on Q24). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-16; switch `urban_parallel_streets` (off).
+3. **Parallel streets: fix E, the water gate, then PS-5 with the back-street tier** (PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB: E builds on its own, a water gate where a lane meets the riverside wall, measured first; PS-5 carries the riverside bar, judged against PS-2's 3.8 / 3.5 % until then). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-16; switch `urban_parallel_streets` (off).
 4. **River smoothing inside town layouts** (Ruling FE item 4, running). Owner `RIVER_REALISM_SCOPE.md`.
    - **Next after it: town layouts in the save** (Ruling GZ): scope `TOWN_LAYOUT_SAVE_SCOPE.md` (written; build not started).
 5. **The small open rows** (each under its area below): F1 measure-to-journey, F23 river mottle at x64, the ice/white
