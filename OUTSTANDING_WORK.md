@@ -11,7 +11,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 
 ## Next, in order (owner)
 
-1. **The timeline ladder** (Ruling GT, running): L0 minimal strip, L1 lanes, L2 table, L3 generated read-only Chronos
+1. **The timeline ladder** (Ruling GT, built 2026-11-22; status in `STATUS.md`, build note `CHRONOS_TIMELINE_DESIGN.md` s.10 "Commit 6"). Left: L2 is a sheet on every form, not the design's Context-panel tab on the desktop; the prompt's "N duplicates" sentence; a pass over the owner's real vault (CT-0) and a device pass on the 6T for the swipe and system Back.
    document; the quieter prompt. Build order: one mark per event, L1, the prompt rows, L0, L2, L3. Design
    `design/timeline-designs-2026-11-22/timeline_designs.html` (option C); owner `CHRONOS_TIMELINE_DESIGN.md`.
 2. **Builds after the ladder:** version bump, APK on the 6T and the Pad, Windows export (recipe: the APK memory note

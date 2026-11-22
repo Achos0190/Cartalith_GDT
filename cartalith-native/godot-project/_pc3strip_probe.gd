@@ -405,14 +405,17 @@ func _ready() -> void:
 	var pills: Node = _app.timeline_row.find_child("TimelineEvents", true, false)
 	if pills != null:
 		_ok(pills.find_children("*", "Button", true, false).filter(func(b): return (b as Button).text.contains("The first wall")).is_empty(), "the EVENTS row no longer repeats the chronos entry")
+	# Ruling GT: the Items chips are the ladder's marks and table; the entry is one event of its model, and picking it is
+	# the ladder's one year writer (a real click on a mark and a table row is `tools/ladder_drive.gd`'s)
+	var ev_item: Dictionary = {}
 	if evrow != null:
-		for b in evrow.find_children("*", "Button", true, false):
-			if (b as Button).has_meta("tl_year") and int((b as Button).get_meta("tl_year")) == 200:
-				ev_btn = b
-	_ok(ev_btn != null and ev_btn.text.contains("The first wall"), "the Items rows list the entry ('%s')" % ("" if ev_btn == null else ev_btn.text))
-	if ev_btn != null:
-		await _click_control(ev_btn)
-	_ok(_app.tl_year() == 200, "a click on the event row moved the year to 200 (got %d)" % _app.tl_year())
+		for d in evrow._events:
+			if int((d as Dictionary)["start_year"]) == 200:
+				ev_item = d
+	_ok(not ev_item.is_empty() and String(ev_item["title"]).contains("The first wall"), "the ladder's model lists the entry ('%s')" % String(ev_item.get("title", "")))
+	if not ev_item.is_empty():
+		evrow._pick_item(ev_item)
+	_ok(_app.tl_year() == 200, "picking the event moved the year to 200 (got %d)" % _app.tl_year())
 	_app.clear_selection()
 	await _settle(10)
 	_ok(_app.tl_selection_events().is_empty(), "deselecting empties the chronos entries")

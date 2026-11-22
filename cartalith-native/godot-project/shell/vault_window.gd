@@ -2711,6 +2711,21 @@ func _load_note_state(rel: String) -> bool:
 ## one `_browse_path`; what differs is the host (`_dock_host`, `_dock_node`), no side panel (the tab is a
 ## narrow frame; the full panel stays in the window, reached by the header's open-in-window button), and a
 ## link followed by Ctrl-click re-docks instead of rebuilding the window (`_enter_note`).
+## True when `text` is a file the timeline's "Open as document" generated: `---` first, then the line
+## `cartalith: generated-timeline` before the frontmatter closes (the same test as `timeline_items::is_generated_document`).
+static func is_generated_timeline(text: String) -> bool:
+	var lines := text.split(char(10))
+	if lines.is_empty() or lines[0].strip_edges() != "---":
+		return false
+	for i in range(1, lines.size()):
+		var l: String = lines[i].strip_edges()
+		if l == "---":
+			return false
+		if l == "cartalith: generated-timeline":
+			return true
+	return false
+
+
 func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	## Ruling DP (VE-9): the open note says so when it is private, whichever host it is in. Asked afresh (the
 	## text may have just been saved with or without a marker), never assumed from an earlier list.
@@ -2786,6 +2801,11 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	_editor = ed
 	_browse_edit = ed.text_edit
 	_editor_path = _browse_path
+	## Ruling GT, L3: the consolidated timeline Cartalith generates (`cartalith: generated-timeline` frontmatter) is read-only
+	## here, with a banner saying so, because it is rewritten each time it is opened and an edit would be lost.
+	if is_generated_timeline(_browse_text):
+		ed.text_edit.editable = false
+		ed.show_banner("Generated timeline: read-only. Cartalith rewrites it each time you open it from the timeline; copy a block into your own note to keep it.", [])
 	## The session undo: rebuild the editor's history from the checkpoints (VE-4).
 	var snaps: Array = (_hist.get(_browse_path, []) as Array).duplicate()
 	if snaps.is_empty() or String(snaps.back()) != _browse_text:

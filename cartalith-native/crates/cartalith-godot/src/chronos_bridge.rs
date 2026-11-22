@@ -20,6 +20,10 @@ use cartalith_vault::timelines::{self as tl, Decision, Form, Standing, TimelineD
 use cartalith_vault::EntityKind;
 use godot::prelude::*;
 
+/// How many of a candidate's events the scan reports for the prompt's preview axis (a labelled judgement:
+/// a preview is a shape, not a listing).
+const PREVIEW_EVENTS_MAX: usize = 400;
+
 fn md_set(d: &mut VarDictionary, prefix: &str, md: Option<cartalith_vault::chronos::MonthDay>) {
     if let Some(m) = md {
         d.set(format!("{prefix}_month").as_str(), m.month as i64);
@@ -27,6 +31,19 @@ fn md_set(d: &mut VarDictionary, prefix: &str, md: Option<cartalith_vault::chron
             d.set(format!("{prefix}_day").as_str(), day as i64);
         }
     }
+}
+
+/// `YYYY-MM-DD` (UTC) for `secs` since the Unix epoch (Hinnant's civil-from-days).
+fn civil_date(secs: i64) -> String {
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    format!("{:04}-{:02}-{:02}", yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
 fn standing_word(s: Standing) -> (&'static str, &'static str) {
@@ -134,6 +151,21 @@ impl WorldGen {
                 if let Some(f) = c.founded_year() {
                     d.set("founded", f);
                 }
+                // Ruling GT: the events' years, for the prompt's preview on the shared axis. Capped at
+                // `PREVIEW_EVENTS_MAX` so a 10 000-line table cannot bloat the scan page; `count` stays the true total.
+                let ev: Array<VarDictionary> = c
+                    .events
+                    .iter()
+                    .take(PREVIEW_EVENTS_MAX)
+                    .map(|e| {
+                        let mut v = vdict! { "start" => e.start, "title" => e.name.as_str() };
+                        if let Some(end) = e.end {
+                            v.set("end", end);
+                        }
+                        v
+                    })
+                    .collect();
+                d.set("events", &ev);
                 rows.push(&d);
             }
         }
@@ -252,7 +284,16 @@ impl WorldGen {
                 "precision" => match i.precision { ti::Precision::Year => "year", ti::Precision::Date => "date", ti::Precision::Range => "range" },
                 "private" => i.private,
                 "also_linked" => i.also_linked,
+                "lane" => ti::lane_of(i),
             };
+            // Ruling GT: the Chronos kind word (`event`/`period`/`point`/`marker`) and the `#colour` tag, absent
+            // (never "") for a row Cartalith derived itself
+            if let Some(k) = i.ev_kind {
+                d.set("ev_kind", k.as_str());
+            }
+            if let Some(c) = &i.color {
+                d.set("color", c.as_str());
+            }
             md_set(&mut d, "start", i.start.1);
             if let Some((y, md)) = i.end {
                 d.set("end_year", y);
@@ -294,6 +335,36 @@ impl WorldGen {
         out.set("written", x.written as i64);
         out.set("skipped", &x.skipped.iter().map(|s| GString::from(s.as_str())).collect::<PackedStringArray>());
         out
+    }
+
+    /// Ruling GT, L3: writes the consolidated timeline as `_cartalith/Consolidated timeline.md` in the bound
+    /// vault and returns its text, **only when asked** (the strip's "Open as document"), regenerated each time.
+    /// A file already at that path **without the `cartalith: generated-timeline` frontmatter marker is never
+    /// replaced**: `{ok: false, refused: true, error}` and the file is untouched. Private items are left out
+    /// (`ti::consolidated_document`). `{ok, error, refused?, rel, text, written, skipped}`.
+    #[func]
+    fn timeline_open_document(&mut self, world: GString) -> VarDictionary {
+        const REL: &str = "_cartalith/Consolidated timeline.md";
+        let (items, _f) = self.ct_items(&VarDictionary::new());
+        let refs: Vec<&ti::TimelineItem> = items.iter().collect();
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        let doc = ti::consolidated_document(&refs, &world.to_string(), &civil_date(secs));
+        match self.vault.write_generated(REL, &doc.text, ti::is_generated_document) {
+            Ok(true) => {
+                let mut out = ok();
+                out.set("rel", REL);
+                out.set("text", doc.text.as_str());
+                out.set("written", doc.written as i64);
+                out.set("skipped", &doc.skipped.iter().map(|s| GString::from(s.as_str())).collect::<PackedStringArray>());
+                out
+            }
+            Ok(false) => {
+                let mut out = err(format!("{REL} already exists and is not a Cartalith generated timeline, so it was left as it is. Rename or move it to let Cartalith write this file."));
+                out.set("refused", true);
+                out
+            }
+            Err(e) => err(format!("the consolidated timeline could not be written: {e}")),
+        }
     }
 
     /// What a re-sync of the note's imported timeline would do (CT-7): `{ok, added, removed,
@@ -477,5 +548,16 @@ impl WorldGen {
         }
         src.imported = self.vault.events.events.clone();
         (ti::build(&src), f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Protects the L3 document's `generated:` date: literal known days, incl. a leap day and the epoch.
+    #[test]
+    fn civil_date_is_the_utc_calendar_day() {
+        assert_eq!(super::civil_date(0), "1970-01-01");
+        assert_eq!(super::civil_date(951_782_400), "2000-02-29");
+        assert_eq!(super::civil_date(1_795_305_600 + 3600), "2026-11-22");
     }
 }

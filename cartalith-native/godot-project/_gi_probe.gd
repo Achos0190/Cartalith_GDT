@@ -249,10 +249,10 @@ func _ready() -> void:
 	var chron: Node = app.timeline_row.find_child("ChronosItems", true, false) if app.timeline_row != null else null
 	_check("the chronos strip exists", chron != null)
 	if chron != null:
-		chron._factions = [3, 99]
-		chron._save_prefs()
-		var fd: Dictionary = chron.filter_dict()
-		_check("GK: the chronos filter drops an id the roster lacks and keeps a real one", Array(fd.get("factions", PackedInt32Array())) == [3], str(fd))
+		# Ruling GT: the ladder keeps its faction filter in a static and prunes it against the roster on every refresh
+		chron._s_factions = [3, 99]
+		chron._refresh()
+		_check("GK: the chronos filter drops an id the roster lacks and keeps a real one", Array(chron._s_factions) == [3], str(chron._s_factions))
 
 	app.open_faction_roster()
 	await get_tree().create_timer(2.0).timeout

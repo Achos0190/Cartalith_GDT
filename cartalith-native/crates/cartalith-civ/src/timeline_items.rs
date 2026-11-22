@@ -108,6 +108,12 @@ pub struct TimelineItem {
     /// An imported row whose source line is also read live from a linked note: the note's own row is
     /// dropped by [`build`] (one row, both badges), so the line is not counted twice.
     pub also_linked: bool,
+    /// Which Chronos item type a note or imported line was (`-` event, `@` period, `*` point, `=`
+    /// marker); `None` for every item Cartalith derives itself. Ruling GT: L0 draws `@` as period bands
+    /// and `=` as landmark ticks, and L3 writes each line back with its own symbol.
+    pub ev_kind: Option<Kind>,
+    /// The `#colour` tag the note line carried, as written. Ruling GT T10: colours that item's mark only.
+    pub color: Option<String>,
 }
 
 /// A settlement as the founding lane needs it.
@@ -188,11 +194,16 @@ fn item(key: String, source: ItemSource, start: When, end: Option<When>, open_en
         origin: None,
         private: false,
         also_linked: false,
+        ev_kind: None,
+        color: None,
     }
 }
 
 fn event_item(key: String, source: ItemSource, e: &Event, title: String) -> TimelineItem {
-    item(key, source, (e.start, e.start_md), e.end.map(|y| (y, e.end_md)), false, title)
+    let mut it = item(key, source, (e.start, e.start_md), e.end.map(|y| (y, e.end_md)), false, title);
+    it.ev_kind = Some(e.kind);
+    it.color = e.color.clone();
+    it
 }
 
 /// Builds the consolidated list, sorted by start date then key (a total order, so a rebuild is
@@ -384,6 +395,114 @@ pub fn export_chronos(items: &[&TimelineItem]) -> ChronosExport {
             }
             Err(_) => skipped.push(i.title.clone()),
         }
+    }
+    text.push_str("```\n");
+    ChronosExport { text, written, skipped }
+}
+
+/// The frontmatter line that marks a file as Cartalith's generated consolidated timeline (Ruling GT, T2).
+/// A writer may replace a file **only** if it carries this line; see [`is_generated_document`].
+pub const GENERATED_MARKER: &str = "cartalith: generated-timeline";
+
+/// True when `text` is a file Cartalith generated: its first line is `---` and a line of exactly
+/// [`GENERATED_MARKER`] sits inside that frontmatter block (before the closing `---`). **This is the
+/// only test that lets the consolidated writer overwrite a file**, so a user's own note (no frontmatter,
+/// or frontmatter without the marker, or the marker merely quoted in the body) is never replaced
+/// (Ruling GT, T2: "never overwriting a user note").
+pub fn is_generated_document(text: &str) -> bool {
+    let mut lines = text.strip_prefix('\u{feff}').unwrap_or(text).lines();
+    if lines.next().map(str::trim_end) != Some("---") {
+        return false;
+    }
+    for l in lines {
+        let l = l.trim_end();
+        if l == "---" {
+            return false;
+        }
+        if l == GENERATED_MARKER {
+            return true;
+        }
+    }
+    false
+}
+
+/// The Chronos `{group}` an item is written under in the consolidated document, and the L1 lane's
+/// name: the vault's two sources share one lane ("Notes"; the strip calls it "From the vault").
+pub fn lane_of(i: &TimelineItem) -> &'static str {
+    match i.source {
+        ItemSource::NoteEvent | ItemSource::Imported => "Notes",
+        s => s.label(),
+    }
+}
+
+/// The note's name for a `[[link]]`: the file stem of its vault-relative path, with the characters
+/// Chronos' description slot cannot carry removed.
+fn note_stem(rel: &str) -> String {
+    let file = rel.rsplit(['/', '\\']).next().unwrap_or(rel);
+    let stem = file.strip_suffix(".md").unwrap_or(file);
+    stem.replace(['|', '\n', '\r', '[', ']'], " ").trim().to_string()
+}
+
+/// The consolidated timeline as a Markdown document in Chronos syntax (Ruling GT, L3): a generated,
+/// read-only export. `items` may be the whole model; Snapshot and Ownership rows are left out (a
+/// recorded-year tick is no event, and ownership spans are one per settlement per owner) and **private
+/// items are never written** (T9). Periods (`@`) come first, then every event in start order; a lane is
+/// the `{group}`, the origin note is `[[link]]` in the description slot. A line `to_line` cannot write
+/// is listed in [`ChronosExport::skipped`] and as a `#` comment, never silently dropped.
+pub fn consolidated_document(items: &[&TimelineItem], world: &str, date: &str) -> ChronosExport {
+    let kept: Vec<&TimelineItem> = items
+        .iter()
+        .copied()
+        .filter(|i| !i.private && !matches!(i.source, ItemSource::Snapshot | ItemSource::Ownership))
+        .collect();
+    let line_of = |i: &TimelineItem| -> Result<String, String> {
+        let mut e = to_event(i);
+        e.kind = match i.ev_kind {
+            Some(k) => k,
+            None if i.end.is_some() => Kind::Event,
+            None => Kind::Point,
+        };
+        e.color = i.color.clone();
+        e.group = if e.kind == Kind::Period { None } else { Some(lane_of(i).to_string()) };
+        if let Some(o) = &i.origin {
+            let stem = note_stem(&o.relative_path);
+            if !stem.is_empty() {
+                e.description = Some(match (i.source, i.also_linked) {
+                    (ItemSource::Imported, false) => format!("imported from [[{stem}]]"),
+                    _ => format!("[[{stem}]]"),
+                });
+            }
+        }
+        chronos::to_line(&e)
+    };
+    let (mut periods, mut events) = (String::new(), String::new());
+    let (mut written, mut skipped) = (0usize, Vec::new());
+    for i in &kept {
+        match line_of(i) {
+            Ok(l) => {
+                written += 1;
+                let dst = if i.ev_kind == Some(Kind::Period) { &mut periods } else { &mut events };
+                dst.push_str(&l);
+                dst.push('\n');
+            }
+            Err(_) => skipped.push(i.title.clone()),
+        }
+    }
+    let world = world.replace(['\n', '\r'], " ");
+    let mut text = format!(
+        "---\n{GENERATED_MARKER}\nworld: {world}\ngenerated: {date}\ndo-not-edit: regenerated each time it is opened; copy any block into your own note to keep it\n---\n\n# Consolidated timeline\n\n```chronos\n> ORDERBY start\n"
+    );
+    if let Some((lo, hi)) = year_extent(kept.iter().copied()) {
+        text.push_str(&format!("> DEFAULTVIEW {lo}|{hi}\n"));
+    }
+    if !periods.is_empty() {
+        text.push_str("# periods\n");
+        text.push_str(&periods);
+    }
+    text.push_str("# events: {lane} = kind; [[link]] = origin note\n");
+    text.push_str(&events);
+    for s in &skipped {
+        text.push_str(&format!("# not written (cannot be read back): {}\n", s.replace(['\n', '\r'], " ")));
     }
     text.push_str("```\n");
     ChronosExport { text, written, skipped }

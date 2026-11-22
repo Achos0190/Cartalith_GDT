@@ -636,6 +636,26 @@ impl VaultSession {
         Ok(provider::content_hash(text))
     }
 
+    /// Writes a **generated** file (Ruling GT, L3: `_cartalith/Consolidated timeline.md`): creates it if
+    /// it is missing, rewrites it if it exists **and `is_ours(existing)` says Cartalith generated it**, and
+    /// otherwise leaves it byte-for-byte alone and returns `Ok(false)`. The refusal is a result, not an
+    /// error, because it is an answer the caller must show ("a note of yours already has that name"),
+    /// never a failure to retry. This is the one function that may replace a file without the user having
+    /// edited it, so the ownership test is its caller's explicit argument and not a default.
+    pub fn write_generated(&self, rel: &str, text: &str, is_ours: impl Fn(&str) -> bool) -> Result<bool, Error> {
+        let v = self.bound()?;
+        if !v.exists(rel) {
+            self.create_file(rel, text)?;
+            return Ok(true);
+        }
+        let (existing, hash) = self.read_for_edit(rel)?;
+        if !is_ours(&existing) {
+            return Ok(false);
+        }
+        self.write_file(rel, text, &hash)?;
+        Ok(true)
+    }
+
     // ---------------------------------------------------- backlinks (VA-01)
 
     /// Bring the backlink index up to date, reading only the notes whose
@@ -2095,6 +2115,26 @@ rows
         let e = s.write_file(rel, &text, &hash).unwrap_err();
         assert_eq!(e.write_kind(), "unavailable", "{e}");
         assert!(!root.exists(), "a write recreated the vault folder");
+    }
+
+    /// Protects Ruling GT's overwrite guard at the vault layer: `write_generated` creates a missing file,
+    /// rewrites one its `is_ours` accepts, and leaves any other existing file byte-identical (`Ok(false)`),
+    /// creating the folder it lives in.
+    #[test]
+    fn write_generated_never_replaces_a_file_it_does_not_own() {
+        let root = scratch("generated");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let ours = |t: &str| t.starts_with("GEN");
+        let rel = "_cartalith/Consolidated timeline.md";
+        assert!(s.write_generated(rel, "GEN one", ours).unwrap());
+        assert_eq!(std::fs::read_to_string(root.join(rel)).unwrap(), "GEN one");
+        assert!(s.write_generated(rel, "GEN two", ours).unwrap(), "its own file is rewritten");
+        assert_eq!(std::fs::read_to_string(root.join(rel)).unwrap(), "GEN two");
+        std::fs::write(root.join(rel), "my own note").unwrap();
+        assert!(!s.write_generated(rel, "GEN three", ours).unwrap(), "an unmarked file is refused");
+        assert_eq!(std::fs::read_to_string(root.join(rel)).unwrap(), "my own note", "and left untouched");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Protects: VE-4's Windows hazard, "rename over a file another program holds open". A process that

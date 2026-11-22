@@ -12343,6 +12343,12 @@ func _notification(what: int) -> void:
 	if _phone_menu != null and _phone_menu.go_back():
 		_haptic("back")
 		return
+	## Ruling GT: an expanded timeline (L1 or L2) steps down one level before a phone sheet or overlay is closed (the strip sits on the map, under the sheets, and an open CIVIL sheet would otherwise take the gesture).
+	if _phone_sim_strip != null and is_instance_valid(_phone_sim_strip) and _phone_sim_strip.visible:
+		var ladder := _phone_sim_strip.find_child("ChronosItems", true, false)
+		if ladder != null and ladder.has_method("go_down") and ladder.go_down():
+			_haptic("back")
+			return
 	if (_phone_search_overlay != null and _phone_search_overlay.visible) \
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()

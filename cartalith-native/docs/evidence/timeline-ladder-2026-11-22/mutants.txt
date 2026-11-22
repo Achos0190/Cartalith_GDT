@@ -1,0 +1,23 @@
+Ruling GT mutants (2026-11-22). Control runs: desktop 90 ok / tablet 90 ok / phone 91 ok, 0 failed.
+
+Rust (cargo test, tools/ladder_mutants.py rust):
+KILLED       linked_and_imported_note_counts_once  <- 'if imported_at(n.entity, &n.relative_path, &key) {'
+KILLED       consolidated_document_is_marked_ordered_and_leaves_out_private  <- '.filter(|i| !i.private && !matches!(i.source, ItemSource::Sn'
+KILLED       only_a_marked_frontmatter_counts_as_generated  <- '        if l == GENERATED_MARKER {\n            return true;'
+KILLED       write_generated_never_replaces_a_file_it_does_not_own  <- '        if !is_ours(&existing) {\n            return Ok(false'
+KILLED       items_carry_their_chronos_kind_and_colour  <- '    it.color = e.color.clone();\n    it'
+
+GDScript, desktop run A (Esc, read-only, keep-on-click, Kind filter) FAIL lines:
+  (run with the mutated DLL for write_generated and private filter, see below)
+
+Desktop, run 1 (landmark cap 6, period split, colour tint, default level, cluster):
+  FAIL it rests at L1 on the desktop; L0 5 @ periods as bands; L0 at most five landmark ticks; T10 tagged mark painted red; L1 a cluster jumps to L2
+Desktop, run 2 (Esc key, read-only, keep on click, Kind filter):
+  FAIL Esc steps down from L1 to L0; Kind = Note leaves exactly the vault's events; L3 read-only with a banner; Keep applies on click; the decision is recorded
+Desktop, run 3 with a mutated DLL (write_generated overwrites an unmarked file; private filter removed in the Rust test only):
+  FAIL L3: an existing file without the marker is refused; L3: and it is byte-for-byte untouched; (+4 cascade)
+Phone (swipe direction reversed; Ownership kind misspelt):
+  FAIL swipe up climbs; swipe down steps back; sideways drag; Ownership spans join the model
+
+A first Ownership mutant (skip the selection refresh) SURVIVED: the strip is rebuilt on selection and re-reads the model, so the handler is redundant; replaced by the Ownership kind mutant above.
+The private-filter mutant is killed by cargo test only (the drive's later L3 checks cascaded after the overwrite mutant).

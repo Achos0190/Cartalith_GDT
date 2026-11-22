@@ -267,3 +267,79 @@ fn year_extent_over_a_filtered_view_ignores_other_lanes() {
     let notes = apply(&v, &Filter { kinds: vec![ItemSource::NoteEvent], ..Default::default() });
     assert_eq!(year_extent(notes.visible.iter().copied()), Some((3000, 4769)));
 }
+
+/// Protects Ruling GT's L3 document: the marker frontmatter, `@` periods first, `=`/`*`/`-` per
+/// line with the lane as `{group}` and the origin as `[[link]]`, private items and the
+/// Snapshot/Ownership lanes left out, and that parsing it back through the Chronos reader finds the
+/// same events (so Obsidian's plugin reads it).
+#[test]
+fn consolidated_document_is_marked_ordered_and_leaves_out_private() {
+    let c = detect_forms(
+        "```chronos\n@ [3000~3420] Age of Embers\n= [3980] First crowned\n* [3333] #red Comet\n- [3890~3935] Glass Road\n```\n",
+        &[Form::Chronos],
+    )
+    .remove(0);
+    let mk = |private: bool, rel: &str| NoteEventsInput {
+        link_id: "L".into(), vault_id: "v".into(), relative_path: rel.into(),
+        entity: Some((EntityKind::Settlement, 1)), factions: vec![1], private, events: c.events.clone(),
+    };
+    let mut src = ItemSources { note_events: vec![mk(false, "Lore/Annals of Varrowmere.md")], ..Default::default() };
+    src.conflicts = vec![conflict(7, 4120, Some(4168), None)];
+    src.snapshot_years = vec![100];
+    let secret = ItemSources { note_events: vec![mk(true, "Wardens.md")], ..Default::default() };
+    let mut all = build(&src);
+    all.extend(build(&secret));
+    let refs: Vec<&TimelineItem> = all.iter().collect();
+    let d = consolidated_document(&refs, "Test world", "2026-11-22");
+    assert!(is_generated_document(&d.text));
+    assert!(d.text.starts_with("---\ncartalith: generated-timeline\nworld: Test world\ngenerated: 2026-11-22\n"));
+    assert!(!d.text.contains("Wardens"), "private note's events are never written");
+    assert!(!d.text.contains("Recorded year"), "snapshots are no events");
+    let periods_at = d.text.find("@ [3000~3420] Age of Embers").expect("period line");
+    let first_event = d.text.find("= [3980]").expect("marker line");
+    assert!(periods_at < first_event, "periods first");
+    assert!(d.text.contains("* [3333] #red {Notes} Comet | [[Annals of Varrowmere]]"), "{}", d.text);
+    assert!(d.text.contains("- [4120~4168] {Conflict} War 7"));
+    assert!(d.text.contains("> DEFAULTVIEW 3000|4168"));
+    assert_eq!((d.written, d.skipped.len()), (5, 0));
+    // the block reads back through the real Chronos reader: 5 lines, none skipped
+    let back = detect_forms(&d.text, &[Form::Chronos]);
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].events.len(), 5);
+}
+
+/// Protects the overwrite guard (Ruling GT, T2/T3): only a file whose frontmatter holds the marker
+/// line counts as generated. A note without frontmatter, with other frontmatter, or that merely
+/// quotes the marker in its body is not.
+#[test]
+fn only_a_marked_frontmatter_counts_as_generated() {
+    assert!(is_generated_document("---\ncartalith: generated-timeline\nworld: x\n---\n# t\n"));
+    assert!(is_generated_document("\u{feff}---\r\ncartalith: generated-timeline\r\n---\r\n"));
+    assert!(!is_generated_document("# My notes\ncartalith: generated-timeline\n"));
+    assert!(!is_generated_document("---\ntitle: mine\n---\ncartalith: generated-timeline\n"));
+    assert!(!is_generated_document("---\ncartalith: generated-timeline-not\n---\n"));
+    assert!(!is_generated_document(""));
+}
+
+/// Protects T10's data half: a line's `#colour` and its Chronos kind survive into the item, for a
+/// live note row and for an imported one.
+#[test]
+fn items_carry_their_chronos_kind_and_colour() {
+    let c = detect_forms("```chronos\n@ [1~9] #blue Age\n* [5] #red Comet\n```\n", &[Form::Chronos]).remove(0);
+    let src = ItemSources {
+        note_events: vec![NoteEventsInput {
+            link_id: "L".into(), vault_id: "v".into(), relative_path: "A.md".into(),
+            entity: None, factions: vec![], private: false, events: c.events.clone(),
+        }],
+        ..Default::default()
+    };
+    let v = build(&src);
+    let age = v.iter().find(|i| i.title == "Age").unwrap();
+    assert_eq!((age.ev_kind, age.color.as_deref()), (Some(Kind::Period), Some("blue")));
+    let comet = v.iter().find(|i| i.title == "Comet").unwrap();
+    assert_eq!((comet.ev_kind, comet.color.as_deref()), (Some(Kind::Point), Some("red")));
+    let mut doc = EventsDoc::default();
+    doc.import(&c, "v", "A.md", "settlement", 1, 0, false);
+    let w = build(&ItemSources { imported: doc.events.clone(), ..Default::default() });
+    assert_eq!(w.iter().find(|i| i.title == "Age").unwrap().ev_kind, Some(Kind::Period));
+}
