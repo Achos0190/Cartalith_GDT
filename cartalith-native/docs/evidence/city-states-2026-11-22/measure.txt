@@ -1,0 +1,99 @@
+# Re-run on the tree rebased over F27 (junction hamlets on), 2026-11-22. 384: full run; 2048: CS_MEASURE_GW=2048 re-run (the full run's 2048 half was cut off mid-way).
+gw 384 seed 483920 factions 0 | settlements 33 loose 33 | city-states 6 | aligned 12 of 27 other loose | sphere cells 29140 = 38.7% of loose land (38.7% of land) | violations 0 | gen 0.8s spheres 7ms
+  loose pops: [(24281, "capital"), (22106, "capital"), (21381, "capital"), (20440, "capital"), (20235, "capital"), (8226, "city"), (2544, "town"), (2207, "town"), (1852, "town"), (655, "village"), (600, "village"), (521, "village"), (495, "village"), (477, "village"), (192, "hamlet"), (189, "hamlet")]
+  seat Sevjuniana pop 21381 cells 4284 members 5
+  seat Yusnashharwell pop 24281 cells 3644 members 2
+  seat Revelyreach pop 20440 cells 8058 members 2
+  seat Novarcica pop 8226 cells 3438 members 1
+  seat Ennewynilybloom pop 20235 cells 3760 members 2
+  seat Haldkellfjord pop 22106 cells 5956 members 0
+  promote Sevjuniana: 6 places, 4284 cells; undo restores: true
+gw 384 seed 483920 factions 6 | settlements 33 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 0.8s spheres 3ms
+  loose pops: []
+gw 384 seed 483920 factions 5 | settlements 33 loose 2 | city-states 1 | aligned 0 of 1 other loose | sphere cells 5956 = 31.1% of loose land (7.9% of land) | violations 0 | gen 0.7s spheres 5ms
+  loose pops: [(22106, "capital"), (147, "hamlet")]
+  seat Haldkellfjord pop 22106 cells 5956 members 0
+  promote Haldkellfjord: 1 places, 5956 cells; undo restores: true
+gw 384 seed 912345 factions 0 | settlements 31 loose 31 | city-states 7 | aligned 18 of 24 other loose | sphere cells 24522 = 41.3% of loose land (41.3% of land) | violations 0 | gen 0.7s spheres 7ms
+  loose pops: [(24647, "capital"), (22285, "capital"), (21566, "capital"), (21044, "capital"), (19018, "capital"), (8694, "city"), (7316, "city"), (2609, "town"), (2498, "town"), (2062, "town"), (669, "village"), (613, "village"), (543, "village"), (542, "village"), (196, "hamlet"), (192, "hamlet")]
+  seat Sevjuniana pop 21566 cells 3640 members 7
+  seat Hurngarngarnhaskcairn pop 22285 cells 4346 members 4
+  seat Valcorforum pop 7316 cells 994 members 2
+  seat Qiromarrest pop 21044 cells 5673 members 2
+  seat Lorylthorn pop 24647 cells 3249 members 0
+  seat Kellholvfjord pop 19018 cells 3351 members 1
+  seat Delanwetamilashallows pop 8694 cells 3269 members 2
+  promote Sevjuniana: 8 places, 3640 cells; undo restores: true
+gw 384 seed 912345 factions 6 | settlements 31 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 0.7s spheres 3ms
+  loose pops: []
+gw 384 seed 912345 factions 5 | settlements 31 loose 2 | city-states 1 | aligned 1 of 1 other loose | sphere cells 3351 = 27.9% of loose land (5.6% of land) | violations 0 | gen 0.8s spheres 23ms
+  loose pops: [(19018, "capital"), (160, "hamlet")]
+  seat Kellholvfjord pop 19018 cells 3351 members 1
+  promote Kellholvfjord: 2 places, 3351 cells; undo restores: true
+gw 384 seed 246371 factions 0 | settlements 32 loose 32 | city-states 9 | aligned 16 of 23 other loose | sphere cells 31415 = 46.6% of loose land (46.6% of land) | violations 0 | gen 0.7s spheres 8ms
+  loose pops: [(24962, "capital"), (24800, "capital"), (23100, "capital"), (21544, "capital"), (20866, "capital"), (20451, "capital"), (18176, "capital"), (9517, "city"), (9214, "city"), (2591, "town"), (2227, "town"), (1882, "town"), (651, "village"), (557, "village"), (517, "village"), (194, "hamlet")]
+  seat Sevjuniana pop 21544 cells 2059 members 2
+  seat Thorndunthornbaldstone pop 24962 cells 7260 members 3
+  seat Valcorforum pop 18176 cells 2315 members 2
+  seat Wahwahmirqirspan pop 23100 cells 3806 members 2
+  seat Anweovailamill pop 24800 cells 2168 members 1
+  seat Velielshade pop 20866 cells 6727 members 4
+  seat Torvtorgskaltorvbay pop 20451 cells 2515 members 0
+  seat Fornfornkartor pop 9214 cells 2942 members 1
+  seat Casimpforum pop 9517 cells 1623 members 1
+  promote Velielshade: 5 places, 6727 cells; undo restores: true
+gw 384 seed 246371 factions 6 | settlements 32 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 0.8s spheres 3ms
+  loose pops: []
+gw 384 seed 246371 factions 5 | settlements 32 loose 5 | city-states 1 | aligned 0 of 4 other loose | sphere cells 2515 = 19.8% of loose land (3.7% of land) | violations 0 | gen 0.7s spheres 3ms
+  loose pops: [(20451, "capital"), (163, "hamlet"), (163, "hamlet"), (146, "hamlet"), (0, "hamlet")]
+  seat Torvtorgskaltorvbay pop 20451 cells 2515 members 0
+  promote Torvtorgskaltorvbay: 1 places, 2515 cells; undo restores: true
+gw 2048 seed 483920 factions 0 | settlements 42 loose 42 | city-states 8 | aligned 22 of 34 other loose | sphere cells 906898 = 56.9% of loose land (56.9% of land) | violations 0 | gen 11.9s spheres 363ms
+  loose pops: [(24893, "capital"), (21529, "capital"), (20444, "capital"), (19563, "capital"), (19091, "capital"), (18204, "capital"), (16155, "capital"), (8887, "city"), (2450, "town"), (2317, "town"), (2083, "town"), (1965, "town"), (1710, "town"), (635, "village"), (573, "village"), (553, "village")]
+  seat Sevjuniana pop 21529 cells 102709 members 2
+  seat Arcjunjunlucforum pop 8887 cells 55393 members 4
+  seat Thorndunthornbaldstone pop 24893 cells 60697 members 3
+  seat Abedomarmarch pop 18204 cells 83879 members 0
+  seat Andkrunbrakridge pop 19091 cells 120237 members 0
+  seat Miraislalormirabrook pop 20444 cells 171585 members 7
+  seat Ithel'alordell pop 19563 cells 171221 members 3
+  seat Kellfjorbay pop 16155 cells 141177 members 3
+  promote Miraislalormirabrook: 8 places, 171585 cells; undo restores: true
+gw 2048 seed 483920 factions 6 | settlements 42 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 12.2s spheres 91ms
+  loose pops: []
+gw 2048 seed 483920 factions 5 | settlements 42 loose 5 | city-states 1 | aligned 3 of 4 other loose | sphere cells 143424 = 60.5% of loose land (9.0% of land) | violations 0 | gen 12.4s spheres 151ms
+  loose pops: [(16155, "capital"), (2450, "town"), (573, "village"), (189, "hamlet"), (146, "hamlet")]
+  seat Kellfjorbay pop 16155 cells 143424 members 3
+  promote Kellfjorbay: 4 places, 143424 cells; undo restores: true
+gw 2048 seed 912345 factions 0 | settlements 47 loose 47 | city-states 6 | aligned 22 of 41 other loose | sphere cells 772974 = 43.9% of loose land (43.9% of land) | violations 0 | gen 9.9s spheres 223ms
+  loose pops: [(24797, "capital"), (22197, "capital"), (20793, "capital"), (20399, "capital"), (20078, "capital"), (19723, "capital"), (2444, "town"), (2431, "town"), (2239, "town"), (2147, "town"), (1764, "town"), (1755, "town"), (567, "village"), (499, "village"), (484, "village"), (207, "hamlet")]
+  seat Hurngarngarnhaskcairn pop 22197 cells 113729 members 5
+  seat Ghalbahrghaltazdune pop 24797 cells 145653 members 5
+  seat Revelyreach pop 20793 cells 80426 members 2
+  seat Kadzafirskadir pop 20399 cells 128709 members 3
+  seat Saeenneshade pop 19723 cells 172211 members 5
+  seat Karskfjormornskerry pop 20078 cells 132246 members 2
+  promote Saeenneshade: 6 places, 172211 cells; undo restores: true
+gw 2048 seed 912345 factions 6 | settlements 47 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 10.0s spheres 86ms
+  loose pops: []
+gw 2048 seed 912345 factions 5 | settlements 47 loose 3 | city-states 1 | aligned 2 of 2 other loose | sphere cells 132246 = 41.4% of loose land (7.5% of land) | violations 0 | gen 9.9s spheres 115ms
+  loose pops: [(20078, "capital"), (191, "hamlet"), (183, "hamlet")]
+  seat Karskfjormornskerry pop 20078 cells 132246 members 2
+  promote Karskfjormornskerry: 3 places, 132246 cells; undo restores: true
+gw 2048 seed 246371 factions 0 | settlements 43 loose 43 | city-states 7 | aligned 24 of 36 other loose | sphere cells 747366 = 41.7% of loose land (41.7% of land) | violations 0 | gen 9.8s spheres 259ms
+  loose pops: [(23106, "capital"), (22219, "capital"), (21524, "capital"), (18450, "capital"), (18181, "capital"), (9956, "city"), (9698, "city"), (2594, "town"), (2464, "town"), (2438, "town"), (2074, "town"), (2033, "town"), (1912, "town"), (1907, "town"), (557, "village"), (527, "village")]
+  seat Sevjuniana pop 21524 cells 48600 members 1
+  seat Hurngarngarnhaskcairn pop 22219 cells 133540 members 5
+  seat Thorndunthornbaldstone pop 9956 cells 69923 members 4
+  seat Abedomarmarch pop 18181 cells 104828 members 7
+  seat Welawelanessrevshallows pop 23106 cells 135626 members 3
+  seat Abedghalomarsahgate pop 9698 cells 92266 members 2
+  seat Brenbjormornport pop 18450 cells 162583 members 2
+  promote Abedomarmarch: 8 places, 104828 cells; undo restores: true
+gw 2048 seed 246371 factions 6 | settlements 43 loose 0 | city-states 0 | aligned 0 of 0 other loose | sphere cells 0 = 0.0% of loose land (0.0% of land) | violations 0 | gen 9.9s spheres 96ms
+  loose pops: []
+gw 2048 seed 246371 factions 5 | settlements 43 loose 3 | city-states 1 | aligned 2 of 2 other loose | sphere cells 162561 = 64.7% of loose land (9.1% of land) | violations 0 | gen 10.0s spheres 124ms
+  loose pops: [(18450, "capital"), (517, "village"), (182, "hamlet")]
+  seat Brenbjormornport pop 18450 cells 162561 members 2
+  promote Brenbjormornport: 3 places, 162561 cells; undo restores: true
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1471 filtered out; finished in 97.72s

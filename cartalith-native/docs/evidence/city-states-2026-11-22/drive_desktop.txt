@@ -1,0 +1,21 @@
+completed 
+ok    welcome card shows Continue
+ok    a world with six factions  -- 6
+ok    positive control: no city-state while every place is a faction's  -- { "seats": [], "aligned": 0 }
+ok    zero factions: city-states exist  -- 8 seats, 153 aligned
+ok    zero factions: some places are aligned
+zero-faction seats: Sevjuniana (37 aligned, 5157 cells), Hurngarngarnhaskcairn (16 aligned, 2246 cells), Abedomarmarch (19 aligned, 3140 cells), Welawelanessrevshallows (28 aligned, 9594 cells), Aelsila'elshade (13 aligned, 8222 cells), Crungrimcrag (20 aligned, 4959 cells), Skervannsound (11 aligned, 15096 cells), Hurnvragkragcairn (9 aligned, 4019 cells)
+ok    Inspect: the city-state reads City-state Â· 37 aligned
+ok    Inspect: the promotion action is there and enabled
+ok    Inspect: an aligned place names its city
+ok    card: the right-click opened the context card
+ok    card: the subtitle carries the sphere line  -- Sevjuniana Â· city | City-state Â· 37 aligned | 1830 m Â· Boreal | cell 11, 74 â†’ 18 km E Â· 116 km S | Select â€” 2 objects here | â–¸ | OBJECT | Rename Sevjunianaâ€¦ | Make this sphere a faction | Edit Sevjuni
+ok    card: it offers Make this sphere a faction
+ok    promotion: one faction now  -- 1
+ok    promotion: the city-state and its 37 places are the faction  -- 38
+ok    promotion: the city-state is its capital
+ok    Edit > Undo pressed
+ok    undo: zero factions again  -- 0
+ok    undo: the place is a city-state again
+ok    beside nations: five factions and a city-state  -- { "seats": [{ "tid": 9, "index": 8, "name": "Holvvikbjorsound", "population": 19090, "cells": 6152, "km2": 15019.53125, "members": [57, 61, 95, 99, 133, 141, 151, 159, 165, 183, 191, 198, 199, 202, 226], "color": (0.2235, 0.7765, 0.5686, 1.0) }, { "tid": 14, "index": 13, "name": "Skervannsound", "population": 19928, "cells": 2856, "km2": 6972.65625, "members": [21, 81, 86, 107, 125, 127, 136, 138, 145, 150, 180, 204, 205, 207, 211, 225, 234], "color": (0.2235, 0.7765, 0.2706, 1.0) }], "aligned": 32 }
+CITY-STATES PASS

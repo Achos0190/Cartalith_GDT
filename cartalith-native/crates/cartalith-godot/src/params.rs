@@ -384,6 +384,10 @@ pub fn defaults() -> WorldParams {
     // default strength. 0 in `WorldParams::defaults` (section 7p). See
     // `CivParams::border_friction`.
     p.civ.border_friction = 0.6;
+    // Finding F26 under Ruling GL (owner 2026-11-22): city-states and their
+    // spheres of influence. Off in `WorldParams::defaults` (section 7p). See
+    // `CivParams::city_states`.
+    p.civ.city_states = true;
     // Ruling FF item 5 (owner 2026-11-15): town siting (Ruling N's river term)
     // and the road network's crossing costs read the map's own river network,
     // not the civ pass's rebuild. Off in `WorldParams::defaults`, the
@@ -1140,6 +1144,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.border_friction", group: "civ", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.05,
         label: "Borders follow terrain", unit: "", reference_control: "",
         get_fn: |p| Value::Num(p.civ.border_friction), set_fn: |p, v| p.civ.border_friction = v },
+    // Finding F26 under Ruling GL (2026-11-22): city-states and spheres of
+    // influence. ON at the app boundary, OFF in `WorldParams::defaults`; no
+    // reference control (the reference has no city-states). A save without the
+    // key loads OFF (`LOADS_WHEN_ABSENT`). Read live by the sphere view, never
+    // by `compute_civilisation`, so `invalidates` carves it out of `civ.*`.
+    ParamSpec { key: "civ.city_states", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "City-states with spheres of influence", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.city_states), set_fn: |p, v| p.civ.city_states = v != 0.0 },
     // Ruling EU item 1 (2026-11-12): shared road trunks. ON at the app
     // boundary, OFF in `WorldParams::defaults`; no reference control (the
     // reference has no such pass). A save without the key loads OFF
@@ -1542,6 +1554,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.loose_garrisons", ""),
     // Ruling GO: no reference control; the reference draws no generated territory.
     ("civ.border_friction", ""),
+    // F26 / Ruling GL: no reference control; the reference has no city-states.
+    ("civ.city_states", ""),
     // Ruling EU item 1: no reference control; the reference has no trunk pass.
     ("civ.merge_ways", ""),
     // Ruling EX: no reference control; the reference has no frontage term.
@@ -1828,6 +1842,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling GO (2026-11-22): every save without the key swept its territory over
     // the road cost, with no snapping and no drawn line.
     ("civ.border_friction", Value::Num(0.0)),
+    // F26 / Ruling GL (2026-11-22): every save without the key showed no
+    // city-states or spheres, so it reopens without them.
+    ("civ.city_states", Value::Bool(false)),
     // Ruling FF items 5 and 6 (2026-11-15): every save without the keys sited
     // its towns and roads on the rebuilt network and badged harbours on the
     // radius alone, so a regenerate puts them back there.
@@ -2039,6 +2056,9 @@ pub fn invalidates(key: &str) -> Option<PipelineStage> {
         "civ.garrison_exposure_scale" => None,
         // Ruling GK's switch: read at the same garrison read, never cached.
         "civ.loose_garrisons" => None,
+        // F26's switch: read by the sphere view on demand, never cached by
+        // `compute_civilisation`.
+        "civ.city_states" => None,
         // Same node, same reasoning, for the same reason: `Climate`'s only
         // consumer is `civ`, so marking it makes the civ layer stale and runs
         // nothing. Every other `civ.*` row is read by `compute_civilisation`

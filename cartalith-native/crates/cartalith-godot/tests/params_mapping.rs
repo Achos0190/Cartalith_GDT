@@ -322,6 +322,9 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     // Ruling GO (2026-11-22): borders follow terrain at 0.6 in the app, not at all at the boundary.
     assert_eq!(cartalith_engine::WorldParams::defaults(0, 0, 0).civ.border_friction, 0.0, "the §7b territory");
     assert_eq!(params::defaults().civ.border_friction, 0.6, "new worlds' borders follow terrain (Ruling GO, research Q7)");
+    // F26 / Ruling GL (2026-11-22): city-states and spheres of influence; app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.city_states, "the reference has no city-states");
+    assert!(params::defaults().civ.city_states, "new worlds show city-states and their spheres (Ruling GL)");
 }
 
 /// Protects: the civ group being twenty-one contiguous `civ.`-keyed rows that `groups()` lists,
@@ -340,11 +343,11 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// and `civ.map_crossings` (Ruling FI, 2026-11-16), plus `civ.port_reach`
 /// (Ruling FK item 2, 2026-11-16), plus `civ.founding_year` (Ruling FO item 1, 2026-11-16), plus
 /// `civ.planner_dominant_biome` (owner finding F33, 2026-11-21), plus
-/// `civ.loose_garrisons` (Ruling GK item 1, 2026-11-22).
+/// `civ.loose_garrisons` (Ruling GK item 1, 2026-11-22), plus `civ.city_states` (F26 / Ruling GL, 2026-11-22).
 #[test]
 fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 29, "the civ group is twenty-nine rows"); // 28 until `civ.junction_settlements` (F27, 2026-11-22); 27 until `civ.border_friction` (2026-11-22); 25 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22)
+    assert_eq!(rows.len(), 30, "the civ group is thirty rows"); // 29 until `civ.city_states` (F26, 2026-11-22); 28 until `civ.junction_settlements` (F27, 2026-11-22); 27 until `civ.border_friction` (2026-11-22); 25 until `civ.sea_lanes` and `civ.site_map_terms` (2026-11-22)
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -396,7 +399,7 @@ fn the_civ_group_is_a_real_contiguous_group_of_twenty_five() {
 /// mark_nothing`.
 #[test]
 fn every_civ_row_marks_civ_stale_and_nothing_else() {
-    for s in params::PARAMS.iter().filter(|s| s.group == "civ" && s.key != "civ.garrison_exposure_scale" && s.key != "civ.loose_garrisons") {
+    for s in params::PARAMS.iter().filter(|s| s.group == "civ" && s.key != "civ.garrison_exposure_scale" && s.key != "civ.loose_garrisons" && s.key != "civ.city_states") {
         assert_eq!(
             params::invalidates(s.key),
             Some(PipelineStage::Climate),
@@ -1399,6 +1402,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.founding_year = false;
     // And Ruling GK: a save without the key read its unclaimed places with no garrison.
     expect.civ.loose_garrisons = false;
+    // And F26 / Ruling GL: a save without the key showed no city-states.
+    expect.civ.city_states = false;
     // And Ruling GL / F29: a save without the key kept its stored peak_m as typed.
     expect.peak_auto = false;
     // Ruling GO: a save without the key swept its territory over the road cost.
@@ -1605,6 +1610,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.civ.junction_settlements = false; // finding F27 / Ruling GL (2026-11-22)
     neutral.civ.founding_year = false;
     neutral.civ.loose_garrisons = false;
+    neutral.civ.city_states = false; // F26 / Ruling GL (2026-11-22)
     neutral.peak_auto = false; // Ruling GL / F29 (2026-11-22)
     neutral.civ.border_friction = 0.0; // Ruling GO (2026-11-22)
     neutral.urban_river_stretch = false;
@@ -1855,6 +1861,8 @@ fn generation_time_only_parameters_mark_nothing() {
         "civ.garrison_exposure_scale",
         // Ruling GK's switch, read at the same garrison read.
         "civ.loose_garrisons",
+        // F26's switch, read by the sphere view on demand.
+        "civ.city_states",
     ] {
         assert!(params::spec(key).is_some(), "{key} is not a real parameter");
         assert_eq!(params::invalidates(key), None, "{key}");

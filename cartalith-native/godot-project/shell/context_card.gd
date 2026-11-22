@@ -839,7 +839,27 @@ func _header() -> Dictionary:
 		title = "%s · %s" % [String(primary.get("label", "(unnamed)")), _kind_text(primary)]
 	elif named != "":
 		title = named
-	return {"title": title, "subtitle": _readout()}
+	var sub := _readout()
+	if String(primary.get("kind", "")) == "settlement":
+		var line := sphere_line(app, int(primary.get("id", -1)))
+		if line != "":
+			sub.push_front(line)
+	return {"title": title, "subtitle": sub}
+
+
+## F26 / Ruling GL: the settlement card's sphere line -- `Aligned to <city>` for a place inside a
+## city-state's sphere, `City-state · N aligned` for the city-state itself, `""` for a place in none or a
+## world with city-states off (`civ_settlement_sphere` answers `{}`), so the line is omitted, not dashed.
+static func sphere_line(a, index: int) -> String:
+	if a == null or a.bridge == null or index < 0:
+		return ""
+	var sp: Dictionary = a.bridge.civ_settlement_sphere(index)
+	if sp.is_empty():
+		return ""
+	var seat: Dictionary = sp.get("seat", {})
+	if String(sp.get("role", "")) == "seat":
+		return "City-state · %d aligned" % (seat.get("members", PackedInt64Array()) as PackedInt64Array).size()
+	return "Aligned to %s" % String(seat.get("name", "?"))
 
 
 ## The kind word shown after a hit's name: a settlement's own class (town, city,

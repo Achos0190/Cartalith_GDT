@@ -672,6 +672,7 @@ mod tests {
 /// | [`EntryKind::WayDelete`] | A way deleted from the map context card; the way itself is held elsewhere. |
 /// | [`EntryKind::WayDrag`] | One committed road drag (ET-D4); its ways are held elsewhere. |
 /// | [`EntryKind::Annotation`] | One edit of a label, an icon or a landmark name; the stores' before and after are held in `annotation_undo`. |
+/// | [`EntryKind::SpherePromote`] | A city-state's sphere made a faction (F26); what it changed is held in `WorldGen::sphere_undo`. |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     /// A height snapshot was pushed for this entry, in the same call.
@@ -704,6 +705,11 @@ pub enum EntryKind {
     /// same `held_live` closure of [`HistoryLedger::rows_with`]): live while the
     /// store still equals what the edit left behind.
     Annotation,
+    /// F26 / Ruling GL: a city-state's sphere made a faction. What it changed
+    /// is held in `WorldGen::sphere_undo` under this row's `seq`, live while
+    /// `city_state_bridge::promote_live` holds (the new faction is still the
+    /// roster's last and still holds every place it took).
+    SpherePromote,
 }
 
 /// One row of the ledger.
@@ -917,7 +923,7 @@ impl HistoryLedger {
         let mut flags: Vec<bool> = Vec::with_capacity(self.entries.len());
         for e in self.entries.iter().rev() {
             let live = (e.kind == EntryKind::HeightSnapshot && seen < height_depth)
-                || (matches!(e.kind, EntryKind::WayDelete | EntryKind::WayDrag | EntryKind::Annotation) && way_live(e.seq));
+                || (matches!(e.kind, EntryKind::WayDelete | EntryKind::WayDrag | EntryKind::Annotation | EntryKind::SpherePromote) && way_live(e.seq));
             if e.kind == EntryKind::HeightSnapshot {
                 seen += 1;
             }

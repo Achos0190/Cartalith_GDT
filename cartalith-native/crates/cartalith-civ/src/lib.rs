@@ -139,6 +139,9 @@ pub mod sea_lanes;
 /// seams snapped to ridges, canyons and rivers, and the drawn border line.
 /// Behind `CivParams::border_friction`; see the module doc.
 pub mod border_terrain;
+/// Finding F26 under Ruling GL: city-states and their spheres of influence
+/// over unclaimed land (see the module doc).
+pub mod city_states;
 /// Owner Ruling EU item 1 (2026-11-12): measures of the drawn road network
 /// (side-by-side bundles, duplicates, water, crossings, grade). Measurement
 /// only; see the module doc.
@@ -8990,7 +8993,7 @@ const TERRITORY_POP_REF: f64 = 15000.0;
 /// form) -- monotonic, `w(0) = 1` (no advantage over an empty capital),
 /// grows without bound but slowly (logarithmic), so no single very-large
 /// capital can swallow the whole map's effective distance scale.
-fn territory_weight(pop: u32) -> f64 {
+pub(crate) fn territory_weight(pop: u32) -> f64 {
     1.0 + (1.0 + pop as f64 / TERRITORY_POP_REF).ln()
 }
 

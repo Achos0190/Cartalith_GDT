@@ -277,6 +277,11 @@ static func _settlement_rows(app, domain: String, si: int, s: Dictionary) -> Arr
 					app.set_status("hint", "Renamed %s to %s" % [nm, t], "text_ghost")
 				else:
 					app.set_status("hint", "Rename refused.", "accent"))})
+	## F26 / Ruling GL item 4: a city-state's card offers its sphere's promotion, in every domain (one undo step).
+	var sp: Dictionary = app.bridge.civ_settlement_sphere(si)
+	if String(sp.get("role", "")) == "seat":
+		rows.append({"id": "el.sphere_promote", "label": "Make this sphere a faction", "section": "object", "enabled": true,
+			"tap": "Faction", "callable": func() -> void: app.promote_sphere(si)})
 	if domain == "civilization":
 		return rows
 	rows.append({"id": "el.settlement_edit", "label": "Edit %s" % nm, "section": "object", "enabled": true,

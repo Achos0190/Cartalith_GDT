@@ -5323,6 +5323,32 @@ func civ_polity_reassign_preview(index: int, to: int) -> Dictionary:
 ## marked dirty only when the engine says it applied, and only after the call
 ## (`MISTAKES.md`: emit/mark after the engine call).
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {}.
+## F26 / Ruling GL: `WorldGen.civ_spheres`, every city-state and its sphere of influence
+## (`{seats, aligned, year?}`); `{}` with `civ.city_states` off, before a world, mid-generation
+## or against a binary without the `#[func]`.
+func civ_spheres() -> Dictionary:
+	if generating or not _has("civ_spheres"):
+		return {}
+	return world_gen.civ_spheres()
+
+## F26: `WorldGen.civ_settlement_sphere`, settlement `index`'s place in a sphere
+## (`{role: "seat"|"aligned", seat, year?}`), `{}` when it is in none.
+func civ_settlement_sphere(index: int) -> Dictionary:
+	if generating or not _has("civ_settlement_sphere"):
+		return {}
+	return world_gen.civ_settlement_sphere(index)
+
+## F26 / Ruling GL item 4: "Make this sphere a faction" for city-state `index`
+## (`WorldGen.civ_promote_sphere`): `{ok, faction, name, members, cells}` or
+## `{ok: false, reason, message}`. One undo step. `{}` mid-generation or without the `#[func]`.
+func civ_promote_sphere(index: int) -> Dictionary:
+	if generating or not _has("civ_promote_sphere"):
+		return {}
+	var r: Dictionary = world_gen.civ_promote_sphere(index)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
 func civ_polity_reassign(index: int, to: int) -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
 	if generating:

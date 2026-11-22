@@ -197,6 +197,13 @@ impl WorldGen {
     pub(crate) fn held_live_seqs(&self) -> Vec<u64> {
         let mut v = self.way_undo.live_seqs(&|s| self.way_fp(s));
         v.extend(self.anno_undo.live_seqs(&|s| self.anno_matches(s)));
+        // F26: the newest sphere promotion, while it is still undoable. Only
+        // the newest: an older one's faction is no longer the roster's last.
+        if let (Some(u), Some(c)) = (self.sphere_undo.last(), self.civ.as_ref()) {
+            if crate::city_state_bridge::promote_live(c, u) {
+                v.push(u.seq);
+            }
+        }
         v
     }
 

@@ -467,6 +467,9 @@ pub enum UndoPick {
     /// A live label, icon or landmark-name edit is newer
     /// (`annotation_undo`); carries its ledger `seq` and label.
     Annotation { seq: u64, label: String },
+    /// A live sphere promotion (F26 / Ruling GL, `city_state_bridge`) is
+    /// newer; carries its ledger `seq` and label.
+    Sphere { seq: u64, label: String },
 }
 
 /// The unified choice, as a pure function: the newest of the newest height row
@@ -475,7 +478,7 @@ pub enum UndoPick {
 /// `height_seq` is `Some(0)` when a snapshot is held but no ledger row names it
 /// (a push with no row -- the ledger is bounded), which any other row outranks.
 /// Row `seq`s are unique, so a tie can only be that `0` against nothing.
-pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>, anno: Option<(u64, String)>) -> Option<UndoPick> {
+pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>, anno: Option<(u64, String)>, sphere: Option<(u64, String)>) -> Option<UndoPick> {
     let mut best: Option<(u64, UndoPick)> = None;
     let mut offer = |seq: u64, pick: UndoPick| {
         if best.as_ref().is_none_or(|(b, _)| seq > *b) {
@@ -490,6 +493,9 @@ pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>, an
     }
     if let Some((seq, label)) = anno {
         offer(seq, UndoPick::Annotation { seq, label });
+    }
+    if let Some((seq, label)) = sphere {
+        offer(seq, UndoPick::Sphere { seq, label });
     }
     best.map(|(_, p)| p)
 }
@@ -999,7 +1005,8 @@ impl WorldGen {
         let height = self.undo.next_label().map(|l| (self.ledger.newest_height_seq().unwrap_or(0), l.to_string()));
         let way = self.way_undo.newest_live(&|s| self.way_fp(s)).map(|e| (e.seq, self.way_undo_label(e)));
         let anno = self.anno_undo.newest_live(&|s| self.anno_matches(s)).map(|e| (e.seq, e.label.clone()));
-        choose_undo(height, way, anno)
+        let sphere = self.sphere_undo.last().filter(|u| self.civ.as_ref().is_some_and(|c| crate::city_state_bridge::promote_live(c, u))).map(|u| (u.seq, u.label.clone()));
+        choose_undo(height, way, anno, sphere)
     }
 
     /// The history label for a held entry -- see [`way_entry_label`].
@@ -1341,7 +1348,7 @@ impl WorldGen {
     }
 
     /// What `undo_last()` would revert next: `"height"`, `"civ"` (a way
-    /// delete) or `""`. The shell asks before undoing so it repaints the right
+    /// delete), `"annotation"`, `"sphere"` (a sphere made a faction, F26) or `""`. The shell asks before undoing so it repaints the right
     /// layer -- a way comes back on the overlay, not in the height texture.
     #[func]
     fn undo_next_subsystem(&self) -> GString {
@@ -1349,6 +1356,8 @@ impl WorldGen {
             Some(UndoPick::Height(_)) => "height",
             Some(UndoPick::Way { .. }) => "civ",
             Some(UndoPick::Annotation { .. }) => "annotation",
+            // F26: a sphere made a faction; the shell repaints the claims and the civ views.
+            Some(UndoPick::Sphere { .. }) => "sphere",
             None => "",
         })
     }
@@ -1559,16 +1568,19 @@ mod tests {
         let a = |s: u64| Some((s, "Move label “B”".to_string()));
         let way = |s: u64| UndoPick::Way { seq: s, label: "Delete road “A”".into() };
         let anno = |s: u64| UndoPick::Annotation { seq: s, label: "Move label “B”".into() };
-        assert_eq!(choose_undo(h(), w(6), None), Some(way(6)));
-        assert_eq!(choose_undo(h(), w(4), None), Some(UndoPick::Height("Sculpt commit".into())));
-        assert_eq!(choose_undo(None, w(4), None), Some(way(4)));
-        assert_eq!(choose_undo(h(), None, None), Some(UndoPick::Height("Sculpt commit".into())));
-        assert_eq!(choose_undo(None, None, None), None);
-        assert_eq!(choose_undo(h(), w(6), a(7)), Some(anno(7)));
-        assert_eq!(choose_undo(h(), w(8), a(7)), Some(way(8)));
-        assert_eq!(choose_undo(h(), None, a(4)), Some(UndoPick::Height("Sculpt commit".into())));
-        assert_eq!(choose_undo(None, None, a(2)), Some(anno(2)));
-        assert_eq!(choose_undo(Some((0, "Old".into())), None, a(1)), Some(anno(1)));
+        assert_eq!(choose_undo(h(), w(6), None, None), Some(way(6)));
+        assert_eq!(choose_undo(h(), w(4), None, None), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, w(4), None, None), Some(way(4)));
+        assert_eq!(choose_undo(h(), None, None, None), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, None, None, None), None);
+        assert_eq!(choose_undo(h(), w(6), a(7), None), Some(anno(7)));
+        assert_eq!(choose_undo(h(), w(8), a(7), None), Some(way(8)));
+        assert_eq!(choose_undo(h(), None, a(4), None), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, None, a(2), None), Some(anno(2)));
+        assert_eq!(choose_undo(Some((0, "Old".into())), None, a(1), None), Some(anno(1)));
+        // F26: a newer live sphere promotion wins; an older one loses to a newer annotation.
+        assert_eq!(choose_undo(h(), w(6), a(7), Some((9, "Make X a faction".into()))), Some(UndoPick::Sphere { seq: 9, label: "Make X a faction".into() }));
+        assert_eq!(choose_undo(None, None, a(7), Some((3, "Make X a faction".into()))), Some(anno(7)));
     }
 
     /// Protects: `held_way_title` describes an unnamed way as `unnamed <type>` and

@@ -3544,6 +3544,7 @@ func _build_settlement(body: Control) -> void:
 	_field(sec, "Population", str(int(s.get("population", 0))))
 	if not editing:
 		_settlement_faction_row(sec, int(s.get("faction", 0)))
+		_settlement_sphere_rows(sec)
 	_settlement_founded_rows(sec, s, editing)
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
@@ -3927,6 +3928,34 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 		var cul_name := String((bridge.get_cultures()[cul_idx] as Dictionary).get("name", cul_key.capitalize()))
 		_link_field(sec, "Culture", cul_name, "culture", cul_idx,
 			"The culture of %s, the holder in the year the timeline shows. Select it to inspect the culture." % fname)
+
+## F26 / Ruling GL: the place's sphere of influence, under its Faction row. A city-state reads
+## `City-state · N aligned` and offers **Make this sphere a faction** (`app.promote_sphere`, one undo step);
+## a place inside a sphere reads `Aligned to <city>`, a link that selects the city (a plain row when that
+## city is not a live place, or on the phone's sheet). A place in no sphere, or a world with city-states
+## off (`civ_settlement_sphere` answers `{}`), gets no row: an absence here is not a fact to dash. The
+## year clause names the recorded year whose settlements the spheres were read from, when it is one.
+func _settlement_sphere_rows(sec: Control) -> void:
+	var sp: Dictionary = bridge.civ_settlement_sphere(_settlement_index)
+	if sp.is_empty():
+		return
+	var seat: Dictionary = sp.get("seat", {})
+	var when := (" in %s" % app._tl_format_year(int(sp["year"]))) if sp.has("year") else ""
+	var seat_name := String(seat.get("name", "?"))
+	if String(sp.get("role", "")) == "seat":
+		var n := (seat.get("members", PackedInt64Array()) as PackedInt64Array).size()
+		_field(sec, "Sphere", "City-state · %d aligned" % n,
+			"A large place of no faction%s: its sphere of influence holds the unclaimed land around it, and the %d places inside are aligned to it. They are not a faction until you make one." % [when, n])
+		var b := DccWidgets.action(sec, "Make this sphere a faction", func() -> void: app.promote_sphere(_settlement_index))
+		b.name = "InspectPromoteSphere"
+		b.tooltip_text = "Make %s and its %d aligned places a new faction, with the sphere's land. Edit > Undo unmakes it." % [seat_name, n]
+		return
+	var tip := "Inside the sphere of influence of %s%s, a city-state. Aligned, not a member: it joins a faction only if that sphere is made one." % [seat_name, when]
+	var si := int(seat.get("index", -1))
+	if si >= 0:
+		_link_field(sec, "Aligned to", seat_name, "settlement", si, tip + " Select to inspect it.")
+	else:
+		_field(sec, "Aligned to", seat_name, tip)
 
 ## -- Faith -------------------------------------------------------------------
 ##

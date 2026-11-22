@@ -1155,6 +1155,18 @@ pub struct CivParams {
     /// weighted cost-distance Voronoi of §7b exactly, by control flow. A save
     /// without the key loads `0.0`.
     pub border_friction: f64,
+    /// Finding F26 under owner Ruling GL (2026-11-22): **city-states and
+    /// their spheres of influence** (`cartalith_civ::city_states`). A sizeable
+    /// unclaimed settlement is a city-state; its sphere covers unclaimed land
+    /// over the territory cost, and loose settlements inside it are aligned to
+    /// it (shown, never made a faction: the user promotes a sphere).
+    ///
+    /// **`false` here, `true` in the shipped app** (`params::defaults`), the
+    /// `DECISIONS.md` §7p split. Read live by the shell's sphere view
+    /// (`cartalith-godot`'s `city_state_bridge`), never by
+    /// `compute_civilisation`, so no generated output moves either way. A save
+    /// without the key loads it off (`params::LOADS_WHEN_ABSENT`).
+    pub city_states: bool,
 }
 
 impl CivParams {
@@ -1921,6 +1933,8 @@ impl WorldParams {
                 loose_garrisons: false,
                 // Ruling GO: the §7b territory, with no friction, snap or line.
                 border_friction: 0.0,
+                // F26 / Ruling GL: the reference has no city-states or spheres.
+                city_states: false,
             },
             use_gpu: false,
             // Off: the streak spike's ablations are measurement-only; see

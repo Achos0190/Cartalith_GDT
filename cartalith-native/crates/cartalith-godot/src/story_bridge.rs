@@ -225,7 +225,7 @@ pub(crate) struct JpRiverCache {
 }
 
 /// An `f32` slice as its raw bytes, for an in-process cache key only (never persisted).
-fn f32_bytes(v: &[f32]) -> &[u8] {
+pub(crate) fn f32_bytes(v: &[f32]) -> &[u8] {
     // SAFETY: `f32` has no padding and no invalid bit patterns.
     unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), std::mem::size_of_val(v)) }
 }

@@ -76,6 +76,7 @@ mod civ_military_bridge;
 mod civ_roster_bridge;
 mod civ_religion_bridge;
 mod civ_tools_bridge;
+mod city_state_bridge;
 mod conflict_bridge;
 mod civ_trade_bridge;
 mod colour_paint_bridge;
@@ -7559,6 +7560,13 @@ struct WorldGen {
     /// redo stack (`annotation_undo.rs`). Session-only like the height and way
     /// stacks -- cleared with them on generate, load and `clear_undo`, and in no archive.
     anno_undo: annotation_undo::AnnoUndo,
+    /// F26 / Ruling GL: the held half of every [`undo::EntryKind::SpherePromote`]
+    /// row (a sphere made a faction), newest last. Session-only, cleared with
+    /// the other held stacks on generate, load and `clear_undo`.
+    sphere_undo: Vec<city_state_bridge::PromoteUndo>,
+    /// F26 / Ruling GL: the rebuilt territory cost and the last sphere view
+    /// (`city_state_bridge`'s module doc prices it). Empty with the switch off.
+    sphere_cache: std::cell::RefCell<city_state_bridge::SphereCache>,
     /// The live pipeline staleness graph (`cartalith_engine::staleness::
     /// pipeline_stage_graph`): height → hydrology → climate → civ, over the
     /// same tiling the Sculpt draft's `PassBuffer`/`DirtyTracker` pair uses,
@@ -8124,6 +8132,8 @@ impl IRefCounted for WorldGen {
             name_styles: Default::default(),
             way_undo: context_pick_bridge::WayUndo::new(),
             anno_undo: annotation_undo::AnnoUndo::new(),
+            sphere_undo: Vec::new(),
+            sphere_cache: Default::default(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
@@ -8580,6 +8590,7 @@ impl WorldGen {
         self.redo.clear();
         self.way_undo.clear();
         self.anno_undo.clear();
+        self.sphere_undo.clear();
         // F12: memory hygiene only. The cache carries its own fingerprint and
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
@@ -8845,6 +8856,7 @@ impl WorldGen {
         // ...and a held way belongs to the previous world's way list.
         self.way_undo.clear();
         self.anno_undo.clear();
+        self.sphere_undo.clear();
         // ED-02: a generate is the ledger's **floor**, and clears it for the
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
@@ -11556,6 +11568,7 @@ impl WorldGen {
         self.redo.clear();
         self.way_undo.clear();
         self.anno_undo.clear();
+        self.sphere_undo.clear();
         // ED-02: a load is the ledger's other floor, for the same reason.
         self.ledger.record(
             "world",
@@ -13857,7 +13870,9 @@ impl WorldGen {
     /// presentation-only map content, independent of UI chrome, the same
     /// principle `build_color_texture` and every settlement/road marker
     /// already follow. Unowned cells (`territory[i] == 0` -- water, or
-    /// unreachable from any capital) are fully transparent. `None` before
+    /// unreachable from any capital) are fully transparent, except, with
+    /// `civ.city_states` on (F26), the unclaimed land a city-state's sphere
+    /// holds, washed lighter in the sphere's colour. `None` before
     /// any `generate()` call, after `load_save()`, or if territory hasn't
     /// been computed for this world (see `CivData::territory`'s own doc
     /// comment -- computed whenever `civ` is `Some`, except for a reopened
@@ -13889,12 +13904,23 @@ impl WorldGen {
             return None;
         }
         let appearance = self.appearance();
+        // F26 / Ruling GL: a city-state's sphere is washed over the unclaimed
+        // land it holds in the sphere's own colour, at `SPHERE_ALPHA_SCALE` of
+        // the faction alpha, so a large cluster reads like a nation and still
+        // reads as not one. `None` with `civ.city_states` off: the wash as before.
+        let spheres = self.sphere_view();
+        let sphere_rgb: Vec<(u8, u8, u8)> = spheres.as_ref().map_or_else(Vec::new, |v| v.seats.iter().map(|s| s.rgb).collect());
+        let sphere_alpha = alpha as f64 * city_state_bridge::SPHERE_ALPHA_SCALE;
         let mut bytes = Vec::with_capacity(gw * gh * 4);
         for (i, &f) in civ.territory.iter().enumerate() {
             let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
+            let sphere = spheres.as_ref().map_or(0, |v| v.cell[i]);
             if f > 0 && cover < 1.0 {
                 let (r, g, b) = civ.faction_rgb(f);
                 bytes.extend_from_slice(&[r, g, b, (alpha as f64 * (1.0 - cover)) as u8]);
+            } else if sphere != 0 && cover < 1.0 {
+                let (r, g, b) = sphere_rgb[sphere as usize - 1];
+                bytes.extend_from_slice(&[r, g, b, (sphere_alpha * (1.0 - cover)) as u8]);
             } else {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
             }
@@ -13909,13 +13935,19 @@ impl WorldGen {
     /// `PackedVector2Array` per run between junctions, in the roads'
     /// continuous grid coordinates, for `map_overlay.gd`'s border line (which
     /// the export's overlay copy draws too). Read from the live claim grid, so
-    /// hand paint shows. Empty when `civ.border_friction` is 0 (worlds made
-    /// before the ruling, and `WorldParams::defaults`: the wash alone, as
-    /// before), with no world, or with no claim grid.
+    /// hand paint shows. With `civ.city_states` on (F26) the edges of the
+    /// city-states' spheres are lines too. Empty when `civ.border_friction` is
+    /// 0 and there is no sphere (worlds made before both rulings, and
+    /// `WorldParams::defaults`: the wash alone, as before), with no world, or
+    /// with no claim grid.
     #[func]
     fn civ_border_lines(&self) -> VarArray {
         let mut out = VarArray::new();
-        if self.params.civ.border_friction <= 0.0 {
+        // F26 / Ruling GL: a sphere's edge is drawn too (the spheres join the
+        // owner grid as ids past every faction's), so a cluster is outlined
+        // like a nation. With spheres, the line is drawn whatever the friction.
+        let spheres = self.sphere_view().filter(|v| !v.seats.is_empty());
+        if self.params.civ.border_friction <= 0.0 && spheres.is_none() {
             return out;
         }
         let Some(civ) = self.civ.as_ref() else { return out };
@@ -13928,7 +13960,12 @@ impl WorldGen {
         if civ.territory.len() != gw * gh || field.len() != gw * gh {
             return out;
         }
-        for line in cartalith_civ::border_terrain::border_polylines(&civ.territory, field, self.sea_level, gw, gh) {
+        let merged: Option<Vec<i32>> = spheres.map(|v| {
+            let base = civ.faction_roster.0.len() as i32;
+            civ.territory.iter().zip(&v.cell).map(|(&t, &c)| if t == 0 && c != 0 { base + c as i32 } else { t }).collect()
+        });
+        let owner = merged.as_deref().unwrap_or(&civ.territory);
+        for line in cartalith_civ::border_terrain::border_polylines(owner, field, self.sea_level, gw, gh) {
             let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
             out.push(&pts.to_variant());
         }
@@ -28030,6 +28067,7 @@ impl WorldGen {
             Some(context_pick_bridge::UndoPick::Height(l)) => l,
             Some(context_pick_bridge::UndoPick::Way { label, .. }) => label,
             Some(context_pick_bridge::UndoPick::Annotation { label, .. }) => label,
+            Some(context_pick_bridge::UndoPick::Sphere { label, .. }) => label,
             None => String::new(),
         })
     }
@@ -28101,6 +28139,8 @@ impl WorldGen {
             // A label, icon or landmark-name edit (`annotation_undo`): written back whole and
             // redoable; the height field and the staleness graph are untouched.
             Some(context_pick_bridge::UndoPick::Annotation { .. }) => return GString::from(&self.undo_anno_step().unwrap_or_default()),
+            // F26: a sphere made a faction is unmade (`city_state_bridge::unpromote`).
+            Some(context_pick_bridge::UndoPick::Sphere { .. }) => return GString::from(&self.undo_sphere_step().unwrap_or_default()),
             _ => {}
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
@@ -28293,9 +28333,9 @@ impl WorldGen {
     /// carries `{seq, subsystem, label, detail, at_ms, kind, reversible,
     /// reason, steps}`:
     ///
-    /// - `kind` is `"height"`, `"recorded"`, `"floor"`, `"way"` or `"annotation"` (a
+    /// - `kind` is `"height"`, `"recorded"`, `"floor"`, `"way"`, `"annotation"` (a
     ///   label, icon or landmark-name edit, reversible while the store is as the
-    ///   edit left it).
+    ///   edit left it) or `"sphere"` (a city-state's sphere made a faction, F26).
     /// - `reversible` is whether a snapshot is *still held* for it — which is
     ///   a property of the live stack, not of the row, because the stack
     ///   evicts on its own byte budget. A height row that has been evicted
@@ -28333,6 +28373,9 @@ impl WorldGen {
                     // A label, icon or landmark-name edit, reversible while the store is as it left it.
                     undo::EntryKind::Annotation if live => ("annotation", ""),
                     undo::EntryKind::Annotation => ("annotation", annotation_undo::STALE_REASON),
+                    // F26: a sphere made a faction, reversible while that faction is the roster's last and holds its places.
+                    undo::EntryKind::SpherePromote if live => ("sphere", ""),
+                    undo::EntryKind::SpherePromote => ("sphere", city_state_bridge::STALE_REASON),
                 };
                 dict! {
                     "seq" => e.seq as i64,
@@ -28392,6 +28435,13 @@ impl WorldGen {
                 }
                 Some(context_pick_bridge::UndoPick::Annotation { .. }) => {
                     if self.undo_anno_step().is_none() {
+                        break;
+                    }
+                    done += 1;
+                    continue;
+                }
+                Some(context_pick_bridge::UndoPick::Sphere { .. }) => {
+                    if self.undo_sphere_step().is_none() {
                         break;
                     }
                     done += 1;
@@ -28544,6 +28594,7 @@ impl WorldGen {
         // The held way deletes go with the rows that name them, below.
         self.way_undo.clear();
         self.anno_undo.clear();
+        self.sphere_undo.clear();
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.

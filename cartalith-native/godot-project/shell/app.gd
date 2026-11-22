@@ -6913,6 +6913,27 @@ func open_place_editor(index: int) -> void:
 func transfer_settlement(index: int, to: int, on_done: Callable = Callable()) -> void:
 	place_editor_window.transfer_settlement(index, to, on_done, false)
 
+## F26 / Ruling GL item 4: "Make this sphere a faction" for city-state `index` (an index into
+## `bridge.settlements()`). The engine appends the faction through the roster, moves the city-state and
+## its aligned places into it and claims the sphere's land (`WorldGen.civ_promote_sphere`); the refresh is
+## the one a polity move makes (`polity_moved`, which `civilization_workspace.gd::_on_polity_moved` turns
+## into the territory texture, the hub and the civ views). One undo step: Edit > Undo unmakes it, so it
+## does not ask first. A refusal is said on the status line and changes nothing.
+func promote_sphere(index: int) -> void:
+	var r: Dictionary = bridge.civ_promote_sphere(index)
+	if not bool(r.get("ok", false)):
+		set_status("hint", "Not made a faction -- %s" % String(r.get("message", "this build has no city-states.")), "accent")
+		return
+	## The new faction carries the sphere's colour as its identity colour: the pins take it too.
+	if viewport != null:
+		viewport.refresh_faction_colors()
+	place_editor_window.polity_moved.emit()
+	place_editor_window.place_changed.emit()
+	set_status("pass", "%s is a faction: %d places, %d cells" % [String(r.get("name", "?")), int(r.get("members", 0)), int(r.get("cells", 0))], "text_dim")
+	set_status("hint", "Edit > Undo makes it a city-state again", "text_ghost")
+	if right_dock_ctrl != null:
+		right_dock_ctrl.refresh_history()
+
 ## The Faction Roster window (`civOpenFactionsBtn`; modal on the phone and the tablet, and since
 ## PC-7 non-blocking and following the selection on the desktop, `context_window.gd`). `faction` is a faction id to
 ## land on (the context card's CIVIL "Open <name> in roster" row), or `-1` to
@@ -7451,6 +7472,17 @@ func _undo_last_impl() -> void:
 		var aleft := int(ast.get("depth", 0)) + int(ast.get("way_depth", 0)) + int(ast.get("annotation_depth", 0))
 		set_status("pass", "undid %s" % label.to_lower(), "text_dim")
 		set_status("hint", "%d undo step%s left · it is back as it was" % [aleft, "" if aleft == 1 else "s"], "text_ghost")
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_history()
+		return
+	## F26: a sphere made a faction, unmade. The claims, the roster and the places moved: the polity-move refresh.
+	if kind == "sphere":
+		if viewport != null:
+			viewport.refresh_faction_colors()
+		place_editor_window.polity_moved.emit()
+		place_editor_window.place_changed.emit()
+		set_status("pass", "undid %s" % label.to_lower(), "text_dim")
+		set_status("hint", "it is a city-state again", "text_ghost")
 		if right_dock_ctrl != null:
 			right_dock_ctrl.refresh_history()
 		return
