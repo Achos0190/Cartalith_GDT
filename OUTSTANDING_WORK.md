@@ -26,6 +26,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
    serial generation floor (Ruling FL item 3, see Performance).
 8. **World-scale terrain** (`WORLD_SCALE_TERRAIN_PLAN.md`; parked until the refactor). It absorbs ZR's no-go decision
    and FG's open bars (see Terrain).
+   - Review of ChatGPT's regenerate-from-source proposal: proposed plan edits and owner questions Q1-Q6 (A versus B, a `region_source` manifest, a generation-rules version and digest, cell units). `WORLD_SCALE_CHATGPT_REVIEW_2026-11-22.md` §5-§6.
 
 After the whole list: the **performance pass across devices** (owner, 2026-11-08), then the LLM line (priority order:
 GUI, then engine, then the LLM interface).
