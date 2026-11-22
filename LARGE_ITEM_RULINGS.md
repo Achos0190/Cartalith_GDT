@@ -4076,3 +4076,7 @@ Owner: *"The world should follow the highest and lowest value from the vault unt
 ## Ruling HE: a stream is a stream, with no port (owner, 2026-11-22)
 
 *"If a river is in fact a stream it should be sized accordingly and not get a port."* A watercourse below the map's own river-drawing gate is a **stream** in the town, by the rule the map uses, so town and map agree; it is laid and drawn at stream width, never river width; and it never produces a port, quay, harbour front or water lanes, nor makes the town river-front typed. Built as RR-T2 (`RIVER_REALISM_SCOPE.md`).
+
+## Ruling HG: settlements sit on the river bank, not in it (owner, 2026-11-22)
+
+Owner, after RR-T1/RR-T2: *"Only thing for on the map is that the settlements detect the edge of a river and sit on the bank, not in it."* On the main map a settlement's marker (and the position the town is laid around) must sit on dry land beside the drawn river's edge -- the edge being the drawn stroke's width (`river_geometry_any` widths), not the cell centre -- never on the water. Measure first how many settlements sit inside the drawn river today; the fix nudges the position to the nearest bank cell on the side the town's market already uses (Ruling HC), and changes generated output behind a §7p switch.
