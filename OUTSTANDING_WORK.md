@@ -62,6 +62,7 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
+- Province and national border lines (Rulings GO, HR) ignore the style presets' province/border ink; the old raster province line's coast outline is gone with HR (decide whether coasts want their own line).
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.
 - Ruling FG bars B1, B4, B5 (x4-x32) need real sub-cell landforms; goes with world-scale terrain.
@@ -133,6 +134,8 @@ GUI, then engine, then the LLM interface).
 - Search field lag of 10-40 s on the 6T (not reproduced on desktop): time a keystroke on the device.
 
 ### Discipline, tests and documents
+- **Red baselines on origin/main (found by HR, 2026-11-23):** the ignored `fh_r2_m1_moves_zero_bytes_against_m0`, `g1_0_baseline_columns` and `ea0_ecological_ordering_diagnostic` fail with HR bypassed, so an earlier commit moved them unattributed. Find the commit, attribute by switch and re-record (or fix).
+- `_claimsabsent_probe.gd`: 29 of 54 checks red before HR (same with the pre-ruling DLL); triage.
 - Ruling BK: annotate existing code for a human auditor (large; batch log in the archive). `find_gaps.py`.
 - Defects found while annotating: `LoadError::OutOfRange`'s literal newline and the rest. `STATUS.md` "Rust annotation pass".
 - `site::tests::golden_build_site` fails in release (a NaN's sign bit). `crates/cartalith-urban/src/site/tests.rs`.

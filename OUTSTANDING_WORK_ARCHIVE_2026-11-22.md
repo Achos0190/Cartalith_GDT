@@ -5683,3 +5683,5 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - CS-0, today's coastal and river placing against the research (`8391599f`, `e62a5095`): GO at 2048; the Ruling FK leftovers are closed or explained (483920 #10 closed at 5 m; #5 and 154:136 sit back on marsh/flood, class (a)); the build is Ruling HS (line 2b).
 - Installer v.26.11.23-001, self-signed, to the D: folder.
 - F1 (Measure -> Journey 897 -> 206 km): not reproduced in 80+ runs (the journey is always the longer, terrain-routed path); journeys now name their measure (`9ae58a2c`); owner 2026-11-23: "lets assume it was a fluke" -- closed.
+- Ruling HQ: far bank (owner's town 78 -> 91 %), ferries past 400 m, walls along the shore, first-marker cost to the worker (`62a9443e`, `f296e24e`).
+- Ruling HR: provinces grown on the nations' friction, seams snapped, drawn lines (`44e2f8df`, `638521b4`).
