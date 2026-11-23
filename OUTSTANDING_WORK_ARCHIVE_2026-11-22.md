@@ -5680,3 +5680,5 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Form determinism traced to the GPU default (`de3bb411`); Ruling HP, CPU by default everywhere, and the chronos engine-read race (`0b3ba6cd`).
 - Coastal setback research (`9bb0a3c7`, `662f3d95`).
 - Builds v.26.11.23-001: APK on the 6T and the D: folder; Godot debug Windows export to `Cartalith Windows Debug`.
+- CS-0, today's coastal and river placing against the research (`8391599f`, `e62a5095`): GO at 2048; the Ruling FK leftovers are closed or explained (483920 #10 closed at 5 m; #5 and 154:136 sit back on marsh/flood, class (a)); the build is Ruling HS (line 2b).
+- Installer v.26.11.23-001, self-signed, to the D: folder.
