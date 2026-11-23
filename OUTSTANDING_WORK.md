@@ -17,7 +17,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 3. **Builds only when the owner asks** (owner 2026-11-23). **Building now (owner asked after the chronos fix `0b3ba6cd`):** APK v.26.11.23-001 for the 6T, the Pad and the D: folder, then a Godot debug Windows export to the D: folder. Device checks waiting on it: TL-5's arm64 re-lay and TR-7's trace file.
 4. **The small open rows** (each under its area below): F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
    leftovers.
-5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
+5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks; **the verifier is Opus at high effort with Fable as its advisor**, owner 2026-11-23): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
 6. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
    serial generation floor (Ruling FL item 3, see Performance).
