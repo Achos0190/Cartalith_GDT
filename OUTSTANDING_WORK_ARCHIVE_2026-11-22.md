@@ -5690,3 +5690,5 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - FEATURES.md, the verified feature list (`5565663a`, `15d21b7b`).
 - Ruling HU: whole-bridge span (owner's town by ferry), marker rebuilds on a background job (809 -> 17-97 ms main thread), ferry losses traced and fixed (0 crossings lost), U19 deleted (`0d0f0e59`, `a24f9a79`, `b859562a`).
 - Red baselines: caused by `600a7b65` (orogen lattice cap, not a no-op on 40 075 km worlds); pins re-recorded with attribution; `_claimsabsent_probe` fixed for format-3 archives (`9ab8edd9`).
+- PS-5 measured no-go (`a15b2d27`); Ruling HW stops at PS-2 + fix E.
+- 6T device checks: TR-7 trace file on the device works; TL-5 33 of 34 (`046f177d`).

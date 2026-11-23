@@ -4146,3 +4146,7 @@ After `62a9443e`/`f296e24e`: **the 400 m span counts the whole bridge, approache
 ## Ruling HV: the coast gets its own line (owner, 2026-11-23)
 
 Ruling HR's province lines replaced the old raster province line, which also outlined coasts; that outline is gone. Owner: **the coast gets its own line** -- a coastline stroke traced from the map's drawn sea and lake edge (not from province or territory cells), its own layer toggle and style-preset ink, drawn in the map, the tiles and the export, smooth at every zoom, never doubling a border line that runs along the shore. Render-only, so no §7p switch.
+
+## Ruling HW: stop at PS-2 + fix E (owner, 2026-11-23)
+
+PS-5 measured a no-go (`a15b2d27`, `PARALLEL_STREETS_SCOPE.md` section 18): the full prototype raised deep blocks by area to 27-31 % but dropped housed p10 (96 -> 91 %, 100 -> 87 %), quads by count, and put market squares outside the wall. Owner: **stop at PS-2 + fix E**; no further PS-5 attempt. Next for parallel streets: PS-6 (integration) and PS-7 (the visual gates and the owner's on/off decision for `urban_parallel_streets`). `urban_burgage` keeps its own switch, off, and is scrubbed with the rest if parallel streets ship (Ruling HT's switch question).
