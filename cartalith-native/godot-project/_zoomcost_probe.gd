@@ -9,7 +9,7 @@ extends Node
 ## MUST run windowed (frame_post_draw never fires under headless):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _zoomcost_probe.tscn -- --out DIR
 ##     [--grid 2048x1311] [--seed 24601] [--vsync off|on] [--overlays shown|hidden]
-##     [--notches N] [--layer-costs] [--shots] [--vp WxH] [--force-touch] [--tag NAME]
+##     [--notches N] [--layer-costs] [--shots] [--bank on|off] [--vp WxH] [--force-touch] [--tag NAME]
 ##
 ## Every flag above is read in `_ready`; an unknown one aborts. `--force-touch`
 ## is not read here: `dcc_shell.gd` reads it from the same argument list and
@@ -68,6 +68,10 @@ extends Node
 ## ... -> <path>` lines with `--shots`) and `PROBE-RESULT: DONE`; it writes JSON and PNG output into `--out`. Exit 0
 ## after `PROBE-RESULT: DONE` whatever it measured; 2 for headless, an unknown flag, or `PROBE-RESULT: ABORT no world`.
 
+## `--bank off` (ablation, 2026-11-23): the overlay gets no bank resolver, so `_bank_sync` never calls the engine and every marker
+## stands on its cell (Ruling HG's cost removed, to measure it).
+var _bank := true
+
 const WHEEL := 1.15
 const PAN_ZOOM := 16.0
 const PAN_PX := 6.0
@@ -108,6 +112,7 @@ func _ready() -> void:
 			"--overlays": _overlays = args[i + 1] != "hidden"; i += 1
 			"--layer-costs": _layer_costs = true
 			"--shots": _shots = true
+			"--bank": _bank = args[i + 1] != "off"; i += 1
 			"--force-touch": pass
 			"--tag": _tag = args[i + 1]; i += 1
 			"--vp":
@@ -177,6 +182,8 @@ func _run() -> int:
 	await get_tree().create_timer(1.5).timeout
 	if not _br.has_world:
 		print("PROBE-RESULT: ABORT no world"); return 2
+	if not _bank:
+		_vh.overlay.set_bank_resolver(Callable())
 	if not _overlays:
 		for l in HIDE:
 			_vh.set_layer_visible(l, false)

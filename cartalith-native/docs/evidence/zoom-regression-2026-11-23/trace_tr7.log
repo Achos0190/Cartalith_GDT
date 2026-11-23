@@ -1,0 +1,4374 @@
+TRC_CH f=0 rivers 0 2
+TRC_CH f=0 rivers 1 1
+TRC_CH f=0 rivers 2 1
+TRC_CH f=0 rivers 3 1
+TRC_CH f=0 rivers 4 1
+TRC_CH f=0 rivers 5 1
+TRC_CH f=0 rivers 6 1
+TRC_CH f=0 rivers 7 1
+TRC_CH f=0 rivers 8 1
+TRC_CH f=0 rivers 9 1
+TRC_CH f=0 rivers 10 1
+TRC_CH f=0 rivers 11 2
+TRC_CH f=0 rivers 12 2
+TRC_CH f=0 rivers 13 1
+TRC_CH f=0 rivers 14 1
+TRC_CH f=0 rivers 15 1
+TRC_CH f=0 rivers 16 0
+TRC_CH f=0 rivers 17 0
+TRC_CH f=0 rivers 18 0
+TRC_CH f=0 rivers 19 1
+TRC_CH f=0 rivers 20 1
+TRC_CH f=0 rivers 21 1
+TRC_CH f=0 rivers 22 1
+TRC_CH f=0 rivers 23 1
+TRC_RL sync=false vis=6 urban=4 layers=[5281, 10, 7, 7, 4]
+TRC_CH f=0 rivers 0 2
+TRC_CH f=0 rivers 1 2
+TRC_CH f=0 rivers 2 1
+TRC_CH f=0 rivers 3 1
+TRC_CH f=0 rivers 4 1
+TRC_CH f=0 rivers 5 2
+TRC_CH f=0 rivers 6 2
+TRC_CH f=0 rivers 7 1
+TRC_CH f=0 rivers 8 1
+TRC_CH f=0 rivers 9 1
+TRC_CH f=0 rivers 10 1
+TRC_CH f=0 rivers 11 1
+TRC_CH f=0 rivers 12 1
+TRC_CH f=0 rivers 13 0
+TRC_CH f=0 rivers 14 1
+TRC_CH f=0 rivers 15 0
+TRC_CH f=0 rivers 16 0
+TRC_CH f=0 rivers 17 1
+TRC_CH f=0 rivers 18 1
+TRC_CH f=0 rivers 19 1
+TRC_CH f=0 rivers 20 1
+TRC_CH f=0 rivers 21 0
+TRC_CH f=0 rivers 22 1
+TRC_CH f=0 rivers 23 1
+TRC_RL sync=true vis=2 urban=2 layers=[5326, 10, 7, 5, 4]
+TRC_CH f=0 sea 0 2
+TRC_CH f=0 sea 1 1
+TRC_CH f=0 sea 2 1
+TRC_CH f=0 sea 3 0
+TRC_CH f=0 roads 0 1
+TRC_CH f=0 roads 1 0
+TRC_CH f=0 roads 2 1
+TRC_CH f=0 roads 3 1
+TRC_CH f=0 roads 4 2
+TRC_CH f=0 roads 5 2
+TRC_CH f=0 roads 6 1
+TRC_CH f=0 roads 7 1
+TRC_CH f=0 roads 8 1
+TRC_CH f=0 roads 9 2
+TRC_CH f=0 roads 10 1
+TRC_CH f=0 roads 11 1
+TRC_CH f=0 roads 12 1
+TRC_CH f=0 roads 13 1
+TRC_CH f=0 roads 14 1
+TRC_CH f=0 roads 15 1
+TRC_CH f=0 roads 16 0
+TRC_CH f=0 roads 17 0
+TRC_CH f=0 roads 18 0
+TRC_CH f=0 roads 19 1
+TRC_CH f=0 roads 20 0
+TRC_CH f=0 roads 21 1
+TRC_CH f=0 roads 22 0
+TRC_CH f=0 roads 23 1
+TRC_CH f=0 settlements 0 1
+TRC_CH f=0 settlements 1 1
+TRC_CH f=0 settlements 2 1
+TRC_CH f=0 settlements 3 0
+TRC_CH f=0 settlements 4 0
+TRC_CH f=0 settlements 5 1
+TRC_CH f=0 settlements 6 1
+TRC_CH f=0 settlements 7 0
+TRC_CH f=0 settlements 8 1
+TRC_CH f=0 settlements 9 0
+TRC_CH f=0 settlements 10 1
+TRC_CH f=0 settlements 11 0
+TRC_CH f=0 settlements 12 1
+TRC_CH f=0 settlements 13 0
+TRC_CH f=0 settlements 14 0
+TRC_CH f=0 settlements 15 1
+TRC_CH f=0 top 0 1
+TRC_CH f=0 top 1 0
+TRC_CH f=0 top 2 1
+TRC_CH f=0 top 3 0
+TRC_CH f=0 top 4 3
+TRC_CH f=0 top 5 1
+TRC_CH f=0 top 6 1
+TRC_CH f=0 top 7 1
+TRC_CH f=0 top 8 1
+TRC_CH f=0 top 9 1
+TRC_CH f=0 top 10 1
+TRC_CH f=0 top 11 0
+TRC_RL sync=false vis=3 urban=2 layers=[8, 3, 2, 3, 12]
+TRC_CH f=0 rivers 0 1
+TRC_CH f=0 rivers 1 2
+TRC_CH f=0 rivers 2 0
+TRC_CH f=0 rivers 3 1
+TRC_CH f=0 rivers 4 1
+TRC_CH f=0 rivers 5 0
+TRC_CH f=0 rivers 6 0
+TRC_CH f=0 rivers 7 1
+TRC_CH f=0 rivers 8 1
+TRC_CH f=0 rivers 9 1
+TRC_CH f=0 rivers 10 1
+TRC_CH f=0 rivers 11 1
+TRC_CH f=0 rivers 12 1
+TRC_CH f=0 rivers 13 0
+TRC_CH f=0 rivers 14 1
+TRC_CH f=0 rivers 15 1
+TRC_CH f=0 rivers 16 0
+TRC_CH f=0 rivers 17 1
+TRC_CH f=0 rivers 18 1
+TRC_CH f=0 rivers 19 1
+TRC_CH f=0 rivers 20 1
+TRC_CH f=0 rivers 21 1
+TRC_CH f=0 rivers 22 1
+TRC_CH f=0 rivers 23 2
+TRC_RL sync=true vis=2 urban=2 layers=[5100, 9, 8, 7, 9]
+TRC_CH f=0 sea 0 2
+TRC_CH f=0 sea 1 1
+TRC_CH f=0 sea 2 1
+TRC_CH f=0 sea 3 1
+TRC_CH f=0 roads 0 1
+TRC_CH f=0 roads 1 1
+TRC_CH f=0 roads 2 0
+TRC_CH f=0 roads 3 1
+TRC_CH f=0 roads 4 0
+TRC_CH f=0 roads 5 1
+TRC_CH f=0 roads 6 1
+TRC_CH f=0 roads 7 1
+TRC_CH f=0 roads 8 1
+TRC_CH f=0 roads 9 0
+TRC_CH f=0 roads 10 1
+TRC_CH f=0 roads 11 1
+TRC_CH f=0 roads 12 1
+TRC_CH f=0 roads 13 1
+TRC_CH f=0 roads 14 1
+TRC_CH f=0 roads 15 0
+TRC_CH f=0 roads 16 1
+TRC_CH f=0 roads 17 0
+TRC_CH f=0 roads 18 1
+TRC_CH f=0 roads 19 1
+TRC_CH f=0 roads 20 0
+TRC_CH f=0 roads 21 0
+TRC_CH f=0 roads 22 1
+TRC_CH f=0 roads 23 0
+TRC_CH f=0 settlements 0 1
+TRC_CH f=0 settlements 1 0
+TRC_CH f=0 settlements 2 0
+TRC_CH f=0 settlements 3 1
+TRC_CH f=0 settlements 4 1
+TRC_CH f=0 settlements 5 1
+TRC_CH f=0 settlements 6 1
+TRC_CH f=0 settlements 7 1
+TRC_CH f=0 settlements 8 0
+TRC_CH f=0 settlements 9 1
+TRC_CH f=0 settlements 10 1
+TRC_CH f=0 settlements 11 1
+TRC_CH f=0 settlements 12 1
+TRC_CH f=0 settlements 13 2
+TRC_CH f=0 settlements 14 1
+TRC_CH f=0 settlements 15 1
+TRC_CH f=0 top 0 0
+TRC_CH f=0 top 1 0
+TRC_CH f=0 top 2 0
+TRC_CH f=0 top 3 1
+TRC_CH f=0 top 4 1
+TRC_CH f=0 top 5 1
+TRC_CH f=0 top 6 1
+TRC_CH f=0 top 7 1
+TRC_CH f=0 top 8 1
+TRC_CH f=0 top 9 1
+TRC_CH f=0 top 10 2
+TRC_CH f=0 top 11 2
+TRC_CH f=0 rivers 0 1
+TRC_CH f=0 rivers 1 1
+TRC_CH f=0 rivers 2 0
+TRC_CH f=0 rivers 3 1
+TRC_CH f=0 rivers 4 1
+TRC_CH f=0 rivers 5 0
+TRC_CH f=0 rivers 6 1
+TRC_CH f=0 rivers 7 1
+TRC_CH f=0 rivers 8 0
+TRC_CH f=0 rivers 9 1
+TRC_CH f=0 rivers 10 1
+TRC_CH f=0 rivers 11 1
+TRC_CH f=0 rivers 12 1
+TRC_CH f=0 rivers 13 1
+TRC_CH f=0 rivers 14 1
+TRC_CH f=0 rivers 15 1
+TRC_CH f=0 rivers 16 1
+TRC_CH f=0 rivers 17 0
+TRC_CH f=0 rivers 18 1
+TRC_CH f=0 rivers 19 0
+TRC_CH f=0 rivers 20 0
+TRC_CH f=0 rivers 21 1
+TRC_CH f=0 rivers 22 0
+TRC_CH f=0 rivers 23 1
+TRC_RL sync=true vis=2 urban=1 layers=[4998, 7, 7, 7, 4]
+TRC_CH f=0 sea 0 1
+TRC_CH f=0 sea 1 1
+TRC_CH f=0 sea 2 0
+TRC_CH f=0 sea 3 2
+TRC_CH f=0 roads 0 1
+TRC_CH f=0 roads 1 1
+TRC_CH f=0 roads 2 1
+TRC_CH f=0 roads 3 1
+TRC_CH f=0 roads 4 1
+TRC_CH f=0 roads 5 1
+TRC_CH f=0 roads 6 0
+TRC_CH f=0 roads 7 0
+TRC_CH f=0 roads 8 0
+TRC_CH f=0 roads 9 0
+TRC_CH f=0 roads 10 1
+TRC_CH f=0 roads 11 1
+TRC_CH f=0 roads 12 1
+TRC_CH f=0 roads 13 1
+TRC_CH f=0 roads 14 1
+TRC_CH f=0 roads 15 1
+TRC_CH f=0 roads 16 0
+TRC_CH f=0 roads 17 0
+TRC_CH f=0 roads 18 0
+TRC_CH f=0 roads 19 0
+TRC_CH f=0 roads 20 1
+TRC_CH f=0 roads 21 0
+TRC_CH f=0 roads 22 0
+TRC_CH f=0 roads 23 0
+TRC_CH f=0 settlements 0 1
+TRC_CH f=0 settlements 1 1
+TRC_CH f=0 settlements 2 1
+TRC_CH f=0 settlements 3 0
+TRC_CH f=0 settlements 4 1
+TRC_CH f=0 settlements 5 1
+TRC_CH f=0 settlements 6 1
+TRC_CH f=0 settlements 7 1
+TRC_CH f=0 settlements 8 1
+TRC_CH f=0 settlements 9 1
+TRC_CH f=0 settlements 10 1
+TRC_CH f=0 settlements 11 0
+TRC_CH f=0 settlements 12 1
+TRC_CH f=0 settlements 13 0
+TRC_CH f=0 settlements 14 1
+TRC_CH f=0 settlements 15 0
+TRC_CH f=0 top 0 1
+TRC_CH f=0 top 1 1
+TRC_CH f=0 top 2 0
+TRC_CH f=0 top 3 1
+TRC_CH f=0 top 4 0
+TRC_CH f=0 top 5 2
+TRC_CH f=0 top 6 1
+TRC_CH f=0 top 7 1
+TRC_CH f=0 top 8 1
+TRC_CH f=0 top 9 0
+TRC_CH f=0 top 10 1
+TRC_CH f=0 top 11 1
+TRC_CH f=18947 rivers 0 3
+TRC_CH f=18947 rivers 1 5
+TRC_CH f=18947 rivers 2 4
+TRC_CH f=18947 rivers 3 5
+TRC_CH f=18947 rivers 4 5
+TRC_CH f=18947 rivers 5 4
+TRC_CH f=18947 rivers 6 5
+TRC_CH f=18947 rivers 7 4
+TRC_CH f=18947 rivers 8 2
+TRC_CH f=18947 rivers 9 2
+TRC_CH f=18947 rivers 10 1
+TRC_CH f=18947 rivers 11 1
+TRC_CH f=18947 rivers 12 1
+TRC_CH f=18947 rivers 13 2
+TRC_CH f=18947 rivers 14 1
+TRC_CH f=18947 rivers 15 1
+TRC_CH f=18947 rivers 16 2
+TRC_CH f=18947 rivers 17 1
+TRC_CH f=18947 rivers 18 1
+TRC_CH f=18947 rivers 19 2
+TRC_CH f=18947 rivers 20 1
+TRC_CH f=18947 rivers 21 1
+TRC_CH f=18947 rivers 22 2
+TRC_CH f=18947 rivers 23 1
+TRC_RL sync=false vis=5 urban=7 layers=[7006, 20, 15, 13, 10]
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 4, 4, 3]
+TRC_CH f=18947 rivers 0 3
+TRC_CH f=18947 rivers 1 3
+TRC_CH f=18947 rivers 2 2
+TRC_CH f=18947 rivers 3 2
+TRC_CH f=18947 rivers 4 1
+TRC_CH f=18947 rivers 5 1
+TRC_CH f=18947 rivers 6 2
+TRC_CH f=18947 rivers 7 1
+TRC_CH f=18947 rivers 8 2
+TRC_CH f=18947 rivers 9 2
+TRC_CH f=18947 rivers 10 2
+TRC_CH f=18947 rivers 11 1
+TRC_CH f=18947 rivers 12 1
+TRC_CH f=18947 rivers 13 2
+TRC_CH f=18947 rivers 14 1
+TRC_CH f=18947 rivers 15 2
+TRC_CH f=18947 rivers 16 1
+TRC_CH f=18947 rivers 17 1
+TRC_CH f=18947 rivers 18 1
+TRC_CH f=18947 rivers 19 2
+TRC_CH f=18947 rivers 20 2
+TRC_CH f=18947 rivers 21 1
+TRC_CH f=18947 rivers 22 1
+TRC_CH f=18947 rivers 23 1
+TRC_RL sync=true vis=4 urban=7 layers=[5697, 16, 19, 15, 12]
+TRC_CH f=18947 sea 0 3355
+TRC_CH f=18947 sea 1 2938
+TRC_CH f=18947 sea 2 2074
+TRC_CH f=18947 sea 3 2597
+TRC_CH f=18947 roads 0 2606
+TRC_CH f=18947 roads 1 829
+TRC_CH f=18947 roads 2 1121
+TRC_CH f=18947 roads 3 928
+TRC_CH f=18947 roads 4 1137
+TRC_CH f=18947 roads 5 1368
+TRC_CH f=18947 roads 6 1973
+TRC_CH f=18947 roads 7 2209
+TRC_CH f=18947 roads 8 2283
+TRC_CH f=18947 roads 9 2307
+TRC_CH f=18947 roads 10 639
+TRC_CH f=18947 roads 11 51
+TRC_CH f=18947 roads 12 55
+TRC_CH f=18947 roads 13 45
+TRC_CH f=18947 roads 14 36
+TRC_CH f=18947 roads 15 31
+TRC_CH f=18947 roads 16 26
+TRC_CH f=18947 roads 17 17
+TRC_CH f=18947 roads 18 17
+TRC_CH f=18947 roads 19 17
+TRC_CH f=18947 roads 20 12
+TRC_CH f=18947 roads 21 14
+TRC_CH f=18947 roads 22 9
+TRC_CH f=18947 roads 23 18
+TRC_CH f=18947 settlements 0 1471
+TRC_STEP step=1 total=51452 settle_pos=48614 declutter=1577 pin_geom=984 entries=16
+TRC_CH f=18947 settlements 1 51731
+TRC_STEP step=2 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=18947 settlements 2 283
+TRC_STEP step=3 total=51 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=18947 settlements 3 272
+TRC_STEP step=4 total=776 settle_pos=15 declutter=105 pin_geom=378 entries=35
+TRC_CH f=18947 settlements 4 1003
+TRC_STEP step=5 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=18947 settlements 5 279
+TRC_CH f=18947 settlements 6 1072
+TRC_CH f=18947 settlements 7 1013
+TRC_CH f=18947 settlements 8 395
+TRC_CH f=18947 settlements 9 679
+TRC_CH f=18947 settlements 10 340
+TRC_CH f=18947 settlements 11 326
+TRC_CH f=18947 settlements 12 344
+TRC_CH f=18947 settlements 13 409
+TRC_CH f=18947 settlements 14 423
+TRC_CH f=18947 settlements 15 477
+TRC_CH f=18947 top 0 224
+TRC_CH f=18947 top 1 1868
+TRC_CH f=18947 top 2 927
+TRC_CH f=18947 top 3 242
+TRC_CH f=18947 top 4 12
+TRC_CH f=18947 top 5 191
+TRC_CH f=18947 top 6 184
+TRC_CH f=18947 top 7 289
+TRC_CH f=18947 top 8 476
+TRC_CH f=18947 top 9 428
+TRC_CH f=18947 top 10 466
+TRC_CH f=18947 top 11 340
+TRC_CH f=18948 rivers 0 3
+TRC_CH f=18948 rivers 1 3
+TRC_CH f=18948 rivers 2 1
+TRC_CH f=18948 rivers 3 1
+TRC_CH f=18948 rivers 4 2
+TRC_CH f=18948 rivers 5 1
+TRC_CH f=18948 rivers 6 1
+TRC_CH f=18948 rivers 7 5
+TRC_CH f=18948 rivers 8 2
+TRC_CH f=18948 rivers 9 2
+TRC_CH f=18948 rivers 10 1
+TRC_CH f=18948 rivers 11 2
+TRC_CH f=18948 rivers 12 1
+TRC_CH f=18948 rivers 13 2
+TRC_CH f=18948 rivers 14 1
+TRC_CH f=18948 rivers 15 1
+TRC_CH f=18948 rivers 16 1
+TRC_CH f=18948 rivers 17 1
+TRC_CH f=18948 rivers 18 4
+TRC_CH f=18948 rivers 19 2
+TRC_CH f=18948 rivers 20 1
+TRC_CH f=18948 rivers 21 1
+TRC_CH f=18948 rivers 22 1
+TRC_CH f=18948 rivers 23 1
+TRC_RL sync=true vis=4 urban=7 layers=[6308, 12, 15, 69, 9]
+TRC_CH f=18948 sea 0 2163
+TRC_CH f=18948 sea 1 2235
+TRC_CH f=18948 sea 2 1546
+TRC_CH f=18948 sea 3 1835
+TRC_CH f=18948 roads 0 1273
+TRC_CH f=18948 roads 1 816
+TRC_CH f=18948 roads 2 1164
+TRC_CH f=18948 roads 3 893
+TRC_CH f=18948 roads 4 1097
+TRC_CH f=18948 roads 5 1282
+TRC_CH f=18948 roads 6 1419
+TRC_CH f=18948 roads 7 1634
+TRC_CH f=18948 roads 8 1472
+TRC_CH f=18948 roads 9 1826
+TRC_CH f=18948 roads 10 487
+TRC_CH f=18948 roads 11 59
+TRC_CH f=18948 roads 12 61
+TRC_CH f=18948 roads 13 49
+TRC_CH f=18948 roads 14 49
+TRC_CH f=18948 roads 15 37
+TRC_CH f=18948 roads 16 30
+TRC_CH f=18948 roads 17 19
+TRC_CH f=18948 roads 18 19
+TRC_CH f=18948 roads 19 18
+TRC_CH f=18948 roads 20 14
+TRC_CH f=18948 roads 21 15
+TRC_CH f=18948 roads 22 10
+TRC_CH f=18948 roads 23 19
+TRC_CH f=18948 settlements 0 1174
+TRC_STEP step=1 total=740 settle_pos=32 declutter=67 pin_geom=356 entries=16
+TRC_CH f=18948 settlements 1 977
+TRC_STEP step=2 total=61 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=18948 settlements 2 302
+TRC_STEP step=3 total=61 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=18948 settlements 3 272
+TRC_STEP step=4 total=1286 settle_pos=34 declutter=114 pin_geom=632 entries=35
+TRC_CH f=18948 settlements 4 1627
+TRC_STEP step=5 total=64 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=18948 settlements 5 293
+TRC_CH f=18948 settlements 6 225
+TRC_CH f=18948 settlements 7 190
+TRC_CH f=18948 settlements 8 132
+TRC_CH f=18948 settlements 9 190
+TRC_CH f=18948 settlements 10 131
+TRC_CH f=18948 settlements 11 161
+TRC_CH f=18948 settlements 12 124
+TRC_CH f=18948 settlements 13 187
+TRC_CH f=18948 settlements 14 149
+TRC_CH f=18948 settlements 15 202
+TRC_CH f=18948 top 0 210
+TRC_CH f=18948 top 1 424
+TRC_CH f=18948 top 2 218
+TRC_CH f=18948 top 3 65
+TRC_CH f=18948 top 4 9
+TRC_CH f=18948 top 5 62
+TRC_CH f=18948 top 6 68
+TRC_CH f=18948 top 7 82
+TRC_CH f=18948 top 8 204
+TRC_CH f=18948 top 9 185
+TRC_CH f=18948 top 10 202
+TRC_CH f=18948 top 11 149
+TRC_RL sync=false vis=4 urban=7 layers=[16, 9, 5, 5, 4]
+TRC_FR f=19055 22279.82
+TRC_FR f=19056 10.87
+TRC_FR f=19057 10.80
+TRC_FR f=19058 10.80
+TRC_FR f=19059 11.09
+TRC_FR f=19060 10.89
+TRC_FR f=19061 10.79
+TRC_FR f=19062 10.85
+TRC_FR f=19063 10.80
+TRC_FR f=19064 10.79
+TRC_FR f=19065 10.96
+TRC_FR f=19066 11.59
+TRC_FR f=19067 11.31
+TRC_FR f=19068 11.12
+TRC_FR f=19069 11.00
+TRC_FR f=19070 11.11
+TRC_FR f=19071 11.07
+TRC_FR f=19072 11.16
+TRC_FR f=19073 10.94
+TRC_FR f=19074 10.94
+TRC_FR f=19075 10.88
+TRC_FR f=19076 11.01
+TRC_FR f=19077 11.11
+TRC_FR f=19078 10.93
+TRC_FR f=19079 10.84
+TRC_FR f=19080 10.89
+TRC_FR f=19081 10.88
+TRC_FR f=19082 10.82
+TRC_FR f=19083 10.79
+TRC_FR f=19084 10.79
+TRC_FR f=19085 10.92
+TRC_FR f=19086 10.97
+TRC_FR f=19087 11.18
+TRC_FR f=19088 11.18
+TRC_FR f=19089 10.87
+TRC_FR f=19090 10.86
+TRC_FR f=19091 10.90
+TRC_FR f=19092 11.12
+TRC_FR f=19093 11.41
+TRC_FR f=19094 11.19
+TRC_FR f=19095 11.03
+TRC_FR f=19096 11.15
+TRC_FR f=19097 11.32
+TRC_FR f=19098 11.74
+TRC_FR f=19099 14.34
+TRC_FR f=19100 11.78
+TRC_FR f=19101 13.06
+TRC_FR f=19102 11.27
+TRC_FR f=19103 11.10
+TRC_FR f=19104 11.05
+TRC_FR f=19105 11.11
+TRC_FR f=19106 11.25
+TRC_FR f=19107 11.10
+TRC_FR f=19108 11.01
+TRC_FR f=19109 10.90
+TRC_FR f=19110 10.86
+TRC_FR f=19111 10.93
+TRC_FR f=19112 10.85
+TRC_FR f=19113 10.96
+TRC_FR f=19114 10.80
+TRC_FR f=19115 10.82
+TRC_FR f=19116 10.85
+TRC_FR f=19117 10.87
+TRC_FR f=19118 10.82
+TRC_FR f=19119 10.87
+TRC_FR f=19120 10.82
+TRC_FR f=19121 10.83
+TRC_FR f=19122 10.81
+TRC_FR f=19123 10.79
+TRC_FR f=19124 10.90
+TRC_CH f=19125 rivers 0 4
+TRC_CH f=19125 rivers 1 4
+TRC_CH f=19125 rivers 2 3
+TRC_CH f=19125 rivers 3 3
+TRC_CH f=19125 rivers 4 2
+TRC_CH f=19125 rivers 5 1
+TRC_CH f=19125 rivers 6 2
+TRC_CH f=19125 rivers 7 1
+TRC_CH f=19125 rivers 8 1
+TRC_CH f=19125 rivers 9 1
+TRC_CH f=19125 rivers 10 1
+TRC_CH f=19125 rivers 11 1
+TRC_CH f=19125 rivers 12 1
+TRC_CH f=19125 rivers 13 2
+TRC_CH f=19125 rivers 14 2
+TRC_CH f=19125 rivers 15 1
+TRC_CH f=19125 rivers 16 2
+TRC_CH f=19125 rivers 17 1
+TRC_CH f=19125 rivers 18 2
+TRC_CH f=19125 rivers 19 2
+TRC_CH f=19125 rivers 20 1
+TRC_CH f=19125 rivers 21 1
+TRC_CH f=19125 rivers 22 2
+TRC_CH f=19125 rivers 23 2
+TRC_RL sync=true vis=5 urban=6 layers=[5266, 14, 16, 69, 9]
+TRC_CH f=19125 sea 0 2073
+TRC_CH f=19125 sea 1 2114
+TRC_CH f=19125 sea 2 1528
+TRC_CH f=19125 sea 3 1780
+TRC_CH f=19125 roads 0 1281
+TRC_CH f=19125 roads 1 815
+TRC_CH f=19125 roads 2 1085
+TRC_CH f=19125 roads 3 893
+TRC_CH f=19125 roads 4 1098
+TRC_CH f=19125 roads 5 1256
+TRC_CH f=19125 roads 6 1400
+TRC_CH f=19125 roads 7 1596
+TRC_CH f=19125 roads 8 1435
+TRC_CH f=19125 roads 9 1910
+TRC_CH f=19125 roads 10 479
+TRC_CH f=19125 roads 11 61
+TRC_CH f=19125 roads 12 64
+TRC_CH f=19125 roads 13 49
+TRC_CH f=19125 roads 14 40
+TRC_CH f=19125 roads 15 33
+TRC_CH f=19125 roads 16 30
+TRC_CH f=19125 roads 17 17
+TRC_CH f=19125 roads 18 19
+TRC_CH f=19125 roads 19 17
+TRC_CH f=19125 roads 20 14
+TRC_CH f=19125 roads 21 16
+TRC_CH f=19125 roads 22 10
+TRC_CH f=19125 roads 23 21
+TRC_CH f=19125 settlements 0 947
+TRC_STEP step=1 total=795 settle_pos=19 declutter=68 pin_geom=359 entries=16
+TRC_CH f=19125 settlements 1 1038
+TRC_STEP step=2 total=62 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19125 settlements 2 303
+TRC_STEP step=3 total=61 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19125 settlements 3 268
+TRC_STEP step=4 total=793 settle_pos=24 declutter=70 pin_geom=388 entries=35
+TRC_CH f=19125 settlements 4 1033
+TRC_STEP step=5 total=60 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19125 settlements 5 274
+TRC_CH f=19125 settlements 6 228
+TRC_CH f=19125 settlements 7 198
+TRC_CH f=19125 settlements 8 136
+TRC_CH f=19125 settlements 9 186
+TRC_CH f=19125 settlements 10 131
+TRC_CH f=19125 settlements 11 162
+TRC_CH f=19125 settlements 12 127
+TRC_CH f=19125 settlements 13 191
+TRC_CH f=19125 settlements 14 152
+TRC_CH f=19125 settlements 15 229
+TRC_CH f=19125 top 0 219
+TRC_CH f=19125 top 1 555
+TRC_CH f=19125 top 2 266
+TRC_CH f=19125 top 3 66
+TRC_CH f=19125 top 4 9
+TRC_CH f=19125 top 5 63
+TRC_CH f=19125 top 6 69
+TRC_CH f=19125 top 7 82
+TRC_CH f=19125 top 8 206
+TRC_CH f=19125 top 9 186
+TRC_CH f=19125 top 10 207
+TRC_CH f=19125 top 11 149
+TRC_FR f=19125 62.64
+TRC_CH f=19126 rivers 0 2
+TRC_CH f=19126 rivers 1 2
+TRC_CH f=19126 rivers 2 2
+TRC_CH f=19126 rivers 3 2
+TRC_CH f=19126 rivers 4 3
+TRC_CH f=19126 rivers 5 1
+TRC_CH f=19126 rivers 6 1
+TRC_CH f=19126 rivers 7 1
+TRC_CH f=19126 rivers 8 1
+TRC_CH f=19126 rivers 9 1
+TRC_CH f=19126 rivers 10 2
+TRC_CH f=19126 rivers 11 1
+TRC_CH f=19126 rivers 12 1
+TRC_CH f=19126 rivers 13 1
+TRC_CH f=19126 rivers 14 2
+TRC_CH f=19126 rivers 15 1
+TRC_CH f=19126 rivers 16 1
+TRC_CH f=19126 rivers 17 2
+TRC_CH f=19126 rivers 18 2
+TRC_CH f=19126 rivers 19 2
+TRC_CH f=19126 rivers 20 2
+TRC_CH f=19126 rivers 21 2
+TRC_CH f=19126 rivers 22 2
+TRC_CH f=19126 rivers 23 2
+TRC_RL sync=true vis=3 urban=3 layers=[5153, 12, 9, 22, 6]
+TRC_CH f=19126 sea 0 2034
+TRC_CH f=19126 sea 1 2098
+TRC_CH f=19126 sea 2 1492
+TRC_CH f=19126 sea 3 1792
+TRC_CH f=19126 roads 0 1267
+TRC_CH f=19126 roads 1 807
+TRC_CH f=19126 roads 2 1061
+TRC_CH f=19126 roads 3 884
+TRC_CH f=19126 roads 4 1089
+TRC_CH f=19126 roads 5 1206
+TRC_CH f=19126 roads 6 1377
+TRC_CH f=19126 roads 7 1580
+TRC_CH f=19126 roads 8 1420
+TRC_CH f=19126 roads 9 1760
+TRC_CH f=19126 roads 10 465
+TRC_CH f=19126 roads 11 46
+TRC_CH f=19126 roads 12 47
+TRC_CH f=19126 roads 13 38
+TRC_CH f=19126 roads 14 30
+TRC_CH f=19126 roads 15 26
+TRC_CH f=19126 roads 16 23
+TRC_CH f=19126 roads 17 14
+TRC_CH f=19126 roads 18 16
+TRC_CH f=19126 roads 19 15
+TRC_CH f=19126 roads 20 12
+TRC_CH f=19126 roads 21 14
+TRC_CH f=19126 roads 22 9
+TRC_CH f=19126 roads 23 17
+TRC_CH f=19126 settlements 0 757
+TRC_STEP step=1 total=690 settle_pos=14 declutter=62 pin_geom=339 entries=16
+TRC_CH f=19126 settlements 1 946
+TRC_STEP step=2 total=59 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19126 settlements 2 379
+TRC_STEP step=3 total=56 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19126 settlements 3 313
+TRC_STEP step=4 total=771 settle_pos=18 declutter=69 pin_geom=379 entries=35
+TRC_CH f=19126 settlements 4 1005
+TRC_STEP step=5 total=55 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19126 settlements 5 334
+TRC_CH f=19126 settlements 6 196
+TRC_CH f=19126 settlements 7 183
+TRC_CH f=19126 settlements 8 135
+TRC_CH f=19126 settlements 9 182
+TRC_CH f=19126 settlements 10 129
+TRC_CH f=19126 settlements 11 161
+TRC_CH f=19126 settlements 12 123
+TRC_CH f=19126 settlements 13 187
+TRC_CH f=19126 settlements 14 147
+TRC_CH f=19126 settlements 15 196
+TRC_CH f=19126 top 0 202
+TRC_CH f=19126 top 1 399
+TRC_CH f=19126 top 2 214
+TRC_CH f=19126 top 3 65
+TRC_CH f=19126 top 4 9
+TRC_CH f=19126 top 5 69
+TRC_CH f=19126 top 6 70
+TRC_CH f=19126 top 7 83
+TRC_CH f=19126 top 8 256
+TRC_CH f=19126 top 9 233
+TRC_CH f=19126 top 10 210
+TRC_CH f=19126 top 11 150
+TRC_FR f=19126 61.27
+TRC_CH f=19127 rivers 0 2
+TRC_CH f=19127 rivers 1 5
+TRC_CH f=19127 rivers 2 3
+TRC_CH f=19127 rivers 3 4
+TRC_CH f=19127 rivers 4 4
+TRC_CH f=19127 rivers 5 2
+TRC_CH f=19127 rivers 6 2
+TRC_CH f=19127 rivers 7 1
+TRC_CH f=19127 rivers 8 2
+TRC_CH f=19127 rivers 9 1
+TRC_CH f=19127 rivers 10 1
+TRC_CH f=19127 rivers 11 2
+TRC_CH f=19127 rivers 12 1
+TRC_CH f=19127 rivers 13 2
+TRC_CH f=19127 rivers 14 1
+TRC_CH f=19127 rivers 15 1
+TRC_CH f=19127 rivers 16 2
+TRC_CH f=19127 rivers 17 4
+TRC_CH f=19127 rivers 18 2
+TRC_CH f=19127 rivers 19 2
+TRC_CH f=19127 rivers 20 2
+TRC_CH f=19127 rivers 21 2
+TRC_CH f=19127 rivers 22 2
+TRC_CH f=19127 rivers 23 1
+TRC_RL sync=true vis=2 urban=4 layers=[5627, 10, 8, 20, 5]
+TRC_CH f=19127 sea 0 2023
+TRC_CH f=19127 sea 1 2149
+TRC_CH f=19127 sea 2 1505
+TRC_CH f=19127 sea 3 1790
+TRC_CH f=19127 roads 0 1247
+TRC_CH f=19127 roads 1 800
+TRC_CH f=19127 roads 2 1071
+TRC_CH f=19127 roads 3 881
+TRC_CH f=19127 roads 4 1084
+TRC_CH f=19127 roads 5 1204
+TRC_CH f=19127 roads 6 1388
+TRC_CH f=19127 roads 7 1581
+TRC_CH f=19127 roads 8 1427
+TRC_CH f=19127 roads 9 1741
+TRC_CH f=19127 roads 10 462
+TRC_CH f=19127 roads 11 44
+TRC_CH f=19127 roads 12 46
+TRC_CH f=19127 roads 13 36
+TRC_CH f=19127 roads 14 28
+TRC_CH f=19127 roads 15 25
+TRC_CH f=19127 roads 16 21
+TRC_CH f=19127 roads 17 13
+TRC_CH f=19127 roads 18 16
+TRC_CH f=19127 roads 19 14
+TRC_CH f=19127 roads 20 12
+TRC_CH f=19127 roads 21 14
+TRC_CH f=19127 roads 22 8
+TRC_CH f=19127 roads 23 17
+TRC_CH f=19127 settlements 0 751
+TRC_STEP step=1 total=681 settle_pos=11 declutter=62 pin_geom=338 entries=16
+TRC_CH f=19127 settlements 1 919
+TRC_STEP step=2 total=55 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19127 settlements 2 264
+TRC_STEP step=3 total=55 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19127 settlements 3 265
+TRC_STEP step=4 total=742 settle_pos=12 declutter=70 pin_geom=378 entries=35
+TRC_CH f=19127 settlements 4 960
+TRC_STEP step=5 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19127 settlements 5 379
+TRC_CH f=19127 settlements 6 192
+TRC_CH f=19127 settlements 7 182
+TRC_CH f=19127 settlements 8 132
+TRC_CH f=19127 settlements 9 182
+TRC_CH f=19127 settlements 10 130
+TRC_CH f=19127 settlements 11 159
+TRC_CH f=19127 settlements 12 125
+TRC_CH f=19127 settlements 13 186
+TRC_CH f=19127 settlements 14 151
+TRC_CH f=19127 settlements 15 194
+TRC_CH f=19127 top 0 197
+TRC_CH f=19127 top 1 389
+TRC_CH f=19127 top 2 211
+TRC_CH f=19127 top 3 100
+TRC_CH f=19127 top 4 11
+TRC_CH f=19127 top 5 70
+TRC_CH f=19127 top 6 70
+TRC_CH f=19127 top 7 82
+TRC_CH f=19127 top 8 206
+TRC_CH f=19127 top 9 235
+TRC_CH f=19127 top 10 210
+TRC_CH f=19127 top 11 149
+TRC_FR f=19127 60.52
+TRC_CH f=19128 rivers 0 2
+TRC_CH f=19128 rivers 1 3
+TRC_CH f=19128 rivers 2 3
+TRC_CH f=19128 rivers 3 4
+TRC_CH f=19128 rivers 4 4
+TRC_CH f=19128 rivers 5 2
+TRC_CH f=19128 rivers 6 2
+TRC_CH f=19128 rivers 7 2
+TRC_CH f=19128 rivers 8 2
+TRC_CH f=19128 rivers 9 2
+TRC_CH f=19128 rivers 10 1
+TRC_CH f=19128 rivers 11 2
+TRC_CH f=19128 rivers 12 2
+TRC_CH f=19128 rivers 13 1
+TRC_CH f=19128 rivers 14 4
+TRC_CH f=19128 rivers 15 3
+TRC_CH f=19128 rivers 16 2
+TRC_CH f=19128 rivers 17 2
+TRC_CH f=19128 rivers 18 1
+TRC_CH f=19128 rivers 19 2
+TRC_CH f=19128 rivers 20 2
+TRC_CH f=19128 rivers 21 1
+TRC_CH f=19128 rivers 22 2
+TRC_CH f=19128 rivers 23 1
+TRC_RL sync=true vis=3 urban=4 layers=[5588, 9, 7, 21, 5]
+TRC_CH f=19128 sea 0 2049
+TRC_CH f=19128 sea 1 2137
+TRC_CH f=19128 sea 2 1527
+TRC_CH f=19128 sea 3 1792
+TRC_CH f=19128 roads 0 1255
+TRC_CH f=19128 roads 1 802
+TRC_CH f=19128 roads 2 1058
+TRC_CH f=19128 roads 3 882
+TRC_CH f=19128 roads 4 1089
+TRC_CH f=19128 roads 5 1204
+TRC_CH f=19128 roads 6 1379
+TRC_CH f=19128 roads 7 1574
+TRC_CH f=19128 roads 8 1415
+TRC_CH f=19128 roads 9 1735
+TRC_CH f=19128 roads 10 453
+TRC_CH f=19128 roads 11 41
+TRC_CH f=19128 roads 12 42
+TRC_CH f=19128 roads 13 34
+TRC_CH f=19128 roads 14 27
+TRC_CH f=19128 roads 15 23
+TRC_CH f=19128 roads 16 21
+TRC_CH f=19128 roads 17 25
+TRC_CH f=19128 roads 18 27
+TRC_CH f=19128 roads 19 18
+TRC_CH f=19128 roads 20 12
+TRC_CH f=19128 roads 21 13
+TRC_CH f=19128 roads 22 9
+TRC_CH f=19128 roads 23 16
+TRC_CH f=19128 settlements 0 908
+TRC_STEP step=1 total=639 settle_pos=14 declutter=62 pin_geom=332 entries=16
+TRC_CH f=19128 settlements 1 864
+TRC_STEP step=2 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19128 settlements 2 272
+TRC_STEP step=3 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19128 settlements 3 260
+TRC_STEP step=4 total=723 settle_pos=11 declutter=65 pin_geom=373 entries=35
+TRC_CH f=19128 settlements 4 948
+TRC_STEP step=5 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19128 settlements 5 331
+TRC_CH f=19128 settlements 6 190
+TRC_CH f=19128 settlements 7 181
+TRC_CH f=19128 settlements 8 129
+TRC_CH f=19128 settlements 9 180
+TRC_CH f=19128 settlements 10 127
+TRC_CH f=19128 settlements 11 157
+TRC_CH f=19128 settlements 12 122
+TRC_CH f=19128 settlements 13 184
+TRC_CH f=19128 settlements 14 148
+TRC_CH f=19128 settlements 15 196
+TRC_CH f=19128 top 0 195
+TRC_CH f=19128 top 1 380
+TRC_CH f=19128 top 2 251
+TRC_CH f=19128 top 3 70
+TRC_CH f=19128 top 4 9
+TRC_CH f=19128 top 5 63
+TRC_CH f=19128 top 6 68
+TRC_CH f=19128 top 7 80
+TRC_CH f=19128 top 8 202
+TRC_CH f=19128 top 9 183
+TRC_CH f=19128 top 10 199
+TRC_CH f=19128 top 11 146
+TRC_FR f=19128 60.50
+TRC_CH f=19129 rivers 0 2
+TRC_CH f=19129 rivers 1 3
+TRC_CH f=19129 rivers 2 5
+TRC_CH f=19129 rivers 3 3
+TRC_CH f=19129 rivers 4 2
+TRC_CH f=19129 rivers 5 2
+TRC_CH f=19129 rivers 6 1
+TRC_CH f=19129 rivers 7 1
+TRC_CH f=19129 rivers 8 2
+TRC_CH f=19129 rivers 9 2
+TRC_CH f=19129 rivers 10 1
+TRC_CH f=19129 rivers 11 2
+TRC_CH f=19129 rivers 12 1
+TRC_CH f=19129 rivers 13 4
+TRC_CH f=19129 rivers 14 5
+TRC_CH f=19129 rivers 15 2
+TRC_CH f=19129 rivers 16 2
+TRC_CH f=19129 rivers 17 1
+TRC_CH f=19129 rivers 18 1
+TRC_CH f=19129 rivers 19 1
+TRC_CH f=19129 rivers 20 1
+TRC_CH f=19129 rivers 21 2
+TRC_CH f=19129 rivers 22 1
+TRC_CH f=19129 rivers 23 1
+TRC_RL sync=true vis=2 urban=4 layers=[5236, 8, 8, 21, 5]
+TRC_CH f=19129 sea 0 2033
+TRC_CH f=19129 sea 1 2130
+TRC_CH f=19129 sea 2 1498
+TRC_CH f=19129 sea 3 1788
+TRC_CH f=19129 roads 0 1248
+TRC_CH f=19129 roads 1 805
+TRC_CH f=19129 roads 2 1052
+TRC_CH f=19129 roads 3 874
+TRC_CH f=19129 roads 4 1087
+TRC_CH f=19129 roads 5 1209
+TRC_CH f=19129 roads 6 1378
+TRC_CH f=19129 roads 7 1590
+TRC_CH f=19129 roads 8 1421
+TRC_CH f=19129 roads 9 1734
+TRC_CH f=19129 roads 10 459
+TRC_CH f=19129 roads 11 41
+TRC_CH f=19129 roads 12 42
+TRC_CH f=19129 roads 13 34
+TRC_CH f=19129 roads 14 27
+TRC_CH f=19129 roads 15 24
+TRC_CH f=19129 roads 16 20
+TRC_CH f=19129 roads 17 12
+TRC_CH f=19129 roads 18 15
+TRC_CH f=19129 roads 19 13
+TRC_CH f=19129 roads 20 11
+TRC_CH f=19129 roads 21 12
+TRC_CH f=19129 roads 22 9
+TRC_CH f=19129 roads 23 15
+TRC_CH f=19129 settlements 0 911
+TRC_STEP step=1 total=662 settle_pos=14 declutter=63 pin_geom=347 entries=16
+TRC_CH f=19129 settlements 1 889
+TRC_STEP step=2 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19129 settlements 2 275
+TRC_STEP step=3 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19129 settlements 3 259
+TRC_STEP step=4 total=733 settle_pos=13 declutter=69 pin_geom=379 entries=35
+TRC_CH f=19129 settlements 4 960
+TRC_STEP step=5 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19129 settlements 5 262
+TRC_CH f=19129 settlements 6 186
+TRC_CH f=19129 settlements 7 179
+TRC_CH f=19129 settlements 8 131
+TRC_CH f=19129 settlements 9 180
+TRC_CH f=19129 settlements 10 127
+TRC_CH f=19129 settlements 11 160
+TRC_CH f=19129 settlements 12 123
+TRC_CH f=19129 settlements 13 183
+TRC_CH f=19129 settlements 14 149
+TRC_CH f=19129 settlements 15 194
+TRC_CH f=19129 top 0 196
+TRC_CH f=19129 top 1 380
+TRC_CH f=19129 top 2 208
+TRC_CH f=19129 top 3 100
+TRC_CH f=19129 top 4 11
+TRC_CH f=19129 top 5 70
+TRC_CH f=19129 top 6 69
+TRC_CH f=19129 top 7 81
+TRC_CH f=19129 top 8 205
+TRC_CH f=19129 top 9 184
+TRC_CH f=19129 top 10 198
+TRC_CH f=19129 top 11 145
+TRC_FR f=19129 59.31
+TRC_CH f=19130 rivers 0 2
+TRC_CH f=19130 rivers 1 4
+TRC_CH f=19130 rivers 2 2
+TRC_CH f=19130 rivers 3 2
+TRC_CH f=19130 rivers 4 1
+TRC_CH f=19130 rivers 5 1
+TRC_CH f=19130 rivers 6 2
+TRC_CH f=19130 rivers 7 4
+TRC_CH f=19130 rivers 8 2
+TRC_CH f=19130 rivers 9 1
+TRC_CH f=19130 rivers 10 1
+TRC_CH f=19130 rivers 11 1
+TRC_CH f=19130 rivers 12 1
+TRC_CH f=19130 rivers 13 2
+TRC_CH f=19130 rivers 14 1
+TRC_CH f=19130 rivers 15 2
+TRC_CH f=19130 rivers 16 1
+TRC_CH f=19130 rivers 17 4
+TRC_CH f=19130 rivers 18 3
+TRC_CH f=19130 rivers 19 2
+TRC_CH f=19130 rivers 20 2
+TRC_CH f=19130 rivers 21 2
+TRC_CH f=19130 rivers 22 1
+TRC_CH f=19130 rivers 23 1
+TRC_RL sync=true vis=2 urban=3 layers=[5608, 8, 8, 21, 5]
+TRC_CH f=19130 sea 0 2040
+TRC_CH f=19130 sea 1 2150
+TRC_CH f=19130 sea 2 1505
+TRC_CH f=19130 sea 3 1800
+TRC_CH f=19130 roads 0 1251
+TRC_CH f=19130 roads 1 811
+TRC_CH f=19130 roads 2 1066
+TRC_CH f=19130 roads 3 880
+TRC_CH f=19130 roads 4 1088
+TRC_CH f=19130 roads 5 1244
+TRC_CH f=19130 roads 6 1381
+TRC_CH f=19130 roads 7 1582
+TRC_CH f=19130 roads 8 1436
+TRC_CH f=19130 roads 9 1810
+TRC_CH f=19130 roads 10 477
+TRC_CH f=19130 roads 11 42
+TRC_CH f=19130 roads 12 42
+TRC_CH f=19130 roads 13 34
+TRC_CH f=19130 roads 14 27
+TRC_CH f=19130 roads 15 23
+TRC_CH f=19130 roads 16 22
+TRC_CH f=19130 roads 17 13
+TRC_CH f=19130 roads 18 15
+TRC_CH f=19130 roads 19 13
+TRC_CH f=19130 roads 20 11
+TRC_CH f=19130 roads 21 12
+TRC_CH f=19130 roads 22 8
+TRC_CH f=19130 roads 23 14
+TRC_CH f=19130 settlements 0 922
+TRC_STEP step=1 total=644 settle_pos=12 declutter=61 pin_geom=336 entries=16
+TRC_CH f=19130 settlements 1 872
+TRC_STEP step=2 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19130 settlements 2 260
+TRC_STEP step=3 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19130 settlements 3 253
+TRC_STEP step=4 total=727 settle_pos=17 declutter=67 pin_geom=378 entries=35
+TRC_CH f=19130 settlements 4 946
+TRC_STEP step=5 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19130 settlements 5 266
+TRC_CH f=19130 settlements 6 189
+TRC_CH f=19130 settlements 7 181
+TRC_CH f=19130 settlements 8 131
+TRC_CH f=19130 settlements 9 180
+TRC_CH f=19130 settlements 10 127
+TRC_CH f=19130 settlements 11 157
+TRC_CH f=19130 settlements 12 122
+TRC_CH f=19130 settlements 13 184
+TRC_CH f=19130 settlements 14 149
+TRC_CH f=19130 settlements 15 194
+TRC_CH f=19130 top 0 192
+TRC_CH f=19130 top 1 381
+TRC_CH f=19130 top 2 207
+TRC_CH f=19130 top 3 64
+TRC_CH f=19130 top 4 17
+TRC_CH f=19130 top 5 94
+TRC_CH f=19130 top 6 74
+TRC_CH f=19130 top 7 83
+TRC_CH f=19130 top 8 205
+TRC_CH f=19130 top 9 184
+TRC_CH f=19130 top 10 198
+TRC_CH f=19130 top 11 146
+TRC_FR f=19130 60.14
+TRC_CH f=19131 rivers 0 2
+TRC_CH f=19131 rivers 1 2
+TRC_CH f=19131 rivers 2 1
+TRC_CH f=19131 rivers 3 6
+TRC_CH f=19131 rivers 4 4
+TRC_CH f=19131 rivers 5 2
+TRC_CH f=19131 rivers 6 2
+TRC_CH f=19131 rivers 7 1
+TRC_CH f=19131 rivers 8 1
+TRC_CH f=19131 rivers 9 1
+TRC_CH f=19131 rivers 10 2
+TRC_CH f=19131 rivers 11 2
+TRC_CH f=19131 rivers 12 2
+TRC_CH f=19131 rivers 13 2
+TRC_CH f=19131 rivers 14 2
+TRC_CH f=19131 rivers 15 1
+TRC_CH f=19131 rivers 16 4
+TRC_CH f=19131 rivers 17 2
+TRC_CH f=19131 rivers 18 1
+TRC_CH f=19131 rivers 19 2
+TRC_CH f=19131 rivers 20 1
+TRC_CH f=19131 rivers 21 2
+TRC_CH f=19131 rivers 22 2
+TRC_CH f=19131 rivers 23 1
+TRC_RL sync=true vis=2 urban=3 layers=[5177, 8, 8, 20, 6]
+TRC_CH f=19131 sea 0 2030
+TRC_CH f=19131 sea 1 2115
+TRC_CH f=19131 sea 2 1500
+TRC_CH f=19131 sea 3 1794
+TRC_CH f=19131 roads 0 1248
+TRC_CH f=19131 roads 1 813
+TRC_CH f=19131 roads 2 1095
+TRC_CH f=19131 roads 3 882
+TRC_CH f=19131 roads 4 1090
+TRC_CH f=19131 roads 5 1242
+TRC_CH f=19131 roads 6 1381
+TRC_CH f=19131 roads 7 1615
+TRC_CH f=19131 roads 8 1455
+TRC_CH f=19131 roads 9 1820
+TRC_CH f=19131 roads 10 472
+TRC_CH f=19131 roads 11 41
+TRC_CH f=19131 roads 12 42
+TRC_CH f=19131 roads 13 33
+TRC_CH f=19131 roads 14 26
+TRC_CH f=19131 roads 15 23
+TRC_CH f=19131 roads 16 21
+TRC_CH f=19131 roads 17 13
+TRC_CH f=19131 roads 18 15
+TRC_CH f=19131 roads 19 13
+TRC_CH f=19131 roads 20 11
+TRC_CH f=19131 roads 21 12
+TRC_CH f=19131 roads 22 8
+TRC_CH f=19131 roads 23 17
+TRC_CH f=19131 settlements 0 918
+TRC_STEP step=1 total=648 settle_pos=17 declutter=57 pin_geom=336 entries=16
+TRC_CH f=19131 settlements 1 870
+TRC_STEP step=2 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19131 settlements 2 264
+TRC_STEP step=3 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19131 settlements 3 278
+TRC_STEP step=4 total=721 settle_pos=16 declutter=64 pin_geom=375 entries=35
+TRC_CH f=19131 settlements 4 947
+TRC_STEP step=5 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19131 settlements 5 294
+TRC_CH f=19131 settlements 6 190
+TRC_CH f=19131 settlements 7 181
+TRC_CH f=19131 settlements 8 131
+TRC_CH f=19131 settlements 9 181
+TRC_CH f=19131 settlements 10 188
+TRC_CH f=19131 settlements 11 172
+TRC_CH f=19131 settlements 12 125
+TRC_CH f=19131 settlements 13 182
+TRC_CH f=19131 settlements 14 149
+TRC_CH f=19131 settlements 15 194
+TRC_CH f=19131 top 0 199
+TRC_CH f=19131 top 1 391
+TRC_CH f=19131 top 2 210
+TRC_CH f=19131 top 3 64
+TRC_CH f=19131 top 4 9
+TRC_CH f=19131 top 5 62
+TRC_CH f=19131 top 6 66
+TRC_CH f=19131 top 7 81
+TRC_CH f=19131 top 8 204
+TRC_CH f=19131 top 9 184
+TRC_CH f=19131 top 10 200
+TRC_CH f=19131 top 11 148
+TRC_FR f=19131 60.22
+TRC_CH f=19132 rivers 0 2
+TRC_CH f=19132 rivers 1 2
+TRC_CH f=19132 rivers 2 1
+TRC_CH f=19132 rivers 3 5
+TRC_CH f=19132 rivers 4 4
+TRC_CH f=19132 rivers 5 3
+TRC_CH f=19132 rivers 6 1
+TRC_CH f=19132 rivers 7 1
+TRC_CH f=19132 rivers 8 1
+TRC_CH f=19132 rivers 9 1
+TRC_CH f=19132 rivers 10 1
+TRC_CH f=19132 rivers 11 2
+TRC_CH f=19132 rivers 12 1
+TRC_CH f=19132 rivers 13 1
+TRC_CH f=19132 rivers 14 2
+TRC_CH f=19132 rivers 15 4
+TRC_CH f=19132 rivers 16 3
+TRC_CH f=19132 rivers 17 2
+TRC_CH f=19132 rivers 18 1
+TRC_CH f=19132 rivers 19 2
+TRC_CH f=19132 rivers 20 2
+TRC_CH f=19132 rivers 21 2
+TRC_CH f=19132 rivers 22 1
+TRC_CH f=19132 rivers 23 1
+TRC_RL sync=true vis=2 urban=3 layers=[5574, 9, 9, 22, 5]
+TRC_CH f=19132 sea 0 2038
+TRC_CH f=19132 sea 1 2142
+TRC_CH f=19132 sea 2 1543
+TRC_CH f=19132 sea 3 1823
+TRC_CH f=19132 roads 0 1258
+TRC_CH f=19132 roads 1 808
+TRC_CH f=19132 roads 2 1097
+TRC_CH f=19132 roads 3 889
+TRC_CH f=19132 roads 4 1089
+TRC_CH f=19132 roads 5 1240
+TRC_CH f=19132 roads 6 1396
+TRC_CH f=19132 roads 7 1602
+TRC_CH f=19132 roads 8 1451
+TRC_CH f=19132 roads 9 1787
+TRC_CH f=19132 roads 10 470
+TRC_CH f=19132 roads 11 47
+TRC_CH f=19132 roads 12 48
+TRC_CH f=19132 roads 13 39
+TRC_CH f=19132 roads 14 29
+TRC_CH f=19132 roads 15 27
+TRC_CH f=19132 roads 16 24
+TRC_CH f=19132 roads 17 16
+TRC_CH f=19132 roads 18 17
+TRC_CH f=19132 roads 19 16
+TRC_CH f=19132 roads 20 12
+TRC_CH f=19132 roads 21 14
+TRC_CH f=19132 roads 22 20
+TRC_CH f=19132 roads 23 21
+TRC_CH f=19132 settlements 0 1026
+TRC_STEP step=1 total=668 settle_pos=14 declutter=66 pin_geom=339 entries=16
+TRC_CH f=19132 settlements 1 917
+TRC_STEP step=2 total=57 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19132 settlements 2 260
+TRC_STEP step=3 total=56 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19132 settlements 3 261
+TRC_STEP step=4 total=745 settle_pos=15 declutter=64 pin_geom=373 entries=35
+TRC_CH f=19132 settlements 4 965
+TRC_STEP step=5 total=56 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19132 settlements 5 274
+TRC_CH f=19132 settlements 6 210
+TRC_CH f=19132 settlements 7 187
+TRC_CH f=19132 settlements 8 135
+TRC_CH f=19132 settlements 9 184
+TRC_CH f=19132 settlements 10 131
+TRC_CH f=19132 settlements 11 162
+TRC_CH f=19132 settlements 12 124
+TRC_CH f=19132 settlements 13 187
+TRC_CH f=19132 settlements 14 151
+TRC_CH f=19132 settlements 15 199
+TRC_CH f=19132 top 0 201
+TRC_CH f=19132 top 1 425
+TRC_CH f=19132 top 2 216
+TRC_CH f=19132 top 3 64
+TRC_CH f=19132 top 4 9
+TRC_CH f=19132 top 5 62
+TRC_CH f=19132 top 6 67
+TRC_CH f=19132 top 7 81
+TRC_CH f=19132 top 8 205
+TRC_CH f=19132 top 9 191
+TRC_CH f=19132 top 10 204
+TRC_CH f=19132 top 11 148
+TRC_FR f=19132 61.84
+TRC_CH f=19133 rivers 0 3
+TRC_CH f=19133 rivers 1 3
+TRC_CH f=19133 rivers 2 5
+TRC_CH f=19133 rivers 3 4
+TRC_CH f=19133 rivers 4 5
+TRC_CH f=19133 rivers 5 3
+TRC_CH f=19133 rivers 6 1
+TRC_CH f=19133 rivers 7 2
+TRC_CH f=19133 rivers 8 2
+TRC_CH f=19133 rivers 9 1
+TRC_CH f=19133 rivers 10 1
+TRC_CH f=19133 rivers 11 1
+TRC_CH f=19133 rivers 12 2
+TRC_CH f=19133 rivers 13 2
+TRC_CH f=19133 rivers 14 1
+TRC_CH f=19133 rivers 15 2
+TRC_CH f=19133 rivers 16 1
+TRC_CH f=19133 rivers 17 1
+TRC_CH f=19133 rivers 18 1
+TRC_CH f=19133 rivers 19 2
+TRC_CH f=19133 rivers 20 5
+TRC_CH f=19133 rivers 21 4
+TRC_CH f=19133 rivers 22 3
+TRC_CH f=19133 rivers 23 1
+TRC_RL sync=true vis=3 urban=5 layers=[5263, 11, 12, 33, 7]
+TRC_CH f=19133 sea 0 2104
+TRC_CH f=19133 sea 1 2222
+TRC_CH f=19133 sea 2 1536
+TRC_CH f=19133 sea 3 1858
+TRC_CH f=19133 roads 0 1289
+TRC_CH f=19133 roads 1 812
+TRC_CH f=19133 roads 2 1165
+TRC_CH f=19133 roads 3 904
+TRC_CH f=19133 roads 4 1106
+TRC_CH f=19133 roads 5 1277
+TRC_CH f=19133 roads 6 1431
+TRC_CH f=19133 roads 7 1663
+TRC_CH f=19133 roads 8 1511
+TRC_CH f=19133 roads 9 1900
+TRC_CH f=19133 roads 10 481
+TRC_CH f=19133 roads 11 57
+TRC_CH f=19133 roads 12 59
+TRC_CH f=19133 roads 13 48
+TRC_CH f=19133 roads 14 37
+TRC_CH f=19133 roads 15 32
+TRC_CH f=19133 roads 16 28
+TRC_CH f=19133 roads 17 17
+TRC_CH f=19133 roads 18 19
+TRC_CH f=19133 roads 19 17
+TRC_CH f=19133 roads 20 13
+TRC_CH f=19133 roads 21 15
+TRC_CH f=19133 roads 22 10
+TRC_CH f=19133 roads 23 19
+TRC_CH f=19133 settlements 0 1143
+TRC_STEP step=1 total=721 settle_pos=17 declutter=65 pin_geom=355 entries=16
+TRC_CH f=19133 settlements 1 947
+TRC_STEP step=2 total=61 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19133 settlements 2 271
+TRC_STEP step=3 total=60 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19133 settlements 3 270
+TRC_STEP step=4 total=769 settle_pos=22 declutter=63 pin_geom=384 entries=35
+TRC_CH f=19133 settlements 4 1033
+TRC_STEP step=5 total=65 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19133 settlements 5 371
+TRC_CH f=19133 settlements 6 239
+TRC_CH f=19133 settlements 7 264
+TRC_CH f=19133 settlements 8 179
+TRC_CH f=19133 settlements 9 198
+TRC_CH f=19133 settlements 10 137
+TRC_CH f=19133 settlements 11 200
+TRC_CH f=19133 settlements 12 136
+TRC_CH f=19133 settlements 13 189
+TRC_CH f=19133 settlements 14 155
+TRC_CH f=19133 settlements 15 203
+TRC_CH f=19133 top 0 224
+TRC_CH f=19133 top 1 430
+TRC_CH f=19133 top 2 219
+TRC_CH f=19133 top 3 64
+TRC_CH f=19133 top 4 8
+TRC_CH f=19133 top 5 63
+TRC_CH f=19133 top 6 69
+TRC_CH f=19133 top 7 83
+TRC_CH f=19133 top 8 214
+TRC_CH f=19133 top 9 186
+TRC_CH f=19133 top 10 204
+TRC_CH f=19133 top 11 151
+TRC_FR f=19133 64.53
+TRC_CH f=19134 rivers 0 3
+TRC_CH f=19134 rivers 1 2
+TRC_CH f=19134 rivers 2 2
+TRC_CH f=19134 rivers 3 5
+TRC_CH f=19134 rivers 4 4
+TRC_CH f=19134 rivers 5 3
+TRC_CH f=19134 rivers 6 2
+TRC_CH f=19134 rivers 7 1
+TRC_CH f=19134 rivers 8 1
+TRC_CH f=19134 rivers 9 1
+TRC_CH f=19134 rivers 10 1
+TRC_CH f=19134 rivers 11 1
+TRC_CH f=19134 rivers 12 1
+TRC_CH f=19134 rivers 13 1
+TRC_CH f=19134 rivers 14 1
+TRC_CH f=19134 rivers 15 1
+TRC_CH f=19134 rivers 16 2
+TRC_CH f=19134 rivers 17 1
+TRC_CH f=19134 rivers 18 1
+TRC_CH f=19134 rivers 19 1
+TRC_CH f=19134 rivers 20 1
+TRC_CH f=19134 rivers 21 1
+TRC_CH f=19134 rivers 22 2
+TRC_CH f=19134 rivers 23 1
+TRC_RL sync=true vis=3 urban=5 layers=[5027, 11, 13, 32, 7]
+TRC_CH f=19134 sea 0 2101
+TRC_CH f=19134 sea 1 2272
+TRC_CH f=19134 sea 2 1628
+TRC_CH f=19134 sea 3 1851
+TRC_CH f=19134 roads 0 1273
+TRC_CH f=19134 roads 1 813
+TRC_CH f=19134 roads 2 1227
+TRC_CH f=19134 roads 3 889
+TRC_CH f=19134 roads 4 1099
+TRC_CH f=19134 roads 5 1223
+TRC_CH f=19134 roads 6 1405
+TRC_CH f=19134 roads 7 1630
+TRC_CH f=19134 roads 8 1454
+TRC_CH f=19134 roads 9 1784
+TRC_CH f=19134 roads 10 481
+TRC_CH f=19134 roads 11 57
+TRC_CH f=19134 roads 12 58
+TRC_CH f=19134 roads 13 48
+TRC_CH f=19134 roads 14 38
+TRC_CH f=19134 roads 15 32
+TRC_CH f=19134 roads 16 29
+TRC_CH f=19134 roads 17 18
+TRC_CH f=19134 roads 18 19
+TRC_CH f=19134 roads 19 17
+TRC_CH f=19134 roads 20 13
+TRC_CH f=19134 roads 21 15
+TRC_CH f=19134 roads 22 10
+TRC_CH f=19134 roads 23 20
+TRC_CH f=19134 settlements 0 1026
+TRC_STEP step=1 total=680 settle_pos=19 declutter=62 pin_geom=342 entries=16
+TRC_CH f=19134 settlements 1 930
+TRC_STEP step=2 total=60 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19134 settlements 2 360
+TRC_STEP step=3 total=61 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19134 settlements 3 283
+TRC_STEP step=4 total=784 settle_pos=19 declutter=70 pin_geom=386 entries=35
+TRC_CH f=19134 settlements 4 1014
+TRC_STEP step=5 total=59 settle_pos=0 declutter=0 pin_geom=0 entries=35
+TRC_CH f=19134 settlements 5 302
+TRC_CH f=19134 settlements 6 207
+TRC_CH f=19134 settlements 7 192
+TRC_CH f=19134 settlements 8 135
+TRC_CH f=19134 settlements 9 189
+TRC_CH f=19134 settlements 10 131
+TRC_CH f=19134 settlements 11 163
+TRC_CH f=19134 settlements 12 127
+TRC_CH f=19134 settlements 13 187
+TRC_CH f=19134 settlements 14 152
+TRC_CH f=19134 settlements 15 202
+TRC_CH f=19134 top 0 205
+TRC_CH f=19134 top 1 400
+TRC_CH f=19134 top 2 213
+TRC_CH f=19134 top 3 64
+TRC_CH f=19134 top 4 9
+TRC_CH f=19134 top 5 64
+TRC_CH f=19134 top 6 68
+TRC_CH f=19134 top 7 88
+TRC_CH f=19134 top 8 206
+TRC_CH f=19134 top 9 186
+TRC_CH f=19134 top 10 203
+TRC_CH f=19134 top 11 152
+TRC_FR f=19134 62.69
+TRC_RL sync=false vis=3 urban=4 layers=[11, 7, 3, 3, 3]
+TRC_FR f=19135 11.77
+TRC_FR f=19136 11.82
+TRC_FR f=19137 11.63
+TRC_FR f=19138 11.24
+TRC_FR f=19139 11.05
+TRC_RL sync=false vis=3 urban=5 layers=[10, 15, 12, 10, 7]
+TRC_RL sync=false vis=3 urban=4 layers=[7, 5, 3, 3, 3]
+TRC_ZA readout=10 scalebar=121 setzoom=383 lod=410
+TRC_CH f=19140 sea 0 2255
+TRC_FR f=19140 15.27
+TRC_CH f=19141 sea 1 2707
+TRC_FR f=19141 15.35
+TRC_CH f=19142 sea 2 2180
+TRC_CH f=19142 sea 3 2546
+TRC_FR f=19142 20.65
+TRC_CH f=19143 roads 0 1296
+TRC_FR f=19143 15.42
+TRC_CH f=19144 roads 1 880
+TRC_CH f=19144 roads 2 1156
+TRC_FR f=19144 16.00
+TRC_CH f=19145 roads 3 946
+TRC_CH f=19145 roads 4 1204
+TRC_FR f=19145 16.96
+TRC_CH f=19146 roads 5 1459
+TRC_FR f=19146 15.03
+TRC_CH f=19147 roads 6 2063
+TRC_FR f=19147 15.38
+TRC_CH f=19148 roads 7 2591
+TRC_FR f=19148 15.97
+TRC_CH f=19149 roads 8 2099
+TRC_FR f=19149 15.54
+TRC_FR f=19150 14.10
+TRC_FR f=19151 12.84
+TRC_CH f=19152 roads 9 2405
+TRC_FR f=19152 15.94
+TRC_CH f=19153 roads 10 685
+TRC_CH f=19153 roads 11 69
+TRC_CH f=19153 roads 12 67
+TRC_CH f=19153 roads 13 62
+TRC_FR f=19153 13.46
+TRC_CH f=19154 roads 14 46
+TRC_CH f=19154 roads 15 40
+TRC_CH f=19154 roads 16 33
+TRC_CH f=19154 roads 17 26
+TRC_CH f=19154 roads 18 22
+TRC_FR f=19154 12.68
+TRC_CH f=19155 roads 19 24
+TRC_CH f=19155 roads 20 19
+TRC_CH f=19155 roads 21 18
+TRC_CH f=19155 roads 22 17
+TRC_CH f=19155 roads 23 25
+TRC_FR f=19155 14.80
+TRC_CH f=19156 settlements 0 294
+TRC_STEP step=1 total=42494 settle_pos=40206 declutter=964 pin_geom=975 entries=16
+TRC_CH f=19156 settlements 1 42758
+TRC_STEP step=2 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19156 settlements 2 282
+TRC_STEP step=3 total=53 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19156 settlements 3 253
+TRC_FR f=19156 56.38
+TRC_FR f=19157 12.41
+TRC_STEP step=4 total=873 settle_pos=13 declutter=71 pin_geom=413 entries=36
+TRC_CH f=19158 settlements 4 1185
+TRC_FR f=19158 12.93
+TRC_STEP step=5 total=62 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19159 settlements 5 304
+TRC_CH f=19159 settlements 6 471
+TRC_CH f=19159 settlements 7 354
+TRC_CH f=19159 settlements 8 227
+TRC_FR f=19159 13.89
+TRC_CH f=19160 settlements 9 330
+TRC_CH f=19160 settlements 10 289
+TRC_CH f=19160 settlements 11 242
+TRC_CH f=19160 settlements 12 307
+TRC_CH f=19160 settlements 13 261
+TRC_FR f=19160 14.09
+TRC_CH f=19161 settlements 14 383
+TRC_CH f=19161 settlements 15 483
+TRC_CH f=19161 top 0 304
+TRC_CH f=19161 top 1 480
+TRC_CH f=19161 top 2 309
+TRC_FR f=19161 15.25
+TRC_CH f=19162 top 3 98
+TRC_CH f=19162 top 4 16
+TRC_CH f=19162 top 5 91
+TRC_CH f=19162 top 6 155
+TRC_CH f=19162 top 7 172
+TRC_FR f=19162 13.18
+TRC_CH f=19163 top 8 242
+TRC_CH f=19163 top 9 164
+TRC_CH f=19163 top 10 202
+TRC_CH f=19163 top 11 163
+TRC_FR f=19163 13.40
+  notch  1  zoom   1.58 lod false  call   1.27 ms  first  15.27  worst  56.38 (process  62.31)  sharp in  24 frames (overlay 23) /   395.5 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 15, 14, 8, 6]
+TRC_RL sync=false vis=3 urban=11 layers=[20, 12, 7, 8, 6]
+TRC_ZA readout=13 scalebar=132 setzoom=354 lod=447
+TRC_CH f=19164 sea 0 2258
+TRC_FR f=19164 15.73
+TRC_CH f=19165 sea 1 2304
+TRC_FR f=19165 15.50
+TRC_CH f=19166 sea 2 1691
+TRC_FR f=19166 14.62
+TRC_CH f=19167 sea 3 2009
+TRC_CH f=19167 roads 0 1296
+TRC_CH f=19167 roads 1 823
+TRC_FR f=19167 18.55
+TRC_CH f=19168 roads 2 1088
+TRC_FR f=19168 12.93
+TRC_CH f=19169 roads 3 917
+TRC_CH f=19169 roads 4 1123
+TRC_FR f=19169 14.11
+TRC_CH f=19170 roads 5 1283
+TRC_FR f=19170 13.25
+TRC_CH f=19171 roads 6 1576
+TRC_FR f=19171 13.36
+TRC_CH f=19172 roads 7 1766
+TRC_FR f=19172 13.57
+TRC_CH f=19173 roads 8 1577
+TRC_CH f=19173 roads 9 1927
+TRC_FR f=19173 15.55
+TRC_CH f=19174 roads 10 509
+TRC_CH f=19174 roads 11 71
+TRC_CH f=19174 roads 12 71
+TRC_CH f=19174 roads 13 61
+TRC_CH f=19174 roads 14 43
+TRC_FR f=19174 13.56
+TRC_CH f=19175 roads 15 38
+TRC_CH f=19175 roads 16 33
+TRC_CH f=19175 roads 17 21
+TRC_CH f=19175 roads 18 21
+TRC_CH f=19175 roads 19 24
+TRC_FR f=19175 12.75
+TRC_CH f=19176 roads 20 22
+TRC_CH f=19176 roads 21 20
+TRC_CH f=19176 roads 22 20
+TRC_CH f=19176 roads 23 26
+TRC_CH f=19176 settlements 0 280
+TRC_FR f=19176 14.51
+TRC_FR f=19177 11.15
+TRC_FR f=19178 11.23
+TRC_STEP step=1 total=32539 settle_pos=30626 declutter=586 pin_geom=983 entries=16
+TRC_CH f=19179 settlements 1 32824
+TRC_FR f=19179 45.07
+TRC_STEP step=2 total=57 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19180 settlements 2 321
+TRC_STEP step=3 total=56 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19180 settlements 3 270
+TRC_FR f=19180 13.51
+TRC_STEP step=4 total=889 settle_pos=15 declutter=77 pin_geom=436 entries=36
+TRC_CH f=19181 settlements 4 1183
+TRC_STEP step=5 total=76 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19181 settlements 5 330
+TRC_CH f=19181 settlements 6 406
+TRC_FR f=19181 14.51
+TRC_CH f=19182 settlements 7 245
+TRC_CH f=19182 settlements 8 219
+TRC_CH f=19182 settlements 9 325
+TRC_CH f=19182 settlements 10 359
+TRC_FR f=19182 14.13
+TRC_CH f=19183 settlements 11 158
+TRC_CH f=19183 settlements 12 313
+TRC_CH f=19183 settlements 13 190
+TRC_CH f=19183 settlements 14 254
+TRC_CH f=19183 settlements 15 384
+TRC_FR f=19183 14.83
+TRC_CH f=19184 top 0 336
+TRC_CH f=19184 top 1 591
+TRC_CH f=19184 top 2 196
+TRC_CH f=19184 top 3 184
+TRC_CH f=19184 top 4 10
+TRC_FR f=19184 14.65
+TRC_CH f=19185 top 5 149
+TRC_CH f=19185 top 6 277
+TRC_CH f=19185 top 7 259
+TRC_CH f=19185 top 8 239
+TRC_CH f=19185 top 9 121
+TRC_FR f=19185 14.60
+TRC_CH f=19186 top 10 181
+TRC_CH f=19186 top 11 180
+TRC_FR f=19186 12.66
+  notch  2  zoom   1.81 lod false  call   1.22 ms  first  15.73  worst  45.07 (process  62.31)  sharp in  23 frames (overlay 22) /   352.9 ms
+TRC_RL sync=false vis=3 urban=7 layers=[14, 15, 13, 8, 6]
+TRC_RL sync=false vis=2 urban=5 layers=[12, 7, 4, 4, 4]
+TRC_ZA readout=13 scalebar=129 setzoom=323 lod=349
+TRC_CH f=19187 sea 0 2325
+TRC_FR f=19187 16.09
+TRC_CH f=19188 sea 1 2425
+TRC_FR f=19188 15.59
+TRC_CH f=19189 sea 2 1772
+TRC_CH f=19189 sea 3 2092
+TRC_FR f=19189 18.16
+TRC_CH f=19190 roads 0 1350
+TRC_CH f=19190 roads 1 838
+TRC_FR f=19190 15.35
+TRC_CH f=19191 roads 2 1073
+TRC_CH f=19191 roads 3 1066
+TRC_FR f=19191 14.75
+TRC_CH f=19192 roads 4 1160
+TRC_CH f=19192 roads 5 1295
+TRC_FR f=19192 15.43
+TRC_CH f=19193 roads 6 1564
+TRC_CH f=19193 roads 7 1805
+TRC_FR f=19193 16.03
+TRC_CH f=19194 roads 8 1579
+TRC_FR f=19194 13.88
+TRC_CH f=19195 roads 9 2021
+TRC_FR f=19195 14.03
+TRC_CH f=19196 roads 10 572
+TRC_CH f=19196 roads 11 60
+TRC_CH f=19196 roads 12 124
+TRC_FR f=19196 13.13
+TRC_CH f=19197 roads 13 53
+TRC_CH f=19197 roads 14 42
+TRC_CH f=19197 roads 15 71
+TRC_CH f=19197 roads 16 33
+TRC_FR f=19197 12.91
+TRC_CH f=19198 roads 17 25
+TRC_CH f=19198 roads 18 24
+TRC_CH f=19198 roads 19 30
+TRC_CH f=19198 roads 20 25
+TRC_CH f=19198 roads 21 20
+TRC_FR f=19198 12.98
+TRC_CH f=19199 roads 22 15
+TRC_CH f=19199 roads 23 23
+TRC_CH f=19199 settlements 0 262
+TRC_FR f=19199 14.50
+TRC_FR f=19200 11.67
+TRC_FR f=19201 11.67
+TRC_STEP step=1 total=32080 settle_pos=30242 declutter=569 pin_geom=951 entries=16
+TRC_CH f=19202 settlements 1 32450
+TRC_FR f=19202 45.34
+TRC_STEP step=2 total=55 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19203 settlements 2 383
+TRC_STEP step=3 total=54 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19203 settlements 3 357
+TRC_FR f=19203 13.90
+TRC_STEP step=4 total=882 settle_pos=8 declutter=74 pin_geom=422 entries=36
+TRC_CH f=19204 settlements 4 1297
+TRC_STEP step=5 total=62 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19204 settlements 5 363
+TRC_CH f=19204 settlements 6 324
+TRC_FR f=19204 14.91
+TRC_CH f=19205 settlements 7 228
+TRC_CH f=19205 settlements 8 199
+TRC_CH f=19205 settlements 9 204
+TRC_CH f=19205 settlements 10 243
+TRC_FR f=19205 13.49
+TRC_CH f=19206 settlements 11 157
+TRC_CH f=19206 settlements 12 241
+TRC_CH f=19206 settlements 13 194
+TRC_CH f=19206 settlements 14 389
+TRC_CH f=19206 settlements 15 295
+TRC_FR f=19206 14.60
+TRC_CH f=19207 top 0 566
+TRC_CH f=19207 top 1 404
+TRC_CH f=19207 top 2 194
+TRC_CH f=19207 top 3 180
+TRC_CH f=19207 top 4 120
+TRC_FR f=19207 14.34
+TRC_CH f=19208 top 5 109
+TRC_CH f=19208 top 6 303
+TRC_CH f=19208 top 7 207
+TRC_CH f=19208 top 8 203
+TRC_CH f=19208 top 9 164
+TRC_FR f=19208 14.04
+TRC_CH f=19209 top 10 201
+TRC_CH f=19209 top 11 150
+TRC_FR f=19209 12.57
+  notch  3  zoom   2.09 lod false  call   1.15 ms  first  16.09  worst  45.34 (process  62.31)  sharp in  23 frames (overlay 22) /   357.9 ms
+TRC_RL sync=false vis=3 urban=6 layers=[14, 14, 14, 9, 5]
+TRC_RL sync=false vis=2 urban=6 layers=[11, 6, 4, 5, 3]
+TRC_CH f=19209 rivers 0 3
+TRC_CH f=19209 rivers 1 2
+TRC_CH f=19209 rivers 2 2
+TRC_CH f=19209 rivers 3 5
+TRC_CH f=19209 rivers 4 2
+TRC_CH f=19209 rivers 5 2
+TRC_CH f=19209 rivers 6 1
+TRC_CH f=19209 rivers 7 1
+TRC_CH f=19209 rivers 8 1
+TRC_CH f=19209 rivers 9 8
+TRC_CH f=19209 rivers 10 6
+TRC_CH f=19209 rivers 11 5
+TRC_CH f=19209 rivers 12 2
+TRC_CH f=19209 rivers 13 1
+TRC_CH f=19209 rivers 14 2
+TRC_CH f=19209 rivers 15 2
+TRC_CH f=19209 rivers 16 1
+TRC_CH f=19209 rivers 17 4
+TRC_CH f=19209 rivers 18 2
+TRC_CH f=19209 rivers 19 1
+TRC_CH f=19209 rivers 20 1
+TRC_CH f=19209 rivers 21 1
+TRC_CH f=19209 rivers 22 1
+TRC_CH f=19209 rivers 23 1
+TRC_RL sync=false vis=2 urban=6 layers=[6520, 13, 6, 6, 5]
+TRC_ZA readout=13 scalebar=126 setzoom=329 lod=17085
+TRC_FR f=19210 34.49
+TRC_FR f=19211 14.83
+TRC_CH f=19212 sea 0 2566
+TRC_FR f=19212 23.55
+TRC_RL sync=false vis=4 urban=8 layers=[14, 9, 5, 6, 4]
+TRC_FR f=19213 12.74
+TRC_FR f=19214 13.16
+TRC_CH f=19215 sea 1 2426
+TRC_FR f=19215 14.97
+TRC_CH f=19216 sea 2 1902
+TRC_FR f=19216 14.29
+TRC_CH f=19217 sea 3 1950
+TRC_FR f=19217 16.70
+TRC_CH f=19218 roads 0 1338
+TRC_FR f=19218 13.69
+TRC_CH f=19219 roads 1 776
+TRC_FR f=19219 13.31
+TRC_CH f=19220 roads 2 855
+TRC_CH f=19220 roads 3 1003
+TRC_FR f=19220 14.38
+TRC_CH f=19221 roads 4 1042
+TRC_CH f=19221 roads 5 1420
+TRC_FR f=19221 15.40
+TRC_CH f=19222 roads 6 1507
+TRC_FR f=19222 13.76
+TRC_CH f=19223 roads 7 1086
+TRC_CH f=19223 roads 8 1436
+TRC_FR f=19223 15.03
+TRC_CH f=19224 roads 9 1801
+TRC_CH f=19224 roads 10 545
+TRC_CH f=19224 roads 11 63
+TRC_CH f=19224 roads 12 64
+TRC_FR f=19224 16.20
+TRC_CH f=19225 roads 13 56
+TRC_CH f=19225 roads 14 43
+TRC_FR f=19225 12.89
+TRC_CH f=19226 roads 15 41
+TRC_CH f=19226 roads 16 42
+TRC_CH f=19226 roads 17 30
+TRC_FR f=19226 13.10
+TRC_CH f=19227 roads 18 28
+TRC_CH f=19227 roads 19 29
+TRC_CH f=19227 roads 20 25
+TRC_CH f=19227 roads 21 20
+TRC_FR f=19227 13.27
+TRC_CH f=19228 roads 22 17
+TRC_CH f=19228 roads 23 33
+TRC_CH f=19228 settlements 0 314
+TRC_FR f=19228 14.18
+TRC_FR f=19229 11.64
+TRC_FR f=19230 11.69
+TRC_STEP step=1 total=30957 settle_pos=29024 declutter=611 pin_geom=969 entries=16
+TRC_CH f=19231 settlements 1 31251
+TRC_FR f=19231 43.03
+TRC_STEP step=2 total=63 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19232 settlements 2 354
+TRC_STEP step=3 total=63 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19232 settlements 3 312
+TRC_FR f=19232 13.36
+TRC_STEP step=4 total=1070 settle_pos=18 declutter=90 pin_geom=476 entries=36
+TRC_CH f=19233 settlements 4 1329
+TRC_STEP step=5 total=91 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19233 settlements 5 345
+TRC_CH f=19233 settlements 6 290
+TRC_FR f=19233 14.87
+TRC_CH f=19234 settlements 7 259
+TRC_CH f=19234 settlements 8 192
+TRC_CH f=19234 settlements 9 366
+TRC_CH f=19234 settlements 10 400
+TRC_FR f=19234 13.46
+TRC_CH f=19235 settlements 11 173
+TRC_CH f=19235 settlements 12 249
+TRC_CH f=19235 settlements 13 197
+TRC_CH f=19235 settlements 14 286
+TRC_CH f=19235 settlements 15 237
+TRC_FR f=19235 13.98
+TRC_CH f=19236 top 0 619
+TRC_CH f=19236 top 1 469
+TRC_CH f=19236 top 2 254
+TRC_CH f=19236 top 3 221
+TRC_CH f=19236 top 4 129
+TRC_FR f=19236 14.18
+TRC_CH f=19237 top 5 286
+TRC_CH f=19237 top 6 356
+TRC_CH f=19237 top 7 164
+TRC_CH f=19237 top 8 155
+TRC_CH f=19237 top 9 105
+TRC_FR f=19237 13.08
+TRC_CH f=19238 top 10 196
+TRC_CH f=19238 top 11 192
+TRC_FR f=19238 11.75
+TRC_FR f=19239 10.60
+TRC_FR f=19240 10.82
+TRC_FR f=19241 10.66
+TRC_FR f=19242 10.58
+TRC_FR f=19243 10.77
+TRC_FR f=19244 10.67
+TRC_FR f=19245 10.66
+TRC_FR f=19246 10.70
+TRC_FR f=19247 10.60
+TRC_FR f=19248 10.68
+TRC_FR f=19249 11.11
+TRC_FR f=19250 10.67
+TRC_FR f=19251 10.82
+TRC_FR f=19252 10.78
+TRC_FR f=19253 10.65
+TRC_FR f=19254 11.33
+TRC_FR f=19255 11.77
+TRC_FR f=19256 10.96
+TRC_FR f=19257 10.94
+TRC_FR f=19258 10.79
+TRC_FR f=19259 11.32
+TRC_FR f=19260 10.96
+TRC_FR f=19261 11.73
+TRC_FR f=19262 11.11
+TRC_FR f=19263 10.88
+TRC_FR f=19264 10.77
+TRC_FR f=19265 10.61
+TRC_FR f=19266 10.71
+TRC_FR f=19267 10.74
+TRC_FR f=19268 10.73
+TRC_FR f=19269 10.84
+TRC_FR f=19270 10.63
+TRC_FR f=19271 10.73
+TRC_FR f=19272 10.66
+TRC_FR f=19273 10.61
+TRC_FR f=19274 10.70
+TRC_FR f=19275 11.09
+TRC_FR f=19276 10.61
+TRC_FR f=19277 10.71
+TRC_FR f=19278 10.76
+TRC_FR f=19279 10.56
+TRC_FR f=19280 10.64
+TRC_FR f=19281 10.60
+TRC_FR f=19282 10.50
+TRC_FR f=19283 10.61
+TRC_FR f=19284 10.57
+TRC_FR f=19285 15.11
+TRC_FR f=19286 24.13
+TRC_FR f=19287 16.35
+TRC_FR f=19288 17.39
+TRC_FR f=19289 16.09
+TRC_FR f=19290 16.62
+TRC_FR f=19291 15.66
+TRC_FR f=19292 16.63
+TRC_FR f=19293 16.84
+TRC_FR f=19294 14.73
+TRC_FR f=19295 11.59
+  notch  4  zoom   2.40 lod true   call  17.79 ms  first  34.49  worst  43.03 (process  62.31)  sharp in  86 frames (overlay 28) /  1120.9 ms
+TRC_RL sync=false vis=5 urban=8 layers=[15, 20, 18, 14, 12]
+TRC_RL sync=false vis=2 urban=6 layers=[11, 6, 4, 4, 4]
+TRC_ZA readout=14 scalebar=180 setzoom=516 lod=826
+TRC_FR f=19296 19.03
+TRC_FR f=19297 14.63
+TRC_CH f=19298 sea 0 2944
+TRC_FR f=19298 20.18
+TRC_FR f=19299 17.72
+TRC_FR f=19300 14.66
+TRC_CH f=19301 sea 1 3255
+TRC_FR f=19301 20.58
+TRC_FR f=19302 17.27
+TRC_FR f=19303 13.98
+TRC_CH f=19304 sea 2 2103
+TRC_FR f=19304 18.95
+TRC_FR f=19305 16.97
+TRC_FR f=19306 15.67
+TRC_CH f=19307 sea 3 2073
+TRC_FR f=19307 21.94
+TRC_FR f=19308 17.94
+TRC_FR f=19309 17.39
+TRC_CH f=19310 roads 0 1734
+TRC_FR f=19310 13.73
+TRC_FR f=19311 18.08
+TRC_FR f=19312 18.88
+TRC_CH f=19313 roads 1 830
+TRC_FR f=19313 12.45
+TRC_CH f=19314 roads 2 705
+TRC_FR f=19314 13.41
+TRC_CH f=19315 roads 3 1031
+TRC_FR f=19315 12.98
+TRC_CH f=19316 roads 4 1421
+TRC_FR f=19316 13.05
+TRC_CH f=19317 roads 5 1420
+TRC_FR f=19317 13.10
+TRC_CH f=19318 roads 6 1275
+TRC_CH f=19318 roads 7 663
+TRC_FR f=19318 13.03
+TRC_CH f=19319 roads 8 619
+TRC_CH f=19319 roads 9 1728
+TRC_CH f=19319 roads 10 537
+TRC_FR f=19319 14.28
+TRC_CH f=19320 roads 11 67
+TRC_CH f=19320 roads 12 74
+TRC_CH f=19320 roads 13 79
+TRC_CH f=19320 roads 14 50
+TRC_CH f=19320 roads 15 46
+TRC_FR f=19320 12.59
+TRC_CH f=19321 roads 16 39
+TRC_CH f=19321 roads 17 30
+TRC_CH f=19321 roads 18 23
+TRC_CH f=19321 roads 19 32
+TRC_CH f=19321 roads 20 37
+TRC_FR f=19321 12.15
+TRC_CH f=19322 roads 21 25
+TRC_CH f=19322 roads 22 14
+TRC_CH f=19322 roads 23 34
+TRC_CH f=19322 settlements 0 319
+TRC_FR f=19322 12.52
+TRC_FR f=19323 9.49
+TRC_FR f=19324 9.70
+TRC_STEP step=1 total=31263 settle_pos=29260 declutter=644 pin_geom=986 entries=16
+TRC_CH f=19325 settlements 1 31636
+TRC_FR f=19325 42.85
+TRC_STEP step=2 total=72 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19326 settlements 2 354
+TRC_STEP step=3 total=69 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19326 settlements 3 309
+TRC_FR f=19326 11.78
+TRC_STEP step=4 total=1000 settle_pos=20 declutter=82 pin_geom=458 entries=36
+TRC_CH f=19327 settlements 4 1252
+TRC_STEP step=5 total=72 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19327 settlements 5 367
+TRC_CH f=19327 settlements 6 283
+TRC_FR f=19327 12.84
+TRC_CH f=19328 settlements 7 263
+TRC_CH f=19328 settlements 8 247
+TRC_CH f=19328 settlements 9 322
+TRC_CH f=19328 settlements 10 369
+TRC_FR f=19328 12.14
+TRC_CH f=19329 settlements 11 170
+TRC_CH f=19329 settlements 12 189
+TRC_CH f=19329 settlements 13 246
+TRC_CH f=19329 settlements 14 303
+TRC_CH f=19329 settlements 15 236
+TRC_FR f=19329 12.68
+TRC_CH f=19330 top 0 628
+TRC_CH f=19330 top 1 474
+TRC_CH f=19330 top 2 218
+TRC_CH f=19330 top 3 228
+TRC_CH f=19330 top 4 229
+TRC_FR f=19330 12.96
+TRC_CH f=19331 top 5 263
+TRC_CH f=19331 top 6 203
+TRC_CH f=19331 top 7 119
+TRC_CH f=19331 top 8 148
+TRC_CH f=19331 top 9 150
+TRC_FR f=19331 11.67
+TRC_CH f=19332 top 10 155
+TRC_CH f=19332 top 11 199
+TRC_FR f=19332 10.61
+  notch  5  zoom   2.76 lod true   call   1.87 ms  first  19.03  worst  42.85 (process  45.35)  sharp in  37 frames (overlay 36) /   571.6 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 17, 17, 11, 8]
+TRC_RL sync=false vis=1 urban=4 layers=[7, 5, 3, 5, 4]
+TRC_ZA readout=15 scalebar=138 setzoom=352 lod=859
+TRC_CH f=19333 sea 0 3214
+TRC_FR f=19333 16.55
+TRC_CH f=19334 sea 1 2892
+TRC_FR f=19334 13.19
+TRC_CH f=19335 sea 2 1858
+TRC_CH f=19335 sea 3 1242
+TRC_FR f=19335 15.01
+TRC_CH f=19336 roads 0 1293
+TRC_CH f=19336 roads 1 664
+TRC_CH f=19336 roads 2 567
+TRC_CH f=19336 roads 3 907
+TRC_CH f=19336 roads 4 712
+TRC_FR f=19336 14.65
+TRC_CH f=19337 roads 5 1311
+TRC_CH f=19337 roads 6 817
+TRC_CH f=19337 roads 7 495
+TRC_FR f=19337 15.59
+TRC_CH f=19338 roads 8 511
+TRC_CH f=19338 roads 9 1922
+TRC_CH f=19338 roads 10 526
+TRC_CH f=19338 roads 11 61
+TRC_FR f=19338 13.13
+TRC_CH f=19339 roads 12 69
+TRC_CH f=19339 roads 13 56
+TRC_CH f=19339 roads 14 42
+TRC_CH f=19339 roads 15 36
+TRC_CH f=19339 roads 16 34
+TRC_FR f=19339 10.75
+TRC_CH f=19340 roads 17 23
+TRC_CH f=19340 roads 18 31
+TRC_CH f=19340 roads 19 21
+TRC_CH f=19340 roads 20 18
+TRC_CH f=19340 roads 21 76
+TRC_FR f=19340 10.65
+TRC_CH f=19341 roads 22 15
+TRC_CH f=19341 roads 23 27
+TRC_CH f=19341 settlements 0 187
+TRC_FR f=19341 12.13
+TRC_FR f=19342 9.77
+TRC_FR f=19343 8.52
+TRC_STEP step=1 total=21392 settle_pos=19488 declutter=602 pin_geom=957 entries=16
+TRC_CH f=19344 settlements 1 21745
+TRC_FR f=19344 31.32
+TRC_STEP step=2 total=58 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19345 settlements 2 374
+TRC_STEP step=3 total=60 settle_pos=0 declutter=0 pin_geom=0 entries=16
+TRC_CH f=19345 settlements 3 332
+TRC_FR f=19345 10.20
+TRC_STEP step=4 total=902 settle_pos=16 declutter=75 pin_geom=433 entries=36
+TRC_CH f=19346 settlements 4 1264
+TRC_STEP step=5 total=81 settle_pos=0 declutter=0 pin_geom=0 entries=36
+TRC_CH f=19346 settlements 5 394
+TRC_CH f=19346 settlements 6 278
+TRC_FR f=19346 11.15
+TRC_CH f=19347 settlements 7 340
+TRC_CH f=19347 settlements 8 190
+TRC_CH f=19347 settlements 9 212
+TRC_CH f=19347 settlements 10 240
+TRC_FR f=19347 10.57
+TRC_CH f=19348 settlements 11 176
+TRC_CH f=19348 settlements 12 218
+TRC_CH f=19348 settlements 13 175
+TRC_CH f=19348 settlements 14 251
+TRC_CH f=19348 settlements 15 406
+TRC_FR f=19348 11.49
+TRC_CH f=19349 top 0 607
+TRC_CH f=19349 top 1 595
+TRC_CH f=19349 top 2 141
+TRC_CH f=19349 top 3 179
+TRC_CH f=19349 top 4 134
+TRC_FR f=19349 11.43
+TRC_CH f=19350 top 5 314
+TRC_CH f=19350 top 6 158
+TRC_CH f=19350 top 7 100
+TRC_CH f=19350 top 8 187
+TRC_CH f=19350 top 9 159
+TRC_FR f=19350 10.67
+TRC_CH f=19351 top 10 145
+TRC_CH f=19351 top 11 152
+TRC_FR f=19351 9.36
+  notch  6  zoom   3.17 lod true   call   1.64 ms  first  16.55  worst  31.32 (process  43.06)  sharp in  19 frames (overlay 18) /   244.2 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 14, 15, 10, 7]
+TRC_RL sync=false vis=2 urban=6 layers=[11, 7, 4, 4, 3]
+TRC_ZA readout=13 scalebar=130 setzoom=403 lod=1983
+TRC_CH f=19352 sea 0 2986
+TRC_FR f=19352 20.11
+TRC_FR f=19353 10.73
+TRC_FR f=19354 14.37
+TRC_CH f=19355 sea 1 2725
+TRC_FR f=19355 13.58
+TRC_CH f=19356 sea 2 1978
+TRC_CH f=19356 sea 3 1110
+TRC_FR f=19356 17.27
+TRC_CH f=19357 roads 0 1651
+TRC_CH f=19357 roads 1 659
+TRC_FR f=19357 13.21
+TRC_CH f=19358 roads 2 499
+TRC_CH f=19358 roads 3 1170
+TRC_FR f=19358 14.04
+TRC_CH f=19359 roads 4 684
+TRC_CH f=19359 roads 5 1233
+TRC_FR f=19359 14.18
+TRC_CH f=19360 roads 6 38
+TRC_CH f=19360 roads 7 696
+TRC_CH f=19360 roads 8 477
+TRC_FR f=19360 13.27
+TRC_CH f=19361 roads 9 1492
+TRC_CH f=19361 roads 10 1042
+TRC_CH f=19361 roads 11 1335
+TRC_CH f=19361 roads 12 1718
+TRC_FR f=19361 18.49
+TRC_CH f=19362 roads 13 1651
+TRC_CH f=19362 roads 14 1889
+TRC_FR f=19362 14.92
+TRC_CH f=19363 roads 15 692
+TRC_CH f=19363 roads 16 1738
+TRC_CH f=19363 roads 17 1287
+TRC_FR f=19363 15.97
+TRC_CH f=19364 roads 18 1670
+TRC_CH f=19364 roads 19 1508
+TRC_CH f=19364 roads 20 1525
+TRC_CH f=19364 roads 21 1113
+TRC_FR f=19364 18.65
+TRC_CH f=19365 roads 22 494
+TRC_CH f=19365 roads 23 78
+TRC_FR f=19365 32.40
+TRC_CH f=19366 settlements 0 332
+TRC_FR f=19366 23.68
+TRC_FR f=19367 17.13
+TRC_FR f=19368 34.30
+TRC_STEP step=1 total=32119 settle_pos=25124 declutter=1625 pin_geom=4563 entries=47
+TRC_CH f=19369 settlements 1 32426
+TRC_FR f=19369 48.53
+TRC_FR f=19370 20.86
+TRC_FR f=19371 22.75
+TRC_STEP step=2 total=3139 settle_pos=59 declutter=275 pin_geom=1502 entries=94
+TRC_CH f=19372 settlements 2 3437
+TRC_FR f=19372 24.52
+TRC_FR f=19373 26.23
+TRC_FR f=19374 24.87
+TRC_STEP step=3 total=2786 settle_pos=50 declutter=225 pin_geom=1221 entries=140
+TRC_CH f=19375 settlements 3 3098
+TRC_FR f=19375 27.97
+TRC_FR f=19376 20.07
+TRC_FR f=19377 21.18
+TRC_STEP step=4 total=3519 settle_pos=65 declutter=254 pin_geom=1413 entries=185
+TRC_CH f=19378 settlements 4 3843
+TRC_FR f=19378 20.51
+TRC_FR f=19379 20.15
+TRC_FR f=19380 17.19
+TRC_STEP step=5 total=3717 settle_pos=70 declutter=263 pin_geom=1340 entries=235
+TRC_CH f=19381 settlements 5 4031
+TRC_FR f=19381 24.95
+TRC_FR f=19382 19.22
+TRC_FR f=19383 13.22
+TRC_CH f=19384 settlements 6 1547
+TRC_FR f=19384 14.17
+TRC_CH f=19385 settlements 7 1372
+TRC_FR f=19385 14.43
+TRC_CH f=19386 settlements 8 1411
+TRC_CH f=19386 settlements 9 1627
+TRC_FR f=19386 16.30
+TRC_CH f=19387 settlements 10 1476
+TRC_FR f=19387 14.48
+TRC_CH f=19388 settlements 11 1730
+TRC_CH f=19388 settlements 12 1353
+TRC_FR f=19388 16.34
+TRC_CH f=19389 settlements 13 1471
+TRC_FR f=19389 14.45
+TRC_CH f=19390 settlements 14 1225
+TRC_FR f=19390 14.14
+TRC_CH f=19391 settlements 15 1326
+TRC_CH f=19391 top 0 670
+TRC_FR f=19391 19.13
+TRC_CH f=19392 top 1 384
+TRC_FR f=19392 16.69
+TRC_FR f=19393 15.46
+TRC_CH f=19394 top 2 220
+TRC_FR f=19394 15.98
+TRC_FR f=19395 15.30
+TRC_CH f=19396 top 3 162
+TRC_FR f=19396 15.59
+TRC_CH f=19397 top 4 383
+TRC_CH f=19397 top 5 343
+TRC_FR f=19397 16.94
+TRC_CH f=19398 top 6 174
+TRC_FR f=19398 15.99
+TRC_CH f=19399 top 7 167
+TRC_FR f=19399 15.99
+TRC_FR f=19400 16.26
+TRC_FR f=19401 14.79
+TRC_CH f=19402 top 8 148
+TRC_FR f=19402 13.47
+TRC_CH f=19403 top 9 194
+TRC_CH f=19403 top 10 142
+TRC_FR f=19403 14.00
+TRC_CH f=19404 top 11 176
+TRC_FR f=19404 13.57
+  notch  7  zoom   3.65 lod true   call   3.09 ms  first  20.11  worst  48.53 (process  43.06)  sharp in  53 frames (overlay 52) /   978.6 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 16, 18, 14, 6]
+TRC_RL sync=false vis=2 urban=6 layers=[10, 7, 4, 4, 4]
+TRC_ZA readout=13 scalebar=139 setzoom=334 lod=1218
+TRC_FR f=19405 13.80
+TRC_FR f=19406 11.83
+TRC_CH f=19407 sea 0 2077
+TRC_FR f=19407 13.16
+TRC_CH f=19408 sea 1 1503
+TRC_FR f=19408 12.86
+TRC_CH f=19409 sea 2 1140
+TRC_CH f=19409 sea 3 730
+TRC_FR f=19409 15.03
+TRC_CH f=19410 roads 0 1123
+TRC_CH f=19410 roads 1 578
+TRC_CH f=19410 roads 2 429
+TRC_CH f=19410 roads 3 852
+TRC_FR f=19410 15.10
+TRC_CH f=19411 roads 4 352
+TRC_CH f=19411 roads 5 913
+TRC_CH f=19411 roads 6 26
+TRC_CH f=19411 roads 7 816
+TRC_CH f=19411 roads 8 41
+TRC_FR f=19411 14.94
+TRC_CH f=19412 roads 9 606
+TRC_CH f=19412 roads 10 672
+TRC_CH f=19412 roads 11 896
+TRC_CH f=19412 roads 12 1222
+TRC_CH f=19412 roads 13 1169
+TRC_FR f=19412 17.41
+TRC_FR f=19413 11.41
+TRC_FR f=19414 11.13
+TRC_CH f=19415 roads 14 1290
+TRC_FR f=19415 12.96
+TRC_CH f=19416 roads 15 537
+TRC_CH f=19416 roads 16 692
+TRC_FR f=19416 13.25
+TRC_CH f=19417 roads 17 236
+TRC_CH f=19417 roads 18 911
+TRC_CH f=19417 roads 19 1210
+TRC_CH f=19417 roads 20 911
+TRC_FR f=19417 15.84
+TRC_CH f=19418 roads 21 532
+TRC_CH f=19418 roads 22 25
+TRC_CH f=19418 roads 23 57
+TRC_CH f=19418 settlements 0 308
+TRC_FR f=19418 15.41
+TRC_FR f=19419 9.53
+TRC_FR f=19420 9.30
+TRC_STEP step=1 total=25447 settle_pos=18448 declutter=1634 pin_geom=4590 entries=47
+TRC_CH f=19421 settlements 1 25753
+TRC_FR f=19421 36.35
+TRC_FR f=19422 10.63
+TRC_FR f=19423 9.72
+TRC_STEP step=2 total=2081 settle_pos=38 declutter=179 pin_geom=979 entries=94
+TRC_CH f=19424 settlements 2 2373
+TRC_FR f=19424 12.34
+TRC_STEP step=3 total=2234 settle_pos=42 declutter=167 pin_geom=997 entries=140
+TRC_CH f=19425 settlements 3 2606
+TRC_FR f=19425 12.54
+TRC_STEP step=4 total=2276 settle_pos=44 declutter=163 pin_geom=957 entries=185
+TRC_CH f=19426 settlements 4 2575
+TRC_FR f=19426 12.39
+TRC_STEP step=5 total=2853 settle_pos=51 declutter=188 pin_geom=1183 entries=235
+TRC_CH f=19427 settlements 5 3158
+TRC_FR f=19427 12.87
+TRC_CH f=19428 settlements 6 1311
+TRC_CH f=19428 settlements 7 1197
+TRC_CH f=19428 settlements 8 1334
+TRC_FR f=19428 14.54
+TRC_CH f=19429 settlements 9 1504
+TRC_CH f=19429 settlements 10 1448
+TRC_FR f=19429 13.17
+TRC_CH f=19430 settlements 11 1426
+TRC_CH f=19430 settlements 12 1349
+TRC_FR f=19430 12.95
+TRC_CH f=19431 settlements 13 1557
+TRC_CH f=19431 settlements 14 1406
+TRC_CH f=19431 settlements 15 1367
+TRC_FR f=19431 18.57
+TRC_CH f=19432 top 0 573
+TRC_CH f=19432 top 1 444
+TRC_FR f=19432 11.19
+TRC_CH f=19433 top 2 186
+TRC_CH f=19433 top 3 145
+TRC_CH f=19433 top 4 257
+TRC_FR f=19433 10.89
+TRC_CH f=19434 top 5 355
+TRC_CH f=19434 top 6 101
+TRC_CH f=19434 top 7 135
+TRC_CH f=19434 top 8 192
+TRC_FR f=19434 11.25
+TRC_CH f=19435 top 9 143
+TRC_CH f=19435 top 10 108
+TRC_CH f=19435 top 11 124
+TRC_FR f=19435 10.60
+  notch  8  zoom   4.20 lod true   call   2.00 ms  first  13.80  worst  36.35 (process  48.49)  sharp in  31 frames (overlay 30) /   420.6 ms
+TRC_RL sync=false vis=4 urban=6 layers=[14, 16, 18, 9, 5]
+TRC_RL sync=false vis=2 urban=4 layers=[6, 5, 4, 4, 3]
+TRC_ZA readout=13 scalebar=132 setzoom=341 lod=986
+TRC_CH f=19436 sea 0 1742
+TRC_CH f=19436 sea 1 1438
+TRC_FR f=19436 15.80
+TRC_CH f=19437 sea 2 734
+TRC_CH f=19437 sea 3 262
+TRC_CH f=19437 roads 0 1062
+TRC_CH f=19437 roads 1 501
+TRC_FR f=19437 14.05
+TRC_CH f=19438 roads 2 361
+TRC_CH f=19438 roads 3 979
+TRC_CH f=19438 roads 4 145
+TRC_CH f=19438 roads 5 953
+TRC_CH f=19438 roads 6 27
+TRC_FR f=19438 13.51
+TRC_CH f=19439 roads 7 29
+TRC_CH f=19439 roads 8 40
+TRC_CH f=19439 roads 9 389
+TRC_CH f=19439 roads 10 483
+TRC_CH f=19439 roads 11 524
+TRC_FR f=19439 12.42
+TRC_CH f=19440 roads 12 766
+TRC_CH f=19440 roads 13 863
+TRC_CH f=19440 roads 14 927
+TRC_CH f=19440 roads 15 298
+TRC_CH f=19440 roads 16 393
+TRC_FR f=19440 14.35
+TRC_CH f=19441 roads 17 43
+TRC_CH f=19441 roads 18 498
+TRC_CH f=19441 roads 19 680
+TRC_CH f=19441 roads 20 246
+TRC_CH f=19441 roads 21 188
+TRC_FR f=19441 12.39
+TRC_CH f=19442 roads 22 26
+TRC_CH f=19442 roads 23 53
+TRC_CH f=19442 settlements 0 204
+TRC_FR f=19442 11.23
+TRC_FR f=19443 8.69
+TRC_FR f=19444 7.32
+TRC_STEP step=1 total=23710 settle_pos=17069 declutter=1585 pin_geom=4351 entries=47
+TRC_CH f=19445 settlements 1 23990
+TRC_FR f=19445 31.54
+TRC_FR f=19446 7.60
+TRC_STEP step=2 total=2025 settle_pos=30 declutter=172 pin_geom=1016 entries=94
+TRC_CH f=19447 settlements 2 2348
+TRC_FR f=19447 10.19
+TRC_STEP step=3 total=2020 settle_pos=34 declutter=162 pin_geom=933 entries=140
+TRC_CH f=19448 settlements 3 2294
+TRC_FR f=19448 9.77
+TRC_STEP step=4 total=2115 settle_pos=29 declutter=160 pin_geom=930 entries=185
+TRC_CH f=19449 settlements 4 2384
+TRC_FR f=19449 9.80
+TRC_STEP step=5 total=2511 settle_pos=31 declutter=180 pin_geom=1024 entries=235
+TRC_CH f=19450 settlements 5 2790
+TRC_FR f=19450 10.29
+TRC_CH f=19451 settlements 6 1207
+TRC_CH f=19451 settlements 7 1137
+TRC_CH f=19451 settlements 8 1289
+TRC_FR f=19451 11.99
+TRC_CH f=19452 settlements 9 1442
+TRC_CH f=19452 settlements 10 1460
+TRC_FR f=19452 11.17
+TRC_CH f=19453 settlements 11 1318
+TRC_CH f=19453 settlements 12 1336
+TRC_FR f=19453 10.85
+TRC_CH f=19454 settlements 13 1569
+TRC_CH f=19454 settlements 14 1323
+TRC_FR f=19454 11.03
+TRC_CH f=19455 settlements 15 1305
+TRC_CH f=19455 top 0 566
+TRC_CH f=19455 top 1 448
+TRC_CH f=19455 top 2 90
+TRC_FR f=19455 15.24
+TRC_CH f=19456 top 3 164
+TRC_CH f=19456 top 4 205
+TRC_CH f=19456 top 5 358
+TRC_CH f=19456 top 6 92
+TRC_CH f=19456 top 7 145
+TRC_FR f=19456 10.02
+TRC_CH f=19457 top 8 214
+TRC_CH f=19457 top 9 93
+TRC_CH f=19457 top 10 138
+TRC_CH f=19457 top 11 102
+TRC_FR f=19457 9.42
+  notch  9  zoom   4.82 lod true   call   1.80 ms  first  15.80  worst  31.54 (process  48.49)  sharp in  22 frames (overlay 21) /   266.7 ms
+TRC_RL sync=false vis=3 urban=6 layers=[13, 13, 15, 9, 6]
+TRC_RL sync=false vis=2 urban=5 layers=[10, 6, 3, 4, 3]
+TRC_ZA readout=13 scalebar=124 setzoom=392 lod=1016
+TRC_CH f=19458 sea 0 1627
+TRC_CH f=19458 sea 1 1416
+TRC_CH f=19458 sea 2 23
+TRC_FR f=19458 14.48
+TRC_CH f=19459 sea 3 30
+TRC_CH f=19459 roads 0 530
+TRC_CH f=19459 roads 1 518
+TRC_CH f=19459 roads 2 318
+TRC_CH f=19459 roads 3 662
+TRC_FR f=19459 11.25
+TRC_CH f=19460 roads 4 26
+TRC_CH f=19460 roads 5 868
+TRC_CH f=19460 roads 6 24
+TRC_CH f=19460 roads 7 38
+TRC_CH f=19460 roads 8 35
+TRC_FR f=19460 9.47
+TRC_CH f=19461 roads 9 26
+TRC_CH f=19461 roads 10 233
+TRC_CH f=19461 roads 11 418
+TRC_CH f=19461 roads 12 645
+TRC_CH f=19461 roads 13 832
+TRC_FR f=19461 10.59
+TRC_CH f=19462 roads 14 558
+TRC_CH f=19462 roads 15 218
+TRC_CH f=19462 roads 16 352
+TRC_CH f=19462 roads 17 49
+TRC_CH f=19462 roads 18 412
+TRC_FR f=19462 10.15
+TRC_CH f=19463 roads 19 488
+TRC_CH f=19463 roads 20 37
+TRC_CH f=19463 roads 21 38
+TRC_CH f=19463 roads 22 25
+TRC_CH f=19463 roads 23 52
+TRC_FR f=19463 9.37
+TRC_CH f=19464 settlements 0 162
+TRC_FR f=19464 7.63
+TRC_FR f=19465 7.55
+TRC_FR f=19466 6.17
+TRC_STEP step=1 total=22801 settle_pos=16527 declutter=1492 pin_geom=4114 entries=47
+TRC_CH f=19467 settlements 1 23147
+TRC_FR f=19467 29.71
+TRC_FR f=19468 6.26
+TRC_FR f=19469 6.19
+TRC_STEP step=2 total=1948 settle_pos=25 declutter=168 pin_geom=977 entries=94
+TRC_CH f=19470 settlements 2 2273
+TRC_FR f=19470 8.85
+TRC_STEP step=3 total=2042 settle_pos=34 declutter=166 pin_geom=989 entries=140
+TRC_CH f=19471 settlements 3 2386
+TRC_FR f=19471 8.85
+TRC_STEP step=4 total=2850 settle_pos=43 declutter=222 pin_geom=1265 entries=185
+TRC_CH f=19472 settlements 4 3215
+TRC_FR f=19472 9.96
+TRC_STEP step=5 total=2577 settle_pos=39 declutter=178 pin_geom=1074 entries=235
+TRC_CH f=19473 settlements 5 2920
+TRC_FR f=19473 9.53
+TRC_CH f=19474 settlements 6 1179
+TRC_CH f=19474 settlements 7 1228
+TRC_CH f=19474 settlements 8 1116
+TRC_FR f=19474 10.91
+TRC_CH f=19475 settlements 9 1252
+TRC_CH f=19475 settlements 10 1327
+TRC_CH f=19475 settlements 11 1201
+TRC_FR f=19475 11.16
+TRC_CH f=19476 settlements 12 1313
+TRC_CH f=19476 settlements 13 1508
+TRC_FR f=19476 9.82
+TRC_CH f=19477 settlements 14 1301
+TRC_CH f=19477 settlements 15 1493
+TRC_CH f=19477 top 0 544
+TRC_FR f=19477 14.20
+TRC_CH f=19478 top 1 414
+TRC_CH f=19478 top 2 121
+TRC_CH f=19478 top 3 107
+TRC_CH f=19478 top 4 94
+TRC_CH f=19478 top 5 271
+TRC_FR f=19478 8.61
+TRC_CH f=19479 top 6 364
+TRC_CH f=19479 top 7 139
+TRC_CH f=19479 top 8 135
+TRC_CH f=19479 top 9 114
+TRC_CH f=19479 top 10 139
+TRC_FR f=19479 8.25
+TRC_CH f=19480 top 11 81
+TRC_FR f=19480 6.89
+  notch 10  zoom   5.55 lod true   call   1.88 ms  first  14.48  worst  29.71 (process  48.49)  sharp in  23 frames (overlay 22) /   233.5 ms
+TRC_RL sync=false vis=4 urban=6 layers=[13, 14, 16, 9, 6]
+TRC_RL sync=false vis=2 urban=6 layers=[10, 7, 4, 4, 4]
+TRC_ZA readout=12 scalebar=121 setzoom=336 lod=1306
+TRC_CH f=19481 sea 0 1514
+TRC_CH f=19481 sea 1 1893
+TRC_CH f=19481 sea 2 28
+TRC_CH f=19481 sea 3 34
+TRC_FR f=19481 14.96
+TRC_CH f=19482 roads 0 58
+TRC_CH f=19482 roads 1 732
+TRC_CH f=19482 roads 2 267
+TRC_CH f=19482 roads 3 645
+TRC_CH f=19482 roads 4 28
+TRC_FR f=19482 13.09
+TRC_CH f=19483 roads 5 1038
+TRC_CH f=19483 roads 6 33
+TRC_CH f=19483 roads 7 36
+TRC_CH f=19483 roads 8 34
+TRC_CH f=19483 roads 9 22
+TRC_FR f=19483 8.60
+TRC_CH f=19484 roads 10 237
+TRC_CH f=19484 roads 11 593
+TRC_CH f=19484 roads 12 878
+TRC_CH f=19484 roads 13 998
+TRC_CH f=19484 roads 14 427
+TRC_FR f=19484 14.06
+TRC_CH f=19485 roads 15 327
+TRC_CH f=19485 roads 16 357
+TRC_CH f=19485 roads 17 53
+TRC_CH f=19485 roads 18 56
+TRC_CH f=19485 roads 19 73
+TRC_FR f=19485 11.68
+TRC_CH f=19486 roads 20 48
+TRC_CH f=19486 roads 21 61
+TRC_CH f=19486 roads 22 28
+TRC_CH f=19486 roads 23 52
+TRC_CH f=19486 settlements 0 711
+TRC_FR f=19486 12.45
+TRC_FR f=19487 7.99
+TRC_FR f=19488 9.69
+TRC_STEP step=1 total=24490 settle_pos=18176 declutter=1559 pin_geom=4056 entries=47
+TRC_CH f=19489 settlements 1 24904
+TRC_FR f=19489 30.97
+TRC_FR f=19490 8.26
+TRC_STEP step=2 total=2687 settle_pos=47 declutter=229 pin_geom=1336 entries=94
+TRC_CH f=19491 settlements 2 3044
+TRC_FR f=19491 11.99
+TRC_STEP step=3 total=3015 settle_pos=45 declutter=245 pin_geom=1428 entries=140
+TRC_CH f=19492 settlements 3 3305
+TRC_FR f=19492 11.50
+TRC_FR f=19493 8.16
+TRC_STEP step=4 total=3375 settle_pos=44 declutter=246 pin_geom=1532 entries=185
+TRC_CH f=19494 settlements 4 3685
+TRC_FR f=19494 11.43
+TRC_STEP step=5 total=3287 settle_pos=49 declutter=228 pin_geom=1339 entries=235
+TRC_CH f=19495 settlements 5 3667
+TRC_FR f=19495 12.91
+TRC_CH f=19496 settlements 6 1921
+TRC_CH f=19496 settlements 7 1567
+TRC_CH f=19496 settlements 8 1653
+TRC_FR f=19496 14.73
+TRC_CH f=19497 settlements 9 1524
+TRC_CH f=19497 settlements 10 1559
+TRC_FR f=19497 12.66
+TRC_CH f=19498 settlements 11 2176
+TRC_CH f=19498 settlements 12 1478
+TRC_FR f=19498 9.80
+TRC_CH f=19499 settlements 13 2287
+TRC_CH f=19499 settlements 14 2111
+TRC_FR f=19499 13.59
+TRC_CH f=19500 settlements 15 1856
+TRC_CH f=19500 top 0 838
+TRC_CH f=19500 top 1 540
+TRC_CH f=19500 top 2 193
+TRC_FR f=19500 17.95
+TRC_CH f=19501 top 3 115
+TRC_CH f=19501 top 4 99
+TRC_FR f=19501 9.36
+TRC_CH f=19502 top 5 512
+TRC_CH f=19502 top 6 260
+TRC_CH f=19502 top 7 197
+TRC_FR f=19502 9.78
+TRC_CH f=19503 top 8 140
+TRC_CH f=19503 top 9 235
+TRC_CH f=19503 top 10 135
+TRC_CH f=19503 top 11 89
+TRC_FR f=19503 10.15
+TRC_FR f=19504 8.30
+TRC_FR f=19505 10.56
+TRC_FR f=19506 8.44
+TRC_FR f=19507 8.41
+TRC_FR f=19508 7.68
+TRC_FR f=19509 8.72
+TRC_FR f=19510 8.02
+TRC_FR f=19511 7.47
+TRC_FR f=19512 8.89
+TRC_FR f=19513 10.47
+TRC_FR f=19514 7.26
+TRC_FR f=19515 8.23
+TRC_FR f=19516 8.60
+TRC_FR f=19517 8.07
+TRC_FR f=19518 8.99
+TRC_FR f=19519 8.70
+TRC_FR f=19520 8.08
+TRC_FR f=19521 8.89
+TRC_FR f=19522 8.52
+TRC_FR f=19523 8.20
+TRC_FR f=19524 8.38
+TRC_FR f=19525 8.62
+TRC_FR f=19526 8.21
+TRC_FR f=19527 6.06
+TRC_FR f=19528 5.69
+  notch 11  zoom   6.38 lod true   call   2.12 ms  first  14.96  worst  30.97 (process  48.49)  sharp in  48 frames (overlay 22) /   490.9 ms
+TRC_RL sync=false vis=5 urban=8 layers=[16, 19, 18, 14, 11]
+TRC_RL sync=false vis=2 urban=4 layers=[7, 6, 4, 4, 4]
+TRC_ZA readout=14 scalebar=179 setzoom=381 lod=1005
+TRC_CH f=19529 sea 0 1086
+TRC_CH f=19529 sea 1 1340
+TRC_CH f=19529 sea 2 16
+TRC_CH f=19529 sea 3 18
+TRC_FR f=19529 11.50
+TRC_CH f=19530 roads 0 45
+TRC_CH f=19530 roads 1 149
+TRC_CH f=19530 roads 2 130
+TRC_CH f=19530 roads 3 352
+TRC_CH f=19530 roads 4 28
+TRC_FR f=19530 7.02
+TRC_CH f=19531 roads 5 769
+TRC_CH f=19531 roads 6 25
+TRC_CH f=19531 roads 7 27
+TRC_CH f=19531 roads 8 36
+TRC_CH f=19531 roads 9 32
+TRC_FR f=19531 6.97
+TRC_CH f=19532 roads 10 205
+TRC_CH f=19532 roads 11 405
+TRC_CH f=19532 roads 12 388
+TRC_CH f=19532 roads 13 519
+TRC_CH f=19532 roads 14 170
+TRC_FR f=19532 7.70
+TRC_CH f=19533 roads 15 243
+TRC_CH f=19533 roads 16 241
+TRC_CH f=19533 roads 17 48
+TRC_CH f=19533 roads 18 44
+TRC_CH f=19533 roads 19 49
+TRC_FR f=19533 6.83
+TRC_CH f=19534 roads 20 39
+TRC_CH f=19534 roads 21 33
+TRC_CH f=19534 roads 22 31
+TRC_CH f=19534 roads 23 40
+TRC_CH f=19534 settlements 0 579
+TRC_FR f=19534 7.37
+TRC_FR f=19535 4.97
+TRC_FR f=19536 5.75
+TRC_STEP step=1 total=20917 settle_pos=14669 declutter=1578 pin_geom=3968 entries=47
+TRC_CH f=19537 settlements 1 21252
+TRC_FR f=19537 26.25
+TRC_FR f=19538 4.65
+TRC_FR f=19539 4.28
+TRC_STEP step=2 total=1862 settle_pos=29 declutter=162 pin_geom=924 entries=94
+TRC_CH f=19540 settlements 2 2221
+TRC_FR f=19540 6.85
+TRC_STEP step=3 total=2046 settle_pos=29 declutter=170 pin_geom=980 entries=140
+TRC_CH f=19541 settlements 3 2370
+TRC_FR f=19541 6.97
+TRC_STEP step=4 total=2254 settle_pos=33 declutter=285 pin_geom=949 entries=185
+TRC_CH f=19542 settlements 4 2623
+TRC_FR f=19542 7.38
+TRC_STEP step=5 total=2471 settle_pos=31 declutter=178 pin_geom=1087 entries=235
+TRC_CH f=19543 settlements 5 2820
+TRC_FR f=19543 7.46
+TRC_CH f=19544 settlements 6 1212
+TRC_CH f=19544 settlements 7 1169
+TRC_FR f=19544 7.63
+TRC_CH f=19545 settlements 8 1085
+TRC_CH f=19545 settlements 9 1346
+TRC_CH f=19545 settlements 10 1162
+TRC_FR f=19545 9.01
+TRC_CH f=19546 settlements 11 1497
+TRC_CH f=19546 settlements 12 1415
+TRC_FR f=19546 14.89
+TRC_CH f=19547 settlements 13 1462
+TRC_FR f=19547 6.12
+TRC_CH f=19548 settlements 14 1325
+TRC_CH f=19548 settlements 15 1460
+TRC_CH f=19548 top 0 540
+TRC_FR f=19548 12.26
+TRC_CH f=19549 top 1 357
+TRC_CH f=19549 top 2 7
+TRC_CH f=19549 top 3 153
+TRC_CH f=19549 top 4 96
+TRC_CH f=19549 top 5 669
+TRC_FR f=19549 7.39
+TRC_CH f=19550 top 6 7
+TRC_CH f=19550 top 7 180
+TRC_CH f=19550 top 8 167
+TRC_CH f=19550 top 9 6
+TRC_CH f=19550 top 10 149
+TRC_FR f=19550 6.58
+TRC_CH f=19551 top 11 89
+TRC_FR f=19551 4.86
+  notch 12  zoom   7.34 lod true   call   1.87 ms  first  11.50  worst  26.25 (process  31.70)  sharp in  23 frames (overlay 22) /   188.6 ms
+TRC_RL sync=false vis=3 urban=6 layers=[13, 14, 16, 14, 6]
+TRC_RL sync=false vis=2 urban=4 layers=[7, 6, 3, 3, 3]
+TRC_ZA readout=12 scalebar=126 setzoom=390 lod=911
+TRC_CH f=19552 sea 0 978
+TRC_CH f=19552 sea 1 898
+TRC_CH f=19552 sea 2 14
+TRC_CH f=19552 sea 3 17
+TRC_FR f=19552 9.43
+TRC_CH f=19553 roads 0 33
+TRC_CH f=19553 roads 1 29
+TRC_CH f=19553 roads 2 37
+TRC_CH f=19553 roads 3 222
+TRC_CH f=19553 roads 4 31
+TRC_FR f=19553 5.59
+TRC_CH f=19554 roads 5 759
+TRC_CH f=19554 roads 6 29
+TRC_CH f=19554 roads 7 26
+TRC_CH f=19554 roads 8 28
+TRC_CH f=19554 roads 9 23
+TRC_FR f=19554 5.71
+TRC_CH f=19555 roads 10 192
+TRC_CH f=19555 roads 11 421
+TRC_CH f=19555 roads 12 403
+TRC_CH f=19555 roads 13 255
+TRC_CH f=19555 roads 14 152
+TRC_FR f=19555 6.24
+TRC_CH f=19556 roads 15 76
+TRC_CH f=19556 roads 16 60
+TRC_CH f=19556 roads 17 36
+TRC_CH f=19556 roads 18 40
+TRC_CH f=19556 roads 19 34
+TRC_FR f=19556 4.99
+TRC_CH f=19557 roads 20 37
+TRC_CH f=19557 roads 21 35
+TRC_CH f=19557 roads 22 25
+TRC_CH f=19557 roads 23 36
+TRC_CH f=19557 settlements 0 366
+TRC_FR f=19557 5.55
+TRC_FR f=19558 4.06
+TRC_FR f=19559 4.88
+TRC_STEP step=1 total=20204 settle_pos=14243 declutter=1480 pin_geom=3838 entries=47
+TRC_CH f=19560 settlements 1 20490
+TRC_FR f=19560 24.19
+TRC_FR f=19561 3.40
+TRC_STEP step=2 total=1935 settle_pos=33 declutter=170 pin_geom=976 entries=94
+TRC_CH f=19562 settlements 2 2223
+TRC_FR f=19562 5.92
+TRC_STEP step=3 total=1958 settle_pos=21 declutter=155 pin_geom=936 entries=140
+TRC_CH f=19563 settlements 3 2238
+TRC_FR f=19563 5.93
+TRC_STEP step=4 total=2054 settle_pos=30 declutter=159 pin_geom=956 entries=185
+TRC_CH f=19564 settlements 4 2341
+TRC_FR f=19564 5.94
+TRC_STEP step=5 total=2470 settle_pos=32 declutter=179 pin_geom=1070 entries=235
+TRC_CH f=19565 settlements 5 2739
+TRC_CH f=19565 settlements 6 1200
+TRC_FR f=19565 7.97
+TRC_CH f=19566 settlements 7 1106
+TRC_CH f=19566 settlements 8 1035
+TRC_CH f=19566 settlements 9 1062
+TRC_FR f=19566 7.50
+TRC_CH f=19567 settlements 10 1191
+TRC_CH f=19567 settlements 11 1424
+TRC_CH f=19567 settlements 12 1253
+TRC_FR f=19567 8.30
+TRC_CH f=19568 settlements 13 1491
+TRC_CH f=19568 settlements 14 1398
+TRC_FR f=19568 7.00
+TRC_CH f=19569 settlements 15 1519
+TRC_CH f=19569 top 0 479
+TRC_CH f=19569 top 1 680
+TRC_CH f=19569 top 2 7
+TRC_FR f=19569 10.15
+TRC_CH f=19570 top 3 8
+TRC_CH f=19570 top 4 189
+TRC_CH f=19570 top 5 8
+TRC_CH f=19570 top 6 6
+TRC_CH f=19570 top 7 192
+TRC_FR f=19570 5.50
+TRC_CH f=19571 top 8 7
+TRC_CH f=19571 top 9 100
+TRC_CH f=19571 top 10 9
+TRC_CH f=19571 top 11 8
+TRC_FR f=19571 4.76
+  notch 13  zoom   8.44 lod true   call   1.77 ms  first   9.43  worst  24.19 (process  31.70)  sharp in  20 frames (overlay 19) /   140.9 ms
+TRC_RL sync=false vis=4 urban=6 layers=[13, 15, 17, 9, 6]
+TRC_RL sync=false vis=1 urban=6 layers=[10, 7, 4, 4, 4]
+TRC_ZA readout=13 scalebar=134 setzoom=357 lod=871
+TRC_CH f=19572 sea 0 334
+TRC_CH f=19572 sea 1 1105
+TRC_CH f=19572 sea 2 17
+TRC_CH f=19572 sea 3 25
+TRC_FR f=19572 8.26
+TRC_CH f=19573 roads 0 35
+TRC_CH f=19573 roads 1 30
+TRC_CH f=19573 roads 2 27
+TRC_CH f=19573 roads 3 202
+TRC_CH f=19573 roads 4 27
+TRC_FR f=19573 4.82
+TRC_CH f=19574 roads 5 451
+TRC_CH f=19574 roads 6 33
+TRC_CH f=19574 roads 7 30
+TRC_CH f=19574 roads 8 30
+TRC_CH f=19574 roads 9 28
+TRC_FR f=19574 4.73
+TRC_CH f=19575 roads 10 118
+TRC_CH f=19575 roads 11 399
+TRC_CH f=19575 roads 12 296
+TRC_CH f=19575 roads 13 290
+TRC_CH f=19575 roads 14 158
+TRC_FR f=19575 5.74
+TRC_CH f=19576 roads 15 76
+TRC_CH f=19576 roads 16 75
+TRC_CH f=19576 roads 17 50
+TRC_CH f=19576 roads 18 43
+TRC_CH f=19576 roads 19 52
+TRC_FR f=19576 4.74
+TRC_CH f=19577 roads 20 34
+TRC_CH f=19577 roads 21 34
+TRC_CH f=19577 roads 22 34
+TRC_CH f=19577 roads 23 41
+TRC_CH f=19577 settlements 0 330
+TRC_FR f=19577 4.93
+TRC_FR f=19578 3.18
+TRC_FR f=19579 4.25
+TRC_STEP step=1 total=15042 settle_pos=8939 declutter=1570 pin_geom=3844 entries=47
+TRC_CH f=19580 settlements 1 15381
+TRC_FR f=19580 18.81
+TRC_STEP step=2 total=1993 settle_pos=33 declutter=168 pin_geom=1004 entries=94
+TRC_CH f=19581 settlements 2 2272
+TRC_FR f=19581 5.18
+TRC_STEP step=3 total=1969 settle_pos=28 declutter=163 pin_geom=945 entries=140
+TRC_CH f=19582 settlements 3 2273
+TRC_FR f=19582 5.24
+TRC_STEP step=4 total=2100 settle_pos=39 declutter=160 pin_geom=963 entries=185
+TRC_CH f=19583 settlements 4 2377
+TRC_FR f=19583 5.29
+TRC_STEP step=5 total=2392 settle_pos=30 declutter=169 pin_geom=1045 entries=235
+TRC_CH f=19584 settlements 5 2660
+TRC_FR f=19584 5.44
+TRC_CH f=19585 settlements 6 1257
+TRC_CH f=19585 settlements 7 1189
+TRC_CH f=19585 settlements 8 1100
+TRC_FR f=19585 7.39
+TRC_CH f=19586 settlements 9 1119
+TRC_CH f=19586 settlements 10 1040
+TRC_CH f=19586 settlements 11 1049
+TRC_FR f=19586 6.94
+TRC_CH f=19587 settlements 12 1110
+TRC_CH f=19587 settlements 13 1192
+TRC_CH f=19587 settlements 14 1134
+TRC_FR f=19587 7.29
+TRC_CH f=19588 settlements 15 1345
+TRC_CH f=19588 top 0 496
+TRC_CH f=19588 top 1 696
+TRC_CH f=19588 top 2 9
+TRC_FR f=19588 9.39
+TRC_CH f=19589 top 3 7
+TRC_CH f=19589 top 4 188
+TRC_CH f=19589 top 5 6
+TRC_CH f=19589 top 6 5
+TRC_CH f=19589 top 7 193
+TRC_FR f=19589 4.60
+TRC_CH f=19590 top 8 7
+TRC_CH f=19590 top 9 92
+TRC_CH f=19590 top 10 5
+TRC_CH f=19590 top 11 11
+TRC_FR f=19590 3.97
+  notch 14  zoom   9.70 lod true   call   1.67 ms  first   8.26  worst  18.81 (process  31.70)  sharp in  19 frames (overlay 18) /   118.2 ms
+TRC_RL sync=false vis=4 urban=6 layers=[14, 14, 18, 11, 8]
+TRC_RL sync=false vis=2 urban=14 layers=[11, 6, 4, 4, 3]
+TRC_ZA readout=13 scalebar=131 setzoom=344 lod=740
+TRC_CH f=19591 sea 0 31
+TRC_CH f=19591 sea 1 725
+TRC_CH f=19591 sea 2 14
+TRC_CH f=19591 sea 3 16
+TRC_FR f=19591 6.33
+TRC_CH f=19592 roads 0 33
+TRC_CH f=19592 roads 1 21
+TRC_CH f=19592 roads 2 25
+TRC_CH f=19592 roads 3 156
+TRC_CH f=19592 roads 4 32
+TRC_FR f=19592 3.56
+TRC_CH f=19593 roads 5 356
+TRC_CH f=19593 roads 6 26
+TRC_CH f=19593 roads 7 44
+TRC_CH f=19593 roads 8 30
+TRC_CH f=19593 roads 9 21
+TRC_FR f=19593 3.92
+TRC_CH f=19594 roads 10 115
+TRC_CH f=19594 roads 11 347
+TRC_CH f=19594 roads 12 225
+TRC_CH f=19594 roads 13 211
+TRC_CH f=19594 roads 14 171
+TRC_FR f=19594 4.33
+TRC_CH f=19595 roads 15 78
+TRC_CH f=19595 roads 16 61
+TRC_CH f=19595 roads 17 44
+TRC_CH f=19595 roads 18 40
+TRC_CH f=19595 roads 19 50
+TRC_FR f=19595 3.59
+TRC_CH f=19596 roads 20 35
+TRC_CH f=19596 roads 21 34
+TRC_CH f=19596 roads 22 21
+TRC_CH f=19596 roads 23 37
+TRC_CH f=19596 settlements 0 261
+TRC_FR f=19596 3.86
+TRC_FR f=19597 2.54
+TRC_FR f=19598 3.65
+TRC_STEP step=1 total=14315 settle_pos=8544 declutter=1480 pin_geom=3665 entries=47
+TRC_CH f=19599 settlements 1 14598
+TRC_FR f=19599 16.89
+TRC_FR f=19600 2.56
+TRC_STEP step=2 total=1933 settle_pos=30 declutter=171 pin_geom=984 entries=94
+TRC_CH f=19601 settlements 2 2182
+TRC_FR f=19601 4.47
+TRC_STEP step=3 total=2145 settle_pos=31 declutter=165 pin_geom=1085 entries=140
+TRC_CH f=19602 settlements 3 2448
+TRC_FR f=19602 4.76
+TRC_STEP step=4 total=2222 settle_pos=36 declutter=171 pin_geom=1009 entries=185
+TRC_CH f=19603 settlements 4 2523
+TRC_FR f=19603 5.07
+TRC_STEP step=5 total=2391 settle_pos=35 declutter=170 pin_geom=1045 entries=235
+TRC_CH f=19604 settlements 5 2654
+TRC_FR f=19604 4.87
+TRC_CH f=19605 settlements 6 1253
+TRC_CH f=19605 settlements 7 1278
+TRC_CH f=19605 settlements 8 1181
+TRC_FR f=19605 6.85
+TRC_CH f=19606 settlements 9 1120
+TRC_CH f=19606 settlements 10 1049
+TRC_CH f=19606 settlements 11 1190
+TRC_FR f=19606 6.46
+TRC_CH f=19607 settlements 12 1131
+TRC_CH f=19607 settlements 13 1343
+TRC_CH f=19607 settlements 14 1117
+TRC_FR f=19607 6.56
+TRC_CH f=19608 settlements 15 1351
+TRC_CH f=19608 top 0 512
+TRC_CH f=19608 top 1 628
+TRC_CH f=19608 top 2 7
+TRC_FR f=19608 9.11
+TRC_CH f=19609 top 3 6
+TRC_CH f=19609 top 4 6
+TRC_CH f=19609 top 5 146
+TRC_CH f=19609 top 6 7
+TRC_CH f=19609 top 7 10
+TRC_FR f=19609 3.82
+TRC_CH f=19610 top 8 7
+TRC_CH f=19610 top 9 204
+TRC_CH f=19610 top 10 7
+TRC_CH f=19610 top 11 42
+TRC_FR f=19610 3.59
+  notch 15  zoom  11.16 lod true   call   1.57 ms  first   6.33  worst  16.89 (process  31.70)  sharp in  20 frames (overlay 19) /   105.0 ms
+TRC_RL sync=false vis=7 urban=10 layers=[21, 23, 25, 18, 11]
+TRC_RL sync=false vis=2 urban=6 layers=[10, 7, 4, 4, 4]
+TRC_ZA readout=23 scalebar=217 setzoom=541 lod=808
+TRC_CH f=19611 sea 0 34
+TRC_CH f=19611 sea 1 901
+TRC_CH f=19611 sea 2 25
+TRC_CH f=19611 sea 3 22
+TRC_FR f=19611 8.26
+TRC_CH f=19612 roads 0 40
+TRC_CH f=19612 roads 1 24
+TRC_CH f=19612 roads 2 32
+TRC_CH f=19612 roads 3 165
+TRC_CH f=19612 roads 4 28
+TRC_FR f=19612 3.85
+TRC_CH f=19613 roads 5 288
+TRC_CH f=19613 roads 6 61
+TRC_CH f=19613 roads 7 52
+TRC_CH f=19613 roads 8 38
+TRC_CH f=19613 roads 9 24
+TRC_FR f=19613 5.74
+TRC_CH f=19614 roads 10 157
+TRC_CH f=19614 roads 11 171
+TRC_CH f=19614 roads 12 328
+TRC_CH f=19614 roads 13 144
+TRC_CH f=19614 roads 14 199
+TRC_FR f=19614 4.69
+TRC_CH f=19615 roads 15 79
+TRC_CH f=19615 roads 16 76
+TRC_CH f=19615 roads 17 43
+TRC_CH f=19615 roads 18 72
+TRC_CH f=19615 roads 19 51
+TRC_FR f=19615 5.36
+TRC_CH f=19616 roads 20 45
+TRC_CH f=19616 roads 21 44
+TRC_CH f=19616 roads 22 25
+TRC_CH f=19616 roads 23 48
+TRC_CH f=19616 settlements 0 427
+TRC_FR f=19616 4.49
+TRC_FR f=19617 3.76
+TRC_FR f=19618 5.37
+TRC_STEP step=1 total=16609 settle_pos=10683 declutter=1559 pin_geom=3700 entries=47
+TRC_CH f=19619 settlements 1 16885
+TRC_FR f=19619 19.74
+TRC_FR f=19620 3.67
+TRC_STEP step=2 total=3044 settle_pos=50 declutter=266 pin_geom=1583 entries=94
+TRC_CH f=19621 settlements 2 3381
+TRC_FR f=19621 6.11
+TRC_FR f=19622 3.40
+TRC_STEP step=3 total=3167 settle_pos=49 declutter=357 pin_geom=1496 entries=140
+TRC_CH f=19623 settlements 3 3534
+TRC_FR f=19623 6.38
+TRC_STEP step=4 total=2692 settle_pos=39 declutter=212 pin_geom=1270 entries=185
+TRC_CH f=19624 settlements 4 2994
+TRC_FR f=19624 6.90
+TRC_STEP step=5 total=2919 settle_pos=40 declutter=217 pin_geom=1357 entries=235
+TRC_CH f=19625 settlements 5 3315
+TRC_FR f=19625 5.68
+TRC_CH f=19626 settlements 6 1391
+TRC_CH f=19626 settlements 7 1645
+TRC_FR f=19626 7.36
+TRC_CH f=19627 settlements 8 1293
+TRC_CH f=19627 settlements 9 1135
+TRC_CH f=19627 settlements 10 1073
+TRC_FR f=19627 6.75
+TRC_CH f=19628 settlements 11 1240
+TRC_CH f=19628 settlements 12 1623
+TRC_CH f=19628 settlements 13 1668
+TRC_FR f=19628 9.18
+TRC_CH f=19629 settlements 14 1284
+TRC_CH f=19629 settlements 15 1902
+TRC_CH f=19629 top 0 676
+TRC_FR f=19629 10.92
+TRC_CH f=19630 top 1 568
+TRC_CH f=19630 top 2 10
+TRC_CH f=19630 top 3 8
+TRC_CH f=19630 top 4 6
+TRC_CH f=19630 top 5 6
+TRC_FR f=19630 5.92
+TRC_CH f=19631 top 6 231
+TRC_CH f=19631 top 7 11
+TRC_CH f=19631 top 8 9
+TRC_CH f=19631 top 9 6
+TRC_CH f=19631 top 10 9
+TRC_FR f=19631 3.72
+TRC_CH f=19632 top 11 70
+TRC_FR f=19632 2.76
+  notch 16  zoom  12.83 lod true   call   1.97 ms  first   8.26  worst  19.74 (process  31.70)  sharp in  22 frames (overlay 21) /   137.7 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 13, 18, 10, 6]
+TRC_RL sync=false vis=2 urban=6 layers=[11, 6, 4, 4, 4]
+TRC_ZA readout=14 scalebar=135 setzoom=371 lod=797
+TRC_CH f=19633 sea 0 31
+TRC_CH f=19633 sea 1 509
+TRC_CH f=19633 sea 2 15
+TRC_CH f=19633 sea 3 17
+TRC_FR f=19633 5.36
+TRC_CH f=19634 roads 0 35
+TRC_CH f=19634 roads 1 27
+TRC_CH f=19634 roads 2 27
+TRC_CH f=19634 roads 3 21
+TRC_CH f=19634 roads 4 29
+TRC_FR f=19634 3.15
+TRC_CH f=19635 roads 5 27
+TRC_CH f=19635 roads 6 26
+TRC_CH f=19635 roads 7 27
+TRC_CH f=19635 roads 8 29
+TRC_CH f=19635 roads 9 25
+TRC_FR f=19635 3.04
+TRC_CH f=19636 roads 10 111
+TRC_CH f=19636 roads 11 126
+TRC_CH f=19636 roads 12 132
+TRC_CH f=19636 roads 13 100
+TRC_CH f=19636 roads 14 96
+TRC_FR f=19636 3.42
+TRC_CH f=19637 roads 15 72
+TRC_CH f=19637 roads 16 58
+TRC_CH f=19637 roads 17 49
+TRC_CH f=19637 roads 18 42
+TRC_CH f=19637 roads 19 40
+TRC_FR f=19637 3.78
+TRC_CH f=19638 roads 20 34
+TRC_CH f=19638 roads 21 34
+TRC_CH f=19638 roads 22 20
+TRC_CH f=19638 roads 23 36
+TRC_CH f=19638 settlements 0 204
+TRC_FR f=19638 3.37
+TRC_FR f=19639 2.12
+TRC_FR f=19640 3.16
+TRC_STEP step=1 total=13359 settle_pos=7605 declutter=1495 pin_geom=3610 entries=47
+TRC_CH f=19641 settlements 1 13625
+TRC_FR f=19641 15.53
+TRC_STEP step=2 total=1962 settle_pos=21 declutter=186 pin_geom=1000 entries=94
+TRC_CH f=19642 settlements 2 2238
+TRC_FR f=19642 4.19
+TRC_STEP step=3 total=2049 settle_pos=32 declutter=176 pin_geom=988 entries=140
+TRC_CH f=19643 settlements 3 2307
+TRC_FR f=19643 4.17
+TRC_STEP step=4 total=2114 settle_pos=22 declutter=175 pin_geom=1000 entries=185
+TRC_CH f=19644 settlements 4 2462
+TRC_FR f=19644 4.44
+TRC_STEP step=5 total=2500 settle_pos=38 declutter=199 pin_geom=1122 entries=235
+TRC_CH f=19645 settlements 5 2767
+TRC_FR f=19645 4.64
+TRC_CH f=19646 settlements 6 1216
+TRC_CH f=19646 settlements 7 1184
+TRC_CH f=19646 settlements 8 1057
+TRC_FR f=19646 6.06
+TRC_CH f=19647 settlements 9 1121
+TRC_CH f=19647 settlements 10 1083
+TRC_CH f=19647 settlements 11 1142
+TRC_FR f=19647 6.02
+TRC_CH f=19648 settlements 12 1138
+TRC_CH f=19648 settlements 13 1207
+TRC_FR f=19648 4.69
+TRC_CH f=19649 settlements 14 1104
+TRC_CH f=19649 settlements 15 1122
+TRC_CH f=19649 top 0 507
+TRC_CH f=19649 top 1 574
+TRC_FR f=19649 8.84
+TRC_CH f=19650 top 2 7
+TRC_CH f=19650 top 3 10
+TRC_CH f=19650 top 4 5
+TRC_CH f=19650 top 5 4
+TRC_CH f=19650 top 6 7
+TRC_FR f=19650 3.11
+TRC_CH f=19651 top 7 6
+TRC_CH f=19651 top 8 4
+TRC_CH f=19651 top 9 8
+TRC_CH f=19651 top 10 5
+TRC_CH f=19651 top 11 63
+TRC_FR f=19651 2.98
+  notch 17  zoom  14.76 lod true   call   1.63 ms  first   5.36  worst  15.53 (process  31.70)  sharp in  19 frames (overlay 18) /    90.2 ms
+TRC_RL sync=false vis=4 urban=6 layers=[12, 15, 16, 10, 7]
+TRC_RL sync=false vis=1 urban=5 layers=[8, 6, 3, 4, 3]
+TRC_ZA readout=12 scalebar=124 setzoom=358 lod=685
+TRC_CH f=19652 sea 0 30
+TRC_CH f=19652 sea 1 416
+TRC_CH f=19652 sea 2 24
+TRC_CH f=19652 sea 3 29
+TRC_FR f=19652 5.45
+TRC_CH f=19653 roads 0 33
+TRC_CH f=19653 roads 1 25
+TRC_CH f=19653 roads 2 24
+TRC_CH f=19653 roads 3 24
+TRC_CH f=19653 roads 4 33
+TRC_FR f=19653 2.92
+TRC_CH f=19654 roads 5 30
+TRC_CH f=19654 roads 6 33
+TRC_CH f=19654 roads 7 25
+TRC_CH f=19654 roads 8 28
+TRC_CH f=19654 roads 9 31
+TRC_FR f=19654 3.02
+TRC_CH f=19655 roads 10 111
+TRC_CH f=19655 roads 11 129
+TRC_CH f=19655 roads 12 138
+TRC_CH f=19655 roads 13 101
+TRC_CH f=19655 roads 14 97
+TRC_FR f=19655 3.49
+TRC_CH f=19656 roads 15 70
+TRC_CH f=19656 roads 16 66
+TRC_CH f=19656 roads 17 36
+TRC_CH f=19656 roads 18 43
+TRC_CH f=19656 roads 19 40
+TRC_FR f=19656 3.06
+TRC_CH f=19657 roads 20 33
+TRC_CH f=19657 roads 21 37
+TRC_CH f=19657 roads 22 33
+TRC_CH f=19657 roads 23 40
+TRC_CH f=19657 settlements 0 172
+TRC_FR f=19657 3.15
+TRC_FR f=19658 2.06
+TRC_FR f=19659 3.30
+TRC_STEP step=1 total=12825 settle_pos=7284 declutter=1417 pin_geom=3504 entries=47
+TRC_CH f=19660 settlements 1 13109
+TRC_FR f=19660 15.11
+TRC_STEP step=2 total=2004 settle_pos=25 declutter=190 pin_geom=1027 entries=94
+TRC_CH f=19661 settlements 2 2298
+TRC_FR f=19661 4.16
+TRC_STEP step=3 total=2035 settle_pos=33 declutter=177 pin_geom=996 entries=140
+TRC_CH f=19662 settlements 3 2321
+TRC_FR f=19662 4.21
+TRC_STEP step=4 total=2094 settle_pos=28 declutter=168 pin_geom=998 entries=185
+TRC_CH f=19663 settlements 4 2359
+TRC_FR f=19663 4.14
+TRC_STEP step=5 total=2437 settle_pos=25 declutter=186 pin_geom=1110 entries=235
+TRC_CH f=19664 settlements 5 2696
+TRC_CH f=19664 settlements 6 1167
+TRC_FR f=19664 6.00
+TRC_CH f=19665 settlements 7 1117
+TRC_CH f=19665 settlements 8 1055
+TRC_CH f=19665 settlements 9 1066
+TRC_FR f=19665 5.98
+TRC_CH f=19666 settlements 10 1317
+TRC_CH f=19666 settlements 11 1045
+TRC_CH f=19666 settlements 12 1027
+TRC_FR f=19666 6.21
+TRC_CH f=19667 settlements 13 1168
+TRC_CH f=19667 settlements 14 1029
+TRC_CH f=19667 settlements 15 1042
+TRC_FR f=19667 8.05
+TRC_CH f=19668 top 0 377
+TRC_CH f=19668 top 1 516
+TRC_CH f=19668 top 2 10
+TRC_CH f=19668 top 3 8
+TRC_CH f=19668 top 4 6
+TRC_FR f=19668 4.08
+TRC_CH f=19669 top 5 7
+TRC_CH f=19669 top 6 6
+TRC_CH f=19669 top 7 9
+TRC_CH f=19669 top 8 6
+TRC_CH f=19669 top 9 4
+TRC_FR f=19669 3.28
+TRC_CH f=19670 top 10 6
+TRC_CH f=19670 top 11 62
+TRC_FR f=19670 2.25
+  notch 18  zoom  16.97 lod true   call   1.52 ms  first   5.45  worst  15.11 (process  31.70)  sharp in  19 frames (overlay 18) /    88.3 ms
+TRC_RL sync=false vis=3 urban=5 layers=[10, 12, 14, 9, 6]
+TRC_RL sync=false vis=1 urban=4 layers=[6, 5, 3, 4, 3]
+TRC_ZA readout=11 scalebar=117 setzoom=386 lod=556
+TRC_CH f=19671 sea 0 29
+TRC_CH f=19671 sea 1 437
+TRC_CH f=19671 sea 2 13
+TRC_CH f=19671 sea 3 15
+TRC_FR f=19671 5.17
+TRC_CH f=19672 roads 0 31
+TRC_CH f=19672 roads 1 25
+TRC_CH f=19672 roads 2 25
+TRC_CH f=19672 roads 3 20
+TRC_CH f=19672 roads 4 33
+TRC_FR f=19672 3.15
+TRC_CH f=19673 roads 5 26
+TRC_CH f=19673 roads 6 24
+TRC_CH f=19673 roads 7 22
+TRC_CH f=19673 roads 8 36
+TRC_CH f=19673 roads 9 25
+TRC_FR f=19673 2.89
+TRC_CH f=19674 roads 10 103
+TRC_CH f=19674 roads 11 126
+TRC_CH f=19674 roads 12 137
+TRC_CH f=19674 roads 13 109
+TRC_CH f=19674 roads 14 110
+TRC_FR f=19674 3.52
+TRC_CH f=19675 roads 15 74
+TRC_CH f=19675 roads 16 59
+TRC_CH f=19675 roads 17 34
+TRC_CH f=19675 roads 18 37
+TRC_CH f=19675 roads 19 43
+TRC_FR f=19675 3.01
+TRC_CH f=19676 roads 20 33
+TRC_CH f=19676 roads 21 33
+TRC_CH f=19676 roads 22 21
+TRC_CH f=19676 roads 23 93
+TRC_CH f=19676 settlements 0 164
+TRC_FR f=19676 3.26
+TRC_FR f=19677 2.08
+TRC_FR f=19678 3.42
+TRC_STEP step=1 total=12194 settle_pos=6744 declutter=1382 pin_geom=3464 entries=47
+TRC_CH f=19679 settlements 1 12481
+TRC_FR f=19679 14.44
+TRC_STEP step=2 total=1958 settle_pos=36 declutter=189 pin_geom=1007 entries=94
+TRC_CH f=19680 settlements 2 2221
+TRC_FR f=19680 4.01
+TRC_STEP step=3 total=2002 settle_pos=33 declutter=175 pin_geom=980 entries=140
+TRC_CH f=19681 settlements 3 2263
+TRC_FR f=19681 4.13
+TRC_STEP step=4 total=2044 settle_pos=30 declutter=174 pin_geom=958 entries=185
+TRC_CH f=19682 settlements 4 2300
+TRC_FR f=19682 4.16
+TRC_STEP step=5 total=2424 settle_pos=29 declutter=196 pin_geom=1090 entries=235
+TRC_CH f=19683 settlements 5 2666
+TRC_CH f=19683 settlements 6 1159
+TRC_FR f=19683 6.00
+TRC_CH f=19684 settlements 7 1084
+TRC_CH f=19684 settlements 8 1065
+TRC_CH f=19684 settlements 9 1120
+TRC_FR f=19684 5.78
+TRC_CH f=19685 settlements 10 1054
+TRC_CH f=19685 settlements 11 1105
+TRC_CH f=19685 settlements 12 1108
+TRC_FR f=19685 5.89
+TRC_CH f=19686 settlements 13 1172
+TRC_CH f=19686 settlements 14 1088
+TRC_CH f=19686 settlements 15 1131
+TRC_CH f=19686 top 0 412
+TRC_FR f=19686 9.43
+TRC_CH f=19687 top 1 544
+TRC_CH f=19687 top 2 7
+TRC_CH f=19687 top 3 5
+TRC_CH f=19687 top 4 10
+TRC_CH f=19687 top 5 5
+TRC_FR f=19687 3.73
+TRC_CH f=19688 top 6 8
+TRC_CH f=19688 top 7 5
+TRC_CH f=19688 top 8 6
+TRC_CH f=19688 top 9 5
+TRC_CH f=19688 top 10 5
+TRC_FR f=19688 3.16
+TRC_CH f=19689 top 11 64
+TRC_FR f=19689 1.92
+  notch 19  zoom  19.52 lod true   call   1.43 ms  first   5.17  worst  14.44 (process  26.20)  sharp in  19 frames (overlay 18) /    87.4 ms
+TRC_RL sync=false vis=4 urban=6 layers=[14, 14, 17, 10, 6]
+TRC_RL sync=false vis=1 urban=5 layers=[6, 6, 3, 4, 3]
+TRC_ZA readout=12 scalebar=128 setzoom=325 lod=569
+TRC_CH f=19690 sea 0 30
+TRC_CH f=19690 sea 1 464
+TRC_CH f=19690 sea 2 23
+TRC_CH f=19690 sea 3 19
+TRC_FR f=19690 5.19
+TRC_CH f=19691 roads 0 33
+TRC_CH f=19691 roads 1 21
+TRC_CH f=19691 roads 2 37
+TRC_CH f=19691 roads 3 19
+TRC_CH f=19691 roads 4 22
+TRC_FR f=19691 2.94
+TRC_CH f=19692 roads 5 25
+TRC_CH f=19692 roads 6 22
+TRC_CH f=19692 roads 7 23
+TRC_CH f=19692 roads 8 29
+TRC_CH f=19692 roads 9 19
+TRC_FR f=19692 2.83
+TRC_CH f=19693 roads 10 115
+TRC_CH f=19693 roads 11 118
+TRC_CH f=19693 roads 12 127
+TRC_CH f=19693 roads 13 109
+TRC_CH f=19693 roads 14 96
+TRC_FR f=19693 3.86
+TRC_CH f=19694 roads 15 76
+TRC_CH f=19694 roads 16 61
+TRC_CH f=19694 roads 17 49
+TRC_CH f=19694 roads 18 55
+TRC_CH f=19694 roads 19 43
+TRC_FR f=19694 3.29
+TRC_CH f=19695 roads 20 39
+TRC_CH f=19695 roads 21 34
+TRC_CH f=19695 roads 22 28
+TRC_CH f=19695 roads 23 45
+TRC_CH f=19695 settlements 0 183
+TRC_FR f=19695 3.15
+TRC_FR f=19696 1.99
+TRC_FR f=19697 1.59
+TRC_STEP step=1 total=12444 settle_pos=6673 declutter=1630 pin_geom=3457 entries=47
+TRC_CH f=19698 settlements 1 12721
+TRC_FR f=19698 14.70
+TRC_STEP step=2 total=2044 settle_pos=34 declutter=184 pin_geom=1051 entries=94
+TRC_CH f=19699 settlements 2 2390
+TRC_FR f=19699 4.25
+TRC_STEP step=3 total=1940 settle_pos=26 declutter=160 pin_geom=954 entries=140
+TRC_CH f=19700 settlements 3 2194
+TRC_FR f=19700 4.10
+TRC_STEP step=4 total=2218 settle_pos=34 declutter=182 pin_geom=1032 entries=185
+TRC_CH f=19701 settlements 4 2545
+TRC_FR f=19701 4.39
+TRC_STEP step=5 total=2498 settle_pos=37 declutter=191 pin_geom=1119 entries=235
+TRC_CH f=19702 settlements 5 2769
+TRC_FR f=19702 4.64
+TRC_CH f=19703 settlements 6 1273
+TRC_CH f=19703 settlements 7 1205
+TRC_CH f=19703 settlements 8 1023
+TRC_FR f=19703 6.33
+TRC_CH f=19704 settlements 9 1136
+TRC_CH f=19704 settlements 10 1043
+TRC_CH f=19704 settlements 11 1058
+TRC_FR f=19704 5.86
+TRC_CH f=19705 settlements 12 1092
+TRC_CH f=19705 settlements 13 1233
+TRC_CH f=19705 settlements 14 1105
+TRC_FR f=19705 5.97
+TRC_CH f=19706 settlements 15 1086
+TRC_CH f=19706 top 0 439
+TRC_CH f=19706 top 1 579
+TRC_CH f=19706 top 2 10
+TRC_CH f=19706 top 3 6
+TRC_FR f=19706 8.08
+TRC_CH f=19707 top 4 7
+TRC_CH f=19707 top 5 10
+TRC_CH f=19707 top 6 6
+TRC_CH f=19707 top 7 5
+TRC_CH f=19707 top 8 3
+TRC_FR f=19707 3.10
+TRC_CH f=19708 top 9 6
+TRC_CH f=19708 top 10 9
+TRC_CH f=19708 top 11 68
+TRC_FR f=19708 2.47
+  notch 20  zoom  22.45 lod true   call   1.31 ms  first   5.19  worst  14.70 (process  26.20)  sharp in  19 frames (overlay 18) /    87.2 ms
+TRC_RL sync=false vis=4 urban=6 layers=[14, 13, 16, 10, 6]
+TRC_RL sync=false vis=1 urban=4 layers=[6, 5, 4, 4, 3]
+TRC_ZA readout=13 scalebar=136 setzoom=327 lod=708
+TRC_CH f=19709 sea 0 35
+TRC_CH f=19709 sea 1 728
+TRC_CH f=19709 sea 2 23
+TRC_CH f=19709 sea 3 22
+TRC_FR f=19709 7.04
+TRC_CH f=19710 roads 0 44
+TRC_CH f=19710 roads 1 37
+TRC_CH f=19710 roads 2 35
+TRC_CH f=19710 roads 3 22
+TRC_CH f=19710 roads 4 26
+TRC_FR f=19710 4.42
+TRC_CH f=19711 roads 5 30
+TRC_CH f=19711 roads 6 45
+TRC_CH f=19711 roads 7 38
+TRC_CH f=19711 roads 8 50
+TRC_CH f=19711 roads 9 28
+TRC_FR f=19711 4.91
+TRC_CH f=19712 roads 10 157
+TRC_CH f=19712 roads 11 167
+TRC_CH f=19712 roads 12 178
+TRC_CH f=19712 roads 13 153
+TRC_CH f=19712 roads 14 115
+TRC_FR f=19712 4.56
+TRC_CH f=19713 roads 15 82
+TRC_CH f=19713 roads 16 64
+TRC_CH f=19713 roads 17 65
+TRC_CH f=19713 roads 18 62
+TRC_CH f=19713 roads 19 49
+TRC_FR f=19713 4.84
+TRC_CH f=19714 roads 20 44
+TRC_CH f=19714 roads 21 47
+TRC_CH f=19714 roads 22 27
+TRC_CH f=19714 roads 23 53
+TRC_CH f=19714 settlements 0 319
+TRC_FR f=19714 4.35
+TRC_FR f=19715 3.23
+TRC_FR f=19716 3.08
+TRC_STEP step=1 total=13228 settle_pos=7448 declutter=1572 pin_geom=3469 entries=47
+TRC_CH f=19717 settlements 1 13550
+TRC_FR f=19717 15.64
+TRC_STEP step=2 total=2512 settle_pos=41 declutter=222 pin_geom=1253 entries=94
+TRC_CH f=19718 settlements 2 2810
+TRC_FR f=19718 6.58
+TRC_STEP step=3 total=3188 settle_pos=46 declutter=268 pin_geom=1509 entries=140
+TRC_CH f=19719 settlements 3 3522
+TRC_FR f=19719 5.54
+TRC_STEP step=4 total=2964 settle_pos=43 declutter=243 pin_geom=1372 entries=185
+TRC_CH f=19720 settlements 4 3270
+TRC_FR f=19720 6.92
+TRC_STEP step=5 total=2773 settle_pos=41 declutter=212 pin_geom=1232 entries=235
+TRC_CH f=19721 settlements 5 3100
+TRC_FR f=19721 5.16
+TRC_CH f=19722 settlements 6 1665
+TRC_CH f=19722 settlements 7 1538
+TRC_CH f=19722 settlements 8 1523
+TRC_FR f=19722 8.79
+TRC_CH f=19723 settlements 9 1679
+TRC_CH f=19723 settlements 10 1457
+TRC_FR f=19723 7.19
+TRC_CH f=19724 settlements 11 1720
+TRC_CH f=19724 settlements 12 1169
+TRC_CH f=19724 settlements 13 1246
+TRC_FR f=19724 7.31
+TRC_CH f=19725 settlements 14 1399
+TRC_CH f=19725 settlements 15 1680
+TRC_CH f=19725 top 0 695
+TRC_CH f=19725 top 1 36
+TRC_FR f=19725 11.40
+TRC_CH f=19726 top 2 17
+TRC_CH f=19726 top 3 16
+TRC_CH f=19726 top 4 14
+TRC_CH f=19726 top 5 24
+TRC_CH f=19726 top 6 28
+TRC_FR f=19726 5.29
+TRC_CH f=19727 top 7 25
+TRC_CH f=19727 top 8 23
+TRC_CH f=19727 top 9 23
+TRC_CH f=19727 top 10 80
+TRC_CH f=19727 top 11 98
+TRC_FR f=19727 4.49
+TRC_FR f=19728 2.71
+TRC_FR f=19729 4.81
+TRC_FR f=19730 2.27
+TRC_FR f=19731 2.86
+TRC_FR f=19732 5.81
+TRC_FR f=19733 4.02
+  notch 21  zoom  25.81 lod true   call   1.60 ms  first   7.04  worst  15.64 (process  26.20)  sharp in  25 frames (overlay 18) /   141.6 ms
+TRC_RL sync=false vis=5 urban=6 layers=[15, 16, 18, 13, 10]
+TRC_RL sync=false vis=2 urban=5 layers=[11, 8, 4, 5, 4]
+TRC_ZA readout=13 scalebar=149 setzoom=540 lod=893
+TRC_CH f=19734 sea 0 34
+TRC_CH f=19734 sea 1 517
+TRC_CH f=19734 sea 2 16
+TRC_CH f=19734 sea 3 18
+TRC_FR f=19734 6.90
+TRC_CH f=19735 roads 0 37
+TRC_CH f=19735 roads 1 20
+TRC_CH f=19735 roads 2 34
+TRC_CH f=19735 roads 3 22
+TRC_CH f=19735 roads 4 33
+TRC_FR f=19735 3.52
+TRC_CH f=19736 roads 5 26
+TRC_CH f=19736 roads 6 23
+TRC_CH f=19736 roads 7 35
+TRC_CH f=19736 roads 8 30
+TRC_CH f=19736 roads 9 32
+TRC_FR f=19736 3.06
+TRC_CH f=19737 roads 10 114
+TRC_CH f=19737 roads 11 119
+TRC_CH f=19737 roads 12 128
+TRC_CH f=19737 roads 13 101
+TRC_CH f=19737 roads 14 84
+TRC_FR f=19737 3.45
+TRC_CH f=19738 roads 15 75
+TRC_CH f=19738 roads 16 62
+TRC_CH f=19738 roads 17 50
+TRC_CH f=19738 roads 18 42
+TRC_CH f=19738 roads 19 47
+TRC_FR f=19738 3.32
+TRC_CH f=19739 roads 20 50
+TRC_CH f=19739 roads 21 56
+TRC_CH f=19739 roads 22 33
+TRC_CH f=19739 roads 23 51
+TRC_CH f=19739 settlements 0 249
+TRC_FR f=19739 3.71
+TRC_FR f=19740 2.06
+TRC_FR f=19741 1.56
+TRC_STEP step=1 total=12277 settle_pos=6494 declutter=1578 pin_geom=3430 entries=47
+TRC_CH f=19742 settlements 1 12642
+TRC_FR f=19742 14.68
+TRC_STEP step=2 total=2061 settle_pos=25 declutter=186 pin_geom=1043 entries=94
+TRC_CH f=19743 settlements 2 2333
+TRC_FR f=19743 4.58
+TRC_STEP step=3 total=2063 settle_pos=33 declutter=174 pin_geom=999 entries=140
+TRC_CH f=19744 settlements 3 2317
+TRC_FR f=19744 4.22
+TRC_STEP step=4 total=2097 settle_pos=29 declutter=180 pin_geom=986 entries=185
+TRC_CH f=19745 settlements 4 2354
+TRC_FR f=19745 4.25
+TRC_STEP step=5 total=2438 settle_pos=32 declutter=185 pin_geom=1086 entries=235
+TRC_CH f=19746 settlements 5 2713
+TRC_FR f=19746 4.60
+TRC_CH f=19747 settlements 6 1295
+TRC_CH f=19747 settlements 7 1153
+TRC_FR f=19747 4.94
+TRC_CH f=19748 settlements 8 1111
+TRC_CH f=19748 settlements 9 1156
+TRC_CH f=19748 settlements 10 1025
+TRC_FR f=19748 5.88
+TRC_CH f=19749 settlements 11 1167
+TRC_CH f=19749 settlements 12 1126
+TRC_CH f=19749 settlements 13 1177
+TRC_FR f=19749 6.11
+TRC_CH f=19750 settlements 14 1101
+TRC_CH f=19750 settlements 15 1169
+TRC_CH f=19750 top 0 451
+TRC_FR f=19750 8.19
+TRC_CH f=19751 top 1 41
+TRC_CH f=19751 top 2 18
+TRC_CH f=19751 top 3 18
+TRC_CH f=19751 top 4 19
+TRC_CH f=19751 top 5 17
+TRC_FR f=19751 3.19
+TRC_CH f=19752 top 6 17
+TRC_CH f=19752 top 7 19
+TRC_CH f=19752 top 8 19
+TRC_CH f=19752 top 9 19
+TRC_CH f=19752 top 10 55
+TRC_FR f=19752 3.44
+TRC_CH f=19753 top 11 64
+TRC_FR f=19753 1.95
+  notch 22  zoom  29.68 lod true   call   2.08 ms  first   6.90  worst  14.68 (process  26.20)  sharp in  20 frames (overlay 19) /    90.9 ms
+TRC_RL sync=false vis=4 urban=7 layers=[13, 14, 17, 10, 6]
+TRC_RL sync=false vis=1 urban=4 layers=[6, 5, 3, 4, 3]
+TRC_ZA readout=13 scalebar=131 setzoom=324 lod=703
+TRC_CH f=19754 sea 0 33
+TRC_CH f=19754 sea 1 18
+TRC_CH f=19754 sea 2 12
+TRC_CH f=19754 sea 3 16
+TRC_FR f=19754 4.93
+TRC_CH f=19755 roads 0 35
+TRC_CH f=19755 roads 1 30
+TRC_CH f=19755 roads 2 27
+TRC_CH f=19755 roads 3 23
+TRC_CH f=19755 roads 4 25
+TRC_FR f=19755 3.24
+TRC_CH f=19756 roads 5 31
+TRC_CH f=19756 roads 6 33
+TRC_CH f=19756 roads 7 39
+TRC_CH f=19756 roads 8 39
+TRC_CH f=19756 roads 9 32
+TRC_FR f=19756 3.48
+TRC_CH f=19757 roads 10 117
+TRC_CH f=19757 roads 11 134
+TRC_CH f=19757 roads 12 145
+TRC_CH f=19757 roads 13 107
+TRC_CH f=19757 roads 14 89
+TRC_FR f=19757 3.72
+TRC_CH f=19758 roads 15 72
+TRC_CH f=19758 roads 16 62
+TRC_CH f=19758 roads 17 53
+TRC_CH f=19758 roads 18 55
+TRC_CH f=19758 roads 19 46
+TRC_FR f=19758 3.31
+TRC_CH f=19759 roads 20 39
+TRC_CH f=19759 roads 21 47
+TRC_CH f=19759 roads 22 34
+TRC_CH f=19759 roads 23 49
+TRC_CH f=19759 settlements 0 173
+TRC_FR f=19759 3.37
+TRC_FR f=19760 2.06
+TRC_FR f=19761 1.54
+TRC_STEP step=1 total=12156 settle_pos=6489 declutter=1453 pin_geom=3547 entries=47
+TRC_CH f=19762 settlements 1 12571
+TRC_FR f=19762 14.42
+TRC_STEP step=2 total=2003 settle_pos=28 declutter=184 pin_geom=1034 entries=94
+TRC_CH f=19763 settlements 2 2254
+TRC_FR f=19763 4.13
+TRC_STEP step=3 total=2075 settle_pos=27 declutter=176 pin_geom=1019 entries=140
+TRC_CH f=19764 settlements 3 2353
+TRC_FR f=19764 4.41
+TRC_STEP step=4 total=2049 settle_pos=32 declutter=165 pin_geom=966 entries=185
+TRC_CH f=19765 settlements 4 2338
+TRC_FR f=19765 4.19
+TRC_STEP step=5 total=2469 settle_pos=38 declutter=198 pin_geom=1122 entries=235
+TRC_CH f=19766 settlements 5 2763
+TRC_CH f=19766 settlements 6 1204
+TRC_FR f=19766 6.39
+TRC_CH f=19767 settlements 7 1155
+TRC_CH f=19767 settlements 8 1101
+TRC_CH f=19767 settlements 9 1167
+TRC_FR f=19767 6.38
+TRC_CH f=19768 settlements 10 1352
+TRC_CH f=19768 settlements 11 1165
+TRC_CH f=19768 settlements 12 1176
+TRC_FR f=19768 6.68
+TRC_CH f=19769 settlements 13 1312
+TRC_CH f=19769 settlements 14 1171
+TRC_CH f=19769 settlements 15 1309
+TRC_FR f=19769 11.34
+TRC_CH f=19770 top 0 578
+TRC_CH f=19770 top 1 51
+TRC_CH f=19770 top 2 23
+TRC_CH f=19770 top 3 23
+TRC_CH f=19770 top 4 23
+TRC_FR f=19770 5.70
+TRC_CH f=19771 top 5 24
+TRC_CH f=19771 top 6 28
+TRC_CH f=19771 top 7 21
+TRC_CH f=19771 top 8 20
+TRC_CH f=19771 top 9 16
+TRC_FR f=19771 4.21
+TRC_CH f=19772 top 10 59
+TRC_CH f=19772 top 11 72
+TRC_FR f=19772 2.65
+  notch 23  zoom  34.14 lod true   call   1.49 ms  first   4.93  worst  14.42 (process  26.20)  sharp in  19 frames (overlay 18) /    94.5 ms
+TRC_RL sync=false vis=4 urban=7 layers=[14, 16, 18, 13, 6]
+TRC_RL sync=false vis=1 urban=6 layers=[11, 7, 4, 4, 3]
+TRC_ZA readout=14 scalebar=148 setzoom=446 lod=752
+TRC_CH f=19773 sea 0 35
+TRC_CH f=19773 sea 1 27
+TRC_CH f=19773 sea 2 18
+TRC_CH f=19773 sea 3 20
+TRC_FR f=19773 5.57
+TRC_CH f=19774 roads 0 39
+TRC_CH f=19774 roads 1 30
+TRC_CH f=19774 roads 2 38
+TRC_CH f=19774 roads 3 30
+TRC_CH f=19774 roads 4 32
+TRC_FR f=19774 3.60
+TRC_CH f=19775 roads 5 33
+TRC_CH f=19775 roads 6 43
+TRC_CH f=19775 roads 7 33
+TRC_CH f=19775 roads 8 57
+TRC_CH f=19775 roads 9 46
+TRC_FR f=19775 4.45
+TRC_CH f=19776 roads 10 155
+TRC_CH f=19776 roads 11 182
+TRC_CH f=19776 roads 12 198
+TRC_CH f=19776 roads 13 153
+TRC_CH f=19776 roads 14 256
+TRC_FR f=19776 4.09
+TRC_CH f=19777 roads 15 77
+TRC_CH f=19777 roads 16 70
+TRC_CH f=19777 roads 17 51
+TRC_CH f=19777 roads 18 57
+TRC_CH f=19777 roads 19 66
+TRC_FR f=19777 4.39
+TRC_CH f=19778 roads 20 39
+TRC_CH f=19778 roads 21 48
+TRC_CH f=19778 roads 22 35
+TRC_CH f=19778 roads 23 52
+TRC_CH f=19778 settlements 0 244
+TRC_FR f=19778 3.70
+TRC_FR f=19779 2.04
+TRC_FR f=19780 1.63
+TRC_STEP step=1 total=12366 settle_pos=6600 declutter=1581 pin_geom=3433 entries=47
+TRC_CH f=19781 settlements 1 12656
+TRC_FR f=19781 14.86
+TRC_STEP step=2 total=2066 settle_pos=36 declutter=187 pin_geom=1021 entries=94
+TRC_CH f=19782 settlements 2 2331
+TRC_FR f=19782 4.18
+TRC_STEP step=3 total=2079 settle_pos=34 declutter=182 pin_geom=1014 entries=140
+TRC_CH f=19783 settlements 3 2349
+TRC_FR f=19783 4.25
+TRC_STEP step=4 total=2118 settle_pos=30 declutter=178 pin_geom=1003 entries=185
+TRC_CH f=19784 settlements 4 2452
+TRC_FR f=19784 5.16
+TRC_STEP step=5 total=2858 settle_pos=40 declutter=213 pin_geom=1263 entries=235
+TRC_CH f=19785 settlements 5 3177
+TRC_FR f=19785 5.17
+TRC_CH f=19786 settlements 6 1271
+TRC_CH f=19786 settlements 7 1518
+TRC_CH f=19786 settlements 8 1088
+TRC_FR f=19786 6.72
+TRC_CH f=19787 settlements 9 1152
+TRC_CH f=19787 settlements 10 1069
+TRC_CH f=19787 settlements 11 1077
+TRC_FR f=19787 5.98
+TRC_CH f=19788 settlements 12 1125
+TRC_CH f=19788 settlements 13 1258
+TRC_CH f=19788 settlements 14 1063
+TRC_FR f=19788 5.99
+TRC_CH f=19789 settlements 15 1184
+TRC_CH f=19789 top 0 432
+TRC_CH f=19789 top 1 34
+TRC_CH f=19789 top 2 12
+TRC_FR f=19789 7.12
+TRC_CH f=19790 top 3 16
+TRC_CH f=19790 top 4 16
+TRC_CH f=19790 top 5 13
+TRC_CH f=19790 top 6 14
+TRC_CH f=19790 top 7 13
+TRC_FR f=19790 3.03
+TRC_CH f=19791 top 8 14
+TRC_CH f=19791 top 9 19
+TRC_CH f=19791 top 10 48
+TRC_CH f=19791 top 11 55
+TRC_FR f=19791 2.90
+  notch 24  zoom  39.26 lod true   call   1.79 ms  first   5.57  worst  14.86 (process  26.20)  sharp in  19 frames (overlay 18) /    92.6 ms
+TRC_RL sync=false vis=4 urban=6 layers=[13, 15, 17, 10, 6]
+TRC_RL sync=false vis=1 urban=4 layers=[7, 5, 4, 4, 3]
+TRC_CH f=19791 rivers 0 3
+TRC_CH f=19791 rivers 1 3
+TRC_CH f=19791 rivers 2 3
+TRC_CH f=19791 rivers 3 2
+TRC_CH f=19791 rivers 4 1
+TRC_CH f=19791 rivers 5 1
+TRC_CH f=19791 rivers 6 1
+TRC_CH f=19791 rivers 7 1
+TRC_CH f=19791 rivers 8 5
+TRC_CH f=19791 rivers 9 4
+TRC_CH f=19791 rivers 10 2
+TRC_CH f=19791 rivers 11 2
+TRC_CH f=19791 rivers 12 1
+TRC_CH f=19791 rivers 13 1
+TRC_CH f=19791 rivers 14 1
+TRC_CH f=19791 rivers 15 1
+TRC_CH f=19791 rivers 16 2
+TRC_CH f=19791 rivers 17 2
+TRC_CH f=19791 rivers 18 5
+TRC_CH f=19791 rivers 19 2
+TRC_CH f=19791 rivers 20 1
+TRC_CH f=19791 rivers 21 1
+TRC_CH f=19791 rivers 22 2
+TRC_CH f=19791 rivers 23 2
+TRC_RL sync=false vis=1 urban=4 layers=[5287, 9, 4, 4, 4]
+TRC_FR f=19792 9.69
+TRC_CH f=19793 sea 0 2365
+TRC_CH f=19793 sea 1 2269
+TRC_CH f=19793 sea 2 1764
+TRC_CH f=19793 sea 3 1951
+TRC_CH f=19793 roads 0 1303
+TRC_FR f=19793 23.04
+TRC_CH f=19794 roads 1 840
+TRC_CH f=19794 roads 2 1105
+TRC_FR f=19794 10.42
+TRC_RL sync=false vis=4 urban=6 layers=[13, 13, 99, 12, 9]
+TRC_RL sync=false vis=1 urban=4 layers=[7, 5, 4, 4, 3]
+TRC_CH f=19794 rivers 0 3
+TRC_CH f=19794 rivers 1 2
+TRC_CH f=19794 rivers 2 2
+TRC_CH f=19794 rivers 3 3
+TRC_CH f=19794 rivers 4 4
+TRC_CH f=19794 rivers 5 3
+TRC_CH f=19794 rivers 6 1
+TRC_CH f=19794 rivers 7 5
+TRC_CH f=19794 rivers 8 3
+TRC_CH f=19794 rivers 9 1
+TRC_CH f=19794 rivers 10 2
+TRC_CH f=19794 rivers 11 1
+TRC_CH f=19794 rivers 12 5
+TRC_CH f=19794 rivers 13 2
+TRC_CH f=19794 rivers 14 1
+TRC_CH f=19794 rivers 15 2
+TRC_CH f=19794 rivers 16 5
+TRC_CH f=19794 rivers 17 2
+TRC_CH f=19794 rivers 18 1
+TRC_CH f=19794 rivers 19 1
+TRC_CH f=19794 rivers 20 1
+TRC_CH f=19794 rivers 21 2
+TRC_CH f=19794 rivers 22 1
+TRC_CH f=19794 rivers 23 1
+TRC_RL sync=false vis=2 urban=3 layers=[6882, 11, 6, 6, 6]
+TRC_ZA readout=13 scalebar=161 setzoom=495 lod=7814
+TRC_FR f=19795 14.04
+TRC_FR f=19796 6.04
+TRC_CH f=19797 sea 0 38
+TRC_FR f=19797 4.30
+TRC_FR f=19798 8.18
+TRC_FR f=19799 8.43
+TRC_CH f=19800 sea 1 454
+TRC_FR f=19800 6.26
+TRC_CH f=19801 sea 2 25
+TRC_CH f=19801 sea 3 24
+TRC_FR f=19801 3.35
+TRC_CH f=19802 roads 0 36
+TRC_CH f=19802 roads 1 32
+TRC_FR f=19802 3.63
+TRC_CH f=19803 roads 2 39
+TRC_CH f=19803 roads 3 34
+TRC_CH f=19803 roads 4 41
+TRC_CH f=19803 roads 5 29
+TRC_CH f=19803 roads 6 25
+TRC_FR f=19803 4.50
+TRC_CH f=19804 roads 7 42
+TRC_CH f=19804 roads 8 37
+TRC_CH f=19804 roads 9 24
+TRC_CH f=19804 roads 10 142
+TRC_CH f=19804 roads 11 148
+TRC_FR f=19804 3.69
+TRC_CH f=19805 roads 12 145
+TRC_CH f=19805 roads 13 201
+TRC_CH f=19805 roads 14 122
+TRC_CH f=19805 roads 15 94
+TRC_CH f=19805 roads 16 80
+TRC_FR f=19805 5.62
+TRC_CH f=19806 roads 17 60
+TRC_CH f=19806 roads 18 69
+TRC_CH f=19806 roads 19 53
+TRC_CH f=19806 roads 20 39
+TRC_CH f=19806 roads 21 44
+TRC_FR f=19806 3.82
+TRC_CH f=19807 roads 22 30
+TRC_CH f=19807 roads 23 44
+TRC_CH f=19807 settlements 0 325
+TRC_FR f=19807 4.73
+TRC_FR f=19808 2.85
+TRC_FR f=19809 2.40
+TRC_STEP step=1 total=15673 settle_pos=9796 declutter=1572 pin_geom=3578 entries=47
+TRC_CH f=19810 settlements 1 16040
+TRC_FR f=19810 18.43
+TRC_FR f=19811 2.38
+TRC_FR f=19812 2.08
+TRC_STEP step=2 total=2116 settle_pos=39 declutter=205 pin_geom=1049 entries=94
+TRC_CH f=19813 settlements 2 2542
+TRC_FR f=19813 4.78
+TRC_STEP step=3 total=2085 settle_pos=38 declutter=179 pin_geom=1013 entries=140
+TRC_CH f=19814 settlements 3 2367
+TRC_FR f=19814 4.44
+TRC_STEP step=4 total=2131 settle_pos=30 declutter=170 pin_geom=1002 entries=185
+TRC_CH f=19815 settlements 4 2487
+TRC_FR f=19815 4.33
+TRC_STEP step=5 total=2465 settle_pos=28 declutter=186 pin_geom=1100 entries=235
+TRC_CH f=19816 settlements 5 2730
+TRC_FR f=19816 4.53
+TRC_CH f=19817 settlements 6 1263
+TRC_CH f=19817 settlements 7 1153
+TRC_CH f=19817 settlements 8 1091
+TRC_FR f=19817 6.16
+TRC_CH f=19818 settlements 9 1065
+TRC_CH f=19818 settlements 10 1020
+TRC_CH f=19818 settlements 11 1095
+TRC_FR f=19818 5.82
+TRC_CH f=19819 settlements 12 1151
+TRC_CH f=19819 settlements 13 1270
+TRC_CH f=19819 settlements 14 1079
+TRC_FR f=19819 6.09
+TRC_CH f=19820 settlements 15 1109
+TRC_CH f=19820 top 0 491
+TRC_CH f=19820 top 1 564
+TRC_CH f=19820 top 2 18
+TRC_FR f=19820 8.13
+TRC_CH f=19821 top 3 6
+TRC_CH f=19821 top 4 6
+TRC_CH f=19821 top 5 4
+TRC_CH f=19821 top 6 3
+TRC_CH f=19821 top 7 4
+TRC_FR f=19821 2.93
+TRC_CH f=19822 top 8 5
+TRC_CH f=19822 top 9 4
+TRC_CH f=19822 top 10 3
+TRC_CH f=19822 top 11 77
+TRC_FR f=19822 2.99
+TRC_RL sync=false vis=4 urban=7 layers=[13, 8, 5, 5, 3]
+TRC_FR f=19823 2.40
+TRC_RL sync=false vis=3 urban=5 layers=[9, 6, 3, 3, 3]
+TRC_FR f=19824 2.23
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19825 2.19
+TRC_RL sync=false vis=3 urban=4 layers=[8, 4, 4, 4, 3]
+TRC_FR f=19826 2.27
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_FR f=19827 2.68
+TRC_RL sync=false vis=2 urban=5 layers=[7, 5, 3, 3, 3]
+TRC_FR f=19828 2.65
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 3, 2]
+TRC_FR f=19829 2.65
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19830 2.65
+TRC_RL sync=false vis=3 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19831 2.66
+TRC_RL sync=false vis=2 urban=4 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19832 2.18
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 4, 3]
+TRC_FR f=19833 3.18
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19834 2.67
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 4, 3]
+TRC_FR f=19835 3.65
+TRC_RL sync=false vis=2 urban=7 layers=[12, 17, 20, 5, 11]
+TRC_CH f=19836 sea 0 40
+TRC_CH f=19836 sea 1 710
+TRC_CH f=19836 sea 2 19
+TRC_CH f=19836 sea 3 24
+TRC_CH f=19836 roads 0 41
+TRC_FR f=19836 6.02
+TRC_RL sync=false vis=3 urban=5 layers=[10, 6, 5, 3, 4]
+TRC_CH f=19837 roads 1 25
+TRC_CH f=19837 roads 2 28
+TRC_CH f=19837 roads 3 26
+TRC_CH f=19837 roads 4 29
+TRC_CH f=19837 roads 5 28
+TRC_FR f=19837 4.67
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 4, 3, 3]
+TRC_CH f=19838 roads 6 25
+TRC_CH f=19838 roads 7 26
+TRC_CH f=19838 roads 8 39
+TRC_CH f=19838 roads 9 33
+TRC_CH f=19838 roads 10 111
+TRC_FR f=19838 3.84
+TRC_RL sync=false vis=2 urban=5 layers=[10, 6, 4, 3, 3]
+TRC_CH f=19839 roads 11 124
+TRC_CH f=19839 roads 12 132
+TRC_CH f=19839 roads 13 125
+TRC_CH f=19839 roads 14 81
+TRC_CH f=19839 roads 15 65
+TRC_FR f=19839 4.40
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19840 roads 16 65
+TRC_CH f=19840 roads 17 39
+TRC_CH f=19840 roads 18 46
+TRC_CH f=19840 roads 19 48
+TRC_CH f=19840 roads 20 29
+TRC_FR f=19840 3.78
+TRC_RL sync=false vis=3 urban=5 layers=[8, 5, 4, 4, 4]
+TRC_CH f=19841 roads 21 36
+TRC_CH f=19841 roads 22 30
+TRC_CH f=19841 roads 23 53
+TRC_CH f=19841 top 0 271
+TRC_CH f=19841 top 1 174
+TRC_FR f=19841 4.34
+TRC_RL sync=false vis=2 urban=5 layers=[10, 5, 3, 3, 4]
+TRC_CH f=19842 top 2 5
+TRC_CH f=19842 top 3 9
+TRC_CH f=19842 top 4 8
+TRC_CH f=19842 top 5 7
+TRC_CH f=19842 top 6 4
+TRC_FR f=19842 3.90
+TRC_RL sync=false vis=2 urban=4 layers=[9, 5, 3, 4, 3]
+TRC_CH f=19843 top 7 5
+TRC_CH f=19843 top 8 10
+TRC_CH f=19843 top 9 8
+TRC_CH f=19843 top 10 7
+TRC_CH f=19843 top 11 80
+TRC_FR f=19843 3.93
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 4, 3]
+TRC_FR f=19844 2.32
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19845 2.29
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 3, 3, 2]
+TRC_FR f=19846 2.21
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 3, 4, 3]
+TRC_FR f=19847 2.28
+TRC_RL sync=false vis=3 urban=4 layers=[9, 5, 3, 3, 3]
+TRC_FR f=19848 2.26
+TRC_RL sync=false vis=3 urban=8 layers=[11, 7, 5, 5, 5]
+TRC_FR f=19849 2.23
+TRC_RL sync=false vis=2 urban=5 layers=[8, 10, 8, 4, 6]
+TRC_CH f=19850 sea 0 28
+TRC_CH f=19850 sea 1 549
+TRC_CH f=19850 sea 2 14
+TRC_CH f=19850 sea 3 28
+TRC_CH f=19850 roads 0 23
+TRC_FR f=19850 4.43
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 16, 4, 4]
+TRC_CH f=19851 roads 1 21
+TRC_CH f=19851 roads 2 30
+TRC_CH f=19851 roads 3 29
+TRC_CH f=19851 roads 4 24
+TRC_CH f=19851 roads 5 18
+TRC_FR f=19851 3.72
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 5, 3, 3]
+TRC_CH f=19852 roads 6 20
+TRC_CH f=19852 roads 7 21
+TRC_CH f=19852 roads 8 33
+TRC_CH f=19852 roads 9 30
+TRC_CH f=19852 roads 10 95
+TRC_FR f=19852 3.70
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19853 roads 11 94
+TRC_CH f=19853 roads 12 105
+TRC_CH f=19853 roads 13 77
+TRC_CH f=19853 roads 14 90
+TRC_CH f=19853 roads 15 58
+TRC_FR f=19853 3.82
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 4, 3, 4]
+TRC_CH f=19854 roads 16 53
+TRC_CH f=19854 roads 17 32
+TRC_CH f=19854 roads 18 47
+TRC_CH f=19854 roads 19 44
+TRC_CH f=19854 roads 20 26
+TRC_FR f=19854 3.97
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 4, 3, 31]
+TRC_CH f=19855 roads 21 35
+TRC_CH f=19855 roads 22 27
+TRC_CH f=19855 roads 23 45
+TRC_CH f=19855 top 0 215
+TRC_CH f=19855 top 1 166
+TRC_FR f=19855 4.49
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 4, 4]
+TRC_CH f=19856 top 2 5
+TRC_CH f=19856 top 3 7
+TRC_CH f=19856 top 4 5
+TRC_CH f=19856 top 5 11
+TRC_CH f=19856 top 6 7
+TRC_FR f=19856 3.92
+TRC_RL sync=false vis=2 urban=5 layers=[10, 6, 3, 3, 4]
+TRC_CH f=19857 top 7 5
+TRC_CH f=19857 top 8 7
+TRC_CH f=19857 top 9 5
+TRC_CH f=19857 top 10 6
+TRC_CH f=19857 top 11 59
+TRC_FR f=19857 3.93
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 4, 3, 3]
+TRC_FR f=19858 2.39
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_FR f=19859 2.51
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19860 2.43
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19861 2.26
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19862 3.12
+TRC_RL sync=false vis=3 urban=6 layers=[11, 6, 5, 4, 5]
+TRC_FR f=19863 4.41
+TRC_RL sync=false vis=3 urban=6 layers=[10, 13, 12, 5, 9]
+TRC_CH f=19864 sea 0 29
+TRC_CH f=19864 sea 1 692
+TRC_CH f=19864 sea 2 23
+TRC_CH f=19864 sea 3 26
+TRC_CH f=19864 roads 0 31
+TRC_FR f=19864 4.98
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 4, 4, 4]
+TRC_CH f=19865 roads 1 23
+TRC_CH f=19865 roads 2 31
+TRC_CH f=19865 roads 3 22
+TRC_CH f=19865 roads 4 57
+TRC_CH f=19865 roads 5 23
+TRC_FR f=19865 5.47
+TRC_RL sync=false vis=2 urban=6 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19866 roads 6 24
+TRC_CH f=19866 roads 7 27
+TRC_CH f=19866 roads 8 30
+TRC_CH f=19866 roads 9 19
+TRC_CH f=19866 roads 10 82
+TRC_FR f=19866 3.80
+TRC_RL sync=false vis=2 urban=4 layers=[7, 4, 4, 3, 3]
+TRC_CH f=19867 roads 11 97
+TRC_CH f=19867 roads 12 101
+TRC_CH f=19867 roads 13 83
+TRC_CH f=19867 roads 14 61
+TRC_CH f=19867 roads 15 59
+TRC_FR f=19867 4.26
+TRC_RL sync=false vis=3 urban=6 layers=[9, 6, 7, 5, 5]
+TRC_CH f=19868 roads 16 59
+TRC_CH f=19868 roads 17 46
+TRC_CH f=19868 roads 18 44
+TRC_CH f=19868 roads 19 44
+TRC_CH f=19868 roads 20 44
+TRC_FR f=19868 4.10
+TRC_RL sync=false vis=2 urban=5 layers=[9, 6, 4, 4, 4]
+TRC_CH f=19869 roads 21 35
+TRC_CH f=19869 roads 22 27
+TRC_CH f=19869 roads 23 39
+TRC_CH f=19869 top 0 287
+TRC_CH f=19869 top 1 1250
+TRC_FR f=19869 5.44
+TRC_RL sync=false vis=3 urban=5 layers=[9, 5, 3, 4, 4]
+TRC_CH f=19870 top 2 6
+TRC_CH f=19870 top 3 6
+TRC_CH f=19870 top 4 7
+TRC_CH f=19870 top 5 6
+TRC_CH f=19870 top 6 97
+TRC_FR f=19870 3.81
+TRC_RL sync=false vis=2 urban=4 layers=[8, 4, 4, 3, 4]
+TRC_CH f=19871 top 7 5
+TRC_CH f=19871 top 8 7
+TRC_CH f=19871 top 9 5
+TRC_CH f=19871 top 10 5
+TRC_CH f=19871 top 11 68
+TRC_FR f=19871 3.69
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19872 2.47
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 4, 3]
+TRC_FR f=19873 2.44
+TRC_RL sync=false vis=2 urban=4 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19874 2.42
+TRC_RL sync=false vis=2 urban=4 layers=[7, 4, 3, 3, 3]
+TRC_FR f=19875 2.48
+TRC_RL sync=false vis=2 urban=4 layers=[7, 4, 3, 3, 3]
+TRC_FR f=19876 2.53
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19877 2.54
+TRC_RL sync=false vis=3 urban=4 layers=[9, 11, 10, 3, 6]
+TRC_CH f=19878 sea 0 22
+TRC_CH f=19878 sea 1 732
+TRC_CH f=19878 sea 2 20
+TRC_CH f=19878 sea 3 18
+TRC_CH f=19878 roads 0 23
+TRC_FR f=19878 5.13
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 5, 4, 3]
+TRC_CH f=19879 roads 1 19
+TRC_CH f=19879 roads 2 31
+TRC_CH f=19879 roads 3 19
+TRC_CH f=19879 roads 4 28
+TRC_CH f=19879 roads 5 17
+TRC_FR f=19879 4.20
+TRC_RL sync=false vis=2 urban=4 layers=[8, 4, 5, 3, 3]
+TRC_CH f=19880 roads 6 21
+TRC_CH f=19880 roads 7 20
+TRC_CH f=19880 roads 8 25
+TRC_CH f=19880 roads 9 19
+TRC_CH f=19880 roads 10 81
+TRC_FR f=19880 4.26
+TRC_RL sync=false vis=3 urban=4 layers=[9, 5, 4, 4, 3]
+TRC_CH f=19881 roads 11 96
+TRC_CH f=19881 roads 12 117
+TRC_CH f=19881 roads 13 76
+TRC_CH f=19881 roads 14 73
+TRC_CH f=19881 roads 15 53
+TRC_FR f=19881 4.22
+TRC_RL sync=false vis=2 urban=5 layers=[10, 5, 4, 3, 3]
+TRC_CH f=19882 roads 16 54
+TRC_CH f=19882 roads 17 31
+TRC_CH f=19882 roads 18 36
+TRC_CH f=19882 roads 19 30
+TRC_CH f=19882 roads 20 36
+TRC_FR f=19882 3.98
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 4, 3, 3]
+TRC_CH f=19883 roads 21 35
+TRC_CH f=19883 roads 22 28
+TRC_CH f=19883 roads 23 46
+TRC_CH f=19883 top 0 269
+TRC_CH f=19883 top 1 141
+TRC_FR f=19883 4.28
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 4, 4, 4]
+TRC_CH f=19884 top 2 5
+TRC_CH f=19884 top 3 5
+TRC_CH f=19884 top 4 6
+TRC_CH f=19884 top 5 5
+TRC_CH f=19884 top 6 83
+TRC_FR f=19884 3.89
+TRC_RL sync=false vis=3 urban=4 layers=[9, 5, 4, 3, 4]
+TRC_CH f=19885 top 7 5
+TRC_CH f=19885 top 8 5
+TRC_CH f=19885 top 9 5
+TRC_CH f=19885 top 10 6
+TRC_CH f=19885 top 11 78
+TRC_FR f=19885 3.88
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19886 3.77
+TRC_RL sync=false vis=3 urban=5 layers=[9, 5, 5, 4, 3]
+TRC_FR f=19887 4.19
+TRC_RL sync=false vis=2 urban=6 layers=[10, 6, 4, 4, 4]
+TRC_FR f=19888 3.87
+TRC_RL sync=false vis=3 urban=6 layers=[12, 7, 4, 5, 4]
+TRC_FR f=19889 2.80
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19890 2.69
+TRC_RL sync=false vis=2 urban=5 layers=[9, 6, 3, 3, 4]
+TRC_FR f=19891 2.70
+TRC_RL sync=false vis=2 urban=5 layers=[8, 10, 9, 3, 6]
+TRC_CH f=19892 sea 0 22
+TRC_CH f=19892 sea 1 761
+TRC_CH f=19892 sea 2 22
+TRC_CH f=19892 sea 3 26
+TRC_CH f=19892 roads 0 25
+TRC_FR f=19892 5.19
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 5, 3, 3]
+TRC_CH f=19893 roads 1 20
+TRC_CH f=19893 roads 2 21
+TRC_CH f=19893 roads 3 15
+TRC_CH f=19893 roads 4 30
+TRC_CH f=19893 roads 5 19
+TRC_FR f=19893 3.95
+TRC_RL sync=false vis=3 urban=4 layers=[9, 5, 4, 4, 3]
+TRC_CH f=19894 roads 6 23
+TRC_CH f=19894 roads 7 29
+TRC_CH f=19894 roads 8 23
+TRC_CH f=19894 roads 9 27
+TRC_CH f=19894 roads 10 92
+TRC_FR f=19894 4.12
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 4, 3, 4]
+TRC_CH f=19895 roads 11 93
+TRC_CH f=19895 roads 12 100
+TRC_CH f=19895 roads 13 78
+TRC_CH f=19895 roads 14 83
+TRC_CH f=19895 roads 15 56
+TRC_FR f=19895 4.19
+TRC_RL sync=false vis=2 urban=5 layers=[7, 4, 4, 3, 3]
+TRC_CH f=19896 roads 16 51
+TRC_CH f=19896 roads 17 31
+TRC_CH f=19896 roads 18 42
+TRC_CH f=19896 roads 19 35
+TRC_CH f=19896 roads 20 34
+TRC_FR f=19896 3.92
+TRC_RL sync=false vis=5 urban=9 layers=[17, 11, 8, 7, 7]
+TRC_CH f=19897 roads 21 34
+TRC_CH f=19897 roads 22 19
+TRC_CH f=19897 roads 23 45
+TRC_CH f=19897 top 0 259
+TRC_CH f=19897 top 1 145
+TRC_FR f=19897 4.66
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 3, 4]
+TRC_CH f=19898 top 2 5
+TRC_CH f=19898 top 3 5
+TRC_CH f=19898 top 4 4
+TRC_CH f=19898 top 5 8
+TRC_CH f=19898 top 6 6
+TRC_FR f=19898 3.74
+TRC_RL sync=false vis=3 urban=4 layers=[9, 5, 3, 3, 4]
+TRC_CH f=19899 top 7 5
+TRC_CH f=19899 top 8 4
+TRC_CH f=19899 top 9 5
+TRC_CH f=19899 top 10 4
+TRC_CH f=19899 top 11 101
+TRC_FR f=19899 3.98
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 4, 3, 3]
+TRC_FR f=19900 2.58
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19901 2.86
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19902 3.74
+TRC_RL sync=false vis=3 urban=6 layers=[11, 7, 5, 5, 4]
+TRC_FR f=19903 4.11
+TRC_RL sync=false vis=3 urban=5 layers=[10, 6, 4, 5, 4]
+TRC_FR f=19904 4.25
+TRC_RL sync=false vis=3 urban=6 layers=[11, 6, 5, 5, 4]
+TRC_FR f=19905 3.96
+TRC_RL sync=false vis=2 urban=5 layers=[8, 10, 9, 4, 6]
+TRC_CH f=19906 sea 0 22
+TRC_CH f=19906 sea 1 822
+TRC_CH f=19906 sea 2 23
+TRC_CH f=19906 sea 3 19
+TRC_CH f=19906 roads 0 25
+TRC_FR f=19906 5.12
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 5, 3, 3]
+TRC_CH f=19907 roads 1 20
+TRC_CH f=19907 roads 2 31
+TRC_CH f=19907 roads 3 17
+TRC_CH f=19907 roads 4 23
+TRC_CH f=19907 roads 5 58
+TRC_FR f=19907 4.12
+TRC_RL sync=false vis=3 urban=5 layers=[9, 6, 4, 3, 4]
+TRC_CH f=19908 roads 6 23
+TRC_CH f=19908 roads 7 28
+TRC_CH f=19908 roads 8 25
+TRC_CH f=19908 roads 9 24
+TRC_CH f=19908 roads 10 87
+TRC_FR f=19908 4.16
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 4, 4, 4]
+TRC_CH f=19909 roads 11 97
+TRC_CH f=19909 roads 12 101
+TRC_CH f=19909 roads 13 92
+TRC_CH f=19909 roads 14 75
+TRC_CH f=19909 roads 15 64
+TRC_FR f=19909 4.41
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19910 roads 16 55
+TRC_CH f=19910 roads 17 37
+TRC_CH f=19910 roads 18 34
+TRC_CH f=19910 roads 19 30
+TRC_CH f=19910 roads 20 27
+TRC_FR f=19910 4.05
+TRC_RL sync=false vis=3 urban=4 layers=[8, 5, 4, 4, 4]
+TRC_CH f=19911 roads 21 33
+TRC_CH f=19911 roads 22 20
+TRC_CH f=19911 roads 23 41
+TRC_CH f=19911 top 0 235
+TRC_CH f=19911 top 1 146
+TRC_FR f=19911 4.30
+TRC_RL sync=false vis=2 urban=5 layers=[8, 4, 4, 4, 4]
+TRC_CH f=19912 top 2 6
+TRC_CH f=19912 top 3 5
+TRC_CH f=19912 top 4 9
+TRC_CH f=19912 top 5 5
+TRC_CH f=19912 top 6 7
+TRC_FR f=19912 3.91
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_CH f=19913 top 7 5
+TRC_CH f=19913 top 8 5
+TRC_CH f=19913 top 9 9
+TRC_CH f=19913 top 10 9
+TRC_CH f=19913 top 11 82
+TRC_FR f=19913 4.27
+TRC_RL sync=false vis=3 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_FR f=19914 2.66
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_FR f=19915 2.65
+TRC_RL sync=false vis=2 urban=4 layers=[8, 5, 3, 4, 3]
+TRC_FR f=19916 2.71
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19917 2.75
+TRC_RL sync=false vis=2 urban=4 layers=[6, 3, 3, 3, 3]
+TRC_FR f=19918 2.71
+TRC_RL sync=false vis=2 urban=4 layers=[8, 4, 3, 3, 3]
+TRC_FR f=19919 2.69
+TRC_RL sync=false vis=2 urban=5 layers=[9, 10, 8, 3, 6]
+TRC_CH f=19920 sea 0 20
+TRC_CH f=19920 sea 1 887
+TRC_CH f=19920 sea 2 15
+TRC_CH f=19920 sea 3 15
+TRC_CH f=19920 roads 0 23
+TRC_FR f=19920 5.05
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 5, 3, 3]
+TRC_CH f=19921 roads 1 22
+TRC_CH f=19921 roads 2 25
+TRC_CH f=19921 roads 3 19
+TRC_CH f=19921 roads 4 28
+TRC_CH f=19921 roads 5 29
+TRC_FR f=19921 4.18
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 5, 3, 3]
+TRC_CH f=19922 roads 6 23
+TRC_CH f=19922 roads 7 25
+TRC_CH f=19922 roads 8 24
+TRC_CH f=19922 roads 9 25
+TRC_CH f=19922 roads 10 84
+TRC_FR f=19922 4.24
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19923 roads 11 94
+TRC_CH f=19923 roads 12 99
+TRC_CH f=19923 roads 13 90
+TRC_CH f=19923 roads 14 87
+TRC_CH f=19923 roads 15 53
+TRC_FR f=19923 4.33
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 4, 3, 3]
+TRC_CH f=19924 roads 16 51
+TRC_CH f=19924 roads 17 31
+TRC_CH f=19924 roads 18 34
+TRC_CH f=19924 roads 19 34
+TRC_CH f=19924 roads 20 35
+TRC_FR f=19924 4.09
+TRC_RL sync=false vis=2 urban=4 layers=[9, 5, 5, 3, 3]
+TRC_CH f=19925 roads 21 32
+TRC_CH f=19925 roads 22 19
+TRC_CH f=19925 roads 23 44
+TRC_CH f=19925 top 0 212
+TRC_CH f=19925 top 1 149
+TRC_FR f=19925 4.47
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 3]
+TRC_CH f=19926 top 2 6
+TRC_CH f=19926 top 3 5
+TRC_CH f=19926 top 4 7
+TRC_CH f=19926 top 5 9
+TRC_CH f=19926 top 6 5
+TRC_FR f=19926 4.05
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 3, 3]
+TRC_CH f=19927 top 7 6
+TRC_CH f=19927 top 8 5
+TRC_CH f=19927 top 9 7
+TRC_CH f=19927 top 10 6
+TRC_CH f=19927 top 11 102
+TRC_FR f=19927 4.08
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 3, 3]
+TRC_FR f=19928 2.69
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19929 2.77
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 3, 4, 3]
+TRC_FR f=19930 2.66
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19931 2.76
+TRC_RL sync=false vis=2 urban=5 layers=[7, 4, 4, 3, 2]
+TRC_FR f=19932 2.67
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 4, 3]
+TRC_FR f=19933 2.72
+TRC_RL sync=false vis=2 urban=5 layers=[8, 10, 8, 3, 6]
+TRC_CH f=19934 sea 0 21
+TRC_CH f=19934 sea 1 929
+TRC_CH f=19934 sea 2 14
+TRC_CH f=19934 sea 3 15
+TRC_CH f=19934 roads 0 23
+TRC_FR f=19934 5.20
+TRC_RL sync=false vis=2 urban=4 layers=[7, 5, 4, 4, 3]
+TRC_CH f=19935 roads 1 19
+TRC_CH f=19935 roads 2 20
+TRC_CH f=19935 roads 3 27
+TRC_CH f=19935 roads 4 21
+TRC_CH f=19935 roads 5 24
+TRC_FR f=19935 4.12
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 4, 3, 4]
+TRC_CH f=19936 roads 6 21
+TRC_CH f=19936 roads 7 21
+TRC_CH f=19936 roads 8 20
+TRC_CH f=19936 roads 9 19
+TRC_CH f=19936 roads 10 80
+TRC_FR f=19936 4.02
+TRC_RL sync=false vis=3 urban=5 layers=[9, 5, 4, 3, 4]
+TRC_CH f=19937 roads 11 95
+TRC_CH f=19937 roads 12 112
+TRC_CH f=19937 roads 13 126
+TRC_CH f=19937 roads 14 89
+TRC_CH f=19937 roads 15 79
+TRC_FR f=19937 6.49
+TRC_RL sync=false vis=3 urban=6 layers=[11, 7, 7, 5, 6]
+TRC_CH f=19938 roads 16 76
+TRC_CH f=19938 roads 17 47
+TRC_CH f=19938 roads 18 48
+TRC_CH f=19938 roads 19 42
+TRC_CH f=19938 roads 20 35
+TRC_FR f=19938 4.63
+TRC_RL sync=false vis=2 urban=5 layers=[8, 5, 5, 4, 4]
+TRC_CH f=19939 roads 21 36
+TRC_CH f=19939 roads 22 21
+TRC_CH f=19939 roads 23 49
+TRC_CH f=19939 top 0 314
+TRC_CH f=19939 top 1 207
+TRC_FR f=19939 5.39
+TRC_RL sync=false vis=2 urban=5 layers=[10, 5, 3, 4, 4]
+TRC_CH f=19940 top 2 5
+TRC_CH f=19940 top 3 5
+TRC_CH f=19940 top 4 7
+TRC_CH f=19940 top 5 6
+TRC_CH f=19940 top 6 7
+TRC_FR f=19940 4.10
+TRC_RL sync=false vis=2 urban=5 layers=[9, 5, 3, 3, 4]
+TRC_CH f=19941 top 7 5
+TRC_CH f=19941 top 8 18
+TRC_CH f=19941 top 9 6
+TRC_CH f=19941 top 10 9
+TRC_CH f=19941 top 11 113
+TRC_FR f=19941 6.37
+TRC_RL sync=false vis=3 urban=7 layers=[11, 6, 6, 5, 5]
+TRC_FR f=19942 3.41
+TRC_FR f=19943 3.48
+TRC_FR f=19944 3.62
+TRC_FR f=19945 2.71
+  idle frame ms: { "median": 10.958, "min": 10.785, "max": 14.337, "n": 60 }
+  overlay redraw at fit, ms/frame: { "median": 61.265, "min": 59.311, "max": 64.532, "n": 10 }
+  notch: zoom_step call ms { "median": 1.766, "min": 1.145, "max": 17.794, "n": 24 }  first frame ms { "median": 11.497, "min": 4.931, "max": 34.487, "n": 24 }  worst frame while sharpening ms { "median": 26.254, "min": 14.42, "max": 56.381, "n": 24 }
+  pan at x16 frame ms: { "median": 3.875, "min": 2.179, "max": 6.493, "n": 120 }  process ms: { "median": 23.044, "min": 23.044, "max": 26.196, "n": 120 }  settle after pan ms: { "median": 3.482, "min": 2.707, "max": 3.616, "n": 3 }
+  frames over 16.7 ms: 65

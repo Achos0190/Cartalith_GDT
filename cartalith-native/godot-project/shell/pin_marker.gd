@@ -370,10 +370,16 @@ static func draw(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note:
 	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
 	var s := r * 0.62
 	var lw := maxf(min_line, 1.4 * w * r / 9.0)
-	for f in pic.get("fills", []):
-		ci.draw_colored_polygon(_xf(f, head, s), ink)
-	for c in pic.get("cuts", []):
-		ci.draw_colored_polygon(_xf(c, head, s), fill)
+	## Zoom-regression fix (2026-11-23): the filled and cut polygons are drawn in the pictogram's own unit frame, scaled by `s`
+	## through the transform. Godot triangulates a polygon in the float32 numbers it is given, and a part a fifth of a unit
+	## across at x39 (the door of a house, `s` about 0.3) stands at a map coordinate near 800, where the float error is as large
+	## as the cross-product bar its ear test holds it to: 17 polygons per run came back "Invalid polygon data, triangulation
+	## failed" and were not drawn. Moving to the head alone was not enough (the castle's crenellated fill failed at one scale,
+	## 0.47): in the unit frame the same numbers are triangulated at every zoom and position (`_zoomfan_probe.gd` section 2).
+	ci.draw_set_transform(head, 0.0, Vector2(s, s))
+	for part in pic_parts(pic):
+		ci.draw_colored_polygon(part[0], fill if part[1] else ink)
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	for l in pic.get("lines", []):
 		ci.draw_polyline(_xf(l, head, s), ink, lw, true)
 	for d in pic.get("dots", []):
@@ -667,6 +673,19 @@ static func draw_icon(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_
 
 
 ## A pictogram polyline or polygon from the unit square to the head: scaled by `s` and moved to `head`.
+## A pictogram's filled and cut polygons as `[polygon, is_cut]` pairs in the pictogram's own unit frame (the head at the origin,
+## the part about one unit across), fills first. `draw` and `draw_ring` hand them to `draw_colored_polygon` under
+## `draw_set_transform(head, 0, (s, s))`, so Godot triangulates the same numbers at every zoom and every map position; kept
+## apart so a probe can triangulate exactly these (`_zoomfan_probe.gd`).
+static func pic_parts(pic: Dictionary) -> Array:
+	var out := []
+	for f in pic.get("fills", []):
+		out.append([f, false])
+	for c in pic.get("cuts", []):
+		out.append([c, true])
+	return out
+
+
 static func _xf(pts: PackedVector2Array, head: Vector2, s: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for p in pts:
@@ -709,10 +728,10 @@ static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, h
 	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
 	var s := r * 0.62
 	var lw := maxf(min_line, 1.4 * w * r / 9.0)
-	for f in pic.get("fills", []):
-		ci.draw_colored_polygon(_xf(f, centre, s), ink)
-	for c in pic.get("cuts", []):
-		ci.draw_colored_polygon(_xf(c, centre, s), fill)
+	ci.draw_set_transform(centre, 0.0, Vector2(s, s))   ## the pictogram's own frame, as `draw` (2026-11-23 triangulation fix)
+	for part in pic_parts(pic):
+		ci.draw_colored_polygon(part[0], fill if part[1] else ink)
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	for l in pic.get("lines", []):
 		ci.draw_polyline(_xf(l, centre, s), ink, lw, true)
 	for d in pic.get("dots", []):
@@ -837,16 +856,12 @@ static func fan_layout(items: Array, icon_set: String = "") -> Dictionary:
 	var dims: Array = []
 	for it in items:
 		dims.append(_pin_dims(it, icon_set))
-	var parent := PackedInt32Array()
-	parent.resize(n)
-	for i in n:
-		parent[i] = i
+	var parent := _scan_clusters(items, dims, icon_set)
 	var any := false
 	for i in n:
-		for j in range(i + 1, n):
-			if _pins_collide(items[i], items[j], icon_set):
-				_union(parent, i, j)
-				any = true
+		if parent[i] != i:
+			any = true
+			break
 	if not any:
 		return out
 	var lay := {}
@@ -891,6 +906,41 @@ static func fan_layout(items: Array, icon_set: String = "") -> Dictionary:
 		if lay.has(i):
 			out[int(items[i]["id"])] = lay[i]
 	return out
+
+
+## The union-find forest of `fan_layout`'s first clustering: every pair of `items` that `_pins_collide`, joined, each set rooted at
+## its lowest index (`_union`). Zoom-regression fix (2026-11-23): the pair scan was `n * (n - 1) / 2` calls of `_pins_collide`
+## (GDScript, two `shape()` lookups each), 65-74 ms at x3-x39 on seed 24601, in the middle of a settlement chunk, once per
+## notch. Upright pins collide only when their tips are closer than `FAN_OVERLAP_KEEP * 2 * rmax` sideways: the heads test needs
+## `ra + rb` at most `2 * rmax`, and the stem test needs a head within 0.9 r of a VERTICAL axis, a distance never below the
+## sideways one (`_seg_dist`), and 0.9 < 1.5. So only items within one column of that width need asking, which gives the same
+## pairs, and, `_union` rooting every set at its lowest index whatever the order, the same partition as the full scan
+## (`_zoomfan_probe.gd` compares the two).
+static func _scan_clusters(items: Array, dims: Array, icon_set: String) -> PackedInt32Array:
+	var n := items.size()
+	var parent := PackedInt32Array()
+	parent.resize(n)
+	for i in n:
+		parent[i] = i
+	var rmax := 0.0
+	for d in dims:
+		rmax = maxf(rmax, float(d["rh"]))
+	var col_w := maxf(FAN_OVERLAP_KEEP * 2.0 * rmax, 0.001)
+	var cols := {}   ## column -> item indices, in index order
+	var col_of := PackedInt32Array()
+	col_of.resize(n)
+	for i in n:
+		var c := floori((items[i]["pos"] as Vector2).x / col_w)
+		col_of[i] = c
+		if not cols.has(c):
+			cols[c] = []
+		(cols[c] as Array).append(i)
+	for i in n:
+		for c in [col_of[i] - 1, col_of[i], col_of[i] + 1]:
+			for j in cols.get(c, []):
+				if j > i and _pins_collide(items[i], items[j], icon_set):
+					_union(parent, i, j)
+	return parent
 
 
 static func _root(parent: PackedInt32Array, i: int) -> int:

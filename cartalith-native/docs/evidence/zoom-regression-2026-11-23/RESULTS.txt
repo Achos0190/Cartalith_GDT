@@ -1,0 +1,22 @@
+Zoom regression, 2026-11-23/24. Desktop 1600x900, release DLL, vsync off, seed 24601, 2048x1311, 24 notches, _zoomcost_probe.
+Frames over 16.7 ms per run (the probe's own "frames over" line). The machine was never quiet (cargo/rustc count after each run).
+
+origin/main 69a88c48 (release DLL built for it), 5 runs:   70 (9 procs)  75 (9)  77 (9)  79 (12)  145 (5)      median 77
+2026-09-28 tree 7063f4d7 + its own release DLL, 3 runs:    22 (5)  21 (5)  890 (10)
+fixed tree (pin_marker.gd only), loaded:                    61 (0)  62 (0)  115 (2)  142 (3)  1273 (36)
+  (these five ran with a map_overlay.gd rivers early-return that was then dropped; it changed nothing, see STATUS.md)
+origin/main again, later:                                   338 (6)
+Traced runs (scratch print per chunk, so frame times are inflated; used for attribution only):
+  head + fan fix + pictogram fix:           73     same, --bank off:   52
+  + the dropped rivers early-return:        65     same, --bank off:   45
+
+Per-call timings (Time.get_ticks_usec pairs inside _settlement_plan_step, then one print; not inflated):
+  _settlement_pin_geom, first settlement chunk, notches 7-24:   65-74 ms before, 0.33-0.39 ms after the fan fix
+  settle_pos (_bank_sync -> settlement_bank_offsets), per notch: 15-45 ms at x2.4-x9, 6-25 ms deeper (unchanged, open)
+Invalid polygon lines: _zoomcost_probe x39: 17 before, 0 after.  _zoompic_probe: 13 before, 0 after (404 px differ).
+Pixels (_zoomcost_probe --shots): map rect 0 px at fit/x4/x16/x32; after the pan 1229 px, max delta 3, right-hand 8 px strip.
+Idle frame median: 9.4 ms (September tree) against 10.9-11.8 ms (today), same hour.
+
+Files: trace_tr2.log (before the fan fix), trace_tr7.log (after), analyze_trace.py, zoom_run.sh (the runner: scratch copy of the
+project, scratch APPDATA, the window lock taken with mkdir and released only if it is ours), zoompic_head.png / zoompic_fix.png.
+The scratch trace edits (prints in _chunk_done, _frame, _settlement_plan_step, _zoom_at, _refresh_layers) are not committed.
