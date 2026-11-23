@@ -63,6 +63,7 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
+- **(running, Sonnet) Owner report 2026-11-23:** landmark markers do not scale with zoom the way settlement pins do (size mismatch when zooming); one shared size function, ratio constant within 5 % from x1 to x64 on every form.
 - **(running, Sonnet)** Province and national border lines (Rulings GO, HR) ignore the style presets' province/border ink; the coast gets its own line (Ruling HV): traced from the drawn sea/lake edge, own layer toggle and preset ink, map/tiles/export, smooth at every zoom.
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.

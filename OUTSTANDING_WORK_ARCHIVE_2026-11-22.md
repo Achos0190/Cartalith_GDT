@@ -5692,3 +5692,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Red baselines: caused by `600a7b65` (orogen lattice cap, not a no-op on 40 075 km worlds); pins re-recorded with attribution; `_claimsabsent_probe` fixed for format-3 archives (`9ab8edd9`).
 - PS-5 measured no-go (`a15b2d27`); Ruling HW stops at PS-2 + fix E.
 - 6T device checks: TR-7 trace file on the device works; TL-5 33 of 34 (`046f177d`).
+- Vault connect on Android: the Java bridge rejected null String arguments silently; `_query` and `grant_is_held` fixed, a logcat line per attempt (`908b2fd1`); device check on the next APK.
