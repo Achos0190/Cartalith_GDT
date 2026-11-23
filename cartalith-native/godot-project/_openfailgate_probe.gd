@@ -105,7 +105,7 @@ extends Node
 ## non-phone boot under `--force-touch`, or failed fixtures).
 
 var _fail := 0
-var _settings_path := "user://cartalith_settings.cfg"
+var _settings_path: String = DccSettings.CONFIG_PATH   ## the seam: `CARTALITH_CONFIG_PATH` when set, else user://cartalith_settings.cfg
 var _settings_existed := false
 var _settings_backup := PackedByteArray()
 var _projects_root := ""
@@ -291,7 +291,12 @@ func _cleanup_fixtures() -> void:
 # ---------------------------------------------------------------------------
 
 func _click_picker_tile(dlg: Node, path: String) -> bool:
-	var basename := path.get_file().get_basename()
+	## A tile's title is the save's generated world name (`project_meta()["name"]`) and falls back to the file's basename only
+	## for a save with none, as `open_project_dialog.gd::_build_tile` draws it. This matched the basename alone, so the good
+	## fixture's tile was never found (2026-11-23, OUTSTANDING "Welcome leftovers": two failures on desktop).
+	var basename := String(OpenProjectDialog.project_meta(path).get("name", ""))
+	if basename == "":
+		basename = path.get_file().get_basename()
 	var tiles: HFlowContainer = dlg.get("_picker_tiles")
 	for wrap in tiles.get_children(true):
 		var title: Label = wrap.find_child("Title", true, false)

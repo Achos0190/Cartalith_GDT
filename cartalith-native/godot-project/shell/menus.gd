@@ -4860,7 +4860,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## this row's own tooltip (`_refresh_working_set_row`) and on the Render
 	## quality row above.
 	_working_set_row = _readout(p, "Working set",
-		"Memory the app's interface layer has allocated, against the machine's physical RAM. It does not include the world data the generation engine holds. Refreshed on every popup.")
+		"Memory the whole app process holds (interface and generation engine together), against the machine's physical RAM. Refreshed on every popup.")
 	_refresh_working_set_row(p)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
 	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Generate ▸ Finalize ▸
@@ -5660,17 +5660,19 @@ func _active_backend() -> String:
 func _refresh_working_set_row(p: PopupMenu) -> void:
 	if _working_set_row < 0 or _working_set_row >= p.item_count:
 		return
-	var used := OS.get_static_memory_usage()
+	## The whole process, Rust engine included (`EngineBridge.memory_bytes`), as the top bar reads it; Godot's own allocator
+	## alone reads 0 in a release export and never saw the engine (OUTSTANDING "Dock labels", 2026-11-23).
+	var used := _bridge.memory_bytes() if _bridge != null else OS.get_static_memory_usage()
 	var info := OS.get_memory_info()
 	var total := int(info.get("physical", -1))
 	if total > 0:
 		p.set_item_text(_working_set_row, "Working set   %s of %s" % [_gb(used), _gb(total)])
 		p.set_item_tooltip(_working_set_row,
-			"Memory the app's interface layer has allocated, against the machine's physical RAM. It does not include the world data the generation engine holds. " + _video_mem_line())
+			"Memory the whole app process holds (interface and generation engine together), against the machine's physical RAM. " + _video_mem_line())
 	else:
 		p.set_item_text(_working_set_row, "Working set   %s" % _gb(used))
 		p.set_item_tooltip(_working_set_row,
-			"Memory the app's interface layer has allocated. It does not include the world data the generation engine holds. This device does not report its total RAM, so no total is shown. " + _video_mem_line())
+			"Memory the whole app process holds (interface and generation engine together). This device does not report its total RAM, so no total is shown. " + _video_mem_line())
 
 ## The second half of both tooltips above, shared because the sentence is the
 ## same fact whichever branch printed the numerator -- and because writing it

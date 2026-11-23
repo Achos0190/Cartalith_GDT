@@ -3165,7 +3165,7 @@ func _dark_layer_row(parent: Control, label_text: String) -> void:
 	row.add_child(mark)
 	var name_label := DccTheme.mono_label(label_text, "text_ghost", fs)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
 	row.add_child(name_label)
 	row.add_child(DccTheme.mono_label("not drawing", "text_ghost", fs))
 	parent.add_child(row)
@@ -3240,7 +3240,9 @@ func _layer_row(parent: Control, d: Dictionary, index: int, count: int) -> void:
 	var name_label := DccTheme.mono_label(String(d["label"]),
 		"text" if shown else "text_ghost", fs)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+	name_label.tooltip_text = name_label.text
+	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_child(name_label)
 
 	## §6's "opacity bar" -- a readout, since the slider lives in the left dock.
@@ -5866,7 +5868,7 @@ func _saved_measurement_row(parent: Control, i: int) -> void:
 	var l := DccTheme.mono_label("#%d %s · %s" % [i + 1, _measure_mode_label(mode), _saved_value_text(e)],
 		"text", DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
 	if suspect_zero_bearing(e):
 		l.text += " ⚠"
 		row.tooltip_text = "Zero-length bearing saved by an older build: 0° is not a real heading here. " + row.tooltip_text
@@ -7533,7 +7535,9 @@ func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text",
 		DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+	l.tooltip_text = l.text
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_child(l)
 	## §57 tier B: one row of many, one selected -- the same "one of a set is
 	## lit" shape as a mode chip, so it takes `chip_min_h`/`fs_readout` rather
@@ -7879,7 +7883,9 @@ func _paint_legend_row(parent: Control, label_text: String, count: int, swatch: 
 	var fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var l := DccTheme.label(label_text, "text", fs)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+	l.tooltip_text = l.text
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_child(l)
 	row.add_child(DccTheme.mono_label(str(count), "text_dim", fs))
 	if _paint_on_pick.is_valid():

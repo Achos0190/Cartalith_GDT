@@ -89,27 +89,20 @@ GUI, then engine, then the LLM interface).
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 
 ### Desktop, tablet and phone shell
-- New World: Imperial seats, Biome K and Lake water balance under More options (not on a phone); Base technology does not rewrite an existing roster.
 - Generated label list differs between two Creates of one seed on tablet (view-dependent `cull.px_per_cell`; not reproduced). `_regenerate_labels`, `label_px_per_cell()`.
-- Welcome leftovers: tablet-portrait New world Width/Seed fields dark on the light theme; "Continue without a world" only as wide as its text; `_openfailgate_probe` desktop fails 2 checks.
 - Phone: lifted Asset library tiles have no drop target in their own pane.
 - Phone: the undo chip answers only `bridge.can_undo()` (look edits undo elsewhere); CARTO's own phone sheet (MS-3) likely settles the route question (verify). `phone_menu.gd`, `dcc_shell.gd`.
 - Phone: `+`/`-` fine-adjust on sliders and the Splat/Biomes probes (Ruling EH item 1 follow-ups; owner decision pending).
-- Phone 2026-10-26 findings: Create over unsaved edits asks nothing; `_phone_saved_at` not reset by a new world; SwiftKey IME duplication (unverified). `dcc_shell.gd`.
-- Phone touch-scroll: the sheet/tab state after a window opened from MORE closes.
-- Tablet portrait: Climate's lapse-rate readout overflow; `DccWidgets.toggle()` spacer not re-run on rotation (verify). `TABLET_UI_SPEC.md` §2.4.
+- Phone 2026-10-26 finding, device only: SwiftKey IME duplication when editing the Save-as name with `adb` key events (unverified with a human typist). `dcc_shell.gd`.
 - Tablet canvas: the one remaining difference after the 2026-11-15 re-read; radii and `scrPicker` not re-checked (verify). `TABLET_UI_SPEC.md`.
 - `MOUSE_FILTER_STOP` controls over scrollers: triage which matter (verify; largely answered by the touch-scroll fix). `ANDROID_UI_SPEC.md`.
 - GUI replacement stages 3, 5, 6 and 7: re-open each spec against the shell and close or narrow (verify; RP-S6 superseded). `design/dcc-environment-2026-08-31/spec/`.
 - BUILD_ANSWERS §3: Data manager screenshots for the owner's approval. `data_manager_window.gd`.
 - BUILD_ANSWERS §4: content descriptions, dynamic type, the 48 dp sweep, screenshots.
 - `DCC_SHELL_SPEC.md` §11: the 51 stale citations (as parity rows).
-- Landmark filter: CIVIL > Landmarks per-kind rows not linked to visibility.
-- Dock labels: stamp-stack, measure and layer-count rows still `clip_text`; the Working set row and resource overlay read static memory.
 - Mockup follow-up: `ds13.js` still labels thumb zoom "pending DS13-Q1"; bring to Ruling EC item 4.
 - Map context: F5 ring slot replacement (later). `MAP_CONTEXT_SCOPE.md`.
 - PC shell: PC-7's remaining note items (verify). `PC_SHELL_PROPOSAL.md` §6.
-- Probes leak persisted settings (`[recent] paths` and others) into the shared user dir; `CONFIG_PATH` has no seam. `dcc_settings.gd`.
 - Point Godot's remote debugger at the Android build to read the node tree off the device (owner suggestion). `ANDROID_BUILD_SCOPE.md`.
 - UI copy pass, remaining surfaces: listed at the end of `cartalith-native/docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
 - Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).

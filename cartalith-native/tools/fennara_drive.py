@@ -94,7 +94,8 @@ def drive_shell(godot, form, script, dll, root, out, timeout=90):
     """TP-2: run `script` (res://, `func run(ctx)`) against the real shell in the given form. Returns (status, lines)."""
     proj = scratch_shell(dll, root)
     env = {"APPDATA": str(pathlib.Path(root) / "appdata"), "LOCALAPPDATA": str(pathlib.Path(root) / "localappdata")}
-    for v in env.values(): pathlib.Path(v).mkdir(exist_ok=True)
+    env["CARTALITH_CONFIG_PATH"] = str(pathlib.Path(root) / "appdata" / "cartalith_settings.cfg")  # DccSettings.CONFIG_PATH seam
+    for v in (env["APPDATA"], env["LOCALAPPDATA"]): pathlib.Path(v).mkdir(exist_ok=True)
     if not (proj / ".godot").exists():
         subprocess.run([godot, "--headless", "--path", str(proj), "--import"], capture_output=True, timeout=900, env=dict(os.environ, **env))
     shutil.rmtree(out, ignore_errors=True)   # a stale capture from an earlier run must never be mistaken for this one

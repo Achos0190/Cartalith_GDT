@@ -6721,6 +6721,7 @@ func _notification(what: int) -> void:
 ## never reaches it, so it keeps its project path.
 func _begin_untitled_world() -> void:
 	current_project_path = ""
+	_phone_saved_at = ""   ## the phone overflow's Save time belongs to the previous world too
 	_last_autosave_at = ""   ## the card's "last autosave" row belongs to the previous world
 	_refresh_save_status()
 

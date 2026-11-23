@@ -917,7 +917,9 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	if not _phone:
 		_build_more(card, rest)
 
-	var gen_sec := DccWidgets.section(rest, "Generation")
+	## Phone: the Generation section (Imperial seats, Biome K, Lake water balance) is built into `card`, because `rest` (More
+	## options) is hidden there and a phone could not reach these three (OUTSTANDING "New World ... not on a phone").
+	var gen_sec := DccWidgets.section(card if _phone else rest, "Generation")
 	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
 		func(v: bool): _metropolis = v,
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
@@ -2709,6 +2711,19 @@ func _on_archetype_selected(index: int) -> void:
 ## preview drew. Only Create does this; the other `generate_checked()` routes
 ## regenerate with whatever `tect.plates` holds.
 func _on_create() -> void:
+	## Create replaces the open world, so unsaved work in it is asked about first, on every form (OUTSTANDING "Phone
+	## 2026-10-26 findings": Create asked nothing). The shell's one gate, `confirm_unsaved_world`; Discard and Save both
+	## run `_create_now`, Cancel runs nothing. Gated on `world_dirty`, not on "a world exists", so a clean world is
+	## replaced as before.
+	var app := get_parent()
+	if bridge.has_world and bridge.world_dirty and app != null and app.has_method("confirm_unsaved_world"):
+		app.confirm_unsaved_world("New world", "Create a new world over it?",
+			"Discard and create", "Save and create", _create_now)
+		return
+	_create_now()
+
+## The body of Create once any unsaved-work question is answered; see `_on_create`.
+func _create_now() -> void:
 	_apply_plates_to_engine()
 	## No archetype write here: picking it already wrote its five dials into the stored parameters (`_on_archetype_selected`),
 	## the preview drew from those same parameters, and `generate_request()` sends the plain path over them -- so Create makes

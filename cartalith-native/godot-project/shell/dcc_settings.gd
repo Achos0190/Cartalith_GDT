@@ -20,7 +20,16 @@ class_name DccSettings
 
 ## The one `ConfigFile` every setting here lives in. `user://` is per-install
 ## machine state, so nothing in it is ever written into a world `.zip`.
-const CONFIG_PATH := "user://cartalith_settings.cfg"
+##
+## Test seam (OUTSTANDING "Probes leak persisted settings"): the environment variable
+## `CARTALITH_CONFIG_PATH`, when set, replaces the path, so a probe run never reads or writes the
+## owner's `[recent] paths` and the rest. Unset (every shipped run) it is the literal below. It is a
+## `static var` read once at class load, not a `const`, only because a `const` cannot read the
+## environment; nothing assigns it afterwards.
+static var CONFIG_PATH: String = _config_path_seam()
+static func _config_path_seam() -> String:
+	var v := OS.get_environment("CARTALITH_CONFIG_PATH")
+	return v if v != "" else "user://cartalith_settings.cfg"
 ## Section holding the four storage roots (`ROOT_KEYS`), one key each.
 const _SEC_ROOTS := "storage_roots"
 ## Section holding the recent-projects list (`paths`, newest first, capped

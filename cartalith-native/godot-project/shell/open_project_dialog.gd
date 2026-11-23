@@ -778,7 +778,8 @@ func _build_picker() -> Control:
 	_picker_note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	foot.add_child(_picker_note)
 	var out := DccWidgets.text_button(foot, "Continue without a world", func(): hide())
-	out.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	## Fills the foot column (2026-11-23): a flat borderless button sized by its text was a ~150 px tap target (OUTSTANDING "Welcome leftovers").
+	out.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## `maxf`, not an assignment: `DccWidgets.text_button()` already floors this
 	## at `PHONE_TAP_MIN * phone_scale()` on a handset, which is larger than 44,
 	## and overwriting it would shrink the one target this factory already

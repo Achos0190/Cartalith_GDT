@@ -3511,7 +3511,9 @@ func _dead_text_row(parent: Control, label_text: String, why: String) -> HBoxCon
 	var fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
 	var l := DccTheme.label(label_text, "text_secondary", fs)
 	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
-	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+	l.tooltip_text = l.text
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(l)
 	row.add_child(DccTheme.spacer())
@@ -3980,7 +3982,9 @@ func _rebuild_label_panel() -> void:
 		var name_text: String = String(d.get("text", ""))
 		var l := DccTheme.mono_label(name_text if not name_text.is_empty() else "(untitled)", "text_dim", DccTheme.FS_SMALL)
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+		l.tooltip_text = l.text
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
 		## `selected` is membership of the selection set and `primary` is the
 		## one carrying the edit session -- at one selected label they are the
 		## same bool and this reads exactly as it always did.
@@ -4077,7 +4081,9 @@ func _build_auto_edits_list() -> void:
 		var l := DccTheme.mono_label(String(d.get("text", "")) + (" (hidden)" if bool(d.get("hidden", false)) else ""),
 			"text_dim", DccTheme.FS_SMALL)
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+		l.tooltip_text = l.text
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
 		row.add_child(l)
 		var sel := Button.new()
 		sel.text = "edit"

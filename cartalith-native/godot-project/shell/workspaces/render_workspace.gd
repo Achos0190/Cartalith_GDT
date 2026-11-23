@@ -3333,7 +3333,9 @@ func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
 	var name_label := DccTheme.mono_label(String(d["label"]),
 		"text" if visible else "text_ghost", readout_fs)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
+	name_label.tooltip_text = name_label.text
+	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	head.add_child(name_label)
 
 	## WCAG 2.2 SC 2.5.7: a pointer alternative to the drag below, and the
@@ -3424,7 +3426,7 @@ func _dark_layer_row(parent: Control, label_text: String) -> void:
 	row.add_child(mark)
 	var name_label := DccTheme.mono_label(label_text, "text_ghost", fs)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS  ## an ellipsis, not a hard cut (OUTSTANDING "Dock labels", 2026-11-23)
 	row.add_child(name_label)
 	row.add_child(DccTheme.mono_label("not drawing", "text_ghost", fs))
 	parent.add_child(row)

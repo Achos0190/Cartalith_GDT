@@ -92,8 +92,7 @@ func _on_visibility_changed() -> void:
 ## Rewrites the diagnostics text: grid size and megapixels, working-set memory,
 ## GPU use, quality tier and a hand-picked set of active feature flags. Reads
 ## only; says "No world generated yet." rather than showing zeros when there is
-## no world. The memory figure is Godot's static memory, not the Rust engine's,
-## so it understates the total.
+## no world. The memory figure is the whole process (`EngineBridge.memory_bytes`).
 ##
 ## **Never reads the engine while `generating`** (mid-generation sweep, 2026-10-12). This runs from
 ## a 0.5 s timer while the overlay is shown (Shift+D), so it keeps firing under the busy overlay,
@@ -111,7 +110,7 @@ func _refresh() -> void:
 	var g := _bridge.grid_size()
 	var lines: Array[String] = []
 	lines.append("%d × %d  ·  %.2f MP" % [g.x, g.y, (g.x * g.y) / 1.0e6])
-	lines.append("Working set: %.1f MB" % (OS.get_static_memory_usage() / 1048576.0))
+	lines.append("Working set: %.1f MB" % (_bridge.memory_bytes() / 1048576.0))
 
 	var gpu_on := bool(_bridge.param_get("use_gpu"))
 	var used := _bridge.gpu_stages_used()

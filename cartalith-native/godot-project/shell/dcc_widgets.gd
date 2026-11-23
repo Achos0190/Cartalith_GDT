@@ -739,8 +739,12 @@ static func toggle(parent: Control, label_text: String, value: bool,
 	## portrait only, matching every other change of this shape here:
 	## desktop, laptop, landscape tablet and phone toggles keep the spacer
 	## and are BYTE-IDENTICAL to HEAD, same child count, same nodes.
-	if not DccTheme.is_tablet_portrait():
-		row.add_child(DccTheme.spacer())
+	##
+	## **2026-11-23 (OUTSTANDING "DccWidgets.toggle() spacer not re-run on rotation"): no toggle has the spacer now, on any
+	## form.** A row built in landscape kept its spacer through a rotation to portrait (this ran once, at build), so its
+	## minimum still carried the extra `separation`. Since the spacer is inert wherever there is slack, dropping it
+	## everywhere is the one change a rotation cannot get wrong; the right edge is the label's expansion, asserted by
+	## `tools/shell_batch_a_drive.gd` (the box's right edge is the row's right edge on every form).
 	row.add_child(cb)
 	return cb
 
@@ -1123,20 +1127,22 @@ static func style_spin(sb: SpinBox) -> void:
 	var spin_x := DccTheme.role_px("chip_pad_x")
 	var spin_y := DccTheme.role_px("chip_pad_y")
 	var le := sb.get_line_edit()
-	for state in ["normal", "focus", "read_only"]:
-		le.add_theme_stylebox_override(state,
-			DccTheme.field_box(state, spin_x, spin_y))
+	## The three field boxes are repainted on a palette flip below, not only built once: a box carries the colours of the palette
+	## that was live when it was made, and a SpinBox built before the shell applied a stored light theme (the New World dialog is
+	## built in `DccApp._ready`) stayed dark on the light palette -- tablet-portrait New world Width and Seed, 2026-11-23.
 	le.add_theme_font_override("font", DccTheme.mono(0))
 	le.add_theme_font_size_override("font_size",
 		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_TINY)
-	le.add_theme_color_override("font_color", DccTheme.c("text_bright"))
-	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
-	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_faint"))
-	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
 	## See `well()` for why `font_selected_color` is set by hand: the default
 	## theme's white glyph on the light palette's `#d3bb99` selection band
 	## measured 1.26:1.
 	_palette_watch(le, func() -> void:
+		for state in ["normal", "focus", "read_only"]:
+			le.add_theme_stylebox_override(state, DccTheme.field_box(state, spin_x, spin_y))
+		le.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+		le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
+		le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_faint"))
+		le.add_theme_color_override("caret_color", DccTheme.c("accent"))
 		le.add_theme_color_override("font_selected_color",
 			DccTheme.c("text_bright")))
 	## **Left, and `ENV:351` is why it is not right.** This line used to read

@@ -6124,6 +6124,9 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	line.add_child(count)
 	parent.add_child(line)
 	var token := DccWidgets.text_button(line, "", func(): _lm_open_funnel(key))
+	## On the count line, not the slider row: the under-bars share the slider track's right edge, which a widget added to the
+	## slider row would move.
+	_lm_visibility_box(line, key, label)
 
 	_lm_rows[key] = {
 		"family": fam, "class": cls, "label": label, "buildable": buildable,
@@ -6137,6 +6140,33 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 		slider.editable = false
 	slider.drag_started.connect(func(): _lm_drag_start(key))
 	_lm_refresh_row(key)
+
+## The row's "show on map" box: the same per-kind visibility the Layers popover's Landmarks filter holds
+## (`ViewportHost.landmark_kind_visible` / `set_landmark_kind_visible`), so this row and that panel can never disagree
+## (OUTSTANDING "Landmark filter: CIVIL > Landmarks per-kind rows not linked to visibility"). Visibility only: arming and
+## the cap stay the slider's. Kept in step with the other panel through `landmark_filter_changed`; the connection goes
+## when the row is freed (a rebuild frees every row).
+func _lm_visibility_box(row: HBoxContainer, key: String, label: String) -> void:
+	var vp = app.viewport if app != null else null
+	if vp == null or not vp.has_method("landmark_kind_visible"):
+		return
+	var cb := CheckBox.new()
+	cb.name = "LmShow_" + key
+	cb.focus_mode = Control.FOCUS_NONE
+	cb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cb.set_pressed_no_signal(bool(vp.landmark_kind_visible(key)))
+	## No spacer ahead of the box: right-aligned it falls under the map on a tablet in portrait, where this dock is narrower
+	## than its widest row (`TABLET_UI_SPEC.md` 2.4).
+	cb.tooltip_text = "Show %s on the map (the same switch as Layers > Landmarks)." % label.to_lower()
+	cb.toggled.connect(func(on: bool): vp.set_landmark_kind_visible(key, on))
+	var sync := func():
+		if is_instance_valid(cb):
+			cb.set_pressed_no_signal(bool(vp.landmark_kind_visible(key)))
+	vp.landmark_filter_changed.connect(sync)
+	cb.tree_exiting.connect(func():
+		if vp.landmark_filter_changed.is_connected(sync):
+			vp.landmark_filter_changed.disconnect(sync))
+	row.add_child(cb)
 
 # -- § LAST RUN ---------------------------------------------------------------
 
