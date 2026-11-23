@@ -1,0 +1,16 @@
+faction wall: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
+no snap: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::province_seam_grows_and_snaps_to_a_river
+no pins: KILLED by border_terrain::tests::province_snap_never_moves_a_seat
+plain cost: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::province_seam_grows_and_snaps_to_a_river
+gate < 0: SURVIVED on the first run (the fixture split equally with no wall in reach, so growth = nearest seat); the strength-0 check then got a second fixture (river at 510, unequal seats) and on re-run: KILLED by border_terrain::tests::province_seam_grows_and_snaps_to_a_river
+no fallback: KILLED by border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
+seat on foreign land seeds: KILLED by border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
+carry ignores faction: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit
+carry ignores old: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit
+carry keeps dup: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit
+lines across factions: KILLED by border_terrain::tests::province_lines_trace_inner_seams_only
+reprovince re-cuts: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
+move ignores live: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
+flag never set: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
+pipeline Voronoi: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
+Probe mutants (map_overlay.gd / probe): --mutate noline KILLED (DRAWN 0 px); PROVINCE_LINE_INK alpha 110 -> 230 KILLED (lighter check). See probe_runs.txt.

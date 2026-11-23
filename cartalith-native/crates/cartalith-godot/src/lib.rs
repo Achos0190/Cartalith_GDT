@@ -496,6 +496,13 @@ struct CivData {
     /// Province metadata (id/faction/name/seed settlement index) parallel
     /// to `provinces` above's cell ids.
     province_list: Vec<cartalith_civ::Province>,
+    /// Owner Ruling HR: `provinces` were grown over the border friction and
+    /// snapped (`civ.border_friction` above 0 when the world was generated or
+    /// opened), so [`civ_reprovince`] carries their shape over an edited claim
+    /// grid (`cartalith_civ::border_terrain::carry_provinces`) instead of
+    /// re-cutting them by nearest seat, and a polity move takes the province
+    /// as drawn. `false`: the Voronoi path, exactly as before the ruling.
+    provinces_follow_terrain: bool,
     /// Addressable landmasses (`cartalith_civ::civ_continents`,
     /// `MARKDOWN_VAULT_SCOPE.md` milestone 0) — the connected-component
     /// labelling `build_landmass_quality` has always produced and this
@@ -887,11 +894,19 @@ fn province_cell_counts(provinces: &[i32]) -> Vec<(i32, i64)> {
 /// whose archive carried no `rasters/territory.i32` (`project_bridge.rs`,
 /// `civ_from_project`): with no claim grid there is nothing to build
 /// provinces over, and the stored provinces are kept as they came.
+///
+/// Ruling HR: on a world whose provinces follow the terrain
+/// (`CivData::provinces_follow_terrain`), the stored shape is carried over
+/// rather than re-cut by nearest seat.
 fn civ_reprovince(civ: &mut CivData, gw: usize, gh: usize) {
     if civ.territory.len() != gw * gh {
         return;
     }
-    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
+    let (provinces, province_list) = if civ.provinces_follow_terrain {
+        cartalith_civ::border_terrain::carry_provinces(&civ.provinces, &civ.settlements, &civ.territory, gw, gh)
+    } else {
+        cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh)
+    };
     civ.provinces = provinces;
     civ.province_list = province_list;
 }
@@ -1088,7 +1103,16 @@ fn civ_polity_move_plan(
         // raster (a province is only drawn on its own faction's cells); kept
         // as the rule's own wording, so a mutation dropping it survives as an
         // equivalent mutant.
-        let belongs = |c: usize| civ.territory[c] == from && seed_province.is_none_or(|pid| provinces[c] == pid);
+        //
+        // Ruling HR: on a world whose provinces follow the terrain, the cells
+        // are the province as stored and drawn (grown, snapped and carried
+        // over), found by the id at the settlement's own cell; the fresh pass
+        // above still decides whether the place is a seat at all.
+        let live = civ.provinces_follow_terrain && civ.provinces.len() == n;
+        let belongs = |c: usize| {
+            civ.territory[c] == from
+                && seed_province.is_none_or(|pid| if live { civ.provinces[c] == civ.provinces[own] } else { provinces[c] == pid })
+        };
         match seed_province {
             None => cells.push(own),
             Some(_) => {
@@ -1361,6 +1385,7 @@ mod civ_merge_tests {
     /// are irrelevant and deliberately uniform — only the count is read.
     pub(super) fn tagged(n: usize) -> CivData {
         CivData {
+            provinces_follow_terrain: false,
             settlements: (0..n)
                 .map(|i| NamedSettlement {
                     tid: i as u64 + 1,
@@ -3934,6 +3959,7 @@ mod civ_timeline_tests {
     /// and a default-seeded roster, so a timeline test sees nothing it did not put there.
     pub(crate) fn empty_civ(settlements: Vec<NamedSettlement>, territory: Vec<i32>) -> CivData {
         CivData {
+            provinces_follow_terrain: false,
             settlements,
             ways: Vec::new(),
             sea_routes: Vec::new(),
@@ -6071,7 +6097,11 @@ fn compute_civilisation(
             sea: sea_level,
             world,
         };
-        cartalith_civ::border_terrain::assign_territory_terrain(&settlements, &cost, &t, opts.border_friction)
+        let territory = cartalith_civ::border_terrain::assign_territory_terrain(&settlements, &cost, &t, opts.border_friction);
+        // Owner Ruling HR: the provinces grow over the same friction and snap
+        // to the same walls, so they are built here, while the rasters live.
+        let provinces = cartalith_civ::border_terrain::provinces_terrain(&settlements, &territory, &cost, &t, opts.border_friction);
+        (territory, provinces)
     });
     // Every raster below was read for the last time by the explanations
     // above and the territory -- the suitability inputs, the six-field-lighter
@@ -6082,7 +6112,10 @@ fn compute_civilisation(
     // rasters; at strength 0 the sweep runs after the drop as it always did, so
     // only a strength-above-0 world's peak grows.
     drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources, confluence));
-    let territory = terrain_territory.unwrap_or_else(|| cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world));
+    let (territory, terrain_provinces) = match terrain_territory {
+        Some((t, p)) => (t, Some(p)),
+        None => (cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world), None),
+    };
     // Provinces (`_civGenerateProvinces`, PHASE2_SCOPE.md) over
     // `assign_territory`'s output above, the same per-cell shape (`Vec<i32>`
     // faction id, 0 = unowned) as the reference's `civTerritory`, which its
@@ -6090,8 +6123,10 @@ fn compute_civilisation(
     // in this grid yet: the caller merges it afterwards, and rebuilds the
     // provinces over the merged grid when there is any
     // (`civ_rebase_territory_paint`), so a province never crosses a painted
-    // border and a world with no paint keeps exactly these.
-    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);
+    // border and a world with no paint keeps exactly these. Above strength 0
+    // (Ruling HR) they were grown with the territory above.
+    let (provinces, province_list) =
+        terrain_provinces.unwrap_or_else(|| cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh));
     // Addressable landmasses (`MARKDOWN_VAULT_SCOPE.md` milestone 0). Free:
     // `landmass` above is already the golden-verified flood fill, and this
     // only keeps its component bookkeeping instead of dropping it. After
@@ -6190,6 +6225,7 @@ fn compute_civilisation(
     // (`recompute_civilisation`), so a kept place keeps the year it was given, or none.
     let place_extras = civ_roster_bridge::generation_place_extras(&settlements, opts.founding_year);
     CivData {
+        provinces_follow_terrain: opts.border_friction > 0.0,
         settlements,
         ways,
         // The raw topology, kept rather than dropped with `topology` at the
@@ -14044,6 +14080,33 @@ impl WorldGen {
         out
     }
 
+    /// Owner Ruling HR: the seams between one faction's provinces as smoothed
+    /// polylines (`cartalith_civ::border_terrain::province_polylines`), in the
+    /// same shape and coordinates as [`Self::civ_border_lines`], for
+    /// `map_overlay.gd`'s lighter province line. Empty when the world's
+    /// provinces do not follow the terrain (`CivData::provinces_follow_terrain`:
+    /// the raster line, `build_province_boundary_texture`, as before), with no
+    /// world, or with no province grid.
+    #[func]
+    fn civ_province_lines(&self) -> VarArray {
+        let mut out = VarArray::new();
+        let Some(civ) = self.civ.as_ref().filter(|c| c.provinces_follow_terrain) else { return out };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return out,
+        };
+        if civ.territory.len() != gw * gh || civ.provinces.len() != gw * gh || field.len() != gw * gh {
+            return out;
+        }
+        for line in cartalith_civ::border_terrain::province_polylines(&civ.provinces, &civ.territory, field, self.sea_level, gw, gh) {
+            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
+            out.push(&pts.to_variant());
+        }
+        out
+    }
+
     /// Phase 2 civilisation layer (`cartalith-civ`): one `Dictionary` per
     /// settlement with keys `x`/`y` (grid cell, int), `name` (String),
     /// `population` (int), `kind` (String: "metropolis"/"capital"/"city"/
@@ -15637,7 +15700,8 @@ impl WorldGen {
     /// UI/UX design pass picking one -- boundary lines need no palette at
     /// all and read clearly layered on top of `build_territory_texture`'s
     /// own per-faction fill. `None` under the same conditions as
-    /// `build_territory_texture`.
+    /// `build_territory_texture`, and when the provinces follow the terrain
+    /// (owner Ruling HR: the overlay draws them as a line, `civ_province_lines`).
     ///
     /// The line is drawn 3px wide at full grid resolution, not 1px --
     /// found by real windowed-app screenshot verification (not assumed)
@@ -15654,7 +15718,10 @@ impl WorldGen {
         const LINE_RGBA: [u8; 4] = [35, 24, 9, 235]; // map_overlay.gd's ink tone, alpha nudged up (not to opaque)
         // No province raster (a reopened archive that did not carry one,
         // `project_bridge.rs::civ_from_project`): no lines, not an index panic.
-        if civ.provinces.len() != gw * gh {
+        // Ruling HR: provinces that follow the terrain are drawn as a smoothed
+        // line by the overlay (`civ_province_lines`), not as this raster, so
+        // the map never shows both.
+        if civ.provinces.len() != gw * gh || civ.provinces_follow_terrain {
             return None;
         }
 

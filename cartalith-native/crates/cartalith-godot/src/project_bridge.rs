@@ -3350,6 +3350,8 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
     };
 
     Some(CivData {
+        // Ruling HR: `project_open` sets it from the restored params.
+        provinces_follow_terrain: false,
         settlements,
         ways,
         // Stored since 2026-09-24 (§9.3): the raw cell paths cannot be
@@ -4178,7 +4180,10 @@ impl WorldGen {
             );
         }
 
-        if let Some(civ) = civ_from_project(&data, n, &mut restore_warnings) {
+        if let Some(mut civ) = civ_from_project(&data, n, &mut restore_warnings) {
+            // Ruling HR: the stored provinces of a world made with the border
+            // friction on are its grown ones; an edit carries them over.
+            civ.provinces_follow_terrain = self.params.civ.border_friction > 0.0;
             // The Territory tool's model, as `absorb` builds it for a generate:
             // the claim grid as the base, no paint, and the manual-placement
             // name stream where the save left it, or folded from this world's
@@ -5795,6 +5800,7 @@ mod tests {
         village_tids.insert(8u64);
 
         CivData {
+            provinces_follow_terrain: false,
             road_edges: Vec::new(),
             belief: Vec::new(),
             belief_seed_key: Vec::new(),

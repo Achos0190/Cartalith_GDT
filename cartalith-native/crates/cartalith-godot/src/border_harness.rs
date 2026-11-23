@@ -372,6 +372,152 @@ fn border_harness() {
     }
 }
 
+/// Protects nothing (pins nothing): Ruling HR's measurement. Per seed and grid
+/// width, on the app's parameters (`civ.border_friction` 0.6), with the
+/// faction territory held fixed: "before" is the nearest-seat provinces
+/// (`civ_generate_provinces` over the world's own territory), "after" is the
+/// world's own grown and snapped provinces. It prints the share of province
+/// seam length (sides between two provinces of one faction) within one cell
+/// of a `feature_walls` cell (a major river, crest or canyon floor), with the
+/// owned-land share as the baseline; the spread of province sizes; cells in a
+/// province of another faction (must be 0); and the time of one province pass
+/// each way. Asserts the rebuilt "after" equals the pipeline's, no crossing,
+/// and that some world had a seam (one whose factions each hold a single
+/// province is said and skipped).
+///
+/// Run (alone): `cargo test -p cartalith-godot --lib province_harness -- --ignored --nocapture`
+/// (`BORDER_GW` chooses the grids, default 384).
+#[test]
+#[ignore = "Ruling HR measurement over generated worlds; run alone with --ignored"]
+fn province_harness() {
+    let mut measured = 0usize;
+    for &gw in &list::<usize>("BORDER_GW", &[384]) {
+        for &seed in &SEEDS {
+            let gh = crate::reference_grid_h(gw, false);
+            let mut p = crate::with_call_args(crate::params::defaults(), seed, WIDTH_KM, gw, gh);
+            p.use_gpu = false;
+            let (ws, civ, _, _) = generate(seed, gw, p.civ.border_friction);
+            let n = gw * gh;
+            let sea = ws.sea_level;
+            let net = crate::map_river_network(&ws, gw, gh);
+            let (order, _) = crate::civ_river_network(&ws, gw, gh, sea, p.world, p.river_density, p.map_width_km, p.civ.map_rivers, net.as_ref());
+            let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+            let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, p.world);
+            let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km);
+            let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea, p.world, flow_thresh);
+            let t = cartalith_civ::border_terrain::BorderTerrain {
+                field: &ws.field, river_order: &order, biome: &biome, corridors: &corridors, flow: &ws.flow_discharge,
+                flow_thresh, gw, gh, sea, world: p.world,
+            };
+            let cost = cartalith_civ::build_travel_cost(&ws.field, gw, gh, sea);
+            let t0 = std::time::Instant::now();
+            let (before, list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
+            let t_before = t0.elapsed().as_secs_f64();
+            let t0 = std::time::Instant::now();
+            let (again, _) = cartalith_civ::border_terrain::provinces_terrain(&civ.settlements, &civ.territory, &cost, &t, p.civ.border_friction);
+            let t_after = t0.elapsed().as_secs_f64();
+            let after = &civ.provinces;
+            assert_eq!(&again, after, "seed {seed} gw {gw}: the rebuilt provinces are the pipeline's");
+            let walls = cartalith_civ::border_terrain::feature_walls(&t);
+            let near = |i: usize| {
+                let (x, y) = (i % gw, i / gw);
+                (y.saturating_sub(1)..(y + 2).min(gh)).any(|yy| (x.saturating_sub(1)..(x + 2).min(gw)).any(|xx| walls[yy * gw + xx]))
+            };
+            let owned: Vec<usize> = (0..n).filter(|&i| civ.territory[i] > 0).collect();
+            let land_near = owned.iter().filter(|&&i| near(i)).count() as f64 / owned.len().max(1) as f64;
+            let seams = |prov: &[i32]| {
+                let (mut all, mut hit) = (0usize, 0usize);
+                for y in 0..gh {
+                    for x in 0..gw {
+                        let i = y * gw + x;
+                        for j in [(x + 1 < gw).then(|| i + 1), (y + 1 < gh).then(|| i + gw)].into_iter().flatten() {
+                            if civ.territory[i] > 0 && civ.territory[i] == civ.territory[j] && prov[i] != prov[j] {
+                                all += 1;
+                                hit += (near(i) || near(j)) as usize;
+                            }
+                        }
+                    }
+                }
+                (all, hit as f64 / all.max(1) as f64)
+            };
+            let spread = |prov: &[i32]| {
+                let mut a = vec![0usize; list.len() + 1];
+                for &q in prov {
+                    if q > 0 {
+                        a[q as usize] += 1;
+                    }
+                }
+                let mut v: Vec<f64> = a[1..].iter().map(|&c| c as f64).collect();
+                v.sort_by(f64::total_cmp);
+                let mean = v.iter().sum::<f64>() / v.len().max(1) as f64;
+                let sd = (v.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / v.len().max(1) as f64).sqrt();
+                format!("n {} min {} median {} max {} cv {:.2}", v.len(), v[0], v[v.len() / 2], v[v.len() - 1], sd / mean)
+            };
+            let crossing = (0..n).filter(|&i| after[i] > 0 && list[after[i] as usize - 1].faction != civ.territory[i]).count();
+            let (sb, nb) = seams(&before);
+            let (sa, na) = seams(after);
+            println!(
+                "PROVINCE seed {seed} gw {gw}: seam near feature before {nb:.3} ({sb} sides) after {na:.3} ({sa} sides), owned land {land_near:.3}; sizes before [{}] after [{}]; cross-faction cells {crossing}; pass {:.3} s -> {:.3} s",
+                spread(&before), spread(after), t_before, t_after
+            );
+            // A world whose every faction holds one province has no seam to
+            // measure (246371 at 2048): said, and the run as a whole must
+            // still have measured some.
+            if sb == 0 && sa == 0 {
+                println!("PROVINCE seed {seed} gw {gw}: no faction holds two provinces; no seam to measure");
+            }
+            measured += (sb > 0 && sa > 0) as usize;
+            assert_eq!(crossing, 0, "seed {seed} gw {gw}: a province crosses a faction border");
+        }
+    }
+    assert!(measured > 0, "no world had a province seam to measure");
+}
+
+/// Protects Ruling HR at the app boundary on a real small world: at 0 the
+/// provinces are the nearest-seat split and do not follow the terrain; at 0.6
+/// they differ from it (the fixture reaches the growth) with the same list (so
+/// every `Province::id` the vault links by is unchanged), an edit-free
+/// `civ_reprovince` keeps them cell for cell (the carry, not a re-cut), and a
+/// polity move of a seat takes its province as drawn.
+#[test]
+fn provinces_follow_terrain_through_reprovince_and_polity_move() {
+    let (_, a, gh, _) = generate(483920, 384, 0.0);
+    let (vor, _) = cartalith_civ::civ_generate_provinces(&a.settlements, &a.territory, 384, gh);
+    assert!(!a.provinces_follow_terrain);
+    assert_eq!(a.provinces, vor, "strength 0: the nearest-seat split");
+    let (_, mut b, gh, _) = generate(483920, 384, 0.6);
+    assert!(b.provinces_follow_terrain);
+    let (vor, vlist) = cartalith_civ::civ_generate_provinces(&b.settlements, &b.territory, 384, gh);
+    assert_eq!(format!("{:?}", b.province_list), format!("{vlist:?}"), "ids, names and seats unchanged");
+    let differ: Vec<usize> = (0..vor.len()).filter(|&i| vor[i] != b.provinces[i]).collect();
+    assert!(!differ.is_empty(), "the fixture must reach the growth");
+    let grown = b.provinces.clone();
+    crate::civ_reprovince(&mut b, 384, gh);
+    assert_eq!(b.provinces, grown, "an unchanged grid keeps the grown provinces");
+    // A seat whose province the growth reshaped, moved to another faction.
+    let q = b.province_list.iter().find(|q| differ.iter().any(|&i| vor[i] == q.id)).expect("a reshaped province").clone();
+    let to = b.province_list.iter().map(|p| p.faction).find(|&f| f != q.faction).expect("two factions");
+    let tools = crate::civ_tools_bridge::CivTools::new(384, gh, b.territory.clone(), 1);
+    let mv = crate::civ_polity_move_plan(&b, Some(&tools), 384, gh, q.capital_settlement_index, to).expect("a plan");
+    // The 4-connected run of the grown province holding the seat.
+    let seat = &b.settlements[q.capital_settlement_index].placement;
+    let mut run = vec![seat.y * 384 + seat.x];
+    let mut seen = std::collections::HashSet::from([run[0]]);
+    let mut k = 0;
+    while k < run.len() {
+        let c = run[k];
+        k += 1;
+        let (x, y) = (c % 384, c / 384);
+        for m in [(x > 0).then(|| c - 1), (x + 1 < 384).then(|| c + 1), (y > 0).then(|| c - 384), (y + 1 < gh).then(|| c + 384)].into_iter().flatten() {
+            if grown[m] == q.id && seen.insert(m) {
+                run.push(m);
+            }
+        }
+    }
+    run.sort_unstable();
+    assert_eq!(mv.cells, run, "the move takes the province as drawn");
+}
+
 /// Protects: `compute_civilisation` reads `civ.border_friction` (a world at
 /// 0.6 owns its land differently from the same world at 0) and the ruling's
 /// "roads bit-identical" bar (ways, sea routes and road edges hash the same at

@@ -20,6 +20,12 @@
 //!   owners as smoothed polylines in continuous grid coordinates, for the
 //!   shell's overlay (which the export draws too).
 //!
+//! Owner Ruling HR (2026-11-23): provinces follow the same logic, behind the
+//! same strength. [`provinces_terrain`] grows each faction's provinces from
+//! their seats over the same friction and snaps the seams between them to the
+//! same walls, never across a faction border; [`carry_provinces`] keeps that
+//! shape when the claim grid is edited; [`province_polylines`] draws the seams.
+//!
 //! **The road cost is never touched.** The friction is a second field built
 //! from it; `build_travel_cost` and everything that reads it (roads, the
 //! journey planner, the settlement explanation) are bit-identical whatever
@@ -38,7 +44,7 @@
 
 use rayon::prelude::*;
 
-use crate::NamedSettlement;
+use crate::{NamedSettlement, Province};
 
 /// The rasters the friction and the snapping read, all `gw * gh`, all as
 /// `compute_civilisation` already holds them.
@@ -278,6 +284,117 @@ pub fn assign_territory_terrain(
     owner
 }
 
+/// Owner Ruling HR: provinces for a world under Ruling GO. `strength <= 0`:
+/// exactly [`crate::civ_generate_provinces`] (by control flow; the JS
+/// reference `_civGenerateProvinces` is that path). Otherwise:
+///
+/// 1. the province list is [`crate::civ_generate_provinces`]' own, so every
+///    `Province::id` (which the vault links by) is the one the Voronoi path
+///    gives for the same seats;
+/// 2. each seat grows its province over [`territory_friction`]'s field with
+///    its river edge cost, through the same sweep nations use
+///    ([`crate::assign_territory_with_edges`]: seats weighted by population),
+///    with every step between cells of different factions impassable, so a
+///    province never leaves its faction. A seat standing on another faction's
+///    land seeds nothing (it would flood that faction);
+/// 3. an owned cell no seat reached (an exclave, or a faction whose seat
+///    stands outside it) takes the Voronoi path's province, so provinces still
+///    partition their faction with no gaps;
+/// 4. the seams between one faction's provinces snap to [`feature_walls`] by
+///    [`snap_seams`], run once per faction on that faction's cells alone (the
+///    rest read as unowned, which `snap_seams` never claims), with the
+///    faction's settlements as pins.
+///
+/// What it must never do: put a cell in a province of another faction than
+/// `territory` gives it, leave an owned cell of a seeded faction without a
+/// province, or number a province differently from the Voronoi path.
+pub fn provinces_terrain(
+    settlements: &[NamedSettlement],
+    territory: &[i32],
+    cost: &[f32],
+    t: &BorderTerrain,
+    strength: f64,
+) -> (Vec<i32>, Vec<Province>) {
+    let (gw, gh) = (t.gw, t.gh);
+    let (voronoi, list) = crate::civ_generate_provinces(settlements, territory, gw, gh);
+    if strength <= 0.0 {
+        return (voronoi, list);
+    }
+    let seats: Vec<NamedSettlement> = list
+        .iter()
+        .filter_map(|p| {
+            let mut s = settlements[p.capital_settlement_index].clone();
+            let own = territory[s.placement.y * gw + s.placement.x] == p.faction;
+            s.placement.capital = true;
+            s.placement.faction = p.id;
+            own.then_some(s)
+        })
+        .collect();
+    let fr = territory_friction(cost, t, strength);
+    let edge = |i: usize, j: usize, dx: isize, dy: isize| {
+        if territory[i] != territory[j] {
+            f64::INFINITY
+        } else {
+            fr.edge(i, j, dx, dy)
+        }
+    };
+    let grown = crate::assign_territory_with_edges(&seats, &fr.node, gw, gh, t.world, &edge);
+    drop(fr);
+    let mut province: Vec<i32> = grown.iter().zip(&voronoi).zip(territory).map(|((&g, &v), &f)| if f > 0 && g == 0 { v } else { g }).collect();
+    let walls = feature_walls(t);
+    let reach = (gw / SNAP_REACH_DIV).max(2);
+    let factions: std::collections::BTreeSet<i32> = list.iter().map(|p| p.faction).collect();
+    for f in factions {
+        let mut own: Vec<i32> = province.iter().zip(territory).map(|(&p, &o)| if o == f { p } else { 0 }).collect();
+        let pins: Vec<usize> = settlements.iter().filter(|s| s.placement.faction == f).map(|s| s.placement.y * gw + s.placement.x).collect();
+        snap_seams(&mut own, &walls, &pins, gw, gh, reach);
+        for ((p, &o), &f2) in province.iter_mut().zip(&own).zip(territory) {
+            if f2 == f {
+                *p = o;
+            }
+        }
+    }
+    (province, list)
+}
+
+/// Owner Ruling HR: provinces rebuilt over an edited claim grid (a paint
+/// commit, a polity move, a city-state change) on a world whose provinces
+/// follow the terrain. The list is [`crate::civ_generate_provinces`]' over the
+/// new grid (ids as that path numbers them). A cell keeps the province it had
+/// in `old` when that province is still seated (the old id at a new seat's own
+/// cell names it; an old id two seats claim is dropped) and still belongs to
+/// the cell's faction; any other owned cell takes the Voronoi path's province.
+/// The friction rasters are not resident after a generate, so this keeps the
+/// grown and snapped shape rather than regrowing it.
+///
+/// ponytail: painted-in cells get the nearest seat, not a friction growth or a
+/// snap; regrowing needs the river, biome and corridor rasters rebuilt (a
+/// Recompute does that).
+///
+/// `old` of the wrong length: exactly the Voronoi path.
+pub fn carry_provinces(old: &[i32], settlements: &[NamedSettlement], territory: &[i32], gw: usize, gh: usize) -> (Vec<i32>, Vec<Province>) {
+    let (mut province, list) = crate::civ_generate_provinces(settlements, territory, gw, gh);
+    if old.len() != gw * gh {
+        return (province, list);
+    }
+    let mut map: std::collections::HashMap<i32, Option<i32>> = Default::default();
+    for p in &list {
+        let s = &settlements[p.capital_settlement_index].placement;
+        let o = old[s.y * gw + s.x];
+        if o > 0 {
+            map.entry(o).and_modify(|v| *v = None).or_insert(Some(p.id));
+        }
+    }
+    for (i, c) in province.iter_mut().enumerate() {
+        if let Some(Some(p)) = map.get(&old[i]) {
+            if list[*p as usize - 1].faction == territory[i] {
+                *c = *p;
+            }
+        }
+    }
+    (province, list)
+}
+
 /// O2's walls: major-river cells, ridge crests and canyon floors. A crest is
 /// a land cell at least [`FEATURE_TPI`] above its window mean that is a strict
 /// local maximum along at least one of the four axes (so the wall is a line,
@@ -476,9 +593,25 @@ pub fn snap_seams(owner: &mut [i32], walls: &[bool], pins: &[usize], gw: usize, 
 /// than half a cell, so a border snapped to a river or crest stays on it.
 /// The wrap seam of an x-wrapped world is not an edge.
 pub fn border_polylines(owner: &[i32], field: &[f32], sea: f64, gw: usize, gh: usize) -> Vec<Vec<(f32, f32)>> {
-    use std::collections::HashMap;
     let land = |i: usize| field[i] as f64 >= sea;
-    let differ = |i: usize, j: usize| land(i) && land(j) && owner[i] != owner[j] && (owner[i] > 0 || owner[j] > 0);
+    seam_polylines(gw, gh, &|i, j| land(i) && land(j) && owner[i] != owner[j] && (owner[i] > 0 || owner[j] > 0))
+}
+
+/// Ruling HR: the seams between provinces of one faction, as
+/// [`border_polylines`] draws faction borders (same chaining, same
+/// smoothing). Only an edge between two land cells of the same owning faction
+/// whose provinces differ: a faction border is [`border_polylines`]' line and
+/// is never drawn twice.
+pub fn province_polylines(province: &[i32], territory: &[i32], field: &[f32], sea: f64, gw: usize, gh: usize) -> Vec<Vec<(f32, f32)>> {
+    let land = |i: usize| field[i] as f64 >= sea;
+    seam_polylines(gw, gh, &|i, j| land(i) && land(j) && territory[i] > 0 && territory[i] == territory[j] && province[i] != province[j])
+}
+
+/// The shared tracer behind [`border_polylines`] and [`province_polylines`]:
+/// every side between 4-adjacent cells `i`, `j` for which `differ(i, j)` holds,
+/// chained and smoothed as [`border_polylines`]' doc describes.
+fn seam_polylines(gw: usize, gh: usize, differ: &dyn Fn(usize, usize) -> bool) -> Vec<Vec<(f32, f32)>> {
+    use std::collections::HashMap;
     // Edges between corner vertices, corner id = vy * (gw + 1) + vx.
     let w1 = gw + 1;
     let mut edges: Vec<(usize, usize)> = Vec::new();
@@ -827,5 +960,167 @@ mod tests {
                 assert!(d <= 1.0, "point ({x},{y}) strays {d} from the stair");
             }
         }
+    }
+
+    /// A city-tier settlement (a province seat, not a capital).
+    fn city(x: usize, y: usize, faction: i32, pop: u32) -> NamedSettlement {
+        let mut s = capital(x, y, faction, pop);
+        s.placement.capital = false;
+        s.placement.kind = SettlementKind::City;
+        s
+    }
+
+    /// The province id at cell `(x, 20)` of a [`RH`]-row, 1024-wide grid.
+    fn at(p: &[i32], x: usize) -> i32 {
+        p[20 * 1024 + x]
+    }
+
+    /// Protects Ruling HR's growth and snap, and its strength-0 off state.
+    /// One faction owns a flat 1024 x 40 world; seats at x 100 and 900 split
+    /// it at x 500 by nearest seat. A major river at x 530: at strength 1 the
+    /// crossing (30 cells) moves the grown seam to about x 515, inside the
+    /// snapping reach (16) of the river, and the snap puts it on the river,
+    /// so x 525 is the west province's. Plain cost would leave the seam at
+    /// 500 (out of reach: x 525 east); growth without the snap leaves it at
+    /// about 515 (x 525 east). Strength 0 is the Voronoi path, ids and all.
+    #[test]
+    fn province_seam_grows_and_snaps_to_a_river() {
+        let w = river_world(530);
+        let t = w.t();
+        let cost = crate::build_travel_cost(&w.field, 1024, RH, 0.3);
+        let s = [capital(100, 20, 1, 15000), city(900, 20, 1, 15000)];
+        let territory = vec![1i32; 1024 * RH];
+        let (vor, vlist) = crate::civ_generate_provinces(&s, &territory, 1024, RH);
+        let (p0, l0) = provinces_terrain(&s, &territory, &cost, &t, 0.0);
+        assert_eq!(p0, vor, "strength 0 is the Voronoi raster");
+        assert_eq!(format!("{l0:?}"), format!("{vlist:?}"));
+        assert_eq!((at(&vor, 499), at(&vor, 501), at(&vor, 525)), (1, 2, 2), "the fixture's Voronoi seam is at x 500");
+        let (p1, l1) = provinces_terrain(&s, &territory, &cost, &t, 1.0);
+        assert_eq!(format!("{l1:?}"), format!("{vlist:?}"), "ids, names and seats as the Voronoi path gives them");
+        assert_eq!(at(&p1, 525), 1, "the seam came to rest on the river");
+        assert_eq!(at(&p1, 535), 2, "the far bank stays east");
+        assert_eq!((at(&p1, 100), at(&p1, 900)), (1, 2), "each seat holds its own id");
+        assert!(p1.iter().all(|&p| p == 1 || p == 2), "no gap");
+        // Strength 0 never reaches the growth or the snap, on a world where
+        // both would move the seam: a river inside the reach of it, and
+        // unequal seats (the growth weights them by population).
+        let w2 = river_world(510);
+        let s2 = [capital(100, 20, 1, 60000), city(900, 20, 1, 1000)];
+        let (vor2, _) = crate::civ_generate_provinces(&s2, &territory, 1024, RH);
+        let (q0, _) = provinces_terrain(&s2, &territory, &cost, &w2.t(), 0.0);
+        assert_eq!(q0, vor2, "strength 0 is the Voronoi raster here too");
+        let (q1, _) = provinces_terrain(&s2, &territory, &cost, &w2.t(), 1.0);
+        assert_ne!(q1, vor2, "the fixture must reach the growth");
+    }
+
+    /// Protects: a seat never changes province in the snap (seats are pins).
+    /// Seats at x 490 and 512 meet near x 501; a river at x 517 is inside the
+    /// reach east of the eastern seat, so the snap alone would hand the cells
+    /// up to the river, the eastern seat's own among them, to the west. The
+    /// pin puts that whole run back.
+    #[test]
+    fn province_snap_never_moves_a_seat() {
+        let w = river_world(517);
+        let t = w.t();
+        let cost = crate::build_travel_cost(&w.field, 1024, RH, 0.3);
+        let s = [capital(490, 20, 1, 15000), city(512, 20, 1, 15000)];
+        let territory = vec![1i32; 1024 * RH];
+        let (p, _) = provinces_terrain(&s, &territory, &cost, &t, 1.0);
+        assert_eq!(at(&p, 512), 2, "the eastern seat keeps its own province");
+        assert_eq!(at(&p, 490), 1);
+    }
+
+    /// Protects: a province never crosses a faction border and provinces
+    /// still partition every seeded faction. Faction 1 owns x < 300 plus
+    /// nothing else; faction 2 owns x 300..960 and an exclave at x 100..120;
+    /// faction 3 owns x >= 960 and has no settlement. Faction 1 also has a
+    /// city standing on faction 2's land (x 700), which must seed nothing
+    /// there.
+    #[test]
+    fn provinces_stay_inside_their_faction_with_no_gaps() {
+        let w = Flat::new(1024, RH);
+        let t = w.t();
+        let cost = crate::build_travel_cost(&w.field, 1024, RH, 0.3);
+        let mut territory = vec![0i32; 1024 * RH];
+        for (i, o) in territory.iter_mut().enumerate() {
+            let x = i % 1024;
+            *o = if (100..120).contains(&x) { 2 } else if x < 300 { 1 } else if x < 960 { 2 } else { 3 };
+        }
+        let s = [
+            capital(50, 20, 1, 15000),
+            city(250, 20, 1, 15000),
+            capital(500, 20, 2, 15000),
+            city(800, 20, 2, 15000),
+            city(700, 20, 1, 15000),
+        ];
+        let (p, list) = provinces_terrain(&s, &territory, &cost, &t, 1.0);
+        let crossing = (0..p.len()).filter(|&i| p[i] > 0 && list[p[i] as usize - 1].faction != territory[i]).count();
+        assert_eq!(crossing, 0, "cells in another faction's province");
+        let gaps = (0..p.len()).filter(|&i| (territory[i] == 1 || territory[i] == 2) && p[i] == 0).count();
+        assert_eq!(gaps, 0, "owned cells without a province");
+        assert!((0..p.len()).filter(|&i| territory[i] == 3).all(|i| p[i] == 0), "a faction with no settlement has no province");
+        for q in &list {
+            let c = &s[q.capital_settlement_index].placement;
+            if territory[c.y * 1024 + c.x] == q.faction {
+                assert_eq!(p[c.y * 1024 + c.x], q.id, "seat {} holds its own id", q.name);
+            }
+        }
+    }
+
+    /// Protects `carry_provinces`: an unchanged grid keeps the grown raster
+    /// cell for cell; cells painted to another faction take that faction's
+    /// province; ids are the Voronoi path's; an old province two seats now
+    /// claim is re-cut. A mutant that re-cuts by seat (ignores `old`) loses
+    /// the snapped seam at x 525.
+    #[test]
+    fn carry_keeps_the_grown_shape_over_an_edit() {
+        let w = river_world(530);
+        let t = w.t();
+        let cost = crate::build_travel_cost(&w.field, 1024, RH, 0.3);
+        let mut s = vec![capital(100, 20, 1, 15000), city(900, 20, 1, 15000), capital(1000, 20, 2, 15000)];
+        let mut territory = vec![1i32; 1024 * RH];
+        for (i, o) in territory.iter_mut().enumerate() {
+            if i % 1024 >= 980 {
+                *o = 2;
+            }
+        }
+        let (grown, list) = provinces_terrain(&s, &territory, &cost, &t, 1.0);
+        let (same, l2) = carry_provinces(&grown, &s, &territory, 1024, RH);
+        assert_eq!(same, grown);
+        assert_eq!(format!("{l2:?}"), format!("{list:?}"));
+        // Paint x 940..980 to faction 2, and put a town before the seats so
+        // every settlement index shifts (the carry must not read indices).
+        for (i, o) in territory.iter_mut().enumerate() {
+            if (940..980).contains(&(i % 1024)) {
+                *o = 2;
+            }
+        }
+        s.insert(0, NamedSettlement { pop: 10, ..city(10, 0, 1, 10) });
+        s[0].placement.kind = SettlementKind::Hamlet;
+        let (p, l3) = carry_provinces(&grown, &s, &territory, 1024, RH);
+        let east = l3.iter().find(|q| q.faction == 2).unwrap().id;
+        assert_eq!(at(&p, 950), east, "painted cells take the new owner's province");
+        let west = l3.iter().find(|q| s[q.capital_settlement_index].placement.x == 100).unwrap().id;
+        assert_eq!(at(&p, 525), west, "the snapped seam survives the edit");
+        // A new seat inside an old province: that old id now names two seats,
+        // so its cells are re-cut by nearest seat and the new seat holds its own.
+        s.push(city(300, 20, 1, 15000));
+        let (p, l4) = carry_provinces(&grown, &s, &territory, 1024, RH);
+        let new = l4.iter().find(|q| q.capital_settlement_index == s.len() - 1).unwrap().id;
+        assert_eq!(at(&p, 300), new, "the new seat holds its own cell");
+    }
+
+    /// Protects `province_polylines`: only seams between provinces of one
+    /// faction, never a faction border. Faction 1 (x < 5) holds provinces 1
+    /// and 2 split at y 3; faction 2 (x >= 5) is province 3.
+    #[test]
+    fn province_lines_trace_inner_seams_only() {
+        let (gw, gh) = (10, 6);
+        let field = vec![0.5f32; gw * gh];
+        let territory: Vec<i32> = (0..gw * gh).map(|i| if i % gw < 5 { 1 } else { 2 }).collect();
+        let province: Vec<i32> = (0..gw * gh).map(|i| if i % gw >= 5 { 3 } else if i / gw < 3 { 1 } else { 2 }).collect();
+        let lines = province_polylines(&province, &territory, &field, 0.3, gw, gh);
+        assert_eq!(lines.len(), 1, "one inner seam");
+        assert!(lines[0].iter().all(|&(x, y)| (y - 3.0).abs() < 1e-6 && x <= 5.0), "on y = 3, west of the faction border: {:?}", lines[0]);
     }
 }

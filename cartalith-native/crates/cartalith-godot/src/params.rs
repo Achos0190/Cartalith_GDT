@@ -1152,7 +1152,7 @@ pub const PARAMS: &[ParamSpec] = &[
     // Owner Ruling GO (2026-11-22): how strongly borders follow terrain. 0.6 at
     // the app boundary, 0 in `WorldParams::defaults` (today's territory exactly);
     // no reference control. A save without the key loads 0. Read by
-    // `compute_civilisation`'s territory.
+    // `compute_civilisation`'s territory, and (Ruling HR) its provinces.
     ParamSpec { key: "civ.border_friction", group: "civ", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.05,
         label: "Borders follow terrain", unit: "", reference_control: "",
         get_fn: |p| Value::Num(p.civ.border_friction), set_fn: |p, v| p.civ.border_friction = v },

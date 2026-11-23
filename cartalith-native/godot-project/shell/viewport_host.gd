@@ -3304,6 +3304,9 @@ func refresh() -> void:
 	## Ruling GO's O4: the drawn border line rides with the territory wash.
 	if overlay.has_method("set_border_lines"):
 		overlay.set_border_lines(_bridge.border_lines())
+	## Ruling HR: the province line, with the provinces layer.
+	if overlay.has_method("set_province_lines"):
+		overlay.set_province_lines(_bridge.province_lines())
 	refresh_urban_boxes()
 	## A new river network makes a traced branch or a catchment from the old
 	## one describe rivers that are no longer there. The rivers themselves are
@@ -3637,7 +3640,11 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 			## Ruling GO's O4: the border line is part of the territory layer.
 			if overlay.has_method("set_show_border_lines"):
 				overlay.set_show_border_lines(shown)
-		"provinces": province_view.visible = shown
+		"provinces":
+			province_view.visible = shown
+			## Ruling HR: the province line is part of the provinces layer.
+			if overlay.has_method("set_show_province_lines"):
+				overlay.set_show_province_lines(shown)
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)

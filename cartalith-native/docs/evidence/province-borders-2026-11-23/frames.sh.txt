@@ -1,0 +1,16 @@
+#!/bin/bash
+# Ruling HR frames: before (the pre-ruling DLL) and after, two worlds, under a scratch APPDATA.
+G="C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+P=C:/cw/hr_scratch/proj/godot-project
+export APPDATA=C:/cw/hr_scratch/appdata CARTALITH_CONFIG_PATH=C:/cw/hr_scratch/appdata/cartalith.cfg
+rc=0
+for mode in before after; do
+  if [ $mode = before ]; then cp C:/cw/hr_before.dll C:/cw/hr_scratch/proj/target/debug/cartalith_godot.dll; extra=--before; else cp C:/cw/hr_target/debug/cartalith_godot.dll C:/cw/hr_scratch/proj/target/debug/cartalith_godot.dll; extra="$MUT"; fi
+  for w in "912345 384" "483920 2048"; do
+    set -- $w
+    timeout 400 "$G" --path "$P" _provborders_probe.tscn --resolution 1600x900 -- --seed $1 --gw $2 --shots C:/cw/hr_scratch/shots --tag $mode $extra > C:/cw/hr_scratch/run_${mode}_$1_$2.log 2>&1
+    r=$?; echo "$mode $1 $2 exit $r"; grep "^PB " C:/cw/hr_scratch/run_${mode}_$1_$2.log
+    [ $r -ne 0 ] && rc=1
+  done
+done
+exit $rc

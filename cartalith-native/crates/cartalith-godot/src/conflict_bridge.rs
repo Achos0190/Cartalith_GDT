@@ -474,6 +474,7 @@ mod tests {
     /// than shared across files).
     fn civ(settlements: Vec<NamedSettlement>, province_list: Vec<Province>) -> CivData {
         CivData {
+            provinces_follow_terrain: false,
             settlements,
             ways: Vec::new(),
             sea_routes: Vec::new(),

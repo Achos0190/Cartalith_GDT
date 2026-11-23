@@ -1478,6 +1478,14 @@ func border_lines() -> Array:
 		return []
 	return world_gen.civ_border_lines()
 
+## Ruling HR: `WorldGen.civ_province_lines`, the seams between one faction's
+## provinces as smoothed polylines. Empty for a world whose provinces do not
+## follow the terrain, before any world, or against a binary without the `#[func]`.
+func province_lines() -> Array:
+	if not _has("civ_province_lines"):
+		return []
+	return world_gen.civ_province_lines()
+
 ## `WorldGen.get_settlements`: one dictionary per settlement (x, y, name,
 ## population, kind, ...). Indices into this array are the `index` other wrappers take.
 ##

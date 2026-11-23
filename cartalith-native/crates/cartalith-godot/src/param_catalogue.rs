@@ -265,7 +265,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.river_front", "On: a town near a river is placed on it, the river through the town (current). Off: a town may sit a little off its river, as older worlds did."),
     ("civ.map_rivers", "On: towns are sited and roads priced on the rivers the map draws (current). Off: both use a rebuilt river network, as older worlds did."),
     ("civ.harbour_box", "On: a town is a harbour and port only with sea in its own town map (current). Off: any town within 12.5 km of the sea is a harbour, as older worlds did."),
-    ("civ.border_friction", "Raise: borders hold to ridges, canyons and rivers, with a drawn line (0.6 current). Lower: straighter borders; 0 is the old territory, as older worlds load."),
+    ("civ.border_friction", "Raise: nation and province borders hold to ridges, canyons and rivers, drawn as lines (0.6 current). Lower: straighter; 0 is the old split, as old worlds load."),
     ("civ.sea_lanes", "On: sea lanes call at ports they pass, stop running side by side and share trunks (current). Off: each lane is its own route, as older worlds had."),
     ("civ.junction_settlements", "On: a hamlet may be founded where roads meet, likelier near a river and midway between larger settlements (current). Off: no such hamlets, as older worlds had."),
     ("civ.bank_sites", "On: a river settlement's marker and town stand on the bank; river, lake and sea as the map draws them (current). Off: at the cell, as older worlds load."),

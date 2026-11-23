@@ -1167,7 +1167,10 @@ pub struct CivParams {
     /// along and dear across, passes discounted, forest/marsh/desert as
     /// multipliers) instead of the road cost, its seams are snapped onto nearby
     /// ridges, canyons and major rivers, and the shell draws a thin border line.
-    /// The road cost itself is untouched at every strength.
+    /// The road cost itself is untouched at every strength. Owner Ruling HR
+    /// (2026-11-23): above `0.0` the provinces follow the same logic inside
+    /// each faction (`cartalith_civ::border_terrain::provinces_terrain`), with
+    /// a lighter drawn line; at `0.0` they are the nearest-seat split.
     ///
     /// **`0.0` here, `0.6` in the shipped app** (`params::defaults`, the owner's
     /// accepted research Q7 default), the `DECISIONS.md` §7p split: `0.0` is the

@@ -1,0 +1,7 @@
+#!/bin/bash
+until mkdir C:/cw/.win_lock 2>/dev/null; do sleep 10; done
+echo "rulinghr agent (Ruling HR province frames), started $(date)" > C:/cw/.win_lock/owner.txt
+bash "$@"
+rc=$?
+grep -q "rulinghr agent" C:/cw/.win_lock/owner.txt 2>/dev/null && rm -rf C:/cw/.win_lock
+exit $rc

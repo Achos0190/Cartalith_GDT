@@ -2473,6 +2473,32 @@ const BORDER_LINE_INK := Color8(35, 24, 9, 210)
 ## Labelled judgement: thin enough not to compete with roads.
 const BORDER_LINE_PX := 1.6
 
+## Owner Ruling HR: the seams between one faction's provinces as smoothed
+## polylines (`WorldGen.civ_province_lines`), drawn like `_border_lines` but
+## lighter and thinner, under them. Empty for a world whose provinces do not
+## follow the terrain (`civ.border_friction` 0): the raster province line
+## (`province_view`) draws those, as before.
+var _province_lines: Array = []
+## The provinces layer's switch, pushed by `viewport_host.gd::set_layer_visible`;
+## an export copy follows `content.territory`, as the raster line did.
+var _show_province_lines := false
+## The province line's ink: the national line's tone at about half its alpha,
+## so it reads as the lesser border. Labelled judgement.
+const PROVINCE_LINE_INK := Color8(35, 24, 9, 110)
+## The province line's width in screen pixels, under `BORDER_LINE_PX`.
+## Labelled judgement.
+const PROVINCE_LINE_PX := 1.0
+
+## Replaces the province polylines; see `_province_lines`.
+func set_province_lines(lines: Array) -> void:
+	_province_lines = lines
+	queue_redraw()
+
+## Shows or hides the province line with the provinces layer.
+func set_show_province_lines(shown: bool) -> void:
+	_show_province_lines = shown
+	queue_redraw()
+
 ## Replaces the border polylines; see `_border_lines`.
 func set_border_lines(lines: Array) -> void:
 	_border_lines = lines
@@ -2486,11 +2512,19 @@ func set_show_border_lines(shown: bool) -> void:
 ## Draws `_border_lines` into the current layer item, under the sea lanes and
 ## roads. Width is `BORDER_LINE_PX` screen pixels at any zoom (and the export's
 ## symbol gain on an export copy).
+## Ruling HR: the province lines first, so a national line lies over them.
 func _draw_border_lines(rect: Rect2) -> void:
-	if not _show_border_lines or _border_lines.is_empty() or _gw <= 0:
+	if _gw <= 0:
 		return
-	var w := BORDER_LINE_PX * _pin_line_floor() * (_sym_gain if _export_mode else 1.0)
-	for line in _border_lines:
+	var gain := _pin_line_floor() * (_sym_gain if _export_mode else 1.0)
+	if _show_province_lines:
+		_draw_polylines(_province_lines, rect, PROVINCE_LINE_INK, PROVINCE_LINE_PX * gain)
+	if _show_border_lines:
+		_draw_polylines(_border_lines, rect, BORDER_LINE_INK, BORDER_LINE_PX * gain)
+
+## Draws grid-space polylines `lines` in `ink` at local width `w`.
+func _draw_polylines(lines: Array, rect: Rect2, ink: Color, w: float) -> void:
+	for line in lines:
 		var pts: PackedVector2Array = line
 		if pts.size() < 2:
 			continue
@@ -2498,7 +2532,7 @@ func _draw_border_lines(rect: Rect2) -> void:
 		out.resize(pts.size())
 		for k in pts.size():
 			out[k] = _point_to_screen(pts[k], rect)
-		_cv.draw_polyline(out, BORDER_LINE_INK, w, true)
+		_cv.draw_polyline(out, ink, w, true)
 
 
 func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
@@ -10275,6 +10309,8 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 		_trade_load = PackedFloat32Array()
 	## Ruling GO's O4: the border line goes with the territory wash.
 	_show_border_lines = bool(content.get("territory", false))
+	## Ruling HR: the province line goes with it, as the raster province line did.
+	_show_province_lines = _show_border_lines
 	if not bool(content.get("routes", false)):
 		_manual_routes = []
 	if not bool(content.get("labels", false)):

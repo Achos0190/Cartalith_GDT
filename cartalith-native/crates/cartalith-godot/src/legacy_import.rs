@@ -118,6 +118,8 @@ pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
         CivData {
             // A flat legacy export records no hand-given names (Ruling FZ item 4): none may be assumed generated.
             names_tracked: false,
+            // Its provinces are re-cut by nearest seat, as before Ruling HR.
+            provinces_follow_terrain: false,
             trade_balances: settlements
                 .iter()
                 .map(|_| cartalith_civ::TradeBalance { exports: Vec::new(), imports: Vec::new() })

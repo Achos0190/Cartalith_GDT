@@ -1,0 +1,49 @@
+"""Ruling HR named literal mutants: each edit must occur exactly once; BUILD_ERROR is reported apart
+from SURVIVED; the file is restored in `finally`."""
+import subprocess, sys, os
+ROOT = 'C:/cw/hr/cartalith-native'
+CIV = ROOT + '/crates/cartalith-civ/src/border_terrain.rs'
+GOD = ROOT + '/crates/cartalith-godot/src/lib.rs'
+CIV_T = ['cargo', 'test', '-p', 'cartalith-civ', '--lib', 'border_terrain']
+GOD_T = ['cargo', 'test', '-p', 'cartalith-godot', '--lib', 'provinces_follow_terrain_through']
+M = [
+ ('faction wall', CIV, 'if territory[i] != territory[j] {\n            f64::INFINITY', 'if false {\n            f64::INFINITY', CIV_T),
+ ('no snap', CIV, 'snap_seams(&mut own, &walls, &pins, gw, gh, reach);', '', CIV_T),
+ ('no pins', CIV, 'snap_seams(&mut own, &walls, &pins, gw, gh, reach);', 'snap_seams(&mut own, &walls, &[], gw, gh, reach);', CIV_T),
+ ('plain cost', CIV, '            fr.edge(i, j, dx, dy)\n        }', '            (if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64)\n        }', CIV_T),
+ ('gate < 0', CIV, 'if strength <= 0.0 {\n        return (voronoi, list);', 'if strength < 0.0 {\n        return (voronoi, list);', CIV_T),
+ ('no fallback', CIV, 'if f > 0 && g == 0 { v } else { g }', 'g', CIV_T),
+ ('seat on foreign land seeds', CIV, 'own.then_some(s)', 'Some(s)', CIV_T),
+ ('carry ignores faction', CIV, 'if list[*p as usize - 1].faction == territory[i] {', 'if true {', CIV_T),
+ ('carry ignores old', CIV, 'if old.len() != gw * gh {\n        return (province, list);', 'if true {\n        return (province, list);', CIV_T),
+ ('carry keeps dup', CIV, '.and_modify(|v| *v = None)', '.and_modify(|_| ())', CIV_T),
+ ('lines across factions', CIV, 'territory[i] > 0 && territory[i] == territory[j] && province[i] != province[j]', 'territory[i] > 0 && province[i] != province[j]', CIV_T),
+ ('reprovince re-cuts', GOD, 'let (provinces, province_list) = if civ.provinces_follow_terrain {', 'let (provinces, province_list) = if false {', GOD_T),
+ ('move ignores live', GOD, 'let live = civ.provinces_follow_terrain && civ.provinces.len() == n;', 'let live = false;', GOD_T),
+ ('flag never set', GOD, 'provinces_follow_terrain: opts.border_friction > 0.0,', 'provinces_follow_terrain: false,', GOD_T),
+ ('pipeline Voronoi', GOD, 'terrain_provinces.unwrap_or_else(|| cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh));', 'cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);', GOD_T),
+]
+only = sys.argv[1:]
+for name, path, old, new, cmd in M:
+    if only and name not in only:
+        continue
+    raw = open(path, 'rb').read()
+    crlf = b'\r\n' in raw
+    text = raw.decode('utf-8')
+    o, n = (old.replace('\n', '\r\n'), new.replace('\n', '\r\n')) if crlf else (old, new)
+    c = text.count(o)
+    if c != 1:
+        print(f'{name}: SKIP (occurs {c}x)', flush=True); continue
+    try:
+        open(path, 'wb').write(text.replace(o, n).encode('utf-8'))
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=dict(os.environ, CARGO_TARGET_DIR='C:/cw/hr_target'))
+        out = r.stdout + r.stderr
+        if 'error[' in out or 'error: could not compile' in out:
+            v = 'BUILD_ERROR'
+        elif r.returncode == 0:
+            v = 'SURVIVED'
+        else:
+            v = 'KILLED by ' + ','.join(sorted({l.split()[1] for l in out.splitlines() if l.startswith('test ') and l.endswith('FAILED')}))
+        print(f'{name}: {v}', flush=True)
+    finally:
+        open(path, 'wb').write(raw)
