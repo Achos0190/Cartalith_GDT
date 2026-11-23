@@ -59,7 +59,7 @@ func _arg(name: String, dflt: String) -> String:
 	return dflt
 
 func _reject_unknown_args() -> bool:
-	var known := ["--force-touch", "--vp", "--tag"]
+	var known := ["--force-touch", "--vp", "--tag", "--density"]
 	for a in OS.get_cmdline_user_args():
 		var s := String(a)
 		if s.begins_with("--") and not (s in known):
@@ -101,6 +101,16 @@ func _owner_of(pick: Node, carto: Node) -> String:
 		if obj != null and obj.get_script() != null:
 			return (obj.get_script() as Script).resource_path.get_file()
 	return "? %s" % pick.get_path()
+
+## The first `Button` under `n` whose text is `text` (the confirmable picker's OK / Cancel).
+func _button_named(n: Node, text: String) -> Button:
+	for c in n.get_children():
+		if c is Button and (c as Button).text == text:
+			return c
+		var r := _button_named(c, text)
+		if r != null:
+			return r
+	return null
 
 func _cartography() -> Node:
 	for ws in app._workspaces:
@@ -215,6 +225,36 @@ func _ready() -> void:
 			"%s: and inside its %d px height (y=[%.0f, %.0f])" % [site, _vp.size.y, top, bottom])
 		if phone:
 			_check(dp >= 250.0, "%s: the popup is scaled to the phone (%.0f dp >= 250)" % [site, dp])
+		## Colour-editing follow-up (2026-11-23): the confirmable rows (was / now, Cancel, OK) the popup
+		## carries. On touch every button is at least 44 px tall AS DRAWN (its size times the popup's own
+		## content scale), and the OK row leaves a margin above the viewport's bottom edge instead of
+		## sitting on it. Only pickers upgraded by `DccWidgets.confirmable_color` have the buttons.
+		var okb := _button_named(pop, "OK")
+		var cancelb := _button_named(pop, "Cancel")
+		if okb != null and cancelb != null:
+			var csf := pop.content_scale_factor
+			var eff_h := minf(okb.size.y, cancelb.size.y) * csf
+			var gap := float(_vp.size.y) - (pop.position.y + pop.size.y) * emb_scale
+			_log("%s: OK/Cancel %.0f px tall as drawn; popup %s at %s; %.0f px between the popup's bottom and the viewport's" % [site, eff_h, pop.size, pop.position, gap])
+			if app.is_phone() or DccTheme.is_touch():
+				_check(eff_h >= 43.5, "%s: OK and Cancel are at least 44 px tall as drawn on touch (%.1f)" % [site, eff_h])
+			_check(gap >= 8.0 or pop.position.y * emb_scale <= 8.0, "%s: the OK row does not sit on the window's bottom edge (gap %.0f px, top %.0f)" % [site, gap, pop.position.y * emb_scale])
+			if site == "render_workspace.gd (biome)":
+				var img := _vp.get_texture().get_image()
+				img.save_png("user://pickerrows_%s.png" % _tag)
+		## The picker's real position when its swatch is low on the screen: ask for a rect whose top is near
+		## the viewport's bottom and let Godot clamp it (what `ColorPickerButton` does for a swatch with no
+		## room below it). The OK row must keep a margin above the bottom edge, not sit on it.
+		if okb != null:
+			pop.hide()
+			await _frames(2)
+			pop.popup(Rect2i(Vector2i(8, int(_vp.size.y) - 60), pop.size))
+			await _frames(6)
+			var low_gap := float(_vp.size.y) - (pop.position.y + pop.size.y) * emb_scale
+			_log("%s: opened low on the screen: popup at %s, %.0f px between its bottom and the viewport's" % [site, pop.position, low_gap])
+			_check(low_gap >= 7.5 or pop.position.y * emb_scale <= 8.5, "%s: a popup opened low keeps 8 px above the bottom edge (gap %.0f px)" % [site, low_gap])
+			if site == "render_workspace.gd (biome)":
+				_vp.get_texture().get_image().save_png("user://pickerrows_low_%s.png" % _tag)
 		pop.hide()
 		await _frames(3)
 	for want in ["render_workspace.gd (biome)", "render_workspace.gd (ramp)",

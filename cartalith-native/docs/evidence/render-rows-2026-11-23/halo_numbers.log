@@ -1,0 +1,8 @@
+== colour paint section 4: local-contrast halo at a Replace edge ==
+local_contrast 0.55, Replace [200, 30, 30] (set ok=true, 2779 px moved, edge step up to 27.2 levels): max |halo| by band [-6,-3) 8.00, [-3,0) 8.00, [0,3) 5.00, [3,6) 5.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+local_contrast 0.55, Replace [90, 120, 60] (set ok=true, 2874 px moved, edge step up to 38.0 levels): max |halo| by band [-6,-3) 9.00, [-3,0) 9.00, [0,3) 5.00, [3,6) 5.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+local_contrast 0.55, Replace [150, 140, 100] (set ok=true, 2904 px moved, edge step up to 69.1 levels): max |halo| by band [-6,-3) 12.00, [-3,0) 11.00, [0,3) 8.00, [3,6) 8.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+local_contrast 1.00, Replace [200, 30, 30] (set ok=true, 2779 px moved, edge step up to 27.2 levels): max |halo| by band [-6,-3) 15.00, [-3,0) 15.00, [0,3) 9.00, [3,6) 9.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+local_contrast 1.00, Replace [90, 120, 60] (set ok=true, 2874 px moved, edge step up to 38.0 levels): max |halo| by band [-6,-3) 17.00, [-3,0) 17.00, [0,3) 9.00, [3,6) 9.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+local_contrast 1.00, Replace [150, 140, 100] (set ok=true, 2904 px moved, edge step up to 69.1 levels): max |halo| by band [-6,-3) 21.00, [-3,0) 21.00, [0,3) 16.00, [3,6) 15.00 levels; outside, more than 12 cells away: max 1.00, p99 0.00
+RESULT fail=0

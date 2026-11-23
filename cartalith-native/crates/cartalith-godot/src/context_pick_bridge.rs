@@ -357,6 +357,16 @@ impl WayUndo {
         self.redo.last()
     }
 
+    /// The undone drags BELOW the top that the redos after the top will reach, newest undo first.
+    /// Each redo records a ledger row and [`Self::restamp_redo`]s the entries stamped with the
+    /// pre-record `last_seq`, so an entry whose `mark` and height depth equal the top's is
+    /// offered in turn (`two_drags_undo_and_redo_in_stack_order`); the first one that differs
+    /// ends the chain. This is what `redo_labels` was missing: it named only the top.
+    pub fn redo_chain_below_top(&self) -> Vec<&DragRedo> {
+        let Some(top) = self.redo.last() else { return Vec::new() };
+        self.redo.iter().rev().skip(1).take_while(|r| r.mark == top.mark && r.height_depth == top.height_depth).collect()
+    }
+
     /// Takes the top redo entry off the stack.
     pub fn pop_redo(&mut self) -> Option<DragRedo> {
         self.redo.pop()
@@ -1932,6 +1942,26 @@ mod drag_ledger_tests {
         let seqs: Vec<u64> = h.ledger.rows(0).iter().map(|(e, _)| e.seq).collect();
         assert!(seqs.windows(2).all(|w| w[0] < w[1]), "monotone: {seqs:?}");
         assert!(h.ledger.last_seq() > s2);
+    }
+
+    /// Protects: `redo_labels`' count -- three undone drags are three listed redos, not one: the chain behind the
+    /// top is exactly the drags the next redos reach (2, then 1, then 0), and each redo re-applies the one named.
+    #[test]
+    fn the_redo_chain_counts_every_drag_the_next_redos_reach() {
+        let mut h = H::new();
+        h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.commit_drag(vec![mw(ManualWayType::Track, 9.0)]).unwrap();
+        h.commit_drag(vec![mw(ManualWayType::Ancient, 20.0)]).unwrap();
+        for _ in 0..3 {
+            h.undo().unwrap();
+        }
+        let behind = |h: &H| h.wu.redo_chain_below_top().iter().map(|r| r.label.clone()).collect::<Vec<_>>();
+        assert_eq!(behind(&h), ["Draw track", "Draw ancient"], "top is Draw road; the two behind it, in redo order");
+        assert_eq!(h.redo().as_deref(), Some("Draw road"));
+        assert_eq!(behind(&h), ["Draw ancient"]);
+        assert_eq!(h.redo().as_deref(), Some("Draw track"));
+        assert!(behind(&h).is_empty());
+        assert_eq!(h.redo().as_deref(), Some("Draw ancient"), "the named one was the one re-applied");
     }
 
     /// Protects: found-bug sweep R1 -- two way deletes in a row (through the real

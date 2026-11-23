@@ -1,0 +1,14 @@
+generated 2048x1312 in 17019 ms
+way_stroke_end, 200 waypoints on land (ms): median 0.0 min 0.0 max 0.0 over 5 runs
+none: color_texture() (ms): median 974.4 min 909.6 max 1008.1 over 5 runs
+none: viewport.refresh() (ms): median 1165.0 min 1125.9 max 2903.5 over 5 runs
+terrain: color_texture() (ms): median 4483.8 min 4251.9 max 4619.1 over 5 runs
+terrain: viewport.refresh() (ms): median 3696.2 min 3630.3 max 4254.2 over 5 runs
+water: color_texture() (ms): median 1749.2 min 1622.8 max 2505.5 over 5 runs
+water: viewport.refresh() (ms): median 1431.6 min 1249.9 max 2056.3 over 5 runs
+terrain+water: color_texture() (ms): median 2048.2 min 1567.1 max 3111.0 over 5 runs
+terrain+water: viewport.refresh() (ms): median 1385.8 min 1261.7 max 2167.0 over 5 runs
+levels terrain: color_texture() (ms): median 1716.3 min 1556.7 max 2095.5 over 5 runs
+levels terrain: viewport.refresh() (ms): median 1376.7 min 1314.3 max 1695.2 over 5 runs
+hsl terrain: color_texture() (ms): median 1631.1 min 1587.3 max 2171.6 over 5 runs
+hsl terrain: viewport.refresh() (ms): median 1412.8 min 1216.4 max 1766.6 over 5 runs

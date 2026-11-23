@@ -1112,6 +1112,20 @@ impl PaintEditor {
         out
     }
 
+    /// Whether the ACTIVE layer's draft has a stroke (or dab) to take back. Never reads a committed
+    /// layer: a commit merges and keeps no pre-commit copy (`WorldGen::paint_commit`'s ledger note).
+    pub fn can_undo_draft(&self) -> bool {
+        self.active_draft().can_undo()
+    }
+
+    /// Takes back the active layer's last stroke (ET-D2: a whole stroke is one step), closing any
+    /// open stroke first so its group cannot outlive the edit. Draft-scoped; moves no committed
+    /// layer and so not [`Self::epoch`]. `false` when there is nothing to take back.
+    pub fn undo_draft(&mut self) -> bool {
+        self.abort_stroke();
+        self.active_draft_mut().undo()
+    }
+
     /// Drops every layer's pending draft, touching nothing committed.
     /// Returns how many dabs were dropped in total, across all six (the three
     /// override layers and GF-8's three Rock layers: one Discard for the one
@@ -2041,6 +2055,27 @@ mod tests {
         new.stroke_end();
         let cells = committed(&mut new, w * h);
         assert_eq!(components(&cells, w), 1, "18 % spacing: one connected stroke");
+    }
+
+    /// Protects: the shell-facing draft undo (`PaintEditor::undo_draft`): one call takes back a whole
+    /// stroke of the ACTIVE layer only, and a layer with no stroke answers `false`.
+    #[test]
+    fn draft_undo_takes_back_one_whole_stroke_of_the_active_layer() {
+        let mut e = editor(128, 32, 3.0);
+        assert!(!e.can_undo_draft() && !e.undo_draft(), "nothing to take back on a fresh editor");
+        e.stroke_begin(StrokeOptions::default()).unwrap();
+        for (i, x) in (0..6).map(|k| 10.0 + 9.0 * k as f64).enumerate() {
+            e.stroke_sample(smp(x, 16.0, i as u64));
+        }
+        e.stroke_end();
+        let dabs = e.pending_stamps();
+        assert!(dabs > 10, "premise: a many-dab stroke, got {dabs}");
+        e.set_layer(PaintTarget::Terrain);
+        assert!(!e.can_undo_draft(), "the other layer has no step of its own");
+        e.set_layer(PaintTarget::Biome);
+        assert!(e.can_undo_draft() && e.undo_draft());
+        assert_eq!(e.pending_stamps(), 0, "one call removes the whole stroke");
+        assert!(!e.can_undo_draft(), "and leaves no second step");
     }
 
     /// Protects: ET-D2's one-undo-step acceptance (scope OQ-4's default). A

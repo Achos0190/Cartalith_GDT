@@ -6512,6 +6512,20 @@ func paint_commit() -> Dictionary:
 	mark_world_dirty()
 	return world_gen.paint_commit()
 
+## True when the active paint layer's UNCOMMITTED draft has a stroke to take back
+## (`WorldGen.paint_can_undo`). Committed paint is not undoable. False while `generating`
+## (the worker holds `WorldGen`) and on a cdylib without the binding.
+func paint_can_undo() -> bool:
+	return not generating and _has("paint_can_undo") and world_gen.paint_can_undo()
+
+## Takes back the active layer's last draft stroke (`WorldGen.paint_undo`); true when one was.
+## The caller repaints the preview (`build_paint_preview_texture`). Refused while `generating`.
+func paint_undo() -> bool:
+	if generating or not _has("paint_undo"):
+		return false
+	mark_world_dirty()
+	return world_gen.paint_undo()
+
 ## Drops every layer's pending draft (`WorldGen.paint_discard`) and returns how many
 ## dabs went; `0` means none, `-1` that the binding is missing.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers -1.

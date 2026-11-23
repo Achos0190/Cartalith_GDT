@@ -138,7 +138,7 @@ impl WorldGen {
     /// shows a new id even when its label is the group's.
     #[func]
     fn redo_offer_ids(&self) -> PackedInt64Array {
-        let offers: Vec<u64> = self.redo_offers().into_iter().map(|o| o.id).collect();
+        let offers: Vec<u64> = self.redo_offers_listed().into_iter().map(|o| o.id).collect();
         let tail: Vec<u64> = if self.redo.is_current(self.undo.depth()) { self.redo.steps.ids().collect() } else { Vec::new() };
         offers.into_iter().chain(tail).map(|i| i as i64).collect()
     }

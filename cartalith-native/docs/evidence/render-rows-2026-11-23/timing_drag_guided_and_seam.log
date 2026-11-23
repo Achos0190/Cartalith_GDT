@@ -1,0 +1,40 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+Cartalith shell build 38ba9abae4cf
+generated 2048x1312 in 16523 ms
+== ET-D4: 200-waypoint drag commit ==
+row 328: end 6363.6 ms, committed true, relaxed legs 161
+row 406: end 8300.2 ms, committed true, relaxed legs 182
+row 485: end 5710.3 ms, committed true, relaxed legs 156
+row 564: end 5877.4 ms, committed true, relaxed legs 158
+row 642: end 6462.0 ms, committed true, relaxed legs 145
+row 721: end 4818.1 ms, committed true, relaxed legs 69
+row 800: end 3997.1 ms, committed true, relaxed legs 0
+row 879: end 4735.9 ms, committed true, relaxed legs 17
+row 957: end 4526.7 ms, committed true, relaxed legs 7
+clean row 800 run 0: 200 samples held, end 4492.2 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 1: 200 samples held, end 7463.0 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 2: 200 samples held, end 5283.8 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 3: 200 samples held, end 4292.4 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 4: 200 samples held, end 4154.3 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 5: 200 samples held, end 4824.1 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 6: 200 samples held, end 4107.7 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+clean row 800 run 7: 200 samples held, end 9412.5 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 0, "relaxed_legs": 0 }
+way_stroke_end, 200 waypoints, every leg guided (row 800) (ms): median 4824.1 min 4107.7 max 9412.5 over 7 runs
+generated 1024x656 in 14001 ms
+== ET-C2 river-bank seam under a strong water-only stack ==
+  seam px #1 (6,0): plain base [247, 228, 187] river [247, 228, 187] -> adjusted base [247, 228, 187] river [202, 245, 255]
+  seam px #2 (7,0): plain base [246, 227, 186] river [246, 227, 186] -> adjusted base [246, 227, 186] river [202, 244, 255]
+  seam px #3 (8,0): plain base [245, 226, 186] river [245, 226, 186] -> adjusted base [245, 226, 186] river [202, 244, 255]
+  seam px #4 (9,0): plain base [244, 226, 185] river [244, 226, 185] -> adjusted base [244, 226, 185] river [202, 243, 255]
+  seam px #5 (10,0): plain base [245, 226, 186] river [245, 226, 186] -> adjusted base [245, 226, 186] river [202, 244, 255]
+  seam px #6 (11,0): plain base [243, 224, 184] river [243, 224, 184] -> adjusted base [243, 224, 184] river [200, 242, 255]
+  seam px #2000 (445,6): plain base [83, 67, 48] river [83, 67, 48] -> adjusted base [83, 67, 48] river [105, 135, 146]
+  seam px #4000 (522,11): plain base [112, 95, 72] river [112, 95, 72] -> adjusted base [112, 95, 72] river [123, 155, 169]
+  seam px #6000 (8,154): plain base [255, 237, 195] river [255, 237, 195] -> adjusted base [255, 237, 195] river [217, 248, 255]
+  seam px #8000 (7,446): plain base [182, 164, 133] river [182, 164, 133] -> adjusted base [182, 164, 133] river [166, 203, 222]
+  seam px #10000 (72,647): plain base [246, 227, 186] river [246, 227, 186] -> adjusted base [246, 227, 186] river [203, 244, 255]
+pixels where plain river texture == plain base: 440859 of 671744; after the stack the pair differs by at most 99 levels, 11814 pixels by more than 1
+positive controls: the stack moved 264667 base pixels (water) and 230373 river-texture pixels (river)
+RESULT fail=0
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).

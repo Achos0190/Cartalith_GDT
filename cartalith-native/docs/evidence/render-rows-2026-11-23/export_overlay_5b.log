@@ -1,0 +1,9 @@
+== 5b. the overlay adjustment stack reaches the export ==
+  PASS  the hue stack is live: { "ok": true, "entries": 1, "identity": false }
+  stack on vs off: 16997 opaque px changed colour; coverage 122960 vs 122960
+  PASS  the stack moves the exported ink (16997 px)
+  PASS  ...and not its shape: coverage 122960 vs 122960 is within 1%
+  PASS  the stack-on session completes
+  PASS  every opaque exported overlay pixel is the stack-adjusted ink (0 differ)
+  PASS  clearing the stack returns the exact stack-off overlay (positive control)
+

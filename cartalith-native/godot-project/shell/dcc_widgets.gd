@@ -4162,6 +4162,10 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 		(b as Button).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		(b as Button).custom_minimum_size.y = maxf((b as Button).custom_minimum_size.y, floor_h)
 
+	## Colour-editing follow-up (2026-11-23): Godot opens the popup flush against the window's bottom edge
+	## when it does not fit under the button, which put OK and Cancel on the edge itself. One frame after
+	## it opens, lift it to leave `POPUP_EDGE_MARGIN` px (`_lift_popup_off_edge`).
+	pop.about_to_popup.connect(func(): _lift_popup_off_edge.call_deferred(pop, pick))
 	pop.about_to_popup.connect(func():
 		st["old"] = pick.color
 		st["ok"] = false
@@ -4196,6 +4200,26 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 	## `popup_closed` -- so the abandoned colour would stay. Reverting on the
 	## way out of the tree closes that hole.
 	pick.tree_exiting.connect(cancel_close)
+
+## Gap kept between an embedded popup and the bottom of the window that embeds it (a labelled
+## judgement: the 8 px spacing step of `DccTheme`; the popup's own rows are 44 px on touch).
+const POPUP_EDGE_MARGIN := 8
+
+## Moves an embedded popup up until its bottom is `POPUP_EDGE_MARGIN` above the embedder's bottom
+## edge, never past the top. Godot's own clamp leaves it exactly on the edge. Must never move a popup
+## that already clears the margin, nor a popup that is not embedded (a native window places itself).
+static func _lift_popup_off_edge(pop: Window, host: Control) -> void:
+	if pop == null or not is_instance_valid(pop) or not is_instance_valid(host) or not pop.visible or not pop.is_embedded():
+		return
+	## The viewport that embeds the popup: the nearest one up the tree that embeds sub-windows (the same
+	## walk `phone_color_popup` does; `Window.get_embedder()` is not bound).
+	var emb: Viewport = host.get_viewport()
+	while emb is Window and not (emb as Window).gui_embed_subwindows and emb.get_parent() != null:
+		emb = emb.get_parent().get_viewport()
+	var bottom := emb.get_visible_rect().size.y
+	var over := float(pop.position.y + pop.size.y) - (bottom - POPUP_EDGE_MARGIN)
+	if over > 0.0:
+		pop.position.y = maxi(POPUP_EDGE_MARGIN, int(pop.position.y - over))
 
 ## Meta on the print-gamut row holding the `EngineBridge` found when the popup
 ## opened (or null), so a drag does not walk the tree on every tick.

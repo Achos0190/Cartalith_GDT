@@ -18329,6 +18329,21 @@ impl WorldGen {
         out
     }
 
+    /// True when the active paint layer's draft has a stroke to take back
+    /// ([`paint_bridge::PaintEditor::can_undo_draft`]); `false` before any `generate()`.
+    #[func]
+    fn paint_can_undo(&self) -> bool {
+        self.paint.as_ref().is_some_and(|p| p.can_undo_draft())
+    }
+
+    /// Takes back the active layer's last stroke (a whole stroke is one step) -- the one
+    /// shell-facing undo of an uncommitted paint draft. Committed paint is not undoable
+    /// (`paint_commit`'s ledger note). `false` when there was nothing to take back.
+    #[func]
+    fn paint_undo(&mut self) -> bool {
+        self.paint.as_mut().is_some_and(|p| p.undo_draft())
+    }
+
     /// Drops every layer's pending draft, touching nothing committed
     /// (`paint_bridge::PaintEditor::discard_all`). Returns how many dabs
     /// were dropped in total across all three layers, `0` before any
@@ -28435,13 +28450,12 @@ impl WorldGen {
     /// which is `RedoTail`'s lifetime stated in the design's own words.
     #[func]
     fn redo_labels(&self) -> PackedStringArray {
-        // The offered undone way drag (if any) is element 0, exactly where
-        // `redo_last()` would re-apply it; only the **top** of the drag stack is
-        // listed (deeper ones become offers one redo at a time), so `len()` can
-        // undercount a pile of undone drags but never overstates what a redo does.
-        // An undone annotation edit is listed the same way, ordered against the drag by
-        // which was undone later (`annotation_bridge::order_offers`).
-        self.redo_offers()
+        // The offered undone way drag (if any) is element 0 when it is the newest undo, exactly where
+        // `redo_last()` would re-apply it, and the drags behind it that the next redos reach follow it
+        // (`redo_offers_listed`; before, only the top was named, so `len()` undercounted a pile of
+        // undone drags). An undone annotation edit is listed the same way, ordered against the drag
+        // by which was undone later (`annotation_bridge::order_offers`).
+        self.redo_offers_listed()
             .iter()
             .map(|o| GString::from(o.label.as_str()))
             .chain(self.redo.labels(self.undo.depth()).into_iter().map(GString::from))

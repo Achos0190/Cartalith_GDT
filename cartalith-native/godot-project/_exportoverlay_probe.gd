@@ -696,6 +696,62 @@ func _ready() -> void:
 		_ok(false, "both exports load back")
 	print("  composite: %s" % comp_path)
 
+	## ET-C3: the overlay stack (`shell/overlay_adjust.gd`, static) must reach the exported
+	## overlay pixels. A hue turn of 120 degrees is set on the live overlay, the same export is
+	## rendered again, and the result must (a) differ from the stack-off tile in many opaque
+	## pixels with the SAME coverage (a hue turn moves ink, never shape), (b) be what the session
+	## composites over the terrain, and (c) go back to the stack-off tile when the stack clears.
+	print("
+== 5b. the overlay adjustment stack reaches the export ==")
+	if tile.size() == W2 * H2 * 4:
+		var hue := {"entries": [{"kind": {"hsl": {"hue_deg": 120.0, "saturation": 0.0, "lightness": 0.0}}, "enabled": true, "opacity": 1.0}]}
+		var set_r: Dictionary = ov.set_overlay_adjust(JSON.stringify(hue))
+		_ok(bool(set_r.get("ok", false)) and not bool(set_r.get("identity", true)), "the hue stack is live: %s" % set_r)
+		var ex3 := EXPORT_OVERLAY.new()
+		add_child(ex3)
+		ex3.setup(ov, W2, H2, content)
+		var tile_on: PackedByteArray = await ex3.render_tile(0, 0, W2, H2)
+		var moved := 0
+		var cov_off := 0
+		var cov_on := 0
+		for p in W2 * H2:
+			if tile[p * 4 + 3] > 0:
+				cov_off += 1
+			if tile_on[p * 4 + 3] > 0:
+				cov_on += 1
+			if tile[p * 4 + 3] == 255 and tile_on[p * 4 + 3] == 255 and (tile[p * 4] != tile_on[p * 4] or tile[p * 4 + 1] != tile_on[p * 4 + 1] or tile[p * 4 + 2] != tile_on[p * 4 + 2]):
+				moved += 1
+		print("  stack on vs off: %d opaque px changed colour; coverage %d vs %d" % [moved, cov_on, cov_off])
+		_ok(tile_on.size() == tile.size() and moved > 1000, "the stack moves the exported ink (%d px)" % moved)
+		_ok(absi(cov_on - cov_off) * 100 <= cov_off, "...and not its shape: coverage %d vs %d is within 1%%" % [cov_on, cov_off])
+		var comp2 := dir.path_join("composite_stack.png")
+		var s0: Dictionary = wg.export_session_begin(comp2, {"width": W2, "content": content})
+		var s1: Dictionary = wg.export_session_submit_tile(0, 0, 0, W2, H2, tile_on)
+		var s2: Dictionary = wg.export_session_finish()
+		_ok(bool(s0.get("ok", false)) and bool(s1.get("ok", false)) and bool(s2.get("ok", false)), "the stack-on session completes")
+		var cimg := Image.load_from_file(comp2)
+		var bad2 := 0
+		if cimg != null:
+			cimg.convert(Image.FORMAT_RGB8)
+			var c2d := cimg.get_data()
+			for p in W2 * H2:
+				if tile_on[p * 4 + 3] == 255 and (c2d[p * 3] != tile_on[p * 4] or c2d[p * 3 + 1] != tile_on[p * 4 + 1] or c2d[p * 3 + 2] != tile_on[p * 4 + 2]):
+					bad2 += 1
+		_ok(cimg != null and bad2 == 0, "every opaque exported overlay pixel is the stack-adjusted ink (%d differ)" % bad2)
+		ov.set_overlay_adjust('{"entries":[]}')
+		var ex4 := EXPORT_OVERLAY.new()
+		add_child(ex4)
+		ex4.setup(ov, W2, H2, content)
+		var tile_off2: PackedByteArray = await ex4.render_tile(0, 0, W2, H2)
+		_ok(tile_off2 == tile, "clearing the stack returns the exact stack-off overlay (positive control)")
+		ex3.queue_free()
+		ex4.queue_free()
+		## `-- --stop-after-5b`: a mutation run needs only this section, not the 10 minutes after it.
+		if "--stop-after-5b" in OS.get_cmdline_user_args():
+			print("== %s: %d failure(s) (stopped after 5b) ==" % ["PASS" if fails == 0 else "FAIL", fails])
+			get_tree().quit(0 if fails == 0 else 1)
+			return
+
 	await _seams(app, ov, bridge, W, H, first_px)
 	await _run_end_to_end(app, ov, bridge, dir)
 	await _tile_ceiling(ov)

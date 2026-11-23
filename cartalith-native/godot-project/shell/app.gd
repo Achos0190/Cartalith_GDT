@@ -7526,7 +7526,7 @@ func _browse_root(key: String, readout: Label) -> void:
 ## A grouped step (an Apply card's undo group) counts: it can be the only step, with the look and height stacks
 ## empty, and the phone chip and the toolbar squares would otherwise hide a step Edit > Undo takes (2026-11-23).
 func can_undo_any() -> bool:
-	return look_history.can_undo() or bridge.can_undo() or undo_groups.wants_undo() or _planner_stops("stops_can_undo") or year_history.can_undo()
+	return bridge.paint_can_undo() or look_history.can_undo() or bridge.can_undo() or undo_groups.wants_undo() or _planner_stops("stops_can_undo") or year_history.can_undo()
 
 ## The Redo mirror of `can_undo_any()`. `bridge.redo_available()` already answers
 ## false on a cdylib without the binding.
@@ -7558,6 +7558,8 @@ func undo_target_label() -> String:
 		return journey_planner_view.stops_undo_label()
 	if year_history.wants_undo():
 		return year_history.undo_label()
+	if bridge.paint_can_undo():
+		return "Paint stroke"
 	if look_history.wants_undo(bridge):
 		return look_history.undo_label()
 	return bridge.undo_label() if bridge.can_undo() else ""
@@ -7632,6 +7634,15 @@ func _undo_last_impl() -> void:
 		set_status("pass" if bool(yr["ok"]) else "hint",
 			("undid %s" % String(yr["text"]).to_lower()) if bool(yr["ok"]) else String(yr["text"]),
 			"text_dim" if bool(yr["ok"]) else "warn")
+		return
+	## ET-D2/D3: an uncommitted paint stroke is the newest edit there is (a commit empties the draft), so
+	## it is taken back before any look or height step. Only the active layer's draft; committed paint
+	## has no undo (`paint_commit`'s ledger note).
+	if bridge.paint_can_undo():
+		bridge.paint_undo()
+		if viewport != null:
+			viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
+		set_status("pass", "undid paint stroke", "text_dim")
 		return
 	var split: String = undo_groups.blocks_single_undo(look_history.wants_undo(bridge))
 	if split != "":

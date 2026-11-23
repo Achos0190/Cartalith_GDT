@@ -1,0 +1,34 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+Cartalith shell build 38ba9abae4cf
+generated 2048x1312 in 17875 ms
+== ET-D4: 200-waypoint drag commit ==
+run 0: begin true, 243 samples held, end 10009.1 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 168, "relaxed_legs": 168 }
+run 1: begin true, 243 samples held, end 9700.4 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 183, "relaxed_legs": 183 }
+run 2: begin true, 243 samples held, end 7596.8 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 164, "relaxed_legs": 164 }
+run 3: begin true, 243 samples held, end 8130.2 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 160, "relaxed_legs": 160 }
+run 4: begin true, 243 samples held, end 5898.9 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 33, "relaxed_legs": 33 }
+run 5: begin true, 243 samples held, end 5628.5 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 17, "relaxed_legs": 17 }
+run 6: begin true, 243 samples held, end 5399.4 ms, reply { "committed": true, "first": 0, "count": 1, "mode": "routed", "unreachable_legs": 7, "relaxed_legs": 7 }
+way_stroke_end (ms): median 7596.8 min 5399.4 max 10009.1 over 7 runs
+== live stack edit at 2048x1312 ==
+none: color_texture() (ms): median 880.2 min 876.4 max 903.3 over 7 runs
+none: viewport.refresh() (ms): median 1055.2 min 1038.7 max 1074.1 over 7 runs
+terrain: color_texture() (ms): median 1341.7 min 1322.5 max 1360.8 over 7 runs
+terrain: viewport.refresh() (ms): median 1090.7 min 1053.8 max 1116.5 over 7 runs
+water: color_texture() (ms): median 1385.5 min 1375.5 max 1417.5 over 7 runs
+water: viewport.refresh() (ms): median 1121.0 min 1107.5 max 1145.8 over 7 runs
+terrain+water: color_texture() (ms): median 1393.3 min 1335.7 max 1404.4 over 7 runs
+terrain+water: viewport.refresh() (ms): median 1115.5 min 1053.0 max 1144.6 over 7 runs
+generated 1024x656 in 6382 ms
+== colour paint section 4: local-contrast halo at a Replace edge ==
+Replace [200, 30, 30] (set ok=true, 2779 px moved, edge step up to 27.2 levels): max |halo| by band [-6,-3) 15.00, [-3,0) 15.00, [0,3) 9.00, [3,6) 9.00 levels; outside-field (more than 12 cells from the edge) max 1.00, p99 0.00
+Replace [90, 120, 60] (set ok=true, 2874 px moved, edge step up to 38.0 levels): max |halo| by band [-6,-3) 17.00, [-3,0) 17.00, [0,3) 9.00, [3,6) 9.00 levels; outside-field (more than 12 cells from the edge) max 1.00, p99 0.00
+Replace [150, 140, 100] (set ok=true, 2904 px moved, edge step up to 69.1 levels): max |halo| by band [-6,-3) 21.00, [-3,0) 21.00, [0,3) 16.00, [3,6) 15.00 levels; outside-field (more than 12 cells from the edge) max 1.00, p99 0.00
+== ET-C2 river-bank seam under a strong water-only stack ==
+river cells (river texture differs from base): 229526 of 671744
+inland cells counted (12+ cells from sea/lake): 351587; base texture max |water-only stack shift| by distance (cells) to a river cell [0..5, far]: [0, 100, 97, 99, 99, 99, 100] (0 = river cells, which the base does not draw)
+river texture max shift at river cells: 157 levels (the river is water, so it should move)
+seam bound (task): no colour step above 1 LSB across a bank, with a strong water-only stack: inland bank (1 cell) shift 100, 3 cells 99, far land 100
+RESULT fail=0
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).

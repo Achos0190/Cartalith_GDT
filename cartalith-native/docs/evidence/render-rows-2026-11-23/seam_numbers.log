@@ -1,0 +1,5 @@
+== ET-C2 river-bank seam under a strong water-only stack ==
+  INTERIOR seam px (218,112): plain base [133, 139, 85] river [133, 139, 85] -> adjusted base [133, 139, 85] river [134, 140, 87]
+pixels where plain river texture == plain base: 440859 of 671744; after the stack the pair differs by at most 99 levels, 11814 pixels by more than 1; 1 of those are 16+ px inside the map border
+positive controls: the stack moved 264667 base pixels (water) and 230373 river-texture pixels (river)
+RESULT fail=0

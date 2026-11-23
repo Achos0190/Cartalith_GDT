@@ -323,6 +323,20 @@ impl WorldGen {
         order_offers(drag, self.anno_redo_offer(), self.sphere_redo_offer())
     }
 
+    /// [`Self::redo_offers`] plus the undone drags BEHIND a ready top drag
+    /// ([`crate::context_pick_bridge::WayUndo::redo_chain_below_top`]), each placed right after it,
+    /// so a history list counts every drag a run of redos will re-apply instead of the top one only.
+    /// Listing only: `redo_last` still takes [`Self::redo_offers`]' first entry.
+    pub(crate) fn redo_offers_listed(&self) -> Vec<RedoOffer> {
+        let mut v = self.redo_offers();
+        let Some(at) = v.iter().position(|o| o.kind == RedoKind::Drag) else { return v };
+        let below = self.way_undo.redo_chain_below_top().into_iter().map(|r| RedoOffer { kind: RedoKind::Drag, id: r.id, label: r.label.clone() });
+        let tail: Vec<RedoOffer> = v.split_off(at + 1);
+        v.extend(below);
+        v.extend(tail);
+        v
+    }
+
     /// Re-applies the top undone annotation edit if it is offered: writes its
     /// `after`, records a **new** ledger row (so `seq` keeps climbing, as
     /// `redo_last` does for height), re-holds the entry so it is undoable
