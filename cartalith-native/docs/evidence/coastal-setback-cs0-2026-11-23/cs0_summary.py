@@ -80,8 +80,13 @@ for size in ("384", "2048"):
     moved = sum(1 for r in rr if r["origin_m"] != "-")
     cross = sum(1 for r in rr if (float(r["home_flood"]) <= 0.55 and r["home_landform"] != "6") and r["origin_m"] != "-")
     safe = sum(1 for r in rr if r["safe_in_cap"] == "true")
+    # Section 3.4's own walk (H_FLOOD 2 m), for the towns it applies to.
+    walk = [r for r in rr if r["terrace_m"] not in ("-",)]
+    found = [float(r["terrace_m"]) for r in walk if r["terrace_m"] != "none"]
+    print("%s: section 3.4's terrace walk applies to %d of the (c), finds a terrace for %d (median %.0f m from the market)"
+          % (size, len(walk), len(found), q(found, 0.5)))
     print("%s: %d river towns in class c; market cell floodplain (landform 6) %d, flood over 0.55 %d; settlement's own cell clear of both %d; "
-          "laid round an HM origin off the cell %d (of them with a clear own cell %d); reason-free ground within the 500 m cap %d"
+          "laid round an HM origin off the cell %d (of them with a clear own cell %d); any reason-free land within the 500 m cap (not section 3.4's walk) %d"
           % (size, len(rr), lf6, fl, home_safe, moved, cross, safe))
 
 print("\n== Go/no-go inputs (coast at 2048) ==")
@@ -102,3 +107,9 @@ for seed, gw, cell in (("483920", "384", ("380", "209")), ("483920", "2048", ("1
         if r["seed"] == seed and r["gw"] == gw and (r["x"], r["y"]) == cell:
             print(seed, gw, "#" + r["i"], cell, r["kind"], r["water"], "class", r["class"], "market", r["market_m"], "quay", r["quay_m"], "nearest street/building", r["landing_m"],
                   "reasons front/market", r["front_reasons"], "/", r["market_reasons"], "rule core", r["rule_core_m"], "exposure", r["exposure"])
+
+print("\n== Coast, section 3.2 input 1 (no surge band on a sheltered shore) ==")
+for size in ("384", "2048"):
+    rr = [r for r in allrows if r["gw"] == size and r["water"] == "coast"]
+    print(size, {k: sum(1 for r in rr if r["class_exposed_only"] == k) for k in "abcd"},
+          "changed:", [(r["seed"], r["i"], r["x"] + ":" + r["y"], r["class"] + "->" + r["class_exposed_only"]) for r in rr if r["class"] != r["class_exposed_only"]])

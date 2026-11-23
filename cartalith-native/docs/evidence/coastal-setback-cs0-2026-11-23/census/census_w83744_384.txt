@@ -6,9 +6,13 @@ CS0 coast sweep H 2 m: a 15 b 0 c 1 d 0
 CS0 coast sweep H 4 m: a 15 b 0 c 1 d 0
 CS0 coast sweep H 8 m: a 15 b 0 c 1 d 0
 CS0 coast market to the water, m: n 16 min 25 p10 116 median 154 p90 856 max 988; in-box relief, m: n 16 min 2 p10 2 median 8 p90 16 max 179
+CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a 15 b 0 c 1 d 0
 CS0 river seed 83744 at 384: towns 214; classes a 6 b 141 c 66 d 1 (c with safe ground in the cap: 16); with a reason (the rule moves the core, or holds it back) 72, of them the rule moves the core 71; reasons [floodplain, -, wetland] [64, 0, 37]; height reason splits the land within the cap 124; cell fields vary within the cap 2
 CS0 river sweep H 2 m: a 6 b 141 c 66 d 1
 CS0 river sweep H 4 m: a 6 b 141 c 66 d 1
 CS0 river sweep H 8 m: a 6 b 141 c 66 d 1
 CS0 river market to the water, m: n 214 min 14 p10 30 median 36 p90 57 max 937; in-box relief, m: n 214 min 1 p10 5 median 14 p90 46 max 425
+CS0 river, section 3.4's terrace walk at H_FLOOD 2 m: applies to 64, a terrace found 10; distance from the market, m: n 10 min 188 p10 228 median 340 p90 376 max 464
+CS0 river, section 3.4's terrace walk at H_FLOOD 4 m: applies to 64, a terrace found 3; distance from the market, m: n 3 min 388 p10 388 median 400 p90 468 max 468
+CS0 river, section 3.4's terrace walk at H_FLOOD 8 m: applies to 64, a terrace found 0; distance from the market, m: n 0
 CS0 quays: 11, over 23 m from the drawn sea 5; quay gap, m: n 11 min 12 p10 19 median 21 p90 540 max 993; badged harbours with sea in the box: 3, nearest street or building over 23 m 1

@@ -864,7 +864,7 @@ each piece again).
 
 | Reason | Test at a lattice point | Note |
 |---|---|---|
-| Surge | within `D_SURGE` (100 m) of the drawn sea **and** under `H_SURGE` above sea (4 m where the shore's exposure is at least 0.55, else 2 m) | **Exposure proxy:** `river_delta::exposure`, the share of drawn-ocean cells in a half-disc of **5 km** facing out from the waterfront point nearest the market (5 km is this census's labelled judgement: the research's "river_delta's radius" is each mouth's own setback, not a figure). Height is the bilinear of the grid, as `TerrainCtx` reads it |
+| Surge | within `D_SURGE` (100 m) of the drawn sea **and** under `H_SURGE` above sea (4 m where the shore's exposure is at least 0.55, else 2 m) | **Section 3.2 disagrees with itself here:** its constants row gives a sheltered shore half `H_SURGE` (the main reading, above), while its input 1 asks for water "that is exposed" (a sheltered shore has no surge band). Both readings are given in 7.2. **Exposure proxy:** `river_delta::exposure`, the share of drawn-ocean cells in a half-disc of **5 km** facing out from the waterfront point nearest the market (5 km is this census's labelled judgement: the research's "river_delta's radius" is each mouth's own setback, not a figure). Height is the bilinear of the grid, as `TerrainCtx` reads it |
 | Cliff | a cliff top within `D_CLIFF` (50 m): land within one 22 m raster cell of the sea standing 15 m (`H_CLIFF`) or more above it, or a landform class 1 cell there | |
 | Marsh or flood (coast) | the point's cell is wetland, or its flood field is over `SETTLE_FLOOD_SAFE` (0.55) | `tidal_flats` is off in the app, so there is no tide test |
 | Floodplain (river) | the point's cell is landform 6 or flood over 0.55, **and** the point is under `H_FLOOD` (2 m) above the channel (the bilinear height at the river sample nearest the market) | |
@@ -897,7 +897,15 @@ reason-free land within 100 m of the sea in the cap).
 | app world 483920 @384 (sea 0.5) | 32 | 30 | 0 | 0 | 2 | 32 | 23 / 0 / 20 | 26 | 2 |
 
 The surge and marsh columns count a reason at the market or over the whole waterfront band (the land in the cap within
-100 m of the sea).
+100 m of the sea). The cliff reason appears in 1 of 54 boxes at 384.
+
+**What (d) is made of at 2 048:** of the 25, 24 are hamlets; **21 have a street or building within 40 m of the sea** (8
+within 23 m) and 20 have their market within 150 m of it. The whole town stands back in **four**: 483920 #7, #136, #186
+and 532187 #20. At 384 the (a) towns are similar: 16 of 46 have a street or building within 23 m of the sea. "Set back"
+in these tables is the market point; the houses are mostly at the water.
+
+**Section 3.2's input-1 reading** (no surge band on a sheltered shore) changes one town: the owner's 532187 #1 goes from
+(c) to (b) (exposure 0.25, its only reason was surge). Every other class is the same at both sizes.
 
 **`H_SURGE` sweep (2 / 4 / 8 m, sheltered half):** at 384 the classes barely move (483920: a 11/12/12; 912345:
 12/13/13; 246371: 6/6/7). At 2 048 they swing: 483920 is a 2, d 24 at 2 and 4 m, and **a 14, d 12 at 8 m**. The 2 048
@@ -905,18 +913,23 @@ coast class depends on a constant the research labels a judgement.
 
 **River** (`H_FLOOD` 2 m).
 
-| World | Towns | (a) | (b) | (c) | (d) | (c) with reason-free ground in the 500 m cap | Floodplain / wetland | Height splits | Cell fields vary |
+| World | Towns | (a) | (b) | (c) | (d) | Section 3.4's walk: applies / terrace found (2 m) | Floodplain / wetland | Height splits | Cell fields vary |
 |---|---|---|---|---|---|---|---|---|---|
-| 483920 @384 | 215 | 5 | 148 | 59 | 3 | 29 | 58 / 21 | 122 | 11 |
-| 912345 @384 | 217 | 4 | 137 | 71 | 5 | 11 | 70 / 13 | 79 | 4 |
-| 246371 @384 | 226 | 3 | 153 | 63 | 7 | 28 | 61 / 13 | 119 | 23 |
-| 83744 @384 | 214 | 6 | 141 | 66 | 1 | 16 | 64 / 37 | 124 | 2 |
-| **all @384** | **872** | **18 (2 %)** | **579 (66 %)** | **259 (30 %)** | **16 (2 %)** | **84** | | **444** | **40** |
-| 483920 @2048 | 217 | 1 | 171 | 41 | 4 | 40 | 40 / 10 | 194 | 103 |
-| 532187 @2048 | 39 | 0 | 26 | 11 | 2 | 11 | 11 / 1 | 33 | 26 |
-| **all @2048** | **256** | **1** | **197 (77 %)** | **52 (20 %)** | **6** | **51** | | **227** | **129** |
+| 483920 @384 | 215 | 5 | 148 | 59 | 3 | 58 / 7 | 58 / 21 | 122 | 11 |
+| 912345 @384 | 217 | 4 | 137 | 71 | 5 | 70 / 2 | 70 / 13 | 79 | 4 |
+| 246371 @384 | 226 | 3 | 153 | 63 | 7 | 61 / 11 | 61 / 13 | 119 | 23 |
+| 83744 @384 | 214 | 6 | 141 | 66 | 1 | 64 / 10 | 64 / 37 | 124 | 2 |
+| **all @384** | **872** | **18 (2 %)** | **579 (66 %)** | **259 (30 %)** | **16 (2 %)** | **253 / 30** | | **444** | **40** |
+| 483920 @2048 | 217 | 1 | 171 | 41 | 4 | 40 / 33 | 40 / 10 | 194 | 103 |
+| 532187 @2048 | 39 | 0 | 26 | 11 | 2 | 11 / 7 | 11 / 1 | 33 | 26 |
+| **all @2048** | **256** | **1** | **197 (77 %)** | **52 (20 %)** | **6** | **51 / 40** | | **227** | **129** |
 
-`H_FLOOD` 4 and 8 m move up to four towns per world from (b) to (c) (483920 at 2 048: c 41, 44, 45).
+**Section 3.4's walk** is the rule as drafted: from each market with the floodplain reason, straight away from the
+nearest drawn river sample, on the market's bank, to the first land sample at least `H_FLOOD` above the channel and not
+wetland, within `D_CAP_RIVER` (500 m); "none" where water, the box's edge or the cap comes first. At 2 048 it finds a
+terrace for **40 of 51** at 2 m (39 at 4 m, 35 at 8 m), median 168 m from the market for the (c) towns (483920: 140 m,
+max 384 m; 532187: 284 m); at 384 for **30 of 253** (15 at 4 m, 6 at 8 m). `H_FLOOD` 4 and 8 m move up to four towns per
+world from (b) to (c) (483920 at 2 048: c 41, 44, 45).
 
 **Examples** (seed, settlement index, cell; the rows are in `rows/rows_<seed>_<gw>.tsv`):
 
@@ -925,8 +938,8 @@ coast class depends on a constant the research labels a judgement.
 - **(b)** 483920 #120 879:263 and #146 1689:395 at 2 048; 532187 #33 843:527.
 - **(c) coast** 483920 #3 1520:293 at 2 048 (a capital, market 4 m from the sea, 0.8 m above it, a cliff top within
   50 m; reason-free ground 76 m from the sea in the cap); #34 1404:968 (a town, market 20 m from the sea on a cliff top);
-  **the owner's town 532187 #1 1478:1159** (market 20 m from the sea, 0.9 m above it: surge; reason-free ground 25 m
-  from the sea).
+  the owner's town 532187 #1 1478:1159 under the constants-row reading only (market 20 m from the sea, 0.9 m above it,
+  on a sheltered shore, exposure 0.25: under input 1 it is (b)).
 - **(c) river** 483920 #0 50:294 at 2 048 (a capital, market 53 m from its river, landform 6); 483920 #14 292:196 (a
   village, flood 0.66).
 - **(d)** 483920 #7 1323:81 at 2 048 (market 272 m, nearest house 204 m from the sea; exposure 0.26, sheltered: no
@@ -940,30 +953,33 @@ coast class depends on a constant the research labels a judgement.
    boxes), and the bilinear heights are so flat near the shore (in-box relief median 8-14 m in three worlds, 74 m in
    246371) that the first 100 m is under 2-4 m almost everywhere: the surge test is true on nearly every waterfront.
    The markets are set back (median 122-596 m per world) because of how the town sits in its box, not because a hazard
-   was read. **At 384 the
-   research's reasons cannot pick a point**; they only say "everywhere", which section 3.7 calls a finding for the owner.
-2. **At 2 048 the coast does not align.** 69 % of coastal towns are (d): set back with reason-free shore in reach. Most
-   are hamlets (24 of 25), and 20 of the 25 have their market within 150 m of the sea while the houses reach it (21 of
-   25 have a street or building within 40 m of the sea; 8 within 23 m). The whole town is back in four:
-   483920 #7, #136 and #186, and 532187 #20 (whose market is on a marsh cell). The research's rule as drafted does
-   **nothing** for (d): it never moves a reason-free market toward the water. 17 % are (c), towns at the water on low or
-   cliff-edged ground (the owner's town among them), which CS-2 would move; 6 % are (a).
-3. **Rivers: the bank default holds for most, and the floodplain test is a cell test.** 66 % (384) and 77 % (2 048) of
-   river towns are (b), on the bank with no reason: Rulings HG, HM and HN as the research says. 30 % and 20 % are (c), on
-   a flagged floodplain cell. But:
+   was read. **At 384 the research's reasons cannot pick a point**; they only say "everywhere", which section 3.7 calls
+   a finding for the owner.
+2. **At 2 048 the coast mostly matches the text in body, not in the market point.** 25 of 36 are (d) by the market
+   (over 100 m from the sea with reason-free shore in reach), but 21 of those 25 have their houses or streets within
+   40 m of the sea: the town is at the water and only its market point stands 100-150 m back (20 of 25). Four whole towns
+   stand back with no coast reason (483920 #7, #136, #186; 532187 #20, whose market is on a marsh cell). The research's
+   rule as drafted does **nothing** for (d): it never moves a reason-free market toward the water. Five or six are (c),
+   at the water on low or cliff-edged ground (the owner's town only under the constants-row reading), which CS-2 would
+   move; 2 are (a). This is one seed's 33 towns plus the owner's world's three.
+3. **Rivers: the bank default holds for most; the floodplain rule works at 2 048 and not at 384.** 66 % (384) and 77 %
+   (2 048) of river towns are (b), on the bank with no reason: Rulings HG, HM and HN as the research says. 30 % and 20 %
+   are (c), on a flagged floodplain cell:
    - the market stands under 2 m above its channel in **866 of 872** river towns at 384 and **216 of 256** at 2 048, so
-     the height half of the test is nearly always true and the cell field decides (at 2 048: flood over 0.55 in 38 of
-     the 52, landform 6 in 18);
-   - where the rule finds reason-free ground, it is **within 120 m of the river in 48 of 51** at 2 048 (66 of 84 at
-     384): the neighbouring cell without the flag, often 4 m from the bank. A real move up to a terrace (over 120 m) would
-     happen for **3** towns at 2 048;
+     whether the rule applies is decided by the cell flag (at 2 048: flood over 0.55 in 38 of the 52, landform 6 in 18);
+   - **section 3.4's walk finds a terrace for 40 of the 51 it applies to at 2 048**, median 168 m from the market and
+     within the 500 m cap, and still finds 35 at 8 m: the heights show a terrace there. At 384 it finds one for 30 of
+     253: a 2 km cell's bilinear heights do not rise within a box's reach of the river;
    - section 2.2's inference that HM's origin puts towns onto the floodplain is **mostly not what happens**: of the 52 (c)
      at 2 048, 34 are laid round an HM origin off their cell, but only 2 of those have a cell of their own clear of both
-     flags (16 of 259 at 384). Most (c) river towns' own cells already carry the flag; the reference's siting
-     (`civ_snap_to_water_edge`) tests `SETTLE_FLOOD_SAFE` only on a move.
+     flags (16 of 259 at 384). Most (c) river towns' own cells already carry the flag: `civ_snap_to_water_edge` tests
+     `SETTLE_FLOOD_SAFE` on the cells it moves a site to, and a site already touching the water keeps its cell (it
+     returns `None`; `cartalith-civ` `lib.rs`, its `habitable` closure and the test
+     `civ_snap_to_water_edge_flood_zone_blocks_the_only_reachable_edge`).
 4. **Do the heights resolve?** On the coast at 2 048 the height reason splits the land in the cap in **34 of 36** boxes
    and the cell fields vary in 27; at 384, 44 of 54 split (but see point 1) and the cell fields vary in 1. On rivers the
-   heights split the land within 500 m in 227 of 256 at 2 048 and 444 of 872 at 384, but not near the bank (point 3).
+   heights split the land within 500 m in 227 of 256 at 2 048 and 444 of 872 at 384; section 3.4's walk reaches a
+   terrace in 40 of 51 at 2 048 and 30 of 253 at 384 (point 3).
 
 ### 7.4 The Ruling FK leftovers, re-measured
 
@@ -990,7 +1006,7 @@ than `WorldGen::absorb`), so "#10" is two different settlements in them; both ar
 | Core buildings in a hazard band (towns whose market has a reason) | coast 33 of 54; river 271 of 872 | coast 11 of 36; river 52 of 256 |
 | Setback p90 (today's market-to-water) | coast 988 m (max 2 005); river 68 m (max 1 221) | coast 384 m (max 1 030); river 58 m (max 629) |
 | Walk from core to landing | no landing exists yet; the farthest market is 2 005 m from the sea at 384 (24 min at Tobler's 5.04 km/h on the flat) and 1 030 m at 2 048 (12 min) | |
-| Floodplain towns with a terrace in reach left on it | 84 | 51 (48 of them "in reach" means the next cell, within 120 m of the river) |
+| Floodplain towns with a terrace in reach left on it (section 3.4's walk, `H_FLOOD` 2 m) | 30 (of 253 the rule applies to) | 40 (of 51) |
 | HN's markers across a drawn river from their market (x1 to x64) | 0 in every world | 0 |
 | `fh_r2_baseline`, `g1_baseline` pins | not run: no product code changed | |
 | Share set back, per reason | the reason columns of 7.2 | |
@@ -1013,23 +1029,29 @@ should not be rebuilt.
 
 ### 7.7 Verdict
 
-- **The research's own go/no-go passes:** 11 of 36 coastal towns at 2 048 (31 %, over the 5 % line) have a reason, and
-  the in-box heights resolve it at 2 048 (34 of 36 boxes split). **At 384 the heights and cells do not resolve the
-  coast** (the surge test is true almost everywhere and the cell fields are constant over the box), so a coastal rule
-  should act at 2 048-class grids only, or treat a 384 world's coast as "no reading", and say so.
-- **Today's placing does not align with the text.** On the coast at 2 048 the common case is (d): towns whose market is
-  100-400 m back where the research sees no reason, which the drafted rule would leave as they are. The (c) towns it
-  would move are few (6 at 2 048, among them the owner's town). At 384 the alignment is an artefact of the grain.
-- **Rivers:** the bank default is right for two thirds to three quarters of river towns. The floodplain rule as drafted
-  would act on 20-30 % of river towns, but in practice it would move a market from a flagged cell to the unflagged cell
-  next to it, still on the bank, because the heights do not lift within a bank's width; only 3 towns at 2 048 would go
-  up to a terrace.
-- **Is CS-1 onward justified?** **Go for the coast at 2 048, with three changes for the owner to weigh first:**
-  1. decide (d): whether a reason-free town's market should come to the water (the opposite of a setback; today's
-     `harbour_front_market` does this for badged harbours only), since it is the larger misalignment;
-  2. sweep `H_SURGE` against frames before fixing it: the 2 048 classes swing between 4 and 8 m;
-  3. make the river rule a height test first (a terrace the heights show), not a cell flag, or leave rivers to the bank
-     rule: as drafted, it would mostly shuffle markets between neighbouring cells.
+- **The research's own go/no-go passes:** 11 of 36 coastal towns at 2 048 (31 %, over the 5 % line; 10 under input 1)
+  have a reason, and the in-box heights resolve it at 2 048 (34 of 36 boxes split). The 2 048 coast is **one seed's 33
+  towns plus the owner's three**, a small sample. **At 384 the heights and cells do not resolve the coast** (the surge
+  test is true almost everywhere and the cell fields are constant over the box), so a coastal rule should act at
+  2 048-class grids only, or treat a 384 world's coast as "no reading", and say so.
+- **Does today's placing align with the text?** Partly.
+  - **Coast at 2 048:** the town bodies mostly stand at the water, as the text expects of a shore with no reason (21 of
+    the 25 (d) have houses or streets within 40 m of the sea). What differs is the **market point**: 100-150 m back in
+    most (d), and 4 whole towns back with no coast reason. Five or six towns sit at the water on low or cliff-edged
+    ground where the text would set the core back; the owner's town is one of them only under the constants-row
+    reading. At 384 the coast's agreement is an artefact of the grain.
+  - **Rivers:** the bank default holds for two thirds (384) to three quarters (2 048) of river towns, as the text says.
+    20-30 % stand on a flagged floodplain cell; at 2 048 section 3.4's own walk finds a terrace for 40 of 51 of them,
+    median 168 m away, so the text's floodplain move is available there; at 384 it is for 30 of 253.
+- **Is CS-1 onward justified?** **Go, at 2 048-class grids, with three points for the owner first:**
+  1. **(d) is not a setback question.** The drafted rule never moves a reason-free market toward the water, so it
+     leaves the 25 (d) as they are. Whether their market point should come to the water (today `harbour_front_market`
+     does that for badged harbours only) is a separate ruling; it is the larger difference from the text, by count;
+  2. **`H_SURGE` and the sheltered shore:** sweep `H_SURGE` against frames before fixing it (the 2 048 classes swing
+     between 4 and 8 m: 483920 d 24 to 12), and settle section 3.2's own disagreement about a sheltered shore (half
+     `H_SURGE`, or no surge band), which decides the owner's own town;
+  3. **The river rule at 384:** CS-4 works on 2 048 heights; at 384 it should act only where the walk finds a terrace
+     and otherwise report "no terrace in reach", which is what section 3.4 already says.
 
 **Frames** (`combined.png`; one row a town, the map at x4 and x16 and the City Viewer, `civ.bank_sites` on, desktop
 1600 x 900, the real shell through `tools/town_bank_drive.gd`, all looked at): (a) 483920 #166 sits on a wide river

@@ -1,236 +1,236 @@
-seed	gw	i	x	y	kind	pop	badge	water	class	market_m	quay_m	landing_m	front_reasons	market_reasons	safe_in_cap	exposure	relief_m	h_resolves	cell_varies	front_h_m	market_h_m	rule_core_m	quay_any_water_m	mkt_flood	mkt_landform	mkt_wetland	home_flood	home_landform	origin_m
-246371	384	0	343	165	capital	21495	false	river	c	25	none	0	floodplain	floodplain	false	-	9.8	false	false	0.0	0.0	none	none	0.21	6	0	0.21	6	910
-246371	384	1	380	232	village	593	false	river	c	36	none	4	floodplain	floodplain	true	-	38.6	false	true	-0.0	-0.0	310	none	0.79	6	0	0.21	6	1650
-246371	384	2	88	99	capital	24953	true	coast	c	53	14	12	surge+cliff+marsh	cliff+marsh	false	0.90	73.9	true	false	3.3	17.9	none	14	0.74	1	0	0.74	1	-
-246371	384	3	264	281	capital	18273	false	river	b	41	none	19	none	none	-	-	10.2	true	false	-0.0	-0.1	4	none	0.10	0	0	0.10	0	1100
-246371	384	4	359	227	hamlet	208	false	river	b	83	none	50	none	none	-	-	18.6	false	true	0.0	0.1	4	none	0.28	0	0	0.28	0	825
-246371	384	5	340	218	town	2328	false	river	d	136	none	68	none	none	-	-	10.3	false	false	-0.0	-0.3	4	none	0.05	0	0	0.05	0	770
-246371	384	6	157	127	capital	24971	true	coast	d	400	none	21	surge	none	-	0.90	29.3	true	false	0.4	17.2	93	none	0.46	0	0	0.46	0	-
-246371	384	6	157	127	capital	24971	true	river	a	754	none	290	none	none	-	-	29.3	true	false	0.2	16.0	251	none	0.46	0	0	0.46	0	-
-246371	384	7	239	204	village	561	false	river	c	37	none	4	floodplain	floodplain	true	-	14.4	false	true	-0.0	0.1	436	none	0.05	6	0	0.05	6	715
-246371	384	8	2	225	capital	19259	false	river	b	53	none	19	none	none	-	-	7.2	false	false	0.0	0.1	4	none	0.34	0	0	0.34	0	605
-246371	384	9	22	78	hamlet	165	false	river	b	36	none	4	none	none	-	-	99.7	true	true	-0.3	-0.4	4	none	0.44	0	0	1.00	0	1155
-246371	384	10	326	160	town	2469	false	river	c	92	none	20	floodplain	floodplain	false	-	13.6	false	false	-0.0	-0.4	none	none	0.16	6	0	0.15	6	1650
-246371	384	11	372	173	town	1894	false	river	c	108	none	29	floodplain	floodplain	false	-	11.5	false	false	-0.0	-0.1	none	none	0.06	6	0	0.06	6	110
-246371	384	12	361	251	hamlet	168	false	river	b	36	none	4	none	none	-	-	20.3	true	false	0.0	0.1	4	none	0.12	0	0	0.12	0	715
-246371	384	13	301	176	city	7947	false	river	c	107	none	25	floodplain	floodplain	true	-	9.3	false	true	-0.0	0.3	4	none	0.09	6	0	0.09	6	935
-246371	384	14	313	96	hamlet	166	true	coast	a	1066	none	1016	surge+marsh	marsh	-	0.70	74.2	false	false	0.3	19.5	510	none	1.00	0	1	1.00	0	880
-246371	384	14	313	96	hamlet	166	true	river	c	25	none	19	floodplain+wetland	floodplain+wetland	true	-	74.2	true	true	0.0	0.2	85	none	1.00	0	1	1.00	0	880
-246371	384	15	371	283	capital	23179	false	river	b	47	none	0	none	none	-	-	6.2	false	false	0.0	0.1	4	none	0.43	0	0	0.43	0	110
-246371	384	16	177	97	city	8665	false	river	c	65	none	20	floodplain	floodplain	true	-	16.0	true	false	0.1	0.3	205	none	0.07	6	0	0.07	6	550
-246371	384	17	96	71	town	1962	false	river	c	47	none	25	floodplain	floodplain	true	-	8.0	false	true	-0.0	-0.0	273	none	0.14	6	0	0.14	6	605
-246371	384	18	19	57	hamlet	163	false	river	b	36	none	4	none	none	-	-	27.5	true	false	-0.0	-0.1	4	none	0.13	0	0	0.13	0	990
-246371	384	19	11	36	capital	24051	false	river	c	47	none	0	floodplain	floodplain	false	-	8.9	false	false	-0.0	0.0	none	none	0.17	6	0	0.17	6	440
-246371	384	20	346	185	village	654	false	river	b	98	none	70	none	none	-	-	21.6	false	false	-0.0	-0.3	4	none	0.23	0	0	0.23	0	220
-246371	384	21	278	251	hamlet	184	false	river	b	36	none	4	none	none	-	-	7.3	false	false	0.1	0.1	4	none	0.08	0	0	0.08	0	275
-246371	384	23	252	221	town	1937	false	river	b	82	none	0	none	none	-	-	13.3	true	false	0.0	0.0	4	none	0.05	0	0	0.05	0	353
-246371	384	24	45	69	hamlet	165	false	river	b	36	none	4	none	none	-	-	29.1	true	false	-0.0	-0.2	4	none	0.14	0	0	0.14	0	-
-246371	384	25	286	184	town	2076	false	river	d	284	none	4	none	none	-	-	14.9	true	false	-0.0	0.5	4	none	0.06	0	0	0.06	0	-
-246371	384	26	3	11	hamlet	155	false	river	b	28	none	4	none	none	-	-	22.3	true	false	0.0	0.1	4	none	0.11	0	0	0.11	0	325
-246371	384	27	63	97	hamlet	149	false	river	c	36	none	0	floodplain+wetland	floodplain+wetland	false	-	172.5	true	false	0.4	1.5	none	none	1.00	0	1	1.00	0	605
-246371	384	28	306	142	hamlet	184	true	coast	a	2005	none	1954	surge+cliff+marsh	marsh	-	0.90	225.6	false	false	0.4	33.8	1405	none	1.00	1	0	0.42	5	1375
-246371	384	28	306	142	hamlet	184	true	river	c	19	none	19	floodplain	floodplain	true	-	225.6	true	true	0.1	0.2	4	none	1.00	1	0	0.42	5	1375
-246371	384	29	330	120	hamlet	149	false	river	b	43	none	7	none	none	-	-	27.4	true	false	-0.1	-0.1	4	none	0.24	0	0	0.24	0	495
-246371	384	30	214	192	hamlet	144	false	river	b	32	none	4	none	none	-	-	181.3	true	false	0.0	-0.2	4	none	0.43	5	0	0.43	5	-
-246371	384	31	343	241	hamlet	195	false	river	b	43	none	4	none	none	-	-	12.5	true	false	-0.1	0.0	4	none	0.08	0	0	0.08	0	-
-246371	384	32	359	119	hamlet	152	false	river	c	29	none	4	floodplain	floodplain	false	-	11.4	false	false	0.0	-0.0	none	none	0.02	6	0	0.02	6	220
-246371	384	37	350	240	hamlet	0	false	river	a	805	none	28	none	none	-	-	10.1	true	false	-0.0	0.2	308	none	0.15	0	0	0.15	0	-
-246371	384	39	267	286	hamlet	0	false	river	b	75	none	44	none	none	-	-	7.0	false	true	0.0	0.1	4	none	0.07	0	0	0.29	0	1265
-246371	384	40	350	169	hamlet	0	false	river	b	28	none	12	none	none	-	-	14.9	false	false	0.0	-0.1	4	none	0.13	0	0	0.13	0	816
-246371	384	41	370	231	hamlet	0	false	river	b	36	none	4	none	none	-	-	80.9	true	false	0.1	0.2	4	none	0.10	0	0	0.11	0	1100
-246371	384	42	267	273	hamlet	0	false	river	d	183	none	0	none	none	-	-	10.9	true	false	0.0	0.7	4	none	0.48	0	0	0.48	0	660
-246371	384	43	350	216	hamlet	0	false	river	b	65	none	32	none	none	-	-	22.2	true	false	0.0	0.3	4	none	0.12	0	0	0.12	0	846
-246371	384	44	363	231	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	45.1	false	true	0.0	0.1	4	none	0.73	0	0	0.73	0	1045
-246371	384	45	352	222	hamlet	0	false	river	c	64	none	28	floodplain	floodplain	true	-	29.0	false	true	0.0	0.2	172	none	0.69	0	0	0.69	0	1155
-246371	384	46	372	244	hamlet	0	false	river	b	47	none	19	none	none	-	-	7.4	false	false	-0.0	0.0	4	none	0.19	0	0	0.19	0	-
-246371	384	47	243	211	hamlet	0	false	river	c	70	none	4	floodplain	floodplain	true	-	11.2	false	true	0.0	0.1	30	none	0.65	0	0	0.65	0	770
-246371	384	48	346	213	hamlet	0	false	river	b	37	none	4	none	none	-	-	7.6	false	false	0.1	0.1	4	none	0.07	0	0	0.07	0	220
-246371	384	49	378	244	hamlet	0	false	river	b	32	none	21	none	none	-	-	17.3	true	false	0.0	0.1	4	none	0.13	0	0	0.13	0	835
-246371	384	50	313	151	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	false	-	27.6	false	false	0.0	0.1	none	none	0.11	6	0	0.11	6	165
-246371	384	51	356	168	hamlet	0	false	river	c	19	none	14	floodplain	floodplain	false	-	11.1	false	false	-0.1	-0.1	none	none	0.16	6	0	0.16	6	660
-246371	384	52	319	155	hamlet	0	false	river	c	47	none	14	floodplain	floodplain	true	-	70.2	true	true	0.1	0.2	4	none	0.39	6	0	0.39	6	1100
-246371	384	53	366	168	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.6	false	false	-0.0	-0.1	none	none	0.07	6	0	0.07	6	-
-246371	384	54	366	246	hamlet	0	false	river	b	29	none	4	none	none	-	-	8.9	false	false	0.0	0.0	4	none	0.10	0	0	0.10	0	605
-246371	384	55	337	161	hamlet	0	false	river	b	41	none	7	floodplain	none	-	-	38.1	false	true	0.0	0.1	4	none	0.23	0	0	0.82	6	1155
-246371	384	56	333	226	hamlet	0	false	river	b	29	none	4	none	none	-	-	11.7	false	true	0.1	0.1	4	none	0.12	0	0	0.12	0	826
-246371	384	57	303	168	hamlet	0	false	river	b	36	none	4	none	none	-	-	20.8	true	true	0.0	0.0	4	none	0.15	0	0	0.15	0	770
-246371	384	58	363	216	hamlet	0	false	river	b	36	none	4	none	none	-	-	4.9	false	false	0.0	0.0	4	none	0.33	0	0	0.33	0	317
-246371	384	59	275	273	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.3	false	false	-0.0	0.0	4	none	0.35	0	0	0.35	0	330
-246371	384	60	272	251	hamlet	0	false	river	b	43	none	4	none	none	-	-	6.0	false	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-
-246371	384	61	358	236	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.5	false	false	0.0	0.0	4	none	0.06	0	0	0.06	0	55
-246371	384	62	172	119	hamlet	0	false	river	c	19	none	19	floodplain	floodplain	false	-	16.4	false	false	0.0	-0.0	none	none	0.59	6	0	0.59	6	605
-246371	384	63	15	41	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.0	false	false	-0.1	-0.1	none	none	0.08	6	0	0.08	6	660
-246371	384	64	186	96	hamlet	0	false	river	b	97	none	20	none	none	-	-	12.2	false	false	0.0	0.2	4	none	0.44	0	0	0.44	0	450
-246371	384	65	289	179	hamlet	0	false	river	b	36	none	4	none	none	-	-	23.2	true	false	0.1	0.2	4	none	0.07	0	0	0.07	0	165
-246371	384	66	167	109	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	14.7	false	false	-0.1	-0.1	none	none	0.15	6	0	0.15	6	-
-246371	384	67	353	256	hamlet	0	false	river	b	29	none	4	none	none	-	-	21.5	true	false	0.0	-0.0	4	none	0.12	0	0	0.12	0	-
-246371	384	68	171	106	hamlet	0	false	river	c	29	none	0	floodplain	floodplain	true	-	17.0	true	false	0.0	-0.0	4	none	0.17	6	0	0.17	6	110
-246371	384	69	96	92	hamlet	0	false	river	c	28	none	4	floodplain	floodplain	true	-	109.7	true	true	0.1	0.6	4	none	0.75	0	0	0.75	0	605
-246371	384	70	334	181	hamlet	0	false	river	b	41	none	12	none	none	-	-	7.3	false	false	0.0	0.0	4	none	0.45	0	0	0.45	0	385
-246371	384	71	187	87	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.7	false	false	0.0	0.0	4	none	0.39	0	0	0.39	0	330
-246371	384	72	247	233	hamlet	0	false	river	b	37	none	4	none	none	-	-	4.8	false	false	0.0	0.1	4	none	0.41	0	0	0.41	0	347
-246371	384	73	66	93	hamlet	0	false	river	c	36	none	4	floodplain+wetland	floodplain+wetland	false	-	35.3	true	false	-0.0	-0.1	none	none	0.39	6	1	0.39	6	731
-246371	384	74	339	183	hamlet	0	false	river	b	30	none	4	none	none	-	-	15.2	false	false	0.0	0.0	4	none	0.52	0	0	0.52	0	935
-246371	384	75	50	64	hamlet	0	false	river	b	36	none	7	none	none	-	-	23.1	true	false	0.0	0.0	4	none	0.11	0	0	0.11	0	-
-246371	384	76	11	27	hamlet	0	false	river	c	29	none	4	floodplain	floodplain	false	-	6.4	false	false	0.0	0.0	none	none	0.27	6	0	0.27	6	110
-246371	384	77	6	211	hamlet	0	false	river	b	20	none	20	none	none	-	-	6.1	false	false	-0.0	-0.0	4	none	0.14	0	0	0.14	0	330
-246371	384	78	271	270	hamlet	0	false	river	b	36	none	4	none	none	-	-	12.5	true	false	0.0	0.1	4	none	0.09	0	0	0.09	0	495
-246371	384	79	270	265	hamlet	0	false	river	b	39	none	7	none	none	-	-	9.2	false	false	-0.0	0.0	4	none	0.09	0	0	0.09	0	-
-246371	384	80	253	208	hamlet	0	false	river	b	20	none	4	none	none	-	-	6.9	false	false	-0.0	-0.0	4	none	0.43	0	0	0.43	0	550
-246371	384	81	34	88	hamlet	0	false	coast	a	1241	none	1213	surge+cliff	none	-	1.00	77.3	false	false	0.5	32.2	641	none	0.46	0	0	0.46	0	527
-246371	384	81	34	88	hamlet	0	false	river	b	30	none	7	none	none	-	-	77.3	true	false	0.2	0.5	4	none	0.46	0	0	0.46	0	527
-246371	384	82	333	216	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.0	true	false	-0.2	0.0	4	none	0.47	0	0	0.47	0	385
-246371	384	83	21	215	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.1	false	false	0.1	0.1	4	none	0.47	0	0	0.47	0	385
-246371	384	84	100	79	hamlet	0	false	river	b	43	none	4	none	none	-	-	67.9	true	false	0.2	0.4	4	none	0.12	0	0	0.12	0	495
-246371	384	85	339	270	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.0	false	false	-0.1	-0.2	none	none	0.59	0	0	0.59	0	440
-246371	384	87	184	250	hamlet	0	false	river	b	21	none	12	none	none	-	-	6.8	false	false	-0.0	0.0	4	none	0.14	0	0	0.14	0	287
-246371	384	88	87	268	hamlet	0	false	coast	a	280	207	189	surge+marsh	marsh	-	0.60	3.4	true	false	0.0	0.9	none	25	0.58	6	0	0.58	6	165
-246371	384	88	87	268	hamlet	0	false	river	c	36	none	19	floodplain	floodplain	false	-	3.4	false	false	-0.0	-0.0	none	none	0.58	6	0	0.58	6	165
-246371	384	89	324	219	hamlet	0	false	river	b	36	none	4	none	none	-	-	26.6	true	false	0.0	0.1	4	none	0.34	0	0	0.34	0	-
-246371	384	90	270	260	hamlet	0	false	river	b	44	none	12	none	none	-	-	10.8	false	false	0.0	0.1	4	none	0.15	0	0	0.15	0	-
-246371	384	91	15	46	hamlet	0	false	river	d	120	none	81	none	none	-	-	17.6	true	false	0.1	0.7	4	none	0.12	0	0	0.12	0	-
-246371	384	93	180	265	hamlet	0	false	river	b	29	none	4	none	none	-	-	10.2	false	false	-0.0	-0.0	4	none	0.03	0	0	0.03	0	164
-246371	384	94	65	283	hamlet	0	false	river	c	50	none	12	floodplain+wetland	floodplain+wetland	false	-	9.3	true	false	-0.1	-0.4	none	none	0.72	6	1	0.72	6	-
-246371	384	95	337	243	hamlet	0	false	river	b	39	none	4	none	none	-	-	31.3	true	false	-0.2	-0.3	4	none	0.46	0	0	0.46	0	385
-246371	384	96	325	119	hamlet	0	false	river	b	36	none	4	none	none	-	-	25.3	true	false	-0.0	0.1	4	none	0.15	0	0	0.15	0	770
-246371	384	97	329	275	hamlet	0	false	river	b	28	none	4	none	none	-	-	14.7	true	false	0.0	0.1	4	none	0.50	0	0	0.50	0	384
-246371	384	98	138	192	hamlet	0	false	river	c	47	none	19	floodplain+wetland	floodplain+wetland	false	-	33.1	true	false	-0.2	-1.4	none	none	0.74	6	1	0.74	6	-
-246371	384	99	355	124	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	8.1	false	false	0.0	0.1	none	none	0.51	6	0	0.51	6	440
-246371	384	100	247	219	hamlet	0	false	river	b	32	none	4	none	none	-	-	15.6	false	false	-0.0	-0.2	4	none	0.07	0	0	0.07	0	-
-246371	384	101	334	96	hamlet	0	false	river	b	71	none	39	none	none	-	-	58.3	true	false	0.2	0.1	4	none	0.14	0	0	0.14	0	-
-246371	384	102	12	218	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.4	false	false	-0.0	-0.0	4	none	0.09	0	0	0.09	0	-
-246371	384	103	103	89	hamlet	0	false	river	b	30	none	4	none	none	-	-	58.0	true	false	0.1	0.2	4	none	0.22	0	0	0.22	0	-
-246371	384	104	105	192	hamlet	0	false	river	c	36	none	7	floodplain	floodplain	true	-	35.8	true	false	0.0	0.2	75	none	0.53	6	0	0.53	6	275
-246371	384	105	8	221	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.5	true	false	0.0	0.2	4	none	0.06	0	0	0.06	0	-
-246371	384	106	179	142	hamlet	0	false	river	c	28	none	20	floodplain	floodplain	true	-	125.8	true	true	-0.1	-0.5	4	none	0.83	0	0	0.83	0	880
-246371	384	107	359	241	hamlet	0	false	river	b	36	none	4	none	none	-	-	5.0	false	false	-0.1	-0.1	4	none	0.31	0	0	0.31	0	-
-246371	384	108	357	267	hamlet	0	false	river	b	47	none	25	none	none	-	-	7.7	false	false	-0.0	-0.1	4	none	0.11	0	0	0.11	0	715
-246371	384	109	377	253	hamlet	0	false	river	b	39	none	12	none	none	-	-	11.7	false	false	-0.1	-0.3	4	none	0.06	0	0	0.06	0	275
-246371	384	110	178	283	hamlet	0	false	river	b	43	none	4	none	none	-	-	9.6	false	false	-0.0	-0.1	4	none	0.03	0	0	0.03	0	-
-246371	384	111	299	182	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.9	false	false	0.0	0.0	4	none	0.04	0	0	0.04	0	275
-246371	384	112	22	182	hamlet	0	false	river	c	47	none	7	floodplain+wetland	floodplain+wetland	false	-	20.8	true	false	-0.0	-0.0	none	none	0.54	6	1	0.54	6	-
-246371	384	113	334	271	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.8	true	false	0.1	-0.0	4	none	0.05	0	0	0.05	0	275
-246371	384	114	372	249	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.3	false	false	0.0	0.0	4	none	0.17	0	0	0.17	0	275
-246371	384	115	261	151	hamlet	0	false	river	c	29	none	4	floodplain+wetland	floodplain+wetland	false	-	48.8	true	false	0.3	1.1	none	none	0.83	6	1	0.83	6	275
-246371	384	116	177	272	hamlet	0	false	river	b	29	none	4	none	none	-	-	7.7	false	false	0.0	-0.0	4	none	0.03	0	0	0.03	0	-
-246371	384	117	323	94	hamlet	0	false	river	b	62	none	36	none	none	-	-	62.5	true	false	0.0	0.7	4	none	0.34	0	0	0.34	0	275
-246371	384	118	356	274	hamlet	0	false	river	b	39	none	7	none	none	-	-	7.1	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	605
-246371	384	119	193	126	hamlet	0	false	river	c	32	none	4	floodplain	floodplain	false	-	6.7	false	false	-0.0	-0.1	none	none	0.08	6	0	0.08	6	-
-246371	384	120	103	201	hamlet	0	false	river	c	36	none	4	floodplain+wetland	floodplain+wetland	false	-	12.0	false	false	-0.1	-0.3	none	none	0.91	6	1	0.91	6	-
-246371	384	121	337	126	hamlet	0	false	river	b	36	none	4	none	none	-	-	19.2	true	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-
-246371	384	122	352	231	hamlet	0	false	river	b	32	none	4	none	none	-	-	5.7	false	false	0.0	0.0	4	none	0.11	0	0	0.11	0	55
-246371	384	123	367	239	hamlet	0	false	river	b	50	none	19	none	none	-	-	7.0	false	false	-0.0	-0.1	4	none	0.17	0	0	0.17	0	-
-246371	384	124	184	260	hamlet	0	false	river	b	36	none	4	none	none	-	-	10.6	false	false	-0.0	-0.1	4	none	0.02	0	0	0.02	0	-
-246371	384	125	108	85	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	true	-	11.7	true	false	-0.0	-0.2	4	none	0.11	6	0	0.11	6	-
-246371	384	127	308	108	hamlet	0	false	coast	d	126	none	30	surge+cliff	none	-	0.80	176.9	true	false	1.1	12.6	36	none	0.50	1	0	0.86	0	498
-246371	384	127	308	108	hamlet	0	false	river	a	1221	none	28	floodplain	none	-	-	176.9	false	true	-0.6	-91.3	743	none	0.50	1	0	0.86	0	498
-246371	384	128	324	175	hamlet	0	false	river	b	29	none	4	none	none	-	-	6.3	false	false	-0.0	0.0	4	none	0.10	0	0	0.10	0	385
-246371	384	129	377	216	hamlet	0	false	river	b	64	none	32	none	none	-	-	11.4	false	false	-0.0	-0.1	4	none	0.10	0	0	0.10	0	-
-246371	384	130	241	216	hamlet	0	false	river	d	234	none	201	none	none	-	-	8.4	false	false	-0.0	-0.2	4	none	0.06	0	0	0.06	0	440
-246371	384	131	343	126	hamlet	0	false	river	b	36	none	4	none	none	-	-	17.4	true	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-
-246371	384	132	5	76	hamlet	0	false	river	c	39	none	12	floodplain	floodplain	true	-	66.8	true	true	-0.2	-0.3	4	none	0.71	0	0	0.71	0	586
-246371	384	133	146	101	hamlet	0	false	river	b	36	none	4	none	none	-	-	31.6	true	false	0.0	0.2	4	none	0.05	0	0	0.05	0	605
-246371	384	134	16	52	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	24.3	true	false	-0.0	-0.1	4	none	0.65	0	0	0.65	0	-
-246371	384	135	345	225	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.2	false	false	0.0	0.1	4	none	0.05	0	0	0.05	0	-
-246371	384	136	90	53	hamlet	0	false	river	b	29	none	4	none	none	-	-	6.4	false	false	-0.0	-0.1	4	none	0.08	0	0	0.08	0	-
-246371	384	137	382	193	hamlet	0	false	river	b	53	none	14	none	none	-	-	12.5	true	false	0.0	0.2	4	none	0.06	0	0	0.06	0	246
-246371	384	138	380	222	hamlet	0	false	river	b	32	none	4	none	none	-	-	8.4	false	false	0.0	0.0	4	none	0.11	0	0	0.11	0	-
-246371	384	139	71	220	hamlet	0	false	river	c	30	none	4	wetland	wetland	false	-	31.1	true	false	-0.0	-0.1	none	none	0.51	0	1	0.51	0	220
-246371	384	140	281	262	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.4	false	false	0.0	0.1	4	none	0.06	0	0	0.06	0	330
-246371	384	141	345	280	hamlet	0	false	river	b	28	none	25	none	none	-	-	8.9	false	false	-0.1	-0.1	4	none	0.05	0	0	0.05	0	220
-246371	384	142	313	107	hamlet	0	false	river	c	43	none	4	floodplain+wetland	floodplain+wetland	false	-	36.4	true	false	0.1	0.3	none	none	0.85	0	1	0.85	0	165
-246371	384	143	322	115	hamlet	0	false	river	b	36	none	7	none	none	-	-	43.2	true	true	0.0	0.1	4	none	0.21	0	0	0.21	0	893
-246371	384	144	132	121	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	60.2	true	false	-0.1	-0.6	4	none	0.62	0	0	0.62	0	220
-246371	384	145	359	189	hamlet	0	false	river	b	93	none	60	none	none	-	-	9.7	true	false	0.0	0.2	4	none	0.12	0	0	0.12	0	385
-246371	384	146	34	58	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	false	-	8.8	false	false	0.0	0.1	none	none	0.10	6	0	0.10	6	-
-246371	384	147	380	280	hamlet	0	false	river	b	44	none	20	none	none	-	-	20.7	true	false	-0.0	-0.3	4	none	0.29	0	0	0.29	0	195
-246371	384	148	362	261	hamlet	0	false	river	b	32	none	4	none	none	-	-	16.0	true	false	-0.0	-0.0	4	none	0.08	0	0	0.08	0	330
-246371	384	149	377	159	hamlet	0	false	river	b	87	none	54	none	none	-	-	14.7	true	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	275
-246371	384	150	284	194	hamlet	0	false	river	b	36	none	12	none	none	-	-	6.5	false	false	0.0	0.1	4	none	0.07	0	0	0.07	0	385
-246371	384	151	23	62	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	72.0	true	true	0.1	0.4	4	none	0.64	0	0	0.64	0	718
-246371	384	152	157	98	hamlet	0	false	river	b	50	none	14	none	none	-	-	23.0	false	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	-
-246371	384	153	18	25	hamlet	0	false	river	c	30	none	4	floodplain	floodplain	false	-	10.8	false	false	-0.0	-0.1	none	none	0.06	6	0	0.06	6	70
-246371	384	154	329	94	hamlet	0	false	river	b	39	none	7	none	none	-	-	53.5	true	false	-0.1	0.0	4	none	0.25	0	0	0.25	0	330
-246371	384	155	373	212	hamlet	0	false	river	b	68	none	29	none	none	-	-	10.5	false	false	-0.0	-0.1	4	none	0.17	0	0	0.17	0	-
-246371	384	156	299	162	hamlet	0	false	river	b	36	none	4	none	none	-	-	213.1	true	false	0.5	-0.3	4	none	0.51	1	0	0.51	1	421
-246371	384	157	375	165	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	6.5	false	false	0.0	0.0	none	none	0.11	6	0	0.11	6	110
-246371	384	158	370	204	hamlet	0	false	river	b	118	none	85	none	none	-	-	20.9	true	false	0.1	0.8	4	none	0.12	0	0	0.12	0	605
-246371	384	159	235	217	hamlet	0	false	river	b	28	none	4	none	none	-	-	7.2	false	false	0.0	0.0	4	none	0.02	0	0	0.02	0	416
-246371	384	160	56	42	hamlet	0	false	river	b	44	none	7	none	none	-	-	11.1	false	false	-0.0	-0.1	4	none	0.09	0	0	0.09	0	-
-246371	384	161	107	184	hamlet	0	false	river	c	36	none	4	wetland	wetland	false	-	90.8	true	false	0.1	0.3	none	none	0.55	0	1	0.55	0	330
-246371	384	162	197	137	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	18.8	true	false	0.0	0.0	444	none	0.09	6	0	0.09	6	-
-246371	384	163	286	251	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.6	false	false	0.0	0.0	4	none	0.03	0	0	0.03	0	-
-246371	384	164	240	242	hamlet	0	false	river	b	25	none	4	none	none	-	-	44.7	true	false	0.2	0.4	4	none	0.05	0	0	0.05	0	229
-246371	384	165	186	107	hamlet	0	false	river	b	12	none	12	none	none	-	-	12.8	true	false	0.0	0.1	4	none	0.46	0	0	0.46	0	337
-246371	384	166	365	162	hamlet	0	false	river	b	50	none	14	none	none	-	-	19.7	true	false	0.0	0.0	4	none	0.12	0	0	0.12	0	-
-246371	384	167	7	44	hamlet	0	false	river	c	29	none	4	floodplain	floodplain	true	-	11.0	true	false	0.0	0.1	381	none	0.11	6	0	0.11	6	154
-246371	384	168	175	111	hamlet	0	false	river	b	36	none	4	none	none	-	-	22.2	true	false	0.2	0.2	4	none	0.17	0	0	0.17	0	-
-246371	384	169	23	69	hamlet	0	false	river	b	25	none	4	none	none	-	-	72.2	true	true	0.1	0.2	4	none	0.25	0	0	0.25	0	1141
-246371	384	170	269	240	hamlet	0	false	river	b	57	none	25	none	none	-	-	6.9	false	false	0.0	-0.0	4	none	0.24	0	0	0.24	0	275
-246371	384	171	176	277	hamlet	0	false	river	b	39	none	4	none	none	-	-	9.6	false	false	0.0	0.1	4	none	0.46	0	0	0.46	0	220
-246371	384	172	67	211	hamlet	0	false	coast	a	685	460	420	surge+marsh	marsh	-	0.60	50.0	true	false	0.2	12.5	none	7	0.71	0	0	0.71	0	330
-246371	384	172	67	211	hamlet	0	false	river	c	44	none	4	floodplain	floodplain	true	-	50.0	true	false	0.1	0.5	4	none	0.71	0	0	0.71	0	330
-246371	384	173	16	33	hamlet	0	false	river	c	68	none	36	floodplain	floodplain	false	-	8.4	false	false	-0.0	-0.2	none	none	0.13	6	0	0.13	6	-
-246371	384	175	317	110	hamlet	0	false	river	b	36	none	4	none	none	-	-	48.8	true	false	-0.1	-0.3	4	none	0.41	0	0	0.41	0	-
-246371	384	176	64	61	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	8.3	false	false	-0.1	-0.0	none	none	0.06	6	0	0.06	6	220
-246371	384	177	103	83	hamlet	0	false	river	b	36	none	4	none	none	-	-	31.7	true	false	-0.1	-0.1	4	none	0.16	0	0	0.16	0	55
-246371	384	178	349	127	hamlet	0	false	river	c	32	none	4	floodplain	floodplain	false	-	9.0	false	false	0.0	0.0	none	none	0.52	6	0	0.52	6	275
-246371	384	179	260	262	hamlet	0	false	river	b	29	none	4	none	none	-	-	18.0	true	false	-0.1	-0.0	4	none	0.08	0	0	0.08	0	279
-246371	384	180	41	29	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.1	false	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	-
-246371	384	181	92	61	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	19.0	true	false	-0.0	-0.2	4	none	0.07	6	0	0.07	6	-
-246371	384	182	336	250	hamlet	0	false	river	b	87	none	53	none	none	-	-	7.6	false	false	0.0	0.0	4	none	0.27	0	0	0.27	0	330
-246371	384	183	348	112	hamlet	0	false	river	c	115	none	78	floodplain	floodplain	true	-	15.3	true	false	0.0	-0.2	4	none	0.23	6	0	0.23	6	275
-246371	384	184	30	16	hamlet	0	false	river	b	32	none	4	none	none	-	-	7.4	false	false	-0.0	-0.1	4	none	0.30	0	0	0.30	0	-
-246371	384	185	2	16	hamlet	0	false	river	b	52	none	20	none	none	-	-	14.8	true	false	0.0	0.0	4	none	0.25	0	0	0.25	0	179
-246371	384	186	335	207	hamlet	0	false	river	b	32	none	4	none	none	-	-	9.5	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	-
-246371	384	187	142	119	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	81.6	true	false	0.2	1.2	4	none	0.87	0	0	0.87	0	550
-246371	384	188	278	266	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.5	false	false	0.0	0.0	4	none	0.07	0	0	0.07	0	-
-246371	384	189	277	225	hamlet	0	false	river	b	47	none	12	none	none	-	-	10.6	false	false	-0.0	0.1	4	none	0.03	0	0	0.03	0	330
-246371	384	190	160	202	hamlet	0	false	river	c	30	none	4	floodplain+wetland	floodplain+wetland	false	-	21.3	true	false	0.0	0.1	none	none	0.71	6	1	0.71	6	220
-246371	384	191	240	223	hamlet	0	false	river	b	36	none	4	none	none	-	-	10.2	true	false	0.0	0.1	4	none	0.32	0	0	0.32	0	205
-246371	384	192	263	266	hamlet	0	false	river	b	44	none	12	none	none	-	-	8.5	true	false	0.0	0.1	4	none	0.10	0	0	0.10	0	-
-246371	384	193	366	114	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	11.7	true	false	-0.0	-0.0	4	none	0.04	6	0	0.04	6	275
-246371	384	194	50	72	hamlet	0	false	river	b	36	none	4	none	none	-	-	26.9	true	false	0.0	0.1	4	none	0.09	0	0	0.09	0	165
-246371	384	195	261	201	hamlet	0	false	river	b	37	none	4	none	none	-	-	5.1	false	false	-0.0	-0.0	4	none	0.20	0	0	0.20	0	330
-246371	384	196	331	186	hamlet	0	false	river	b	36	none	4	none	none	-	-	18.3	true	false	-0.0	-0.0	4	none	0.09	0	0	0.09	0	240
-246371	384	197	9	12	hamlet	0	false	river	b	71	none	36	none	none	-	-	21.1	true	false	-0.0	-0.0	4	none	0.14	0	0	0.14	0	-
-246371	384	199	283	244	hamlet	0	false	river	b	36	none	4	none	none	-	-	5.8	false	false	0.0	0.1	4	none	0.28	0	0	0.28	0	-
-246371	384	200	375	108	hamlet	0	false	river	b	36	none	4	none	none	-	-	16.9	true	false	-0.0	-0.1	4	none	0.02	0	0	0.02	0	110
-246371	384	201	359	164	hamlet	0	false	river	b	44	none	12	none	none	-	-	19.7	true	false	0.0	0.1	4	none	0.14	0	0	0.14	0	-
-246371	384	202	276	216	hamlet	0	false	river	b	19	none	19	none	none	-	-	14.4	true	false	0.0	0.1	4	none	0.38	0	0	0.38	0	266
-246371	384	203	166	91	hamlet	0	false	river	b	37	none	4	none	none	-	-	14.1	false	false	0.0	0.1	4	none	0.05	0	0	0.05	0	-
-246371	384	204	349	179	hamlet	0	false	river	b	32	none	4	none	none	-	-	77.5	true	false	0.3	0.8	4	none	0.55	0	0	0.55	0	220
-246371	384	205	48	41	hamlet	0	false	river	b	30	none	0	none	none	-	-	19.3	true	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	-
-246371	384	206	188	128	hamlet	0	false	river	b	82	none	45	none	none	-	-	38.6	true	false	-0.1	-0.2	4	none	0.16	0	0	0.16	0	275
-246371	384	207	37	221	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.3	true	false	-0.0	-0.1	4	none	0.03	0	0	0.03	0	440
-246371	384	208	338	286	hamlet	0	false	river	b	25	none	4	none	none	-	-	10.3	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	130
-246371	384	209	39	83	hamlet	0	false	river	d	139	none	103	floodplain	floodplain	-	-	84.0	true	false	0.1	-0.1	4	none	0.64	0	0	0.64	0	605
-246371	384	210	144	92	hamlet	0	false	river	b	36	none	4	none	none	-	-	33.7	true	false	0.1	-0.1	4	none	0.05	0	0	0.05	0	440
-246371	384	211	9	56	hamlet	0	false	river	b	28	none	4	none	none	-	-	25.8	true	false	0.1	0.4	4	none	0.27	0	0	0.27	0	166
-246371	384	212	338	111	hamlet	0	false	river	c	41	none	7	floodplain	floodplain	false	-	9.4	false	false	0.0	0.1	none	none	0.11	6	0	0.11	6	-
-246371	384	213	66	45	hamlet	0	false	river	b	39	none	4	none	none	-	-	15.8	true	false	0.0	-0.0	4	none	0.07	0	0	0.07	0	-
-246371	384	214	97	204	hamlet	0	false	coast	a	596	none	207	surge+marsh	marsh	-	0.70	20.1	true	false	0.1	7.8	none	none	0.49	0	1	0.49	0	275
-246371	384	214	97	204	hamlet	0	false	river	c	39	none	19	wetland	wetland	false	-	20.1	true	false	0.0	0.3	none	none	0.49	0	1	0.49	0	275
-246371	384	215	259	224	hamlet	0	false	river	b	36	none	4	none	none	-	-	8.3	false	false	-0.0	-0.0	4	none	0.07	0	0	0.07	0	-
-246371	384	216	59	33	hamlet	0	false	river	b	84	none	44	none	none	-	-	10.9	false	false	-0.0	-0.4	4	none	0.12	0	0	0.12	0	275
-246371	384	217	299	206	hamlet	0	false	river	b	57	none	20	none	none	-	-	7.6	true	false	-0.1	-0.2	4	none	0.05	0	0	0.05	0	-
-246371	384	218	212	212	hamlet	0	false	river	b	36	none	4	none	none	-	-	63.6	true	false	0.3	1.2	4	none	0.26	0	0	0.26	0	195
-246371	384	219	323	207	hamlet	0	false	river	b	92	none	53	none	none	-	-	20.4	true	false	-0.0	-0.3	4	none	0.10	0	0	0.10	0	330
-246371	384	220	314	240	hamlet	0	false	river	b	37	none	4	none	none	-	-	9.1	true	false	0.0	0.1	4	none	0.07	0	0	0.07	0	-
-246371	384	221	172	88	hamlet	0	false	river	b	37	none	4	none	none	-	-	16.6	true	false	-0.1	-0.1	4	none	0.03	0	0	0.03	0	275
-246371	384	222	180	84	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.9	true	false	-0.1	-0.2	4	none	0.06	0	0	0.06	0	-
-246371	384	223	365	256	hamlet	0	false	river	b	25	none	4	none	none	-	-	27.1	true	false	0.0	-0.0	4	none	0.13	0	0	0.13	0	389
-246371	384	224	203	281	hamlet	0	false	river	b	25	none	14	none	none	-	-	10.5	false	false	-0.0	-0.1	4	none	0.01	0	0	0.01	0	275
-246371	384	225	330	247	hamlet	0	false	river	b	75	none	36	none	none	-	-	10.0	false	false	-0.0	-0.0	4	none	0.29	0	0	0.29	0	220
-246371	384	226	252	240	hamlet	0	false	river	b	36	none	4	none	none	-	-	13.9	true	false	-0.0	0.0	4	none	0.10	0	0	0.10	0	220
-246371	384	227	83	53	hamlet	0	false	river	b	36	none	4	none	none	-	-	17.4	true	false	-0.0	-0.0	4	none	0.03	0	0	0.03	0	55
-246371	384	228	339	212	hamlet	0	false	river	b	47	none	14	none	none	-	-	9.2	false	false	-0.0	-0.1	4	none	0.14	0	0	0.14	0	-
-246371	384	229	59	56	hamlet	0	false	river	d	316	none	255	none	none	-	-	18.8	true	false	0.0	1.5	4	none	0.33	0	0	0.33	0	-
-246371	384	230	181	78	hamlet	0	false	river	b	41	none	14	none	none	-	-	13.1	true	false	0.0	0.2	4	none	0.01	0	0	0.01	0	-
-246371	384	231	327	180	hamlet	0	false	river	b	54	none	25	none	none	-	-	15.5	true	false	-0.0	-0.2	4	none	0.09	0	0	0.09	0	-
-246371	384	232	351	187	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.9	false	false	-0.0	-0.0	4	none	0.48	0	0	0.48	0	440
-246371	384	233	23	21	hamlet	0	false	river	b	44	none	12	none	none	-	-	12.4	false	false	0.0	-0.1	4	none	0.06	0	0	0.06	0	-
-246371	384	234	75	60	hamlet	0	false	river	b	32	none	4	none	none	-	-	15.9	true	false	0.1	0.2	4	none	0.05	0	0	0.05	0	770
-246371	384	235	87	62	hamlet	0	false	river	b	32	none	4	none	none	-	-	14.8	true	false	-0.0	0.0	4	none	0.07	0	0	0.07	0	481
-246371	384	236	7	70	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	68.5	true	false	0.4	1.2	4	none	0.59	0	0	0.59	0	385
-246371	384	238	193	27	hamlet	0	false	river	b	36	none	4	none	none	-	-	9.3	true	false	0.0	0.1	4	none	0.05	0	0	0.05	0	220
+seed	gw	i	x	y	kind	pop	badge	water	class	market_m	quay_m	landing_m	front_reasons	market_reasons	safe_in_cap	exposure	relief_m	h_resolves	cell_varies	front_h_m	market_h_m	rule_core_m	quay_any_water_m	mkt_flood	mkt_landform	mkt_wetland	home_flood	home_landform	origin_m	terrace_m	class_exposed_only
+246371	384	0	343	165	capital	21495	false	river	c	25	none	0	floodplain	floodplain	false	-	9.8	false	false	0.0	0.0	none	none	0.21	6	0	0.21	6	910	none	c
+246371	384	1	380	232	village	593	false	river	c	36	none	4	floodplain	floodplain	true	-	38.6	false	true	-0.0	-0.0	310	none	0.79	6	0	0.21	6	1650	none	c
+246371	384	2	88	99	capital	24953	true	coast	c	53	14	12	surge+cliff+marsh	cliff+marsh	false	0.90	73.9	true	false	3.3	17.9	none	14	0.74	1	0	0.74	1	-	-	c
+246371	384	3	264	281	capital	18273	false	river	b	41	none	19	none	none	-	-	10.2	true	false	-0.0	-0.1	4	none	0.10	0	0	0.10	0	1100	-	b
+246371	384	4	359	227	hamlet	208	false	river	b	83	none	50	none	none	-	-	18.6	false	true	0.0	0.1	4	none	0.28	0	0	0.28	0	825	-	b
+246371	384	5	340	218	town	2328	false	river	d	136	none	68	none	none	-	-	10.3	false	false	-0.0	-0.3	4	none	0.05	0	0	0.05	0	770	-	d
+246371	384	6	157	127	capital	24971	true	coast	d	400	none	21	surge	none	-	0.90	29.3	true	false	0.4	17.2	93	none	0.46	0	0	0.46	0	-	-	d
+246371	384	6	157	127	capital	24971	true	river	a	754	none	290	none	none	-	-	29.3	true	false	0.2	16.0	251	none	0.46	0	0	0.46	0	-	-	a
+246371	384	7	239	204	village	561	false	river	c	37	none	4	floodplain	floodplain	true	-	14.4	false	true	-0.0	0.1	436	none	0.05	6	0	0.05	6	715	none	c
+246371	384	8	2	225	capital	19259	false	river	b	53	none	19	none	none	-	-	7.2	false	false	0.0	0.1	4	none	0.34	0	0	0.34	0	605	-	b
+246371	384	9	22	78	hamlet	165	false	river	b	36	none	4	none	none	-	-	99.7	true	true	-0.3	-0.4	4	none	0.44	0	0	1.00	0	1155	-	b
+246371	384	10	326	160	town	2469	false	river	c	92	none	20	floodplain	floodplain	false	-	13.6	false	false	-0.0	-0.4	none	none	0.16	6	0	0.15	6	1650	none	c
+246371	384	11	372	173	town	1894	false	river	c	108	none	29	floodplain	floodplain	false	-	11.5	false	false	-0.0	-0.1	none	none	0.06	6	0	0.06	6	110	none	c
+246371	384	12	361	251	hamlet	168	false	river	b	36	none	4	none	none	-	-	20.3	true	false	0.0	0.1	4	none	0.12	0	0	0.12	0	715	-	b
+246371	384	13	301	176	city	7947	false	river	c	107	none	25	floodplain	floodplain	true	-	9.3	false	true	-0.0	0.3	4	none	0.09	6	0	0.09	6	935	none	c
+246371	384	14	313	96	hamlet	166	true	coast	a	1066	none	1016	surge+marsh	marsh	-	0.70	74.2	false	false	0.3	19.5	510	none	1.00	0	1	1.00	0	880	-	a
+246371	384	14	313	96	hamlet	166	true	river	c	25	none	19	floodplain+wetland	floodplain+wetland	true	-	74.2	true	true	0.0	0.2	85	none	1.00	0	1	1.00	0	880	none	c
+246371	384	15	371	283	capital	23179	false	river	b	47	none	0	none	none	-	-	6.2	false	false	0.0	0.1	4	none	0.43	0	0	0.43	0	110	-	b
+246371	384	16	177	97	city	8665	false	river	c	65	none	20	floodplain	floodplain	true	-	16.0	true	false	0.1	0.3	205	none	0.07	6	0	0.07	6	550	312	c
+246371	384	17	96	71	town	1962	false	river	c	47	none	25	floodplain	floodplain	true	-	8.0	false	true	-0.0	-0.0	273	none	0.14	6	0	0.14	6	605	none	c
+246371	384	18	19	57	hamlet	163	false	river	b	36	none	4	none	none	-	-	27.5	true	false	-0.0	-0.1	4	none	0.13	0	0	0.13	0	990	-	b
+246371	384	19	11	36	capital	24051	false	river	c	47	none	0	floodplain	floodplain	false	-	8.9	false	false	-0.0	0.0	none	none	0.17	6	0	0.17	6	440	none	c
+246371	384	20	346	185	village	654	false	river	b	98	none	70	none	none	-	-	21.6	false	false	-0.0	-0.3	4	none	0.23	0	0	0.23	0	220	-	b
+246371	384	21	278	251	hamlet	184	false	river	b	36	none	4	none	none	-	-	7.3	false	false	0.1	0.1	4	none	0.08	0	0	0.08	0	275	-	b
+246371	384	23	252	221	town	1937	false	river	b	82	none	0	none	none	-	-	13.3	true	false	0.0	0.0	4	none	0.05	0	0	0.05	0	353	-	b
+246371	384	24	45	69	hamlet	165	false	river	b	36	none	4	none	none	-	-	29.1	true	false	-0.0	-0.2	4	none	0.14	0	0	0.14	0	-	-	b
+246371	384	25	286	184	town	2076	false	river	d	284	none	4	none	none	-	-	14.9	true	false	-0.0	0.5	4	none	0.06	0	0	0.06	0	-	-	d
+246371	384	26	3	11	hamlet	155	false	river	b	28	none	4	none	none	-	-	22.3	true	false	0.0	0.1	4	none	0.11	0	0	0.11	0	325	-	b
+246371	384	27	63	97	hamlet	149	false	river	c	36	none	0	floodplain+wetland	floodplain+wetland	false	-	172.5	true	false	0.4	1.5	none	none	1.00	0	1	1.00	0	605	none	c
+246371	384	28	306	142	hamlet	184	true	coast	a	2005	none	1954	surge+cliff+marsh	marsh	-	0.90	225.6	false	false	0.4	33.8	1405	none	1.00	1	0	0.42	5	1375	-	a
+246371	384	28	306	142	hamlet	184	true	river	c	19	none	19	floodplain	floodplain	true	-	225.6	true	true	0.1	0.2	4	none	1.00	1	0	0.42	5	1375	200	c
+246371	384	29	330	120	hamlet	149	false	river	b	43	none	7	none	none	-	-	27.4	true	false	-0.1	-0.1	4	none	0.24	0	0	0.24	0	495	-	b
+246371	384	30	214	192	hamlet	144	false	river	b	32	none	4	none	none	-	-	181.3	true	false	0.0	-0.2	4	none	0.43	5	0	0.43	5	-	-	b
+246371	384	31	343	241	hamlet	195	false	river	b	43	none	4	none	none	-	-	12.5	true	false	-0.1	0.0	4	none	0.08	0	0	0.08	0	-	-	b
+246371	384	32	359	119	hamlet	152	false	river	c	29	none	4	floodplain	floodplain	false	-	11.4	false	false	0.0	-0.0	none	none	0.02	6	0	0.02	6	220	none	c
+246371	384	37	350	240	hamlet	0	false	river	a	805	none	28	none	none	-	-	10.1	true	false	-0.0	0.2	308	none	0.15	0	0	0.15	0	-	-	a
+246371	384	39	267	286	hamlet	0	false	river	b	75	none	44	none	none	-	-	7.0	false	true	0.0	0.1	4	none	0.07	0	0	0.29	0	1265	-	b
+246371	384	40	350	169	hamlet	0	false	river	b	28	none	12	none	none	-	-	14.9	false	false	0.0	-0.1	4	none	0.13	0	0	0.13	0	816	-	b
+246371	384	41	370	231	hamlet	0	false	river	b	36	none	4	none	none	-	-	80.9	true	false	0.1	0.2	4	none	0.10	0	0	0.11	0	1100	-	b
+246371	384	42	267	273	hamlet	0	false	river	d	183	none	0	none	none	-	-	10.9	true	false	0.0	0.7	4	none	0.48	0	0	0.48	0	660	-	d
+246371	384	43	350	216	hamlet	0	false	river	b	65	none	32	none	none	-	-	22.2	true	false	0.0	0.3	4	none	0.12	0	0	0.12	0	846	-	b
+246371	384	44	363	231	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	45.1	false	true	0.0	0.1	4	none	0.73	0	0	0.73	0	1045	none	c
+246371	384	45	352	222	hamlet	0	false	river	c	64	none	28	floodplain	floodplain	true	-	29.0	false	true	0.0	0.2	172	none	0.69	0	0	0.69	0	1155	none	c
+246371	384	46	372	244	hamlet	0	false	river	b	47	none	19	none	none	-	-	7.4	false	false	-0.0	0.0	4	none	0.19	0	0	0.19	0	-	-	b
+246371	384	47	243	211	hamlet	0	false	river	c	70	none	4	floodplain	floodplain	true	-	11.2	false	true	0.0	0.1	30	none	0.65	0	0	0.65	0	770	none	c
+246371	384	48	346	213	hamlet	0	false	river	b	37	none	4	none	none	-	-	7.6	false	false	0.1	0.1	4	none	0.07	0	0	0.07	0	220	-	b
+246371	384	49	378	244	hamlet	0	false	river	b	32	none	21	none	none	-	-	17.3	true	false	0.0	0.1	4	none	0.13	0	0	0.13	0	835	-	b
+246371	384	50	313	151	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	false	-	27.6	false	false	0.0	0.1	none	none	0.11	6	0	0.11	6	165	none	c
+246371	384	51	356	168	hamlet	0	false	river	c	19	none	14	floodplain	floodplain	false	-	11.1	false	false	-0.1	-0.1	none	none	0.16	6	0	0.16	6	660	none	c
+246371	384	52	319	155	hamlet	0	false	river	c	47	none	14	floodplain	floodplain	true	-	70.2	true	true	0.1	0.2	4	none	0.39	6	0	0.39	6	1100	344	c
+246371	384	53	366	168	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.6	false	false	-0.0	-0.1	none	none	0.07	6	0	0.07	6	-	none	c
+246371	384	54	366	246	hamlet	0	false	river	b	29	none	4	none	none	-	-	8.9	false	false	0.0	0.0	4	none	0.10	0	0	0.10	0	605	-	b
+246371	384	55	337	161	hamlet	0	false	river	b	41	none	7	floodplain	none	-	-	38.1	false	true	0.0	0.1	4	none	0.23	0	0	0.82	6	1155	-	b
+246371	384	56	333	226	hamlet	0	false	river	b	29	none	4	none	none	-	-	11.7	false	true	0.1	0.1	4	none	0.12	0	0	0.12	0	826	-	b
+246371	384	57	303	168	hamlet	0	false	river	b	36	none	4	none	none	-	-	20.8	true	true	0.0	0.0	4	none	0.15	0	0	0.15	0	770	-	b
+246371	384	58	363	216	hamlet	0	false	river	b	36	none	4	none	none	-	-	4.9	false	false	0.0	0.0	4	none	0.33	0	0	0.33	0	317	-	b
+246371	384	59	275	273	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.3	false	false	-0.0	0.0	4	none	0.35	0	0	0.35	0	330	-	b
+246371	384	60	272	251	hamlet	0	false	river	b	43	none	4	none	none	-	-	6.0	false	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	61	358	236	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.5	false	false	0.0	0.0	4	none	0.06	0	0	0.06	0	55	-	b
+246371	384	62	172	119	hamlet	0	false	river	c	19	none	19	floodplain	floodplain	false	-	16.4	false	false	0.0	-0.0	none	none	0.59	6	0	0.59	6	605	none	c
+246371	384	63	15	41	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.0	false	false	-0.1	-0.1	none	none	0.08	6	0	0.08	6	660	none	c
+246371	384	64	186	96	hamlet	0	false	river	b	97	none	20	none	none	-	-	12.2	false	false	0.0	0.2	4	none	0.44	0	0	0.44	0	450	-	b
+246371	384	65	289	179	hamlet	0	false	river	b	36	none	4	none	none	-	-	23.2	true	false	0.1	0.2	4	none	0.07	0	0	0.07	0	165	-	b
+246371	384	66	167	109	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	14.7	false	false	-0.1	-0.1	none	none	0.15	6	0	0.15	6	-	none	c
+246371	384	67	353	256	hamlet	0	false	river	b	29	none	4	none	none	-	-	21.5	true	false	0.0	-0.0	4	none	0.12	0	0	0.12	0	-	-	b
+246371	384	68	171	106	hamlet	0	false	river	c	29	none	0	floodplain	floodplain	true	-	17.0	true	false	0.0	-0.0	4	none	0.17	6	0	0.17	6	110	none	c
+246371	384	69	96	92	hamlet	0	false	river	c	28	none	4	floodplain	floodplain	true	-	109.7	true	true	0.1	0.6	4	none	0.75	0	0	0.75	0	605	84	c
+246371	384	70	334	181	hamlet	0	false	river	b	41	none	12	none	none	-	-	7.3	false	false	0.0	0.0	4	none	0.45	0	0	0.45	0	385	-	b
+246371	384	71	187	87	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.7	false	false	0.0	0.0	4	none	0.39	0	0	0.39	0	330	-	b
+246371	384	72	247	233	hamlet	0	false	river	b	37	none	4	none	none	-	-	4.8	false	false	0.0	0.1	4	none	0.41	0	0	0.41	0	347	-	b
+246371	384	73	66	93	hamlet	0	false	river	c	36	none	4	floodplain+wetland	floodplain+wetland	false	-	35.3	true	false	-0.0	-0.1	none	none	0.39	6	1	0.39	6	731	none	c
+246371	384	74	339	183	hamlet	0	false	river	b	30	none	4	none	none	-	-	15.2	false	false	0.0	0.0	4	none	0.52	0	0	0.52	0	935	-	b
+246371	384	75	50	64	hamlet	0	false	river	b	36	none	7	none	none	-	-	23.1	true	false	0.0	0.0	4	none	0.11	0	0	0.11	0	-	-	b
+246371	384	76	11	27	hamlet	0	false	river	c	29	none	4	floodplain	floodplain	false	-	6.4	false	false	0.0	0.0	none	none	0.27	6	0	0.27	6	110	none	c
+246371	384	77	6	211	hamlet	0	false	river	b	20	none	20	none	none	-	-	6.1	false	false	-0.0	-0.0	4	none	0.14	0	0	0.14	0	330	-	b
+246371	384	78	271	270	hamlet	0	false	river	b	36	none	4	none	none	-	-	12.5	true	false	0.0	0.1	4	none	0.09	0	0	0.09	0	495	-	b
+246371	384	79	270	265	hamlet	0	false	river	b	39	none	7	none	none	-	-	9.2	false	false	-0.0	0.0	4	none	0.09	0	0	0.09	0	-	-	b
+246371	384	80	253	208	hamlet	0	false	river	b	20	none	4	none	none	-	-	6.9	false	false	-0.0	-0.0	4	none	0.43	0	0	0.43	0	550	-	b
+246371	384	81	34	88	hamlet	0	false	coast	a	1241	none	1213	surge+cliff	none	-	1.00	77.3	false	false	0.5	32.2	641	none	0.46	0	0	0.46	0	527	-	a
+246371	384	81	34	88	hamlet	0	false	river	b	30	none	7	none	none	-	-	77.3	true	false	0.2	0.5	4	none	0.46	0	0	0.46	0	527	-	b
+246371	384	82	333	216	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.0	true	false	-0.2	0.0	4	none	0.47	0	0	0.47	0	385	-	b
+246371	384	83	21	215	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.1	false	false	0.1	0.1	4	none	0.47	0	0	0.47	0	385	-	b
+246371	384	84	100	79	hamlet	0	false	river	b	43	none	4	none	none	-	-	67.9	true	false	0.2	0.4	4	none	0.12	0	0	0.12	0	495	-	b
+246371	384	85	339	270	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	12.0	false	false	-0.1	-0.2	none	none	0.59	0	0	0.59	0	440	none	c
+246371	384	87	184	250	hamlet	0	false	river	b	21	none	12	none	none	-	-	6.8	false	false	-0.0	0.0	4	none	0.14	0	0	0.14	0	287	-	b
+246371	384	88	87	268	hamlet	0	false	coast	a	280	207	189	surge+marsh	marsh	-	0.60	3.4	true	false	0.0	0.9	none	25	0.58	6	0	0.58	6	165	-	a
+246371	384	88	87	268	hamlet	0	false	river	c	36	none	19	floodplain	floodplain	false	-	3.4	false	false	-0.0	-0.0	none	none	0.58	6	0	0.58	6	165	none	c
+246371	384	89	324	219	hamlet	0	false	river	b	36	none	4	none	none	-	-	26.6	true	false	0.0	0.1	4	none	0.34	0	0	0.34	0	-	-	b
+246371	384	90	270	260	hamlet	0	false	river	b	44	none	12	none	none	-	-	10.8	false	false	0.0	0.1	4	none	0.15	0	0	0.15	0	-	-	b
+246371	384	91	15	46	hamlet	0	false	river	d	120	none	81	none	none	-	-	17.6	true	false	0.1	0.7	4	none	0.12	0	0	0.12	0	-	-	d
+246371	384	93	180	265	hamlet	0	false	river	b	29	none	4	none	none	-	-	10.2	false	false	-0.0	-0.0	4	none	0.03	0	0	0.03	0	164	-	b
+246371	384	94	65	283	hamlet	0	false	river	c	50	none	12	floodplain+wetland	floodplain+wetland	false	-	9.3	true	false	-0.1	-0.4	none	none	0.72	6	1	0.72	6	-	none	c
+246371	384	95	337	243	hamlet	0	false	river	b	39	none	4	none	none	-	-	31.3	true	false	-0.2	-0.3	4	none	0.46	0	0	0.46	0	385	-	b
+246371	384	96	325	119	hamlet	0	false	river	b	36	none	4	none	none	-	-	25.3	true	false	-0.0	0.1	4	none	0.15	0	0	0.15	0	770	-	b
+246371	384	97	329	275	hamlet	0	false	river	b	28	none	4	none	none	-	-	14.7	true	false	0.0	0.1	4	none	0.50	0	0	0.50	0	384	-	b
+246371	384	98	138	192	hamlet	0	false	river	c	47	none	19	floodplain+wetland	floodplain+wetland	false	-	33.1	true	false	-0.2	-1.4	none	none	0.74	6	1	0.74	6	-	none	c
+246371	384	99	355	124	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	8.1	false	false	0.0	0.1	none	none	0.51	6	0	0.51	6	440	none	c
+246371	384	100	247	219	hamlet	0	false	river	b	32	none	4	none	none	-	-	15.6	false	false	-0.0	-0.2	4	none	0.07	0	0	0.07	0	-	-	b
+246371	384	101	334	96	hamlet	0	false	river	b	71	none	39	none	none	-	-	58.3	true	false	0.2	0.1	4	none	0.14	0	0	0.14	0	-	-	b
+246371	384	102	12	218	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.4	false	false	-0.0	-0.0	4	none	0.09	0	0	0.09	0	-	-	b
+246371	384	103	103	89	hamlet	0	false	river	b	30	none	4	none	none	-	-	58.0	true	false	0.1	0.2	4	none	0.22	0	0	0.22	0	-	-	b
+246371	384	104	105	192	hamlet	0	false	river	c	36	none	7	floodplain	floodplain	true	-	35.8	true	false	0.0	0.2	75	none	0.53	6	0	0.53	6	275	460	c
+246371	384	105	8	221	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.5	true	false	0.0	0.2	4	none	0.06	0	0	0.06	0	-	-	b
+246371	384	106	179	142	hamlet	0	false	river	c	28	none	20	floodplain	floodplain	true	-	125.8	true	true	-0.1	-0.5	4	none	0.83	0	0	0.83	0	880	none	c
+246371	384	107	359	241	hamlet	0	false	river	b	36	none	4	none	none	-	-	5.0	false	false	-0.1	-0.1	4	none	0.31	0	0	0.31	0	-	-	b
+246371	384	108	357	267	hamlet	0	false	river	b	47	none	25	none	none	-	-	7.7	false	false	-0.0	-0.1	4	none	0.11	0	0	0.11	0	715	-	b
+246371	384	109	377	253	hamlet	0	false	river	b	39	none	12	none	none	-	-	11.7	false	false	-0.1	-0.3	4	none	0.06	0	0	0.06	0	275	-	b
+246371	384	110	178	283	hamlet	0	false	river	b	43	none	4	none	none	-	-	9.6	false	false	-0.0	-0.1	4	none	0.03	0	0	0.03	0	-	-	b
+246371	384	111	299	182	hamlet	0	false	river	b	32	none	4	none	none	-	-	6.9	false	false	0.0	0.0	4	none	0.04	0	0	0.04	0	275	-	b
+246371	384	112	22	182	hamlet	0	false	river	c	47	none	7	floodplain+wetland	floodplain+wetland	false	-	20.8	true	false	-0.0	-0.0	none	none	0.54	6	1	0.54	6	-	none	c
+246371	384	113	334	271	hamlet	0	false	river	b	36	none	4	none	none	-	-	21.8	true	false	0.1	-0.0	4	none	0.05	0	0	0.05	0	275	-	b
+246371	384	114	372	249	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.3	false	false	0.0	0.0	4	none	0.17	0	0	0.17	0	275	-	b
+246371	384	115	261	151	hamlet	0	false	river	c	29	none	4	floodplain+wetland	floodplain+wetland	false	-	48.8	true	false	0.3	1.1	none	none	0.83	6	1	0.83	6	275	none	c
+246371	384	116	177	272	hamlet	0	false	river	b	29	none	4	none	none	-	-	7.7	false	false	0.0	-0.0	4	none	0.03	0	0	0.03	0	-	-	b
+246371	384	117	323	94	hamlet	0	false	river	b	62	none	36	none	none	-	-	62.5	true	false	0.0	0.7	4	none	0.34	0	0	0.34	0	275	-	b
+246371	384	118	356	274	hamlet	0	false	river	b	39	none	7	none	none	-	-	7.1	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	605	-	b
+246371	384	119	193	126	hamlet	0	false	river	c	32	none	4	floodplain	floodplain	false	-	6.7	false	false	-0.0	-0.1	none	none	0.08	6	0	0.08	6	-	none	c
+246371	384	120	103	201	hamlet	0	false	river	c	36	none	4	floodplain+wetland	floodplain+wetland	false	-	12.0	false	false	-0.1	-0.3	none	none	0.91	6	1	0.91	6	-	none	c
+246371	384	121	337	126	hamlet	0	false	river	b	36	none	4	none	none	-	-	19.2	true	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	122	352	231	hamlet	0	false	river	b	32	none	4	none	none	-	-	5.7	false	false	0.0	0.0	4	none	0.11	0	0	0.11	0	55	-	b
+246371	384	123	367	239	hamlet	0	false	river	b	50	none	19	none	none	-	-	7.0	false	false	-0.0	-0.1	4	none	0.17	0	0	0.17	0	-	-	b
+246371	384	124	184	260	hamlet	0	false	river	b	36	none	4	none	none	-	-	10.6	false	false	-0.0	-0.1	4	none	0.02	0	0	0.02	0	-	-	b
+246371	384	125	108	85	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	true	-	11.7	true	false	-0.0	-0.2	4	none	0.11	6	0	0.11	6	-	none	c
+246371	384	127	308	108	hamlet	0	false	coast	d	126	none	30	surge+cliff	none	-	0.80	176.9	true	false	1.1	12.6	36	none	0.50	1	0	0.86	0	498	-	d
+246371	384	127	308	108	hamlet	0	false	river	a	1221	none	28	floodplain	none	-	-	176.9	false	true	-0.6	-91.3	743	none	0.50	1	0	0.86	0	498	-	a
+246371	384	128	324	175	hamlet	0	false	river	b	29	none	4	none	none	-	-	6.3	false	false	-0.0	0.0	4	none	0.10	0	0	0.10	0	385	-	b
+246371	384	129	377	216	hamlet	0	false	river	b	64	none	32	none	none	-	-	11.4	false	false	-0.0	-0.1	4	none	0.10	0	0	0.10	0	-	-	b
+246371	384	130	241	216	hamlet	0	false	river	d	234	none	201	none	none	-	-	8.4	false	false	-0.0	-0.2	4	none	0.06	0	0	0.06	0	440	-	d
+246371	384	131	343	126	hamlet	0	false	river	b	36	none	4	none	none	-	-	17.4	true	false	-0.0	-0.1	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	132	5	76	hamlet	0	false	river	c	39	none	12	floodplain	floodplain	true	-	66.8	true	true	-0.2	-0.3	4	none	0.71	0	0	0.71	0	586	none	c
+246371	384	133	146	101	hamlet	0	false	river	b	36	none	4	none	none	-	-	31.6	true	false	0.0	0.2	4	none	0.05	0	0	0.05	0	605	-	b
+246371	384	134	16	52	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	24.3	true	false	-0.0	-0.1	4	none	0.65	0	0	0.65	0	-	none	c
+246371	384	135	345	225	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.2	false	false	0.0	0.1	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	136	90	53	hamlet	0	false	river	b	29	none	4	none	none	-	-	6.4	false	false	-0.0	-0.1	4	none	0.08	0	0	0.08	0	-	-	b
+246371	384	137	382	193	hamlet	0	false	river	b	53	none	14	none	none	-	-	12.5	true	false	0.0	0.2	4	none	0.06	0	0	0.06	0	246	-	b
+246371	384	138	380	222	hamlet	0	false	river	b	32	none	4	none	none	-	-	8.4	false	false	0.0	0.0	4	none	0.11	0	0	0.11	0	-	-	b
+246371	384	139	71	220	hamlet	0	false	river	c	30	none	4	wetland	wetland	false	-	31.1	true	false	-0.0	-0.1	none	none	0.51	0	1	0.51	0	220	-	c
+246371	384	140	281	262	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.4	false	false	0.0	0.1	4	none	0.06	0	0	0.06	0	330	-	b
+246371	384	141	345	280	hamlet	0	false	river	b	28	none	25	none	none	-	-	8.9	false	false	-0.1	-0.1	4	none	0.05	0	0	0.05	0	220	-	b
+246371	384	142	313	107	hamlet	0	false	river	c	43	none	4	floodplain+wetland	floodplain+wetland	false	-	36.4	true	false	0.1	0.3	none	none	0.85	0	1	0.85	0	165	none	c
+246371	384	143	322	115	hamlet	0	false	river	b	36	none	7	none	none	-	-	43.2	true	true	0.0	0.1	4	none	0.21	0	0	0.21	0	893	-	b
+246371	384	144	132	121	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	60.2	true	false	-0.1	-0.6	4	none	0.62	0	0	0.62	0	220	none	c
+246371	384	145	359	189	hamlet	0	false	river	b	93	none	60	none	none	-	-	9.7	true	false	0.0	0.2	4	none	0.12	0	0	0.12	0	385	-	b
+246371	384	146	34	58	hamlet	0	false	river	c	37	none	4	floodplain	floodplain	false	-	8.8	false	false	0.0	0.1	none	none	0.10	6	0	0.10	6	-	none	c
+246371	384	147	380	280	hamlet	0	false	river	b	44	none	20	none	none	-	-	20.7	true	false	-0.0	-0.3	4	none	0.29	0	0	0.29	0	195	-	b
+246371	384	148	362	261	hamlet	0	false	river	b	32	none	4	none	none	-	-	16.0	true	false	-0.0	-0.0	4	none	0.08	0	0	0.08	0	330	-	b
+246371	384	149	377	159	hamlet	0	false	river	b	87	none	54	none	none	-	-	14.7	true	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	275	-	b
+246371	384	150	284	194	hamlet	0	false	river	b	36	none	12	none	none	-	-	6.5	false	false	0.0	0.1	4	none	0.07	0	0	0.07	0	385	-	b
+246371	384	151	23	62	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	72.0	true	true	0.1	0.4	4	none	0.64	0	0	0.64	0	718	140	c
+246371	384	152	157	98	hamlet	0	false	river	b	50	none	14	none	none	-	-	23.0	false	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	-	-	b
+246371	384	153	18	25	hamlet	0	false	river	c	30	none	4	floodplain	floodplain	false	-	10.8	false	false	-0.0	-0.1	none	none	0.06	6	0	0.06	6	70	none	c
+246371	384	154	329	94	hamlet	0	false	river	b	39	none	7	none	none	-	-	53.5	true	false	-0.1	0.0	4	none	0.25	0	0	0.25	0	330	-	b
+246371	384	155	373	212	hamlet	0	false	river	b	68	none	29	none	none	-	-	10.5	false	false	-0.0	-0.1	4	none	0.17	0	0	0.17	0	-	-	b
+246371	384	156	299	162	hamlet	0	false	river	b	36	none	4	none	none	-	-	213.1	true	false	0.5	-0.3	4	none	0.51	1	0	0.51	1	421	-	b
+246371	384	157	375	165	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	6.5	false	false	0.0	0.0	none	none	0.11	6	0	0.11	6	110	none	c
+246371	384	158	370	204	hamlet	0	false	river	b	118	none	85	none	none	-	-	20.9	true	false	0.1	0.8	4	none	0.12	0	0	0.12	0	605	-	b
+246371	384	159	235	217	hamlet	0	false	river	b	28	none	4	none	none	-	-	7.2	false	false	0.0	0.0	4	none	0.02	0	0	0.02	0	416	-	b
+246371	384	160	56	42	hamlet	0	false	river	b	44	none	7	none	none	-	-	11.1	false	false	-0.0	-0.1	4	none	0.09	0	0	0.09	0	-	-	b
+246371	384	161	107	184	hamlet	0	false	river	c	36	none	4	wetland	wetland	false	-	90.8	true	false	0.1	0.3	none	none	0.55	0	1	0.55	0	330	-	c
+246371	384	162	197	137	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	18.8	true	false	0.0	0.0	444	none	0.09	6	0	0.09	6	-	420	c
+246371	384	163	286	251	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.6	false	false	0.0	0.0	4	none	0.03	0	0	0.03	0	-	-	b
+246371	384	164	240	242	hamlet	0	false	river	b	25	none	4	none	none	-	-	44.7	true	false	0.2	0.4	4	none	0.05	0	0	0.05	0	229	-	b
+246371	384	165	186	107	hamlet	0	false	river	b	12	none	12	none	none	-	-	12.8	true	false	0.0	0.1	4	none	0.46	0	0	0.46	0	337	-	b
+246371	384	166	365	162	hamlet	0	false	river	b	50	none	14	none	none	-	-	19.7	true	false	0.0	0.0	4	none	0.12	0	0	0.12	0	-	-	b
+246371	384	167	7	44	hamlet	0	false	river	c	29	none	4	floodplain	floodplain	true	-	11.0	true	false	0.0	0.1	381	none	0.11	6	0	0.11	6	154	468	c
+246371	384	168	175	111	hamlet	0	false	river	b	36	none	4	none	none	-	-	22.2	true	false	0.2	0.2	4	none	0.17	0	0	0.17	0	-	-	b
+246371	384	169	23	69	hamlet	0	false	river	b	25	none	4	none	none	-	-	72.2	true	true	0.1	0.2	4	none	0.25	0	0	0.25	0	1141	-	b
+246371	384	170	269	240	hamlet	0	false	river	b	57	none	25	none	none	-	-	6.9	false	false	0.0	-0.0	4	none	0.24	0	0	0.24	0	275	-	b
+246371	384	171	176	277	hamlet	0	false	river	b	39	none	4	none	none	-	-	9.6	false	false	0.0	0.1	4	none	0.46	0	0	0.46	0	220	-	b
+246371	384	172	67	211	hamlet	0	false	coast	a	685	460	420	surge+marsh	marsh	-	0.60	50.0	true	false	0.2	12.5	none	7	0.71	0	0	0.71	0	330	-	a
+246371	384	172	67	211	hamlet	0	false	river	c	44	none	4	floodplain	floodplain	true	-	50.0	true	false	0.1	0.5	4	none	0.71	0	0	0.71	0	330	132	c
+246371	384	173	16	33	hamlet	0	false	river	c	68	none	36	floodplain	floodplain	false	-	8.4	false	false	-0.0	-0.2	none	none	0.13	6	0	0.13	6	-	none	c
+246371	384	175	317	110	hamlet	0	false	river	b	36	none	4	none	none	-	-	48.8	true	false	-0.1	-0.3	4	none	0.41	0	0	0.41	0	-	-	b
+246371	384	176	64	61	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	false	-	8.3	false	false	-0.1	-0.0	none	none	0.06	6	0	0.06	6	220	none	c
+246371	384	177	103	83	hamlet	0	false	river	b	36	none	4	none	none	-	-	31.7	true	false	-0.1	-0.1	4	none	0.16	0	0	0.16	0	55	-	b
+246371	384	178	349	127	hamlet	0	false	river	c	32	none	4	floodplain	floodplain	false	-	9.0	false	false	0.0	0.0	none	none	0.52	6	0	0.52	6	275	none	c
+246371	384	179	260	262	hamlet	0	false	river	b	29	none	4	none	none	-	-	18.0	true	false	-0.1	-0.0	4	none	0.08	0	0	0.08	0	279	-	b
+246371	384	180	41	29	hamlet	0	false	river	b	36	none	4	none	none	-	-	6.1	false	false	-0.0	-0.1	4	none	0.06	0	0	0.06	0	-	-	b
+246371	384	181	92	61	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	19.0	true	false	-0.0	-0.2	4	none	0.07	6	0	0.07	6	-	none	c
+246371	384	182	336	250	hamlet	0	false	river	b	87	none	53	none	none	-	-	7.6	false	false	0.0	0.0	4	none	0.27	0	0	0.27	0	330	-	b
+246371	384	183	348	112	hamlet	0	false	river	c	115	none	78	floodplain	floodplain	true	-	15.3	true	false	0.0	-0.2	4	none	0.23	6	0	0.23	6	275	none	c
+246371	384	184	30	16	hamlet	0	false	river	b	32	none	4	none	none	-	-	7.4	false	false	-0.0	-0.1	4	none	0.30	0	0	0.30	0	-	-	b
+246371	384	185	2	16	hamlet	0	false	river	b	52	none	20	none	none	-	-	14.8	true	false	0.0	0.0	4	none	0.25	0	0	0.25	0	179	-	b
+246371	384	186	335	207	hamlet	0	false	river	b	32	none	4	none	none	-	-	9.5	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	187	142	119	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	81.6	true	false	0.2	1.2	4	none	0.87	0	0	0.87	0	550	32	c
+246371	384	188	278	266	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.5	false	false	0.0	0.0	4	none	0.07	0	0	0.07	0	-	-	b
+246371	384	189	277	225	hamlet	0	false	river	b	47	none	12	none	none	-	-	10.6	false	false	-0.0	0.1	4	none	0.03	0	0	0.03	0	330	-	b
+246371	384	190	160	202	hamlet	0	false	river	c	30	none	4	floodplain+wetland	floodplain+wetland	false	-	21.3	true	false	0.0	0.1	none	none	0.71	6	1	0.71	6	220	none	c
+246371	384	191	240	223	hamlet	0	false	river	b	36	none	4	none	none	-	-	10.2	true	false	0.0	0.1	4	none	0.32	0	0	0.32	0	205	-	b
+246371	384	192	263	266	hamlet	0	false	river	b	44	none	12	none	none	-	-	8.5	true	false	0.0	0.1	4	none	0.10	0	0	0.10	0	-	-	b
+246371	384	193	366	114	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	11.7	true	false	-0.0	-0.0	4	none	0.04	6	0	0.04	6	275	none	c
+246371	384	194	50	72	hamlet	0	false	river	b	36	none	4	none	none	-	-	26.9	true	false	0.0	0.1	4	none	0.09	0	0	0.09	0	165	-	b
+246371	384	195	261	201	hamlet	0	false	river	b	37	none	4	none	none	-	-	5.1	false	false	-0.0	-0.0	4	none	0.20	0	0	0.20	0	330	-	b
+246371	384	196	331	186	hamlet	0	false	river	b	36	none	4	none	none	-	-	18.3	true	false	-0.0	-0.0	4	none	0.09	0	0	0.09	0	240	-	b
+246371	384	197	9	12	hamlet	0	false	river	b	71	none	36	none	none	-	-	21.1	true	false	-0.0	-0.0	4	none	0.14	0	0	0.14	0	-	-	b
+246371	384	199	283	244	hamlet	0	false	river	b	36	none	4	none	none	-	-	5.8	false	false	0.0	0.1	4	none	0.28	0	0	0.28	0	-	-	b
+246371	384	200	375	108	hamlet	0	false	river	b	36	none	4	none	none	-	-	16.9	true	false	-0.0	-0.1	4	none	0.02	0	0	0.02	0	110	-	b
+246371	384	201	359	164	hamlet	0	false	river	b	44	none	12	none	none	-	-	19.7	true	false	0.0	0.1	4	none	0.14	0	0	0.14	0	-	-	b
+246371	384	202	276	216	hamlet	0	false	river	b	19	none	19	none	none	-	-	14.4	true	false	0.0	0.1	4	none	0.38	0	0	0.38	0	266	-	b
+246371	384	203	166	91	hamlet	0	false	river	b	37	none	4	none	none	-	-	14.1	false	false	0.0	0.1	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	204	349	179	hamlet	0	false	river	b	32	none	4	none	none	-	-	77.5	true	false	0.3	0.8	4	none	0.55	0	0	0.55	0	220	-	b
+246371	384	205	48	41	hamlet	0	false	river	b	30	none	0	none	none	-	-	19.3	true	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	206	188	128	hamlet	0	false	river	b	82	none	45	none	none	-	-	38.6	true	false	-0.1	-0.2	4	none	0.16	0	0	0.16	0	275	-	b
+246371	384	207	37	221	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.3	true	false	-0.0	-0.1	4	none	0.03	0	0	0.03	0	440	-	b
+246371	384	208	338	286	hamlet	0	false	river	b	25	none	4	none	none	-	-	10.3	false	false	-0.0	-0.0	4	none	0.05	0	0	0.05	0	130	-	b
+246371	384	209	39	83	hamlet	0	false	river	d	139	none	103	floodplain	floodplain	-	-	84.0	true	false	0.1	-0.1	4	none	0.64	0	0	0.64	0	605	none	d
+246371	384	210	144	92	hamlet	0	false	river	b	36	none	4	none	none	-	-	33.7	true	false	0.1	-0.1	4	none	0.05	0	0	0.05	0	440	-	b
+246371	384	211	9	56	hamlet	0	false	river	b	28	none	4	none	none	-	-	25.8	true	false	0.1	0.4	4	none	0.27	0	0	0.27	0	166	-	b
+246371	384	212	338	111	hamlet	0	false	river	c	41	none	7	floodplain	floodplain	false	-	9.4	false	false	0.0	0.1	none	none	0.11	6	0	0.11	6	-	none	c
+246371	384	213	66	45	hamlet	0	false	river	b	39	none	4	none	none	-	-	15.8	true	false	0.0	-0.0	4	none	0.07	0	0	0.07	0	-	-	b
+246371	384	214	97	204	hamlet	0	false	coast	a	596	none	207	surge+marsh	marsh	-	0.70	20.1	true	false	0.1	7.8	none	none	0.49	0	1	0.49	0	275	-	a
+246371	384	214	97	204	hamlet	0	false	river	c	39	none	19	wetland	wetland	false	-	20.1	true	false	0.0	0.3	none	none	0.49	0	1	0.49	0	275	-	c
+246371	384	215	259	224	hamlet	0	false	river	b	36	none	4	none	none	-	-	8.3	false	false	-0.0	-0.0	4	none	0.07	0	0	0.07	0	-	-	b
+246371	384	216	59	33	hamlet	0	false	river	b	84	none	44	none	none	-	-	10.9	false	false	-0.0	-0.4	4	none	0.12	0	0	0.12	0	275	-	b
+246371	384	217	299	206	hamlet	0	false	river	b	57	none	20	none	none	-	-	7.6	true	false	-0.1	-0.2	4	none	0.05	0	0	0.05	0	-	-	b
+246371	384	218	212	212	hamlet	0	false	river	b	36	none	4	none	none	-	-	63.6	true	false	0.3	1.2	4	none	0.26	0	0	0.26	0	195	-	b
+246371	384	219	323	207	hamlet	0	false	river	b	92	none	53	none	none	-	-	20.4	true	false	-0.0	-0.3	4	none	0.10	0	0	0.10	0	330	-	b
+246371	384	220	314	240	hamlet	0	false	river	b	37	none	4	none	none	-	-	9.1	true	false	0.0	0.1	4	none	0.07	0	0	0.07	0	-	-	b
+246371	384	221	172	88	hamlet	0	false	river	b	37	none	4	none	none	-	-	16.6	true	false	-0.1	-0.1	4	none	0.03	0	0	0.03	0	275	-	b
+246371	384	222	180	84	hamlet	0	false	river	b	36	none	4	none	none	-	-	11.9	true	false	-0.1	-0.2	4	none	0.06	0	0	0.06	0	-	-	b
+246371	384	223	365	256	hamlet	0	false	river	b	25	none	4	none	none	-	-	27.1	true	false	0.0	-0.0	4	none	0.13	0	0	0.13	0	389	-	b
+246371	384	224	203	281	hamlet	0	false	river	b	25	none	14	none	none	-	-	10.5	false	false	-0.0	-0.1	4	none	0.01	0	0	0.01	0	275	-	b
+246371	384	225	330	247	hamlet	0	false	river	b	75	none	36	none	none	-	-	10.0	false	false	-0.0	-0.0	4	none	0.29	0	0	0.29	0	220	-	b
+246371	384	226	252	240	hamlet	0	false	river	b	36	none	4	none	none	-	-	13.9	true	false	-0.0	0.0	4	none	0.10	0	0	0.10	0	220	-	b
+246371	384	227	83	53	hamlet	0	false	river	b	36	none	4	none	none	-	-	17.4	true	false	-0.0	-0.0	4	none	0.03	0	0	0.03	0	55	-	b
+246371	384	228	339	212	hamlet	0	false	river	b	47	none	14	none	none	-	-	9.2	false	false	-0.0	-0.1	4	none	0.14	0	0	0.14	0	-	-	b
+246371	384	229	59	56	hamlet	0	false	river	d	316	none	255	none	none	-	-	18.8	true	false	0.0	1.5	4	none	0.33	0	0	0.33	0	-	-	d
+246371	384	230	181	78	hamlet	0	false	river	b	41	none	14	none	none	-	-	13.1	true	false	0.0	0.2	4	none	0.01	0	0	0.01	0	-	-	b
+246371	384	231	327	180	hamlet	0	false	river	b	54	none	25	none	none	-	-	15.5	true	false	-0.0	-0.2	4	none	0.09	0	0	0.09	0	-	-	b
+246371	384	232	351	187	hamlet	0	false	river	b	36	none	4	none	none	-	-	7.9	false	false	-0.0	-0.0	4	none	0.48	0	0	0.48	0	440	-	b
+246371	384	233	23	21	hamlet	0	false	river	b	44	none	12	none	none	-	-	12.4	false	false	0.0	-0.1	4	none	0.06	0	0	0.06	0	-	-	b
+246371	384	234	75	60	hamlet	0	false	river	b	32	none	4	none	none	-	-	15.9	true	false	0.1	0.2	4	none	0.05	0	0	0.05	0	770	-	b
+246371	384	235	87	62	hamlet	0	false	river	b	32	none	4	none	none	-	-	14.8	true	false	-0.0	0.0	4	none	0.07	0	0	0.07	0	481	-	b
+246371	384	236	7	70	hamlet	0	false	river	c	36	none	4	floodplain	floodplain	true	-	68.5	true	false	0.4	1.2	4	none	0.59	0	0	0.59	0	385	40	c
+246371	384	238	193	27	hamlet	0	false	river	b	36	none	4	none	none	-	-	9.3	true	false	0.0	0.1	4	none	0.05	0	0	0.05	0	220	-	b

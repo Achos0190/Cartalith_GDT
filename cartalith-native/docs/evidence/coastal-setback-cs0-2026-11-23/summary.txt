@@ -39,8 +39,10 @@ ALL 2048 river: 256 towns; a 1 (0 %), b 197 (77 %), c 52 (20 %), d 6 (2 %); mark
 2048 river class d: 6; of them the nearest street or building within 23 m of the water 3; market within 1.5x the line (180 m) 0
 
 == River class (c): where the floodplain reason comes from ==
-384: 259 river towns in class c; market cell floodplain (landform 6) 174, flood over 0.55 123; settlement's own cell clear of both 20; laid round an HM origin off the cell 181 (of them with a clear own cell 16); reason-free ground within the 500 m cap 84
-2048: 52 river towns in class c; market cell floodplain (landform 6) 18, flood over 0.55 38; settlement's own cell clear of both 5; laid round an HM origin off the cell 34 (of them with a clear own cell 2); reason-free ground within the 500 m cap 51
+384: section 3.4's terrace walk applies to 242 of the (c), finds a terrace for 29 (median 312 m from the market)
+384: 259 river towns in class c; market cell floodplain (landform 6) 174, flood over 0.55 123; settlement's own cell clear of both 20; laid round an HM origin off the cell 181 (of them with a clear own cell 16); any reason-free land within the 500 m cap (not section 3.4's walk) 84
+2048: section 3.4's terrace walk applies to 51 of the (c), finds a terrace for 40 (median 168 m from the market)
+2048: 52 river towns in class c; market cell floodplain (landform 6) 18, flood over 0.55 38; settlement's own cell clear of both 5; laid round an HM origin off the cell 34 (of them with a clear own cell 2); any reason-free land within the 500 m cap (not section 3.4's walk) 51
 
 == Go/no-go inputs (coast at 2048) ==
 coastal towns at 2048: 36; with a reason (the rule moves or holds back the core) 11 (31 %); the height reason splits the land in the cap 34; the cell fields vary 27
@@ -53,3 +55,7 @@ coastal towns at 2048: 36; with a reason (the rule moves or holds back the core)
 483920 384 #5 ('380', '209') hamlet coast class a market 116 quay 12 nearest street/building 12 reasons front/market surge+marsh / marsh rule core none exposure 0.60
 483920 2048 #7 ('1323', '81') hamlet coast class d market 272 quay 275 nearest street/building 204 reasons front/market surge / none rule core 36 exposure 0.26
 483920 2048 #7 ('1323', '81') hamlet river class b market 68 quay none nearest street/building 36 reasons front/market none / none rule core 4 exposure -
+
+== Coast, section 3.2 input 1 (no surge band on a sheltered shore) ==
+384 {'a': 46, 'b': 1, 'c': 5, 'd': 2} changed: []
+2048 {'a': 2, 'b': 4, 'c': 5, 'd': 25} changed: [('532187', '1', '1478:1159', 'c->b')]

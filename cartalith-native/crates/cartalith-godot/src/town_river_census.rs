@@ -3461,7 +3461,7 @@ fn cs0_hazard_census() {
     let ocean_cell = |i: i64, j: i64| i >= 0 && j >= 0 && (i as usize) < gw && (j as usize) < gh && b.classification[j as usize * gw + i as usize] == 1;
 
     let out_dir = std::env::var("CS0_OUT").ok();
-    let mut tsv = String::from("seed\tgw\ti\tx\ty\tkind\tpop\tbadge\twater\tclass\tmarket_m\tquay_m\tlanding_m\tfront_reasons\tmarket_reasons\tsafe_in_cap\texposure\trelief_m\th_resolves\tcell_varies\tfront_h_m\tmarket_h_m\trule_core_m\tquay_any_water_m\tmkt_flood\tmkt_landform\tmkt_wetland\thome_flood\thome_landform\torigin_m\n");
+    let mut tsv = String::from("seed\tgw\ti\tx\ty\tkind\tpop\tbadge\twater\tclass\tmarket_m\tquay_m\tlanding_m\tfront_reasons\tmarket_reasons\tsafe_in_cap\texposure\trelief_m\th_resolves\tcell_varies\tfront_h_m\tmarket_h_m\trule_core_m\tquay_any_water_m\tmkt_flood\tmkt_landform\tmkt_wetland\thome_flood\thome_landform\torigin_m\tterrace_m\tclass_exposed_only\n");
     // Per water kind (0 coast, 1 river): class counts at the main H, per H of the sweep, reasons, resolves.
     let mut cls = [[0usize; 4]; 2];
     let mut sweep = [[[0usize; 4]; 3]; 2];
@@ -3472,6 +3472,9 @@ fn cs0_hazard_census() {
     let mut n_kind = [0usize; 2];
     let mut safe_c = [0usize; 2];
     let mut moves = [0usize; 2];
+    // Section 3.2's input-1 reading (no surge on a sheltered shore), and section 3.4's terrace walk per `H_FLOOD`.
+    let mut cls_strict = [[0usize; 4]; 2];
+    let (mut terr_n, mut terr_found, mut terr_m) = ([0usize; 3], [0usize; 3], [Vec::new(), Vec::new(), Vec::new()]);
     let (mut map_err, mut lat_bad, mut lat_n) = (0f64, 0usize, 0usize);
     let (mut mkt_m, mut quay_m, mut relief): ([Vec<f64>; 2], Vec<f64>, [Vec<f64>; 2]) = (Default::default(), Vec::new(), Default::default());
     let (mut quay_over, mut quay_n, mut landing_over, mut landing_n) = (0usize, 0usize, 0usize, 0usize);
@@ -3556,11 +3559,12 @@ fn cs0_hazard_census() {
             }).flatten();
             let exposed = exposure.is_some_and(|e| e >= cs0::E_EXPOSED);
             // River: the channel's height, at the river sample nearest the market (in-box heights).
-            let chan_h = if wk == 1 {
-                (0..grid.len()).filter(|&k| grid[k] == b'3').min_by(|&a, &b2| ((lat(a) - market.0).hypot(lat_y(a) - market.1)).total_cmp(&(lat(b2) - market.0).hypot(lat_y(b2) - market.1))).map_or(0.0, |k| hm[k])
+            let river_k = if wk == 1 {
+                (0..grid.len()).filter(|&k| grid[k] == b'3').min_by(|&a, &b2| ((lat(a) - market.0).hypot(lat_y(a) - market.1)).total_cmp(&(lat(b2) - market.0).hypot(lat_y(b2) - market.1)))
             } else {
-                0.0
+                None
             };
+            let chan_h = river_k.map_or(0.0, |k| hm[k]);
             // Cliff tops: land within one raster cell of this water, 15 m up, or a cliff-class cell there.
             let cliff_top: Vec<bool> = (0..grid.len()).map(|k| land[k] && dm[k] <= cs0::RASTER_M && (hm[k] >= cs0::H_CLIFF_M || landform[cells[k]] == cs0::LF_CLIFF)).collect();
             let near_cliff = cs0_edt(&cliff_top, lw, lh);
@@ -3568,35 +3572,74 @@ fn cs0_hazard_census() {
                 if wk == 0 { wetland[cells[k]] != 0 || flood[cells[k]] > cs0::FLOOD_SAFE } else { landform[cells[k]] == cs0::LF_FLOODPLAIN || flood[cells[k]] > cs0::FLOOD_SAFE }
             };
             // The height reason alone, at height threshold `h`.
-            let h_reason = |k: usize, h: f64| -> bool {
-                if wk == 0 { dm[k] <= cs0::D_SURGE_M && hm[k] < if exposed { h } else { h / 2.0 } } else { hm[k] - chan_h < h }
-            };
-            // Every reason at sample `k`, at height `h`: [surge or floodplain, cliff, marsh/flood/wetland].
-            let reasons = |k: usize, h: f64| -> [bool; 3] {
+            // `half`: section 3.2 says two things about a sheltered shore. Its constants row gives it half `H_SURGE`
+            // (`half` true, the main reading here); its input 1 asks for water "that is exposed" (`half` false: a
+            // sheltered shore has no surge band). Both readings are printed.
+            let h_reason = |k: usize, h: f64, half: bool| -> bool {
                 if wk == 0 {
-                    [h_reason(k, h), near_cliff[k] * step <= cs0::D_CLIFF_M, cell_reason(k)]
+                    dm[k] <= cs0::D_SURGE_M && if exposed { hm[k] < h } else { half && hm[k] < h / 2.0 }
                 } else {
-                    [cell_reason(k) && h_reason(k, h), false, wetland[cells[k]] != 0]
+                    hm[k] - chan_h < h
                 }
             };
+            // Every reason at sample `k`, at height `h`: [surge or floodplain, cliff, marsh/flood/wetland].
+            let reasons_v = |k: usize, h: f64, half: bool| -> [bool; 3] {
+                if wk == 0 {
+                    [h_reason(k, h, half), near_cliff[k] * step <= cs0::D_CLIFF_M, cell_reason(k)]
+                } else {
+                    [cell_reason(k) && h_reason(k, h, half), false, wetland[cells[k]] != 0]
+                }
+            };
+            let reasons = |k: usize, h: f64| reasons_v(k, h, true);
             let on_t = if wk == 0 { cs0::ON_WATER_COAST_M } else { cs0::ON_WATER_RIVER_M };
             let cap = if wk == 0 { cs0::CAP_COAST_M } else { cs0::CAP_RIVER_M };
             // The land the research's rule chooses among: within the cap of the market.
             let in_cap: Vec<usize> = (0..grid.len()).filter(|&k| land[k] && (lat(k) - market.0).hypot(lat_y(k) - market.1) <= cap).collect();
             // The research's core (section 3.2's formula, its distance to this water): the nearest reason-free land
             // in the cap; `INFINITY` when none is ("no safe ground in reach"; never a plausible distance).
-            let d_rule = |h: f64| -> f64 { in_cap.iter().filter(|&&k| !reasons(k, h).iter().any(|&x| x)).map(|&k| dm[k]).fold(f64::INFINITY, f64::min) };
+            let d_rule_v = |h: f64, half: bool| -> f64 { in_cap.iter().filter(|&&k| !reasons_v(k, h, half).iter().any(|&x| x)).map(|&k| dm[k]).fold(f64::INFINITY, f64::min) };
+            let d_rule = |h: f64| d_rule_v(h, true);
             // (a) set back, and the rule would set it back too (no reason-free ground within `on_t` of the water in
             // the cap); (b) on the water, no reason at the market; (c) on the water with a reason at the market;
             // (d) set back although reason-free ground stands within `on_t` of the water.
-            let class_at = |h: f64| -> usize {
+            let class_v = |h: f64, half: bool| -> usize {
                 let on = d0 <= on_t;
-                match (on, reasons(mk, h).iter().any(|&x| x)) {
+                match (on, reasons_v(mk, h, half).iter().any(|&x| x)) {
                     (true, false) => 1,
                     (true, true) => 2,
-                    (false, _) if d_rule(h) > on_t => 0,
+                    (false, _) if d_rule_v(h, half) > on_t => 0,
                     (false, _) => 3,
                 }
+            };
+            let class_at = |h: f64| class_v(h, true);
+            // Section 3.4's own move for a river town on the floodplain: straight away from the river (from the
+            // nearest drawn river sample through the market), on the market's bank, to the first land sample at
+            // least `h` above the channel and not wetland, within `D_CAP_RIVER`. `None` where water, the box's edge or
+            // the cap comes first ("no terrace in reach").
+            let terrace = |h: f64| -> Option<f64> {
+                let rk = river_k?;
+                let (ux, uy) = (market.0 - lat(rk), market.1 - lat_y(rk));
+                let l = ux.hypot(uy);
+                if l < 1e-9 {
+                    return None;
+                }
+                let (ux, uy) = (ux / l, uy / l);
+                let n = (cs0::CAP_RIVER_M / (step / 2.0)).ceil() as usize;
+                for t in 0..=n {
+                    let sd = t as f64 * step / 2.0;
+                    let (px, py) = (market.0 + ux * sd, market.1 + uy * sd);
+                    if px < 0.0 || py < 0.0 || px >= lw as f64 * step || py >= lh as f64 * step {
+                        return None;
+                    }
+                    let k = k_of(px, py);
+                    if !land[k] {
+                        return None;
+                    }
+                    if hm[k] - chan_h >= h && wetland[cells[k]] == 0 {
+                        return Some(sd);
+                    }
+                }
+                None
             };
             let h_main = if wk == 0 { cs0::H_SURGE_SWEEP[1] } else { cs0::H_FLOOD_SWEEP[0] };
             let hs = if wk == 0 { cs0::H_SURGE_SWEEP } else { cs0::H_FLOOD_SWEEP };
@@ -3605,6 +3648,21 @@ fn cs0_hazard_census() {
             }
             let cl = class_at(h_main);
             cls[wk][cl] += 1;
+            cls_strict[wk][class_v(h_main, false)] += 1;
+            // The terrace walk, for a river town the rule applies to (a reason at the market), at each `H_FLOOD`.
+            let mut terr_col = String::from("-");
+            if wk == 1 && reasons(mk, h_main)[0] {
+                for (si, &h) in cs0::H_FLOOD_SWEEP.iter().enumerate() {
+                    if reasons(mk, h)[0] {
+                        terr_n[si] += 1;
+                        if let Some(t) = terrace(h) {
+                            terr_found[si] += 1;
+                            terr_m[si].push(t);
+                        }
+                    }
+                }
+                terr_col = terrace(h_main).map_or("none".to_string(), |t| format!("{t:.0}"));
+            }
             let rf = reasons(front, h_main);
             let rm = reasons(mk, h_main);
             let dr = d_rule(h_main);
@@ -3625,7 +3683,7 @@ fn cs0_hazard_census() {
             // Within the cap of the market (and, on the coast, within twice `D_SURGE` of the sea, where the surge test
             // can be true): does the height reason split the land, and do the cell fields vary?
             let near: Vec<usize> = in_cap.iter().copied().filter(|&k| wk == 1 || dm[k] <= cs0::D_SURGE_M * 2.0).collect();
-            let hr: Vec<bool> = near.iter().map(|&k| h_reason(k, h_main)).collect();
+            let hr: Vec<bool> = near.iter().map(|&k| h_reason(k, h_main, true)).collect();
             let res = hr.iter().any(|&x| x) && hr.iter().any(|&x| !x);
             resolves[wk] += usize::from(res);
             let cr: Vec<bool> = near.iter().map(|&k| cell_reason(k) || wetland[cells[k]] != 0).collect();
@@ -3652,7 +3710,7 @@ fn cs0_hazard_census() {
                 if s.is_empty() { "none".into() } else { s.join("+") }
             };
             tsv += &format!(
-                "{seed}\t{gw}\t{i}\t{sx}\t{sy}\t{kind_word}\t{}\t{}\t{}\t{}\t{d0:.0}\t{}\t{landing:.0}\t{}\t{}\t{}\t{}\t{rel:.1}\t{res}\t{cv}\t{:.1}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{}\t{:.2}\t{}\t{}\n",
+                "{seed}\t{gw}\t{i}\t{sx}\t{sy}\t{kind_word}\t{}\t{}\t{}\t{}\t{d0:.0}\t{}\t{landing:.0}\t{}\t{}\t{}\t{}\t{rel:.1}\t{res}\t{cv}\t{:.1}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\n",
                 r["pop"].as_f64().unwrap_or(0.0),
                 r["coastal"].as_bool().unwrap_or(false),
                 if wk == 0 { "coast" } else { "river" },
@@ -3674,6 +3732,8 @@ fn cs0_hazard_census() {
                 flood[home],
                 landform[home],
                 c["origin_m"].as_f64().map_or("-".to_string(), |o| format!("{o:.0}")),
+                terr_col,
+                ["a", "b", "c", "d"][class_v(h_main, false)],
             );
         }
     }
@@ -3691,6 +3751,13 @@ fn cs0_hazard_census() {
             println!("CS0 {name} sweep H {h} m: a {} b {} c {} d {}", sweep[wk][si][0], sweep[wk][si][1], sweep[wk][si][2], sweep[wk][si][3]);
         }
         println!("CS0 {name} market to the water, m: {}; in-box relief, m: {}", cs0_spread(&mut mkt_m[wk]), cs0_spread(&mut relief[wk]));
+        if wk == 0 {
+            println!("CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a {} b {} c {} d {}", cls_strict[0][0], cls_strict[0][1], cls_strict[0][2], cls_strict[0][3]);
+        } else {
+            for (si, h) in cs0::H_FLOOD_SWEEP.iter().enumerate() {
+                println!("CS0 river, section 3.4's terrace walk at H_FLOOD {h} m: applies to {}, a terrace found {}; distance from the market, m: {}", terr_n[si], terr_found[si], cs0_spread(&mut terr_m[si]));
+            }
+        }
     }
     println!("CS0 quays: {quay_n}, over {} m from the drawn sea {quay_over}; quay gap, m: {}; badged harbours with sea in the box: {landing_n}, nearest street or building over {} m {landing_over}", cs0::REACH_M, cs0_spread(&mut quay_m), cs0::REACH_M);
     if let Some(dir) = out_dir {

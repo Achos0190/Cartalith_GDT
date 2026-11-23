@@ -1,3 +1,3 @@
-CS0 seed 483920 at 384x288: 236 settlements, generated in 2.1 s, civ.bank_sites true
-CS0 census rows 236 in 80.6 s
-CS0 dumped 236 settlements (236 laid) in 81.1 s to C:/cw/cs0_scratch/dumps/app483920_384.jsonl
+CS0 seed 483920 at 384x288: 236 settlements, generated in 0.8 s, civ.bank_sites true
+CS0 census rows 236 in 91.1 s
+CS0 dumped 236 settlements (236 laid) in 98.2 s to C:/cw/cs0_scratch/dumps/app_rerun.jsonl

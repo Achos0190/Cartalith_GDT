@@ -1,13 +1,18 @@
-test town_river_census::cs0_hazard_census ... CS0 seed 483920 at 384x288: 234 settlements; cell heights differing from the probe's: 0; sea 0.4200, peak 4581 m, 2083.3 m a cell, lattice 8 m
+test town_river_census::cs0_hazard_census ... CS0 params from the dump's header: 156 of 156 set
+CS0 seed 483920 at 384x288: 234 settlements; cell heights differing from the probe's: 0; sea 0.4200, peak 4581 m, 2083.3 m a cell, lattice 8 m
 CS0 checks: box-to-grid transform vs the census's market offset, worst 0.00 m; lattice sea vs DrawnWater here: 0 of 1605606 samples differ
 CS0 coast seed 483920 at 384: towns 14; classes a 12 b 1 c 1 d 0 (c with safe ground in the cap: 0); with a reason (the rule moves the core, or holds it back) 13, of them the rule moves the core 9; reasons [surge, cliff, marsh/flood] [10, 0, 9]; height reason splits the land within the cap 11; cell fields vary within the cap 0
 CS0 coast sweep H 2 m: a 11 b 1 c 1 d 1
 CS0 coast sweep H 4 m: a 12 b 1 c 1 d 0
 CS0 coast sweep H 8 m: a 12 b 1 c 1 d 0
 CS0 coast market to the water, m: n 14 min 20 p10 100 median 314 p90 820 max 1233; in-box relief, m: n 14 min 1 p10 2 median 13 p90 213 max 248
+CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a 12 b 1 c 1 d 0
 CS0 river seed 483920 at 384: towns 215; classes a 5 b 148 c 59 d 3 (c with safe ground in the cap: 29); with a reason (the rule moves the core, or holds it back) 64, of them the rule moves the core 62; reasons [floodplain, -, wetland] [58, 0, 21]; height reason splits the land within the cap 122; cell fields vary within the cap 11
 CS0 river sweep H 2 m: a 5 b 148 c 59 d 3
 CS0 river sweep H 4 m: a 5 b 147 c 60 d 3
 CS0 river sweep H 8 m: a 5 b 147 c 60 d 3
 CS0 river market to the water, m: n 215 min 4 p10 29 median 36 p90 68 max 1036; in-box relief, m: n 215 min 0 p10 5 median 14 p90 65 max 510
+CS0 river, section 3.4's terrace walk at H_FLOOD 2 m: applies to 58, a terrace found 7; distance from the market, m: n 7 min 76 p10 108 median 260 p90 352 max 488
+CS0 river, section 3.4's terrace walk at H_FLOOD 4 m: applies to 58, a terrace found 5; distance from the market, m: n 5 min 104 p10 104 median 372 p90 496 max 496
+CS0 river, section 3.4's terrace walk at H_FLOOD 8 m: applies to 58, a terrace found 3; distance from the market, m: n 3 min 160 p10 160 median 464 p90 492 max 492
 CS0 quays: 9, over 23 m from the drawn sea 5; quay gap, m: n 9 min 7 p10 12 median 28 p90 821 max 1119; badged harbours with sea in the box: 7, nearest street or building over 23 m 2
