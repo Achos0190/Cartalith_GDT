@@ -14,9 +14,8 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 1. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; Q26 and Q27 answered (Ruling HD: the water gate is rebuilt inside PS-5; E's 2 048 misses accepted). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
 2. **River follow-ups:** RR-T1 and RR-T2's town side are built and pushed (`urban_river_smooth`). Left: (a) the harbour-front sea extension (Ruling HC item 3): smooth the `to_sea` river of a river-mouth town too, same switch; (b) RR-T2 in the app: a world with two or more stream towns to measure quay and port counts and frame them (seed 483920 has none: its 20 undrawn river towns are merged `parallel_of` runs, not streams), and "not river-front typed"; (c) re-run `_rivertown_probe.gd` with `--mutate off` (not yet run). Owner `RIVER_REALISM_SCOPE.md` RR-T1, RR-T2. (c) the 20 towns per world on a merged `parallel_of` run keep the raw path at river width while the map draws the same water on the parent run 1-2 cells away: bind them to the parent drawn run (coordinator, 2026-11-22); (d) the probe's `--mutate off` run and the re-run of its edited ONE CURVE bar.
 2a. **Ruling HG/HM, the town half (running, Fable):** the marker stands on the bank (`4e273cb2`); left: lay the town plan around the same drawn-edge point (keeping its river on coarse grids), the marker following the market's bank, behind `civ.bank_sites`, `URBAN_RULES_VERSION` bumped; plus the export copy's bank path, engine-placed labels, and a phone/tablet probe.
-2b. **Self-signed code signing in the build (running, with item 4's first three)** (owner 2026-11-22: self-signed now, SignPath later): cert `CN=Cartalith (self-signed)` in the user store (non-exportable; public `.cer` in the D: folder); v.26.11.22-002's exe, dll and setup were signed by hand. Left: put the signing step into `tools/build_installer.sh` (Inno `SignTool` or `Set-AuthenticodeSignature`) and `TOOLCHAIN.md`.
 3. **Builds only when the owner asks** (owner 2026-11-23). Devices and the D: folder are on v.26.11.22-002; `version.txt` already reads v.26.11.23-001. Waiting for a device: TL-5's arm64 re-lay and TR-7's trace file.
-4. **The small open rows** (running: the way tool, the 0-degree disclosure and the Frozen badge; the phone City Viewer's Frozen badge under the title, Ruling HL; each under its area below): the way tool's waypoint spacing so Corridor and Pull act (Ruling HJ), the 0-degree bearing disclosure (Ruling HJ), F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
+4. **The small open rows** (each under its area below): F1 measure-to-journey, the trace on a device (TR-7), Ruling GB's leftover towns, name-style
    leftovers.
 5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks, Fable verifies): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
@@ -75,7 +74,6 @@ GUI, then engine, then the LLM interface).
 - Curves: the end-to-end live-drag timing in Godot. `adjust.rs`.
 - ET-D2/D3: pen samples before the `is_pen` latch lose pressure; `PaintEditor` has no shell-facing undo `#[func]`. `paint_bridge.rs`.
 - ET-D4: time a 200-waypoint drag commit on a 2048 world; `redo_labels` can undercount. `infra_tools_bridge.rs`.
-- Way tool Advanced: Corridor and Pull inert at the 2-cell spacing (keep the Waypoints slider or fix the spacing). `tool_bar.gd`, `_way_drag_options`.
 - Colour paint: the §4 local-contrast halo measurement. `COLOUR_PAINT_SCOPE.md`.
 - Colour editing: phone/touch scaling of the new picker rows; the 298x624 popup's buttons at the window edge; `ramp_strength` default 0 (owner call). `adjust_panel.gd`.
 - Zoom residual: about 8 frames over 16.7 ms per notch run, one ~27 ms first-notch frame (verify). `viewport_host.gd`.
@@ -87,7 +85,6 @@ GUI, then engine, then the LLM interface).
 - Military: on industrial rows a high-state-capacity standing army above its band (Ruling DL Q2, measure first). `manpower.rs`; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.7.
 - Military: DL Q8, the `improvedAgrarian` levy below its band (measure first). `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.8.
 - FH-R2: re-measure M2's cost bar on today's tree by M2's own method (Ruling EA item 4). `FH_R2_PLAN.md` §6.
-- Saved measurements may hold a bogus 0-degree bearing from before batch G: migrate or disclose. `right_dock.gd`, `global_tools.gd`.
 - G1 caveat: `world_loaded` from an asset pack or fjord carve restarts an open Way/Route draft; File > Open path unprobed. `_redraft_after_world_change`.
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 

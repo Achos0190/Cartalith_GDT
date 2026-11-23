@@ -250,6 +250,19 @@ func setup(b: EngineBridge, host = null) -> void:
 		_zoom_button(head, "+", 1.0)
 		_zoom_button(head, "−", -1.0)
 	left.add_child(head)
+	if _phone:
+		## The row keeps its height whether or not the badge shows, so freezing a town never moves the plan under the
+		## reader's thumb (measured: without it the canvas slid down a row when a town froze, `town_save_drive.gd`).
+		var slot := Control.new()
+		slot.name = "FrozenBadgeRow"
+		slot.custom_minimum_size.y = 30.0   ## two lines of FS_SMALL (11): one line measured 14 px on 450x975; a longer rules line may wrap
+		left.add_child(slot)
+		_badge_top = DccTheme.label("", "text", DccTheme.FS_SMALL)
+		_badge_top.name = "FrozenBadge"
+		_badge_top.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_badge_top.visible = false
+		_badge_top.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		slot.add_child(_badge_top)
 	## TL-6 (`TOWN_LAYOUT_SAVE_SCOPE.md` §6): the frozen-town banner above the plan -- the mismatch line, the timeline
 	## chip, the re-lay's before/after and its report. Hidden when there is nothing to say; non-modal.
 	_banner = VBoxContainer.new()
@@ -336,6 +349,10 @@ var _look_picker: OptionButton
 
 ## The banner above the plan (`setup()`).
 var _banner: VBoxContainer
+## Ruling HL: on the phone the Frozen badge lives here, under the title row, so it is visible without
+## scrolling the side column (TL-6 had put it in the scroll). Null on desktop/tablet, where the side
+## column is a pane of its own and keeps the badge in the Frozen town section.
+var _badge_top: Label
 ## The re-lay preview while one is open: `bridge.town_relay_preview()`'s `{ok, before, after, report}`; `{}` otherwise.
 var _preview: Dictionary = {}
 ## Which side of the preview the plan shows.
@@ -376,6 +393,8 @@ static func frozen_badge(st: Dictionary) -> String:
 
 ## The Frozen town section of the side column: the badge, Re-lay and, for a town not frozen, Freeze this town.
 func _build_frozen_section() -> void:
+	if _badge_top != null:
+		_badge_top.visible = false
 	if _index < 0 or not bridge.has_method("town_state"):
 		return
 	var st := bridge.town_state(_index)
@@ -391,10 +410,14 @@ func _build_frozen_section() -> void:
 		DccWidgets.note(sec, "Not frozen: this town is drawn from the rules each time. Placing a pin, label, icon or measurement in it freezes it, so later rule changes cannot move it under your marks.")
 		_frozen_button(sec, "Freeze this town", _freeze_now).name = "FreezeTown"
 		return
-	var badge := DccTheme.label(frozen_badge(st), "text", DccTheme.FS_SMALL)
-	badge.name = "FrozenBadge"
-	badge.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sec.add_child(badge)
+	if _badge_top != null:
+		_badge_top.text = frozen_badge(st)
+		_badge_top.visible = true
+	else:
+		var badge := DccTheme.label(frozen_badge(st), "text", DccTheme.FS_SMALL)
+		badge.name = "FrozenBadge"
+		badge.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sec.add_child(badge)
 	var marks := int(st.get("anchors", 0))
 	var det := int(st.get("detached", 0))
 	var tail := "%d point%s of interest anchored to it." % [marks, "" if marks == 1 else "s"]

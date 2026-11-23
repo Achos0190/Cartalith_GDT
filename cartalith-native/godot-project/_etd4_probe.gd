@@ -673,7 +673,7 @@ func _run(api: bool) -> void:
 	bridge.way_begin("road")
 	for rc in raw2:
 		bridge.way_append_point(rc.x, rc.y)
-	var oo := {"way_type": "road", "spacing": 2.0}
+	var oo := {"way_type": "road", "spacing": 6.0}   ## the shell default, `WAY_DRAG_SPACING_CELLS` (Ruling HJ: 6.0)
 	bridge.way_stroke_begin(oo)
 	for p in fed2:
 		bridge.way_stroke_sample(p.x, p.y, 0)

@@ -5837,6 +5837,14 @@ func _build_saved_measurements(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Saved measurements")
 	for i in range(_saved_measurements.size() - 1, -1, -1):
 		_saved_measurement_row(sec, i)
+	## Ruling HJ: disclose, never migrate. Names the rows (1-based, as the list prints them).
+	var odd: Array = []
+	for i in _saved_measurements.size():
+		if suspect_zero_bearing(_saved_measurements[i]):
+			odd.append("#%d" % (i + 1))
+	if not odd.is_empty():
+		var n := DccWidgets.note(sec, ZERO_BEARING_NOTE % ", ".join(odd))
+		n.name = "ZeroBearingNote"
 	DccWidgets.action(sec, "Clear all", _on_measure_clear_all)
 
 ## One row of the Saved measurements list for `_saved_measurements[i]`: `#n mode · value`
@@ -5859,6 +5867,9 @@ func _saved_measurement_row(parent: Control, i: int) -> void:
 		"text", DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.clip_text = true
+	if suspect_zero_bearing(e):
+		l.text += " ⚠"
+		row.tooltip_text = "Zero-length bearing saved by an older build: 0° is not a real heading here. " + row.tooltip_text
 	row.add_child(l)
 	## §57 tier B, the same call the stamp-stack row makes: one row of many, so
 	## `chip_min_h` rather than the discrete-action `btn_min_h`.
@@ -5873,6 +5884,19 @@ func _saved_measurement_row(parent: Control, i: int) -> void:
 		b.pressed.connect((spec[1] as Callable).bind(i))
 		row.add_child(b)
 	parent.add_child(row)
+
+## Ruling HJ (2026-11-22): before found-bug sweep batch G (2026-10-11) a zero-length Bearing was saved as a
+## defaulted 0 degrees. Saved projects may still hold one. They are disclosed where they are listed, never
+## rewritten (a genuine due-north bearing is also 0, so the data cannot be told apart by value alone).
+const ZERO_BEARING_NOTE := "%s: a 0° bearing between two identical points. Projects saved before 2026-10-11 stored a zero-length bearing as 0°, which is not a real heading. Left as saved; drop it and measure again if it is not wanted."
+
+## True for a saved Bearing of exactly 0° whose two points coincide: the old zero-length default. Pure; reads only
+## `e`, changes nothing. A 0° bearing between two different points is a real due-north reading and is NOT flagged.
+static func suspect_zero_bearing(e: Dictionary) -> bool:
+	if String(e.get("mode", "")) != "bearing" or String(e.get("unit", "")) != "deg" or float(e.get("value", 1.0)) != 0.0:
+		return false
+	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
+	return pts.size() >= 2 and pts[0] == pts[1]
 
 ## A saved entry's reading, converted for **display only** -- the store itself
 ## is canonical (see `_saved_measurements`), and `measurements_csv()`

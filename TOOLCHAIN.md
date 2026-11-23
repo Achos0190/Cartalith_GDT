@@ -132,7 +132,7 @@ Whether it runs is a question only Windows answers (`DECISIONS.md` §5).
 ### Windows installer (Ruling HH)
 
 After a Windows export (`godot --headless --export-release "Windows Desktop"
-builds/windows/Cartalith.exe`), build the per-user, unsigned setup with
+builds/windows/Cartalith.exe`), build the per-user setup (self-signed when the certificate exists, below) with
 Inno Setup 6 (`winget install --id JRSoftware.InnoSetup -e --scope user`):
 
     cartalith-native/tools/build_installer.sh <export-folder> <output-folder>
@@ -146,6 +146,16 @@ and the pck excludes the addon) and are not installed. It never touches
 `%APPDATA%`, so settings and worlds survive upgrade and uninstall. Test it with
 `/VERYSILENT /SUPPRESSMSGBOXES /DIR=<scratch> /NOICONS`, never into the real
 `Programs` folder. The headless export prints "export DONE" and may not exit.
+
+**Self-signing (Ruling HI, optional).** Before `ISCC` runs, `build_installer.sh` signs `Cartalith.exe`,
+`Cartalith.console.exe` (if present) and `cartalith_godot.dll`, then signs the finished setup, with Windows
+PowerShell's `Set-AuthenticodeSignature` and the code-signing certificate in `Cert:\CurrentUser\My` whose subject is
+exactly `CN=Cartalith (self-signed)`, found by subject (SHA-256; the private key is used in place and never exported or
+printed). With no such certificate it prints a warning and builds unsigned. The script unsets `PSModulePath` for the
+child, because a PowerShell 7 parent leaves it pointing at modules Windows PowerShell 5.1 cannot load. The certificate
+is self-issued and not trusted by other machines, so `Get-AuthenticodeSignature` reports `UnknownError` there (it is
+signed; the chain has no trusted root); it gives a consistent publisher, not SmartScreen reputation. SignPath replaces
+this step later (owner, 2026-11-22). Test it on a scratch copy of an export, never the real one.
 
 ## Crates for `cartalith-io`
 

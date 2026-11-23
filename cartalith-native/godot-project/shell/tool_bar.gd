@@ -889,12 +889,15 @@ const SCATTER_AMOUNT_MAX := 3.0
 const WAY_MODES := ["routed", "freehand"]
 ## Display words for WAY_MODES, index for index.
 const WAY_MODE_LABELS := ["Routed", "Freehand"]
-## Waypoint spacing of a routed drag, in grid cells: 2.0 is `infrastructure_workspace.gd`'s own
+## Waypoint spacing of a routed drag, in grid cells: 6.0 is `infrastructure_workspace.gd`'s own
 ## `WAY_DRAG_SPACING_CELLS` (a labelled judgement there) and MUST equal it, because an untouched
 ## control erases its key and the shell's own default then applies. 1..8 is a JUDGEMENT for the
 ## control: below 1 the leg count explodes, and at 12 a short drag no longer makes the engine's
 ## minimum of waypoints (measured: nothing committed on a 24-cell drag).
-const WAY_SPACING_DEFAULT := 2.0
+## Ruling HJ (2026-11-22) moved it from 2.0: at 2 cells every leg was too short for the corridor or the pull to change
+## the road (mean departure from the drawn line spread 0.007 cell over corridors 1.5..20 and 0.021 over pulls 0..100,
+## `_waysp_probe.gd`, 6 zigzag drags on seed 4242); at 6 it is 0.296 and 0.372.
+const WAY_SPACING_DEFAULT := 6.0
 ## Lowest waypoint spacing in cells (judgement; see WAY_SPACING_DEFAULT's note).
 const WAY_SPACING_MIN := 1.0
 ## Highest waypoint spacing in cells (judgement; see WAY_SPACING_DEFAULT's note).
@@ -1318,10 +1321,9 @@ static func _controls_way(parent: Control, app: DccApp) -> void:
 		return
 	if way_advanced_open:
 		## Waypoint spacing is here because corridor and pull only act BETWEEN waypoints: measured on a
-		## drawn line 3 cells above an existing road, at the shell's 2-cell spacing every leg is 2 cells
-		## long and the road stayed on the line for every corridor (3..15) and pull (0..100); at 6 cells
-		## a pull of 0 let it leave the line by a cell and a strong pull did not. Without this control
-		## the two below would be live and (almost) inert.
+		## drawn line 3 cells above an existing road, at a 2-cell spacing every leg is 2 cells
+		## long and the road stayed on the line for every corridor (3..15) and pull (0..100); the shell's default is now
+		## 6 cells (Ruling HJ) so both act, and this slider moves it (1..8).
 		var waypoints := DccWidgets.slider(parent, "Waypoints", WAY_SPACING_MIN, WAY_SPACING_MAX, 0.5,
 			way_spacing(o), " c",
 			func(v: float): way_write_spacing(options(app, "way"), v),

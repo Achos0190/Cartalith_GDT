@@ -506,10 +506,13 @@ func _way_click(gx: float, gy: float) -> void:
 ## Waypoint spacing, in grid CELLS, handed to `way_stroke_begin` unless `_way_drag_options`
 ## overrides it. A labelled JUDGEMENT, not a measurement: the engine's own default is "off"
 ## (every distinct pointer sample becomes a waypoint, so a 200-sample drag is a 200-leg
-## route), and one waypoint per two cells keeps the leg count a few dozen for a drag across
-## a typical map while staying well inside the guided corridor (`corridor` 3.0 cells). The
-## commit-time measurement ET-D4 asks for before settling this default has NOT been made.
-const WAY_DRAG_SPACING_CELLS := 2.0
+## route). Ruling HJ (2026-11-22) raised it from 2.0 to 6.0: with legs two cells long the guided corridor
+## (`corridor` 3.0 cells) and the pull could not move the road at all, so the Corridor and Pull sliders were inert
+## (measured by `_waysp_probe.gd`: the road's mean departure from the drawn line moved 0.007 cell over corridors
+## 1.5..20 and 0.021 over pulls 0..100 at 2.0, and 0.296 and 0.372 at 6.0). Six cells still keeps the leg count a few
+## dozen for a drag across a typical map. `DccToolBar.WAY_SPACING_DEFAULT` must equal it.
+## The commit-time measurement ET-D4 asks for before settling this default has NOT been made.
+const WAY_DRAG_SPACING_CELLS := 6.0
 
 ## How far, in SCREEN pixels, the pointer must travel from the press before the gesture is
 ## a drag rather than a click. A judgement (the touch slop in `map_overlay.gd` is of the

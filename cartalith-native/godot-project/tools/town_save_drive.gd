@@ -232,6 +232,16 @@ func run(ctx) -> void:
 		_check(ctx, "x%d: 0.05 m is %.2f px on screen (under 1 px); %.2f %% of the canvas changes visibly, %.2f %% by anti-aliasing levels" % [int(zz), px, 100.0 * sh, 100.0 * aa], px > 0.0 and px < 1.0 and sh < 0.05)
 	var badge := _named("FrozenBadge")
 	_check(ctx, "the viewer shows the Frozen badge", badge != null and String((badge as Label).text).begins_with("Frozen"), "" if badge == null else String((badge as Label).text))
+	if _form == "phone" and badge != null:
+		# Ruling HL: the badge sits under the title, not in the scrolling side column, so it is on screen without scrolling.
+		var in_scroll := false
+		var n: Node = badge.get_parent()
+		while n != null:
+			if n is ScrollContainer:
+				in_scroll = true
+			n = n.get_parent()
+		var br: Rect2 = (badge as Control).get_global_rect()
+		_check(ctx, "phone: the Frozen badge is outside any ScrollContainer and visible on screen", not in_scroll and (badge as Control).is_visible_in_tree() and br.position.y >= 0.0 and br.end.y <= size.y and br.size.y > 0.0, "scroll=%s rect=%s" % [str(in_scroll), str(br)])
 	ctx.capture("2_%s_frozen" % _form)
 
 	# 3. save and reopen: the same layout, still frozen
