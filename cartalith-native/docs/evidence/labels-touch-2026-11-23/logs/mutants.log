@@ -7,3 +7,4 @@ reveal_relocate KILLED | ['FAIL  G4 a drag on the selected generated label moves
 form_scroll KILLED | ["FAIL  H2 the label's form (its text field) is on screen after the tap"]
 open_labels KILLED | ["FAIL  H2 the label's form (its text field) is on screen after the tap"]
 slider_fill KILLED | ['FAIL  G5b ... and at least 44 dp tall to grab  -- (279.0, 14.0)']
+focus_rebuild KILLED | ["SCRIPT ERROR: Cannot call method 'add_child' on a null value."]

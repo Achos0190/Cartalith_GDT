@@ -11,6 +11,7 @@ extends RefCounted
 ## view zoomed out until the drawn circle is smaller than a finger; the press lands in the finger pad), delete (list x).
 ## Generated label G: select, form, rename, move, size (slider), hide, restore. On a touch form every button and slider is held to the
 ## 44 dp floor. Phone: reached by swiping the domain tab to CARTO and pressing the sheet's Label tool. Every check is a literal.
+## The launcher prints every engine `SCRIPT ERROR` in the run; a green run has none (a rebuild re-entering itself was one, tablet).
 ## Findings this drive exists for: see `docs/evidence/labels-touch-2026-11-23/`.
 
 var _fails := 0

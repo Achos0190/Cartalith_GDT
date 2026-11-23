@@ -9,9 +9,6 @@ ok    H1 a tap on the label selects it  -- 0
 ok    H2 the label's form (its text field) is on screen after the tap
 ok    H3a tapping the text field focuses it
 ok    H3 typing renames the hand-placed label  -- Zorp
-SCRIPT ERROR: Cannot call method 'add_child' on a null value.
-SCRIPT ERROR: Cannot call method 'add_child' on a null value.
-SCRIPT ERROR: Cannot call method 'add_child' on a null value.
 ok    H4 a drag on the selected label moves it  -- 64.678146 -> 77.893378
 ok    H4b ... and the map did not pan  -- (0.0, 0.0)
 ok    H5 the selected label has a resize handle

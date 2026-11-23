@@ -29,6 +29,8 @@ M = [  # name, file, old, new, form, expected FAIL text
   "\tpass\n\tif not DccTheme.is_phone() or app.phone_detent() != \"peek\":", "phone", "H2 the label's form"),
  ("slider_fill", DW, "slider.size_flags_vertical = Control.SIZE_FILL\n\tline2.add_child(slider)",
   "slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER\n\tline2.add_child(slider)", "tablet", "G5b ... and at least 44 dp tall to grab"),
+ ("focus_rebuild", CW, "`add_child` on a null parent).\n\ttext_edit.focus_exited.connect(_rebuild_label_panel.call_deferred)",
+  "`add_child` on a null parent).\n\ttext_edit.focus_exited.connect(_rebuild_label_panel)", "tablet", "Cannot call method 'add_child' on a null value"),
  ("form_scroll", CW, "\tif form_scroll != null:\n\t\t(form_scroll as ScrollContainer).ensure_control_visible.call_deferred(text_row)",
   "\tif false:\n\t\t(form_scroll as ScrollContainer).ensure_control_visible.call_deferred(text_row)",
   "tablet", "H2 the label's form"),
@@ -64,7 +66,7 @@ def main():
             if "completed" not in out:
                 print(name, "BUILD_ERROR", out[:300])
                 continue
-            hit = [l for l in out.splitlines() if l.startswith("FAIL") and want in l]
+            hit = [l for l in out.splitlines() if l.startswith(("FAIL", "SCRIPT ERROR")) and want in l]   # an engine error kills too
             print(name, "KILLED" if hit else "SURVIVED", "|", hit[:1])
         finally:
             p.write_bytes(raw)

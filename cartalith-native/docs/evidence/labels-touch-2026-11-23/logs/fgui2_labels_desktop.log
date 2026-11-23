@@ -2,7 +2,22 @@ Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official,
 Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
 OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
 
-Cartalith shell build 43a161bd4855
+Cartalith shell build 67302721c11c
+WARNING: Cartalith: the loaded GDExtension has no WorldGen.paint_can_undo(). Whatever needed it is degraded to a safe default. This almost always means the native library is older than the shell (a stale libcartalith_godot.so) -- rebuild and re-export before treating the missing feature as a bug.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _has (res://shell/engine_bridge.gd:518)
+       [1] paint_can_undo (res://shell/engine_bridge.gd:6519)
+       [2] can_undo_any (res://shell/app.gd:7529)
+       [3] <anonymous lambda> (res://shell/menus.gd:1513)
+       [4] refresh_undo_rows (res://shell/menus.gd:1580)
+       [5] _build_undo_redo (res://shell/menus.gd:1557)
+       [6] _edit (res://shell/menus.gd:1893)
+       [7] add_menu (res://shell/dcc_shell.gd:2855)
+       [8] build (res://shell/menus.gd:789)
+       [9] _mount_app_composition (res://shell/app.gd:2227)
+       [10] _ready (res://shell/app.gd:2125)
+       [11] _ready (res://_fgui2_probe.gd:200)
 ERROR: Couldn't open directory at path "C:/cw/lbl_scratch2/appdata/Godot/app_userdata/cartalith_lbl_probe_scratch/Worlds".
    at: get_files_at (core/io/dir_access.cpp:578)
    GDScript backtrace (most recent call first):
@@ -13,6 +28,14 @@ ERROR: Couldn't open directory at path "C:/cw/lbl_scratch2/appdata/Godot/app_use
        [4] open_welcome (res://shell/open_project_dialog.gd:318)
        [5] open_welcome (res://shell/app.gd:5366)
        [6] _open_welcome_when_drawn (res://shell/app.gd:2837)
+WARNING: Cartalith: the loaded GDExtension has no WorldGen.civ_province_lines(). Whatever needed it is degraded to a safe default. This almost always means the native library is older than the shell (a stale libcartalith_godot.so) -- rebuild and re-export before treating the missing feature as a bug.
+   at: push_warning (core/variant/variant_utility.cpp:1033)
+   GDScript backtrace (most recent call first):
+       [0] _has (res://shell/engine_bridge.gd:518)
+       [1] province_lines (res://shell/engine_bridge.gd:1485)
+       [2] refresh (res://shell/viewport_host.gd:3318)
+       [3] <anonymous lambda> (res://shell/viewport_host.gd:752)
+       [4] _finish (res://shell/engine_bridge.gd:1209)
 FG2 FORM desktop at (1600, 900) touch=false
 == user label drag (F4) ==
 FG2 ok    F4: opening the Labels category arms the Label tool  -- label

@@ -4289,7 +4289,10 @@ func _rebuild_label_edit_form() -> void:
 	text_edit.text = String(lb.get("text", ""))
 	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_edit.text_changed.connect(func(v: String): _apply_label_field(idx, "text", v))
-	text_edit.focus_exited.connect(_rebuild_label_panel)
+	## Deferred, as the generated label's form does: freeing this edit (a rebuild while it still has focus, which a tap on the
+	## map after typing causes) emits `focus_exited` synchronously, and a direct call re-entered the rebuild that was freeing
+	## it, leaving the outer form half built (found by `labels_touch_drive.gd`, tablet: `add_child` on a null parent).
+	text_edit.focus_exited.connect(_rebuild_label_panel.call_deferred)
 	text_row.add_child(text_edit)
 	_label_edit_body.add_child(text_row)
 	## The form sits under the list, at the foot of a long dock: bring it on screen, as a tap on the map asked for it (the
