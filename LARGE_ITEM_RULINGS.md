@@ -4114,3 +4114,7 @@ After `4e273cb2` (Ruling HG's marker half, `civ.bank_sites`): **the town plan is
 ## Ruling HN: HM ships; close its misses; old saves offered the update; lake and sea edges next (owner, 2026-11-23)
 
 After `165da718`/`4221aba1`/`df926fc1` (towns on the bank, river at the map's width): **keep `civ.bank_sites` on for new worlds** and close the misses next -- housed p10 dipping on two worlds (owner's 97 -> 90 %, 83744 85 -> 83 %), 4 of ~1 230 markers across from their market (a market-only path through the generator if needed), walls and streets over the drawn stroke. **Opening an older world offers, once, to turn the switch on** ("This world was made before towns sat on the bank -- update?"); frozen towns stay as they are. **Lake and sea edges** in towns match what the map draws, with the same bar (no building over the map's drawn lake or sea). **The river look's width slider does not move towns**: towns follow the river's real ground width; the look only paints.
+
+## Ruling HO: the tablet opens on a full-screen worlds grid (owner, 2026-11-23)
+
+`TABLET_UI_SPEC.md`'s `scrPicker` (found as the one remaining tablet-canvas difference by shell batch B, `4fcf0d94`): **the tablet starts on a full-screen worlds grid** -- the user's worlds as tiles filling the screen, with New world and Open as tiles -- instead of the modal welcome card. Desktop and phone keep their own start screens.
