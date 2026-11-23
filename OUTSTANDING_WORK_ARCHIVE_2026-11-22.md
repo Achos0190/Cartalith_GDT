@@ -5673,3 +5673,10 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Town layouts in the save, TL-0..TL-8, Rulings GZ and HA (`a9649689`, `30608de0`).
 - Zero factions allowed; every settlement in a sphere at 0, Ruling HK (`39b0e8bf`).
 - Ruling HG's marker half: markers on the river bank, `civ.bank_sites` (`4e273cb2`).
+
+- Small rows round five: way-tool spacing, 0-degree bearing disclosure, phone Frozen badge, self-signing in the build (`a6d3c91b`).
+- Shell batch A (`1e9e72ca`) and shell batch B (`4fcf0d94`, `2405895c`): New World on the phone, welcome leftovers, Create asks over unsaved edits, landmark filter, dock labels, config seam; phone asset drop, undo chip, view-independent labels, tablet SpinBox scroll.
+- Ruling HN: no buildings, streets or ungated walls (bar two) over drawn rivers or sea; 0 wrong-bank markers; the older-world update offer; lake and sea edges (`c284465e`).
+- Form determinism traced to the GPU default (`de3bb411`); Ruling HP, CPU by default everywhere, and the chronos engine-read race (`0b3ba6cd`).
+- Coastal setback research (`9bb0a3c7`, `662f3d95`).
+- Builds v.26.11.23-001: APK on the 6T and the D: folder; Godot debug Windows export to `Cartalith Windows Debug`.
