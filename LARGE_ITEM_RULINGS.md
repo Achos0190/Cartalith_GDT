@@ -4122,3 +4122,7 @@ After `165da718`/`4221aba1`/`df926fc1` (towns on the bank, river at the map's wi
 ## Ruling HP: CPU by default on every device (owner, 2026-11-23)
 
 `de3bb411` found that the same seed gave a different world on the PC (GPU path by default, Ruling EY) than on touch devices (CPU path); with the same stored choice every device is byte-identical. Owner: **the compute path defaults to CPU everywhere**, so one seed gives one world on every device; GPU stays a per-device choice the user can turn on (it changes plate placement, so it is a different world, `DECISIONS.md` §7a). Supersedes Ruling EY's per-form default; a choice already stored on a device is kept.
+
+## Ruling HQ: HN's answers; check the setback research against today's placing first (owner, 2026-11-23)
+
+After `c284465e` (Ruling HN): **raise the far-bank cap for bank-site towns** (`FAR_BANK_MAX_RATIO`; the owner's 532187 town houses 78 %, aim at least 90 %); **limit bridge span** (beyond a realistic span, about 400 m, a ferry landing instead of a bridge); **route walls along a shore** (the two capitals with a wall run across water); **move the 0.75 s first-marker cost into the generation worker**. On `COASTAL_SETBACK_RESEARCH.md` (`9bb0a3c7`, `662f3d95`): before any setback rule, **check today's placing against the text** on Sonnet/Opus -- does the current engine already set towns back where the research says it should (and where it should not), measured at the symbols -- and report before CS-1.
