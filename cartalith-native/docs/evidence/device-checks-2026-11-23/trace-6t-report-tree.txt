@@ -1,0 +1,12 @@
+gen::run  36716.0 ms  
+  gen::planet  0.0 ms  idx=0
+  gen::extent_scale  0.0 ms  idx=1
+  gen::world_structure  0.0 ms  idx=2
+  gen::tectonics  17177.1 ms  idx=3
+  gen::volcanism  2888.1 ms  idx=4
+  gen::erosion  5068.2 ms  idx=5
+  gen::hydrology  3287.8 ms  idx=6
+  gen::climate  8291.8 ms  idx=7
+  gen::ecology_biomes  0.0 ms  idx=8
+  gen::resources_soils  0.0 ms  idx=9
+children sum 36713.1 ms of 36716.0 ms (100.0 %)
