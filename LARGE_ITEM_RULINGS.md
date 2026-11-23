@@ -4106,3 +4106,7 @@ Owner, on the New World screen: *"The new world screen still needs at least 1 fa
 ## Ruling HL: the phone's Frozen badge under the title (owner, 2026-11-23)
 
 `TOWN_LAYOUT_SAVE_SCOPE.md` TL-6 (`a9649689`) put the phone City Viewer's "Frozen" badge in the scrolling side column; owner: **move it under the title**, always visible, as the scope sketched.
+
+## Ruling HM: the town follows the drawn edge; the marker follows the market's bank (owner, 2026-11-23)
+
+After `4e273cb2` (Ruling HG's marker half, `civ.bank_sites`): **the town plan is laid around the same drawn-edge point as the marker** (owner chose this over a metre offset, knowing that on coarse grids the edge can lie past the 625 m river-front reach; the build must then keep the town's river -- e.g. widen the river-front reach to cover the drawn edge -- rather than lose it). And **where the marker's bank and the market's bank disagree, the marker follows the market**, so the map and the City Viewer always agree. Behind `civ.bank_sites`; bump `URBAN_RULES_VERSION` and re-pin the frozen-town fixture hashes (frozen towns stay frozen and report the rules change).
