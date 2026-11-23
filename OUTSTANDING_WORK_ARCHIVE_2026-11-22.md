@@ -5688,3 +5688,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Rendering rows: export overlay probe, paint draft undo, redo_labels chain, colour popup edge; ET-C2/Curves/ET-D4/halo/zoom measured (`52bad8cb`).
 - Label editing on touch (phone and tablet): drag claimed by the Label tool, form revealed, 22 dp handles, tablet sliders 44 px (`5e71430e`, `7f1a4c15`).
 - FEATURES.md, the verified feature list (`5565663a`, `15d21b7b`).
+- Ruling HU: whole-bridge span (owner's town by ferry), marker rebuilds on a background job (809 -> 17-97 ms main thread), ferry losses traced and fixed (0 crossings lost), U19 deleted (`0d0f0e59`, `a24f9a79`, `b859562a`).
