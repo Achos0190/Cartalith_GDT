@@ -402,27 +402,23 @@ func _ready() -> void:
 	_restore_gpu_prefs()
 	_read_param_table()
 	_read_landmark_kinds()
-	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
-	## the golden-parity reference path (`GPU_LAYER_INTEGRATION_SCOPE.md`
-	## milestone 9), and the CPU-path tests pin it exactly. This is the
-	## shell's own default instead -- turning on hardware the owner has
-	## repeatedly asked this port to actually use, without touching the
-	## engine's own notion of "default". `Preferences ▸ GPU acceleration`
-	## can turn it back off before the first generate.
+	## `WorldParams::default()` is `false` in Rust (the golden-parity reference path,
+	## `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9) and the shell now agrees: CPU by default
+	## on every device (Ruling HP). `Preferences ▸ GPU acceleration` stores an explicit
+	## choice, which wins here.
 	if _params_available:
 		var stored := DccSettings.gpu_enabled()
 		param_set("use_gpu", default_gpu_on() if stored < 0 else stored == 1)
 		params_dirty = false
 
-## The boot default for `use_gpu` when the user never chose: on for the PC, **off on
-## touch-class devices** (owner choice 2026-11-14, "CPU on phones/tablets", Ruling EY).
-## Why: the GPU path gives a different world per device for one seed, the CPU digest is
-## identical on PC, 6T and Pad, and the GPU gains nothing on the Pad and loses 4 % on the
-## 6T (`PERFORMANCE_BENCHMARKS.md` section 12). Same touch predicate as `dcc_shell.gd::_ready`.
-## Never overrides a stored explicit choice (`DccSettings.gpu_enabled`).
+## The boot default for `use_gpu` when the user never chose: **off on every device** (owner
+## Ruling HP, 2026-11-23, superseding Ruling EY's "on for the PC"). Why: the GPU path makes a
+## different world from the CPU path (`GPU_PATH_KERNELS`), so a GPU default meant one seed gave
+## a different world per device; the CPU digest is identical on PC, 6T and Pad (`PERFORMANCE_BENCHMARKS.md`
+## section 12; `docs/evidence/cpu-default-2026-11-23/`). Never overrides a stored explicit
+## choice (`DccSettings.gpu_enabled`), so `Preferences > GPU acceleration` still turns it on.
 static func default_gpu_on() -> bool:
-	var touch: bool = (DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")) 		or "--force-touch" in OS.get_cmdline_user_args()
-	return not touch
+	return false
 
 ## Joins a still-running worker thread so quitting mid-generate never frees
 ## `world_gen` out from under it. Must not return with a started `Thread` unjoined.
@@ -2902,7 +2898,7 @@ func gpu_readback_failed() -> bool:
 ## prefer. That inference cannot notice that the request landed somewhere else,
 ## or that it opened nothing -- and on Android that is the entire question,
 ## since `wgpu` is compiled into the shipped `.so` with nothing gating it off
-## and `_ready()` above turns `use_gpu` on at boot.
+## and the user can turn `use_gpu` on in Preferences (it boots off, Ruling HP).
 ##
 ## `_has()`-guarded and cached across a generation for exactly the reasons
 ## `gpu_readback_failed()` above documents: an older cdylib lacks the binding,

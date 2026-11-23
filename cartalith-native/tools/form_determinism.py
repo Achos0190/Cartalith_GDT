@@ -5,17 +5,18 @@ in the real shell, each with a FRESH scratch APPDATA so no setting leaks from on
 dumps: the request, the auto-populate plan, the full parameter table at boot and after the run, and the digests of the
 heightmap, the rivers, the settlements and the generated labels.
 
-Why the compute path is pinned by the stored choice: `use_gpu` is the one parameter whose boot default depends on the
-form, by owner decision (Ruling EY, reaffirmed by Ruling EZ item 2: touch devices default to the CPU, the PC to the
-GPU; `EngineBridge.default_gpu_on`), and the GPU path makes a different world from the CPU path. With the stored
-explicit choice (`[gpu] enabled`, what Preferences > GPU acceleration writes) the same on every form, the worlds must
-be byte-identical; at the default they must differ in `use_gpu` alone, true on the desktop and false on touch.
+The compute path: the GPU path makes a different world from the CPU path, so `use_gpu` must not depend on the form.
+Since Ruling HP (2026-11-23, superseding EY) `EngineBridge.default_gpu_on` is false everywhere, so at the DEFAULT (no
+stored choice) all three forms must give identical dumps with `use_gpu` false literally. With the stored explicit
+choice (`[gpu] enabled`, what Preferences > GPU acceleration writes) the same on every form they must also be
+byte-identical, on the CPU and on the GPU.
 
   GODOT_EXE=<console exe> [CARTALITH_DLL=<dll>] [FORMDET_ROOT=<scratch>] python -I form_determinism.py <command>:
   python -I form_determinism.py run TAG GPU FORM [OUT]         GPU is 0, 1 or "-" (the default); FORM desktop|tablet|phone
   python -I form_determinism.py check DIR equal|ruled_default    exit 0 when the dumps in DIR meet the expectation
   python -I form_determinism.py all OUT                         default, CPU-pinned and GPU-pinned on all three forms
-  python -I form_determinism.py mutant OUT                      the boot ignores the stored choice: CPU-pinned must FAIL
+  python -I form_determinism.py mutant OUT [stored|default]     stored: the boot ignores the stored choice (CPU-pinned must FAIL);
+                                                                default: default_gpu_on() true on the desktop (the default run must FAIL)
                                                                 (exit 0 killed, 1 survived, 2 broken: a run that did not dump)
 
 Window lock (MISTAKES.md): C:/cw/.win_lock is taken with mkdir and an owner file written at once; it is removed only
@@ -35,6 +36,9 @@ FORMS = ("desktop", "tablet", "phone")
 ## chose the CPU generates on the GPU anyway. Exact literal, must occur once.
 MUTANT_OLD = 'param_set("use_gpu", default_gpu_on() if stored < 0 else stored == 1)'
 MUTANT_NEW = 'param_set("use_gpu", default_gpu_on())'
+## The second mutant: the pre-HP default (GPU on the desktop, off on touch) back in `default_gpu_on`. Exact literal, once.
+DEFAULT_OLD = 'static func default_gpu_on() -> bool:\n\treturn false'
+DEFAULT_NEW = 'static func default_gpu_on() -> bool:\n\treturn not ("--force-touch" in OS.get_cmdline_user_args())'
 
 
 def run(tag, gpu, form, out):
@@ -86,11 +90,11 @@ def check(d, expect):
             ok = False
             print(f"FAIL {f}: an empty world or table diffs equal everywhere (control)")
     if expect == "ruled_default":
-        ## Literals, not the default read back: Ruling EY's desktop GPU and touch CPU.
-        for f, want in (("desktop", True), ("tablet", False), ("phone", False)):
-            if f in dumps and dumps[f]["params_boot"].get("use_gpu") is not want:
+        ## Literals, not the default read back: Ruling HP's CPU on every form.
+        for f in dumps:
+            if dumps[f]["params_boot"].get("use_gpu") is not False:
                 ok = False
-                print(f"FAIL {f}: use_gpu at boot {dumps[f]['params_boot'].get('use_gpu')}, Ruling EY says {want}")
+                print(f"FAIL {f}: use_gpu at boot {dumps[f]['params_boot'].get('use_gpu')}, Ruling HP says False")
     for f in FORMS[1:]:
         if "desktop" not in dumps or f not in dumps:
             continue
@@ -100,12 +104,7 @@ def check(d, expect):
                 diff = {x: (a[k].get(x), b[k].get(x)) for x in sorted(set(a[k]) | set(b[k])) if a[k].get(x) != b[k].get(x)}
             else:
                 diff = {} if a[k] == b[k] else {"value": (a[k], b[k])}
-            if expect == "ruled_default" and k.startswith("params"):
-                bad = {x: v for x, v in diff.items() if x != "use_gpu"}
-            elif expect == "ruled_default":
-                bad = {}   # the GPU world differs from the CPU world; only the parameter routing is checked here
-            else:
-                bad = diff
+            bad = diff   # every form identical, at the default as well as pinned
             if bad:
                 ok = False
             print(f"{'FAIL' if bad else 'ok  '} desktop vs {f} {k}: {diff if diff else 'equal'}")
@@ -128,23 +127,27 @@ def main(a):
         return 0 if all(r) else 1
     if a[0] == "mutant":
         out = a[1]
+        by_default = len(a) > 2 and a[2] == "default"
+        old, new = (DEFAULT_OLD, DEFAULT_NEW) if by_default else (MUTANT_OLD, MUTANT_NEW)
+        tag, gpu = ("mutant_default", "-") if by_default else ("mutant_cpu", "0")
         p = fd.scratch_shell(DLL, ROOT) / "shell" / "engine_bridge.gd"
-        src = p.read_text(encoding="utf-8")
-        assert src.count(MUTANT_OLD) == 1, "mutant literal not found exactly once"
+        src = p.read_bytes().decode("utf-8")
+        work = src.replace("\r\n", "\n")
+        assert work.count(old) == 1, "mutant literal not found exactly once"
         try:
-            p.write_text(src.replace(MUTANT_OLD, MUTANT_NEW), encoding="utf-8", newline="\n")
-            ran = [run("mutant_cpu", "0", f, out) for f in FORMS]
+            p.write_bytes(work.replace(old, new).encode("utf-8"))
+            ran = [run(tag, gpu, f, out) for f in FORMS]
         finally:
-            p.write_text(src, encoding="utf-8", newline="\n")
-        assert p.read_text(encoding="utf-8") == src
+            p.write_bytes(src.encode("utf-8"))
+        assert p.read_bytes().decode("utf-8") == src
         if not all(ran):
             print("MUTANT BROKEN: a run did not complete or dump (neither killed nor survived)")
             return 2
-        survived = check(f"{out}/mutant_cpu", "equal")
-        ## Killed for the right reason only: the CPU-stored desktop booted on the GPU.
-        gpu_desktop = json.load(open(f"{out}/mutant_cpu/desktop.json"))["params_boot"].get("use_gpu") is True
+        survived = check(f"{out}/{tag}", "ruled_default" if by_default else "equal")
+        ## Killed for the right reason only: the desktop booted on the GPU (stored CPU ignored, or the old default).
+        gpu_desktop = json.load(open(f"{out}/{tag}/desktop.json"))["params_boot"].get("use_gpu") is True
         if not survived and not gpu_desktop:
-            print("MUTANT BROKEN: the check went red, but not because the desktop ignored its stored CPU choice")
+            print("MUTANT BROKEN: the check went red, but not because the desktop booted on the GPU")
             return 2
         print("MUTANT SURVIVED" if survived else "MUTANT KILLED")
         return 1 if survived else 0

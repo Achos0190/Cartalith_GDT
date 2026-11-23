@@ -340,6 +340,11 @@ func _refresh() -> void:
 		_sync_visibility()
 		_fill_table()
 		return
+	if bool(b.get("generating")):
+		# keep the last model; `timeline_items` against the generate worker raises "already bound" (error 1337)
+		if not b.generation_finished.is_connected(_refresh_after_generate):
+			b.generation_finished.connect(_refresh_after_generate, CONNECT_ONE_SHOT | CONNECT_DEFERRED)
+		return
 	var got: Dictionary = b.world_gen.timeline_items({"kinds": PackedStringArray(BASE_KINDS)})
 	if not bool(got.get("ok", false)):
 		_count.text = String(got.get("error", "unavailable"))
@@ -798,6 +803,13 @@ func _start_scan() -> void:
 		return
 	if bool(_scan.get("busy", false)):
 		return
+	# A generate worker holds the engine for its whole run; `timelines_scan` here would raise gdext's
+	# "already bound" (the phone's error 1337, 5 of 11 runs, 2026-11-23). Wait for the bridge's own
+	# finished signal; every `generating = false` is followed by `generation_finished`.
+	if bool(b.get("generating")):
+		if not b.generation_finished.is_connected(_scan_after_generate):
+			b.generation_finished.connect(_scan_after_generate, CONNECT_ONE_SHOT | CONNECT_DEFERRED)
+		return
 	_scan["busy"] = true
 	var got: Dictionary = b.world_gen.timelines_scan(int(_scan["next"]), SCAN_PAGE)
 	_scan["busy"] = false
@@ -817,6 +829,12 @@ func _start_scan() -> void:
 	_update_badge()
 	if nxt >= 0:
 		get_tree().create_timer(SCAN_PAUSE_SEC).timeout.connect(_start_scan)
+
+func _refresh_after_generate(_ok: bool) -> void:
+	_refresh()
+
+func _scan_after_generate(_ok: bool) -> void:
+	_start_scan()
 
 ## Forgets the scan so the next strip build starts again (after a decision, or a vault change).
 static func invalidate_scan() -> void:

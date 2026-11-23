@@ -1,5 +1,5 @@
 extends SceneTree
-## Protects Ruling EY: use_gpu boot default is off on touch-class, on on desktop, and a stored explicit choice wins.
+## Protects Ruling HP: use_gpu boot default is off on every form (desktop and --force-touch), and a stored explicit choice wins (--store=1 gives true).
 ## godot --headless --path . --script res://_gpudefault_probe.gd [-- --force-touch] [-- --store=0|1]
 func _init() -> void:
 	var args := OS.get_cmdline_user_args()

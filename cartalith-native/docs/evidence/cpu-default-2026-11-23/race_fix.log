@@ -1,0 +1,109 @@
+== fin00 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin00 completed=True errors=0
+== fin01 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin01 completed=True errors=0
+== fin02 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin02 completed=True errors=0
+== fin03 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin03 completed=True errors=0
+== fin04 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin04 completed=True errors=0
+== fin05 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin05 completed=True errors=0
+== fin06 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin06 completed=True errors=0
+== fin07 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin07 completed=True errors=0
+== fin08 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin08 completed=True errors=0
+== fin09 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin09 completed=True errors=0
+== fin10 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin10 completed=True errors=0
+== fin11 phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+RACE fin11 completed=True errors=0
+RACE SUMMARY fin: 0 of 12 runs with errors

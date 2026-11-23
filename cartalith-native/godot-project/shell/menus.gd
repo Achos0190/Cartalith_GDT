@@ -4596,8 +4596,8 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## binding; it does not, and disabling a control that already works is
 	## worse than the gap it was meant to be honest about.
 	##
-	## Defaulting it ON in the shell (see `EngineBridge._ready`) is a UI-layer
-	## decision, not an engine one: `WorldParams::default()` stays `false` in
+	## Its boot default is OFF on every device (Ruling HP; `EngineBridge.default_gpu_on`), the
+	## same as `WorldParams::default()`, which stays `false` in
 	## Rust so golden-parity tests keep pinning the CPU path exactly as
 	## `GPU_LAYER_INTEGRATION_SCOPE.md` requires. The tooltip below is the
 	## "honest 'this may produce a different world' messaging" that same

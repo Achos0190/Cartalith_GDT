@@ -31,7 +31,6 @@ GUI, then engine, then the LLM interface).
 ## Open work by area
 
 ### Timeline and story
-- `generate` right after opening a saved project prints "Bug: Invalid call error code 1337" (generation completes; found 2026-11-22 by the HF probe, `3b3fa4a9`; not investigated).
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
 
 ### Towns and urban layout
@@ -92,8 +91,6 @@ GUI, then engine, then the LLM interface).
 - **Ruling HO:** the tablet starts on the full-screen worlds grid (`scrPicker`, `TABLET_UI_SPEC.md`) instead of the modal welcome card.
 - Phone: the undo chip (bottom-left of `_phone_content_gap`) overlaps the tool strip's tool chip at 450x975 whenever any step exists (frame `docs/evidence/shell-batch-b-2026-11-23/after/undo_chip_year.png`: it covers the "IN" of INSPECT); it also does not refresh on a planner stop press (`stops_*` has no change signal). `dcc_shell.gd::_build_phone_undo_chip`, `tool_strip.gd`.
 - Touch scroll, still blocking after shell batch B (measured, `tools/shell_batch_b_census_drive.gd`, tablet 1700x1000): a plain `LineEdit` in the Vault window (a drag that starts on it scrolls nothing); `ramp_bar.gd` (owns the drag on purpose); `HSlider`s and the phone's window `SpinBox`es were not on screen to measure in any state visited. Not measured at all: any window the census did not open.
-- **Ruling HP:** the compute path defaults to CPU on every device (`default_gpu_on()` false everywhere; a stored choice is kept); update `tools/form_determinism.py`'s literals. Also: the phone's `chronos_items.gd::_start_scan` calls `WorldGen.timelines_scan()` while the generate worker holds the engine (`already bound` / 1337, 5 of 11 phone runs).
-- Phone: `chronos_items.gd::_start_scan` calls `WorldGen.timelines_scan()` while a generate worker holds the engine (`Gd<T>::bind() failed, already bound`, `SCRIPT ERROR ... 1337`), in 5 of 11 phone Creates measured 2026-11-23 and none on desktop or tablet; no dump changed. Same evidence directory.
 - Phone: `+`/`-` fine-adjust on sliders and the Splat/Biomes probes (Ruling EH item 1 follow-ups; owner decision pending).
 - Phone 2026-10-26 finding, device only: SwiftKey IME duplication when editing the Save-as name with `adb` key events (unverified with a human typist). `dcc_shell.gd`.
 - GUI replacement stages 3, 5, 6 and 7: re-open each spec against the shell and close or narrow (verify; RP-S6 superseded). `design/dcc-environment-2026-08-31/spec/`.

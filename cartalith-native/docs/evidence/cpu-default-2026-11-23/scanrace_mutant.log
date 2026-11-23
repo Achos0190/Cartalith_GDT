@@ -1,0 +1,7 @@
+completed 
+ok    control: the phone's chronos strip exists
+ok    setup: the second generate is running at the call
+SCRIPT ERROR: Bug: Invalid call error code 1337.
+FAIL  the scan did not start while generating
+FAIL  the scan ran once the generate finished
+FAIL ctx.error: 2 check(s) failed

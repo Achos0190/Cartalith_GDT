@@ -6630,7 +6630,9 @@ func tl_range() -> Dictionary:
 ## follows the vault; never 0 for "unset"). Saved in `vault.json` by the engine.
 func tl_override() -> Dictionary:
 	var bridge := _find_engine_bridge()
-	if bridge == null or not bridge.has_world or not bridge.world_gen.has_method("tl_override"):
+	# `generating`: the worker holds the engine, so this read would raise "already bound" (error 1337); the
+	# strip draws every frame, and the override is read again when the run lands.
+	if bridge == null or not bridge.has_world or bridge.generating or not bridge.world_gen.has_method("tl_override"):
 		return {}
 	return bridge.world_gen.tl_override()
 

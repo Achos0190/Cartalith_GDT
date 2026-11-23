@@ -189,7 +189,7 @@ unsafe impl ExtensionLibrary for CartalithExtension {
     /// `libvulkan.so` are all present in
     /// `target/aarch64-linux-android/release/libcartalith_godot.so`), no
     /// `cfg(target_os = "android")` gates the GPU crate off anywhere in the
-    /// workspace, and `engine_bridge.gd::_ready` sets `use_gpu` on at boot.
+    /// workspace, and `use_gpu` is off at boot since Ruling HP, so a handset only gets the GPU by a stored choice.
     /// The phone has been asking for a GPU with no way to observe the answer.
     ///
     /// Run for every init stage rather than matched against one: both
@@ -9909,8 +9909,8 @@ impl WorldGen {
     /// the backend a device request *would* prefer; it cannot notice that the
     /// request landed elsewhere, or that it opened nothing. On Android that is
     /// the whole question — the GPU crate is compiled into the shipped `.so`
-    /// with no `cfg` gating it off, and `engine_bridge.gd::_ready` turns
-    /// `use_gpu` on at boot, so "the handset runs the CPU pipeline" is a claim
+    /// with no `cfg` gating it off, and `use_gpu` was on at
+    /// boot until Ruling HP, so "the handset runs the CPU pipeline" is a claim
     /// nothing in the app could check until this.
     ///
     /// `""` before the first generation of the session as well. Read it beside

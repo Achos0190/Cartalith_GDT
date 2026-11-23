@@ -1479,6 +1479,23 @@ fn every_absent_row_is_a_parameter_and_applies_exactly() {
     }
 }
 
+/// Protects Ruling HP's "a world reopens as it was made": `use_gpu` is written by `save_state` and
+/// restored by `apply_saved_state`, so a world saved on the GPU path reopens on it (and one saved on
+/// the CPU stays there) whatever the boot default is. The default is `false` literally.
+#[test]
+fn use_gpu_round_trips_through_a_save_and_defaults_off() {
+    assert!(!params::defaults().use_gpu, "the parameter table's default is the CPU path");
+    for want in [true, false] {
+        let mut p = params::defaults();
+        p.use_gpu = want;
+        let state = params::save_state(&p);
+        let mut q = params::defaults();
+        q.use_gpu = !want;
+        params::apply_saved_state(&mut q, &state);
+        assert_eq!(q.use_gpu, want, "a save made with use_gpu {want} reopens with it");
+    }
+}
+
 // ===========================================================================
 // SG-03: the per-parameter -> stage invalidation table
 // ===========================================================================

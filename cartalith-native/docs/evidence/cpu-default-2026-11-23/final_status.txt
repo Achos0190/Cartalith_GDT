@@ -1,0 +1,5 @@
+tlrange exit 0
+scanrace exit 0
+exit 1 MUTANT KILLED
+all exit 0
+finished

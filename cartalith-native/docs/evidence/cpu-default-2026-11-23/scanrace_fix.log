@@ -1,0 +1,5 @@
+completed 
+ok    control: the phone's chronos strip exists
+ok    setup: the second generate is running at the call
+ok    the scan did not start while generating
+ok    the scan ran once the generate finished  -- no vault is connected

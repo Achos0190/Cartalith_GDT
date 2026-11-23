@@ -362,8 +362,8 @@ static func set_gpu_devices(keys: PackedStringArray) -> void:
 
 ## The user's explicit GPU on/off choice: `1` on, `0` off, `-1` never chosen.
 ## Only an explicit toggle (`Preferences > GPU acceleration`) writes it, so the
-## boot default (`EngineBridge.default_gpu_on`) can differ by device class without
-## overriding anyone's choice (owner, 2026-11-14, Ruling EY).
+## boot default (`EngineBridge.default_gpu_on`, false everywhere since Ruling HP) never
+## overrides anyone's choice (owner, 2026-11-23, Ruling HP; it was device-dependent under EY).
 static func gpu_enabled() -> int:
 	_ensure_loaded()
 	var v = _cfg.get_value(_SEC_GPU, "enabled", -1)

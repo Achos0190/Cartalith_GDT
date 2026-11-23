@@ -1,0 +1,114 @@
+== default desktop: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form desktop: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== default tablet: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form tablet: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== default phone: completed
+boot: use_gpu false, stored choice -1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== cpu desktop: completed
+boot: use_gpu false, stored choice 0
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form desktop: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== cpu tablet: completed
+boot: use_gpu false, stored choice 0
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form tablet: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== cpu phone: completed
+boot: use_gpu false, stored choice 0
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height c604568f6f78e31c187f0ae5f374c13c, rivers 596, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== gpu desktop: completed
+boot: use_gpu true, stored choice 1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form desktop: height 59766e4a6570577830ca26cb68d1967a, rivers 597, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== gpu tablet: completed
+boot: use_gpu true, stored choice 1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form tablet: height 59766e4a6570577830ca26cb68d1967a, rivers 597, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+== gpu phone: completed
+boot: use_gpu true, stored choice 1
+ok    setup: the New world dialog is open  -- menu row clicked: true
+request {"archetype":"","biome_k":false,"dynamic_lithology":false,"grid_h":160,"grid_w":256,"metropolis":false,"ocean_currents":true,"recovery_phase":0,"sea_level":0.42,"seed":4242,"villages":false,"volcanic_provinces":true,"width_km":800.0,"wind_deflection":true}
+ok    setup: the request carries the seed and grid set  -- 4242 256x160
+ok    setup: a real click on Create started the run
+form phone: height 59766e4a6570577830ca26cb68d1967a, rivers 597, settlements 14, labels 54
+ok    F1 the world has settlements and labels  -- 14 / 54
+desktop [1600.0, 900.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+tablet [1684.0, 1000.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+phone [450.0, 975.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+ok   desktop vs tablet request: equal
+ok   desktop vs tablet auto_populate_plan: equal
+ok   desktop vs tablet params_boot: equal
+ok   desktop vs tablet params_after: equal
+ok   desktop vs tablet hash: equal
+ok   desktop vs phone request: equal
+ok   desktop vs phone auto_populate_plan: equal
+ok   desktop vs phone params_boot: equal
+ok   desktop vs phone params_after: equal
+ok   desktop vs phone hash: equal
+PASS
+desktop [1600.0, 900.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+tablet [1684.0, 1000.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+phone [450.0, 975.0] use_gpu False {'height_png_md5': 'c604568f6f78e31c187f0ae5f374c13c', 'labels': 54, 'labels_md5': '73c6f909aac7534928afb1a38d1ab764', 'rivers': 596, 'rivers_md5': 'abd3efb3ee43cd6f50f9ef40414a3546', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+ok   desktop vs tablet request: equal
+ok   desktop vs tablet auto_populate_plan: equal
+ok   desktop vs tablet params_boot: equal
+ok   desktop vs tablet params_after: equal
+ok   desktop vs tablet hash: equal
+ok   desktop vs phone request: equal
+ok   desktop vs phone auto_populate_plan: equal
+ok   desktop vs phone params_boot: equal
+ok   desktop vs phone params_after: equal
+ok   desktop vs phone hash: equal
+PASS
+desktop [1600.0, 900.0] use_gpu True {'height_png_md5': '59766e4a6570577830ca26cb68d1967a', 'labels': 54, 'labels_md5': 'd84eef3c7f7f62fb53afcbca8f50d668', 'rivers': 597, 'rivers_md5': '9dbf094ba833370a407e7193d331f55c', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+tablet [1684.0, 1000.0] use_gpu True {'height_png_md5': '59766e4a6570577830ca26cb68d1967a', 'labels': 54, 'labels_md5': 'd84eef3c7f7f62fb53afcbca8f50d668', 'rivers': 597, 'rivers_md5': '9dbf094ba833370a407e7193d331f55c', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+phone [450.0, 975.0] use_gpu True {'height_png_md5': '59766e4a6570577830ca26cb68d1967a', 'labels': 54, 'labels_md5': 'd84eef3c7f7f62fb53afcbca8f50d668', 'rivers': 597, 'rivers_md5': '9dbf094ba833370a407e7193d331f55c', 'settlements': 14, 'settlements_md5': '537c44662c9c4906b2bf26e6655c1c4d'}
+ok   desktop vs tablet request: equal
+ok   desktop vs tablet auto_populate_plan: equal
+ok   desktop vs tablet params_boot: equal
+ok   desktop vs tablet params_after: equal
+ok   desktop vs tablet hash: equal
+ok   desktop vs phone request: equal
+ok   desktop vs phone auto_populate_plan: equal
+ok   desktop vs phone params_boot: equal
+ok   desktop vs phone params_after: equal
+ok   desktop vs phone hash: equal
+PASS

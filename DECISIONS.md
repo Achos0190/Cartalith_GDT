@@ -171,6 +171,8 @@ principle. A GPU-safe hash is legitimate future work; scope it properly
 an improvised inline rewrite) rather than retrofitting it into whichever
 crate happens to be open at the time.
 
+**2026-11-23 - new PC worlds now default to the CPU path (owner Ruling HP, supersedes Ruling EY's "the PC keeps the GPU").** `EngineBridge.default_gpu_on()` is false on every device, so a world made without touching Preferences is the same world on the PC, tablet and phone for one seed (measured: `docs/evidence/cpu-default-2026-11-23/`). The GPU path stays available as `Preferences > GPU acceleration`; an explicit stored choice is kept, and a saved world carries `use_gpu` in its parameters, so a world made on the GPU reopens on it. The §7a principled-equivalence licence is unchanged (the GPU path is still a different world by design); only the boot default moved, a §7p deliberate change with no golden affected (`WorldParams::defaults` was always `use_gpu` false). The PC default of GPU on is not kept as an option.
+
 ## 7b. Territory/border generation: cost-distance, strength-weighted (owner decision, 2026-08-16)
 
 > **Correction notice (2026-08-19, cross-repo documentation audit).** The
