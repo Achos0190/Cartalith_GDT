@@ -11,7 +11,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
 
 ## Next, in order (owner)
 
-1. **Parallel streets: PS-5 with the back-street tier and the water gate (Ruling HD)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; Q26 and Q27 answered (Ruling HD: the water gate is rebuilt inside PS-5; E's 2 048 misses accepted). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
+1. **Parallel streets: PS-5 with the back-street tier and the water gate (Rulings HD, HT: reuse `burgage`'s deep-plot depths; after HQ)** (fix E built and the water gate a no-go, scope section 17; PS-3 no-go `4d540795`, PS-4 no-go `68c45f38`; Rulings GY and HB). PS-5 carries the riverside bar and the needles; Q26 and Q27 answered (Ruling HD: the water gate is rebuilt inside PS-5; E's 2 048 misses accepted). Owner `PARALLEL_STREETS_SCOPE.md` sections 14-17; switch `urban_parallel_streets` (off).
 2. **River follow-ups:** RR-T1 and RR-T2's town side are built and pushed (`urban_river_smooth`). Left: (a) the harbour-front sea extension (Ruling HC item 3): smooth the `to_sea` river of a river-mouth town too, same switch; (b) RR-T2 in the app: a world with two or more stream towns to measure quay and port counts and frame them (seed 483920 has none: its 20 undrawn river towns are merged `parallel_of` runs, not streams), and "not river-front typed"; (c) re-run `_rivertown_probe.gd` with `--mutate off` (not yet run). Owner `RIVER_REALISM_SCOPE.md` RR-T1, RR-T2. (c) the 20 towns per world on a merged `parallel_of` run keep the raw path at river width while the map draws the same water on the parent run 1-2 cells away: bind them to the parent drawn run (coordinator, 2026-11-22); (d) the probe's `--mutate off` run and the re-run of its edited ONE CURVE bar.
 2a. **Ruling HQ (running, Opus):** raise the far-bank cap for bank-site towns (owner's 532187 town 78 %, aim 90 %+); bridge span limit (~400 m, else a ferry landing); walls routed along a shore (two capitals); the 0.75 s first-marker cost into the generation worker; plus HN's four wiring mutants the census should kill. **CS-0 measured 2026-11-23** (`COASTAL_SETBACK_RESEARCH.md` section 7): the research's go/no-go passes (31 % of coastal towns at 2 048 have a reason; heights resolve at 2 048, not at 384). Coast at 2 048: town bodies mostly at the water, but the market point 100-150 m back in most (25 of 36 by the market, 21 of them with houses within 40 m of the sea; 4 whole towns back with no reason); 5-6 at the water despite a reason. Rivers: 77 % on the bank with no reason, 20 % on a flagged floodplain, where section 3.4's walk finds a terrace for 40 of 51 at 2 048 (30 of 253 at 384). Owner to weigh three points (section 7.7) before CS-1.
 2b. **Ruling HS: the coastal setback rule, CS-1 onward** (`COASTAL_SETBACK_RESEARCH.md` §7, CS-0 GO at 2048): markets without a hazard reason come to the water; setback only for surge, cliff or marsh; no surge band on sheltered shores; `H_SURGE` swept against frames; coarse grids report "no terrace in reach". HG/HM/HN/HQ's bars are hard gates. After HQ lands.
@@ -183,7 +183,6 @@ GUI, then engine, then the LLM interface).
 - Cartalith-specific small LLM, Qwen3.5-4B (Ruling EP: after the rest of Cartalith); SL-0 onward; MiniMind idea. `SMALL_LLM_ADDON_RESEARCH.md`.
 - FH-R2 S3b (R2-5) and S7 world-instanced religions (unscheduled, Ruling EA). `FH_R2_PLAN.md`.
 - Story menus §8 later rows (Ruling EA item 7: "None for now"). `STORY_MENUS_PROPOSAL.md` §8.
-- Deep plots (`urban_burgage`): off; Q5-Q8 default drop. `TOWN_GENERATOR_JUDGEMENT.md`.
 - River stretch variants beyond Ruling FS's shipped setting. `urban_river_stretch`.
 
 ## Owner questions still owed
@@ -191,7 +190,6 @@ GUI, then engine, then the LLM interface).
 Checked against `LARGE_ITEM_RULINGS.md` through Ruling HJ (2026-11-22); numbering kept from the rebuild, answered items removed.
 
 1. **Zoom refinement after ZR-0's no-go:** close ZR, or scope a coarse-level landform process? (`ZOOM_REFINEMENT_SCOPE.md` §8.)
-2. **Deep plots Q5-Q8** (`TOWN_GENERATOR_JUDGEMENT.md`): default drop.
 3. **Ruling GB's 1.6 cap** on 246371 #0: keep or raise.
 5. **Ruling FC's reading** of "the map view" as the City Viewer: confirm.
 6. **3D-3's CDLOD morph:** keep or drop.
