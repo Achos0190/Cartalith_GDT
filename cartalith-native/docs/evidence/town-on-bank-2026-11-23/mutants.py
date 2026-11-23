@@ -22,6 +22,8 @@ MUTANTS = [
     ("C10 a label anchored at the cell whatever it is given", LABELS, "world.settlement_at.get(i).copied().unwrap_or(", "None.unwrap_or(", CIV),
     ("C11 every drawn run counts as carrying a width", ADAPT, "o.river_smooth.is_some_and(|r| r.iter().any(|d| !d.widths.is_empty()))", "o.river_smooth.is_some_and(|r| r.iter().any(|d| d.widths.is_empty()))", CIV),
     ("C12 the pin taken from the generator's, not the box centre", ADAPT, "let base = if ctx.water.is_some() { Vec2::new(t.wm / 2.0, t.hm / 2.0) } else { t.pin };", "let base = t.pin;", CIV),
+    ("C13 TOWN_CHANNEL_MAX_M 46 -> 4600 (an unmoved town's box never grows)", ADAPT, "pub const TOWN_CHANNEL_MAX_M: f64 = 46.0;", "pub const TOWN_CHANNEL_MAX_M: f64 = 4600.0;", CIV),
+    ("C14 an unmoved town's box grows by half the river's width", ADAPT, "Some(rw) => (Some((SITE_WM + rw, SITE_HM + rw)), (SITE_WM + rw, SITE_HM + rw)),", "Some(rw) => (Some((SITE_WM + 0.5 * rw, SITE_HM + 0.5 * rw)), (SITE_WM + 0.5 * rw, SITE_HM + 0.5 * rw)),", CIV),
     ("G1 ORIGIN_MIN_CLEAR_M 60 -> 6", BANK, "pub const ORIGIN_MIN_CLEAR_M: f64 = 60.0;", "pub const ORIGIN_MIN_CLEAR_M: f64 = 6.0;", LIB),
     ("G2 ORIGIN_BANK_GAP_M 30 -> 0", BANK, "pub const ORIGIN_BANK_GAP_M: f64 = 30.0;", "pub const ORIGIN_BANK_GAP_M: f64 = 0.0;", LIB),
     ("G3 the ground minimum ignored", BANK, "Some(min) => Some((f64::from(point.width_cells) / 2.0).max(min)),", "Some(_) => Some(f64::from(point.width_cells) / 2.0),", LIB),

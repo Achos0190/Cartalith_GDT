@@ -32,3 +32,9 @@ G11 the reach by half its length -> KILLED by bank_site::tests::the_towns_edge_i
 G12 the last fallback (any clear bank) removed -> KILLED by bank_site::tests::a_marker_is_never_handed_across_a_drawn_river_from_its_market
 
 G10 SURVIVED and is left: widest_ground_half only bounds how many cells the covering search looks at (ceil(reach) + 1 each way), and the spare cell absorbs a halved bound at every width a world draws (the widest river is one cell). No output differs, so no test can see it.
+
+RUST, third run (the two rules added after the first two runs: the box of a town that stays round its cell):
+C13 TOWN_CHANNEL_MAX_M 46 -> 4600 (an unmoved town's box never grows) -> KILLED by urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+C14 an unmoved town's box grows by half the river's width -> KILLED by urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+
+Total: 26 literal mutants, 25 killed, 1 left as equivalent (G10).

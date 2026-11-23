@@ -23,6 +23,7 @@ its rule before you start.
 
 | About to… | Rule | Verify with |
 |---|---|---|
+| **Reproduce an owner's world in the app from its parameter list** | **Generate it by the engine call** (`WorldGen.set_params` then `generate_sized`, then hand it to the shell as `EngineBridge._finish` does). `EngineBridge.generate` restores the current rules for a new seed and sets the sea level and four experimental flags from its request's defaults, so the world it makes from the same list is another world. ×2, 2026-11-23 (Ruling HM: two windowed runs on seed 532187 framed nothing, there was no settlement at the owner's cell) | Before measuring, assert a settlement at the cell the owner named (`tools/town_bank_drive.gd`, `HM_PARAMS` with `HM_CELLS`) |
 | **Stage a verified-marker change into the index by patch while the working copy keeps the old text** | Apply the same edit to the **working file** too, or the next `git add` of it commits the stale "pending" back. ×3, 2026-09-28 (`d71824e`, `593df62`, one caught) | `git show HEAD -- STATUS.md \| grep '^-.*verified by the main'` empty after every commit touching STATUS.md |
 | **Schedule or act on a backlog row** | Re-open it at its **cited symbol** first. Rows go stale within a day; "already done" is a valuable finding | Name the symbol you opened, not the row's text |
 | **Return, marshal or default a value that can be absent** | **Omit the key**; callers use `has()`. In UI, dash the field **with its reason** | Render over real data; count rows showing a bare `0`, `1.0`, `"none"` or empty |

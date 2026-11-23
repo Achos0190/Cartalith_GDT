@@ -25,6 +25,8 @@ extends RefCounted
 ##      draws its markers there.
 ##   7. A FROZEN TOWN STAYS FROZEN: a town frozen with the switch off is served from its save, unchanged, with the
 ##      switch on, and its check says \"civ bank origin is now on\".
+##   8. A SAVED WORLD (with HM_REOPEN=1): saved with the switch on and reopened, the first framed town is laid out as
+##      before the save and the engine still gives it its point.
 ##   5. THE SWITCH REACHES THE TOWNS DRAWN: each write of `civ.bank_sites` emits `EngineBridge.urban_params_changed`.
 
 var _fails := 0
@@ -317,5 +319,23 @@ func run(ctx) -> void:
 	var why := str(st.get("reasons", ""))
 	_check(ctx, "#%d's check says what changed (\"civ bank origin is now on\", or for a town not moved that the ground under it changed)" % fk,
 		why.find("civ bank origin is now on") >= 0 or (not rows_on.is_empty() and not (rows_on[-1] as Dictionary).has("origin_m") and why.find("the ground or roads under this town changed") >= 0), why.left(200))
-	## The positive control: the same town, not frozen, is laid out elsewhere with the switch on (check 1 counted it moved).
+	## 8. a saved world keeps its towns on the bank (HM_REOPEN=1): the world is saved with the switch on and reopened;
+	## the first framed town (not the frozen one) is laid out as before the save and the engine still gives it its point.
+	if _env("HM_REOPEN", "") != "" and towns.size() >= 2:
+		var rk: int = towns[0]
+		var pre: Array = bridge.urban_layouts(PackedInt32Array([rk]))
+		var pre_row: Dictionary = bridge.world_gen.town_bank_census(PackedInt32Array([rk]), host.size.x, host.size.y)[0]
+		var path := _out.path_join("reopen_%s.cartalith" % _form)
+		var sv: Dictionary = bridge.project_save_with_documents(path, app._project_documents())
+		_check(ctx, "the world saves with the switch on", bool(sv.get("ok", false)), str(sv).left(200))
+		var opened: bool = await app.open_project_busy(path)
+		await ctx.wait(2.0)
+		_check(ctx, "the save reopens with civ.bank_sites still on", opened and bool(bridge.param_get("civ.bank_sites")))
+		var post: Array = bridge.urban_layouts(PackedInt32Array([rk]))
+		var post_row: Dictionary = bridge.world_gen.town_bank_census(PackedInt32Array([rk]), host.size.x, host.size.y)[0]
+		_check(ctx, "after reopening #%d is laid out as it was (pin, market, box and every building)" % rk, pre.size() == 1 and post.size() == 1
+			and post[0]["pin"] == pre[0]["pin"] and post[0]["market"] == pre[0]["market"] and post[0]["wm"] == pre[0]["wm"] and str(post[0]["buildings"]) == str(pre[0]["buildings"]),
+			"pin %s against %s" % [post[0].get("pin") if post.size() == 1 else "-", pre[0].get("pin") if pre.size() == 1 else "-"])
+		_check(ctx, "after reopening the engine still lays #%d round its point (%s m from its cell) with no building over a drawn river" % [rk, str(pre_row.get("origin_m", "-")).left(6)],
+			pre_row.has("origin_m") and post_row.has("origin_m") and is_equal_approx(float(post_row["origin_m"]), float(pre_row["origin_m"])) and int(post_row.get("over_b", 1)) == 0)
 	ctx.log("RESULT %s (%d failed)" % ["PASS" if _fails == 0 else "FAIL", _fails])
