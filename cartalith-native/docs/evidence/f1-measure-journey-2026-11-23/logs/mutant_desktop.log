@@ -1,0 +1,16 @@
+completed 
+form desktop, window (1600.0, 900.0)
+ok    a world exists
+grid (2048.0, 1311.0), width 800.0 km
+F1 view zoom 121% after 0 zoom-out clicks
+F1 desktop/distance: 4 points, measure total 933.0 km, straight 689.3 km
+ok    desktop/distance the Measure dock offers Plan a journey
+F1 desktop/distance: measured 933.0 km | route 1378.1 km (1226 pts, 0 unreachable legs) | planner 1378.0 km
+ok    desktop/distance the planner's km equals the committed route's  -- route 1378.1, planner 1378.0
+ok    desktop/distance the journey is never shorter than the measured chain  -- measure 933.0, route 1378.1
+FAIL  desktop/distance the route is named for its measure  -- name '', wanted 'From Distance measure (933 km straight)'
+F1 desktop/distance: the name is drawn by []
+FAIL  desktop/distance the planner's route list shows that name
+ok    desktop/distance the status line says why the km differ
+F1 FAIL: 2 check(s)
+finished

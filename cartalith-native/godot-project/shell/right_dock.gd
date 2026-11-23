@@ -5963,7 +5963,28 @@ func _on_plan_journey() -> void:
 	## own list but does not appear on the map until something else happens
 	## to repaint it.
 	app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+	## F1 (owner, 2026-11-21: "a 897 km measure into a 206 km Journey"). The journey is a least-cost route between
+	## the measured points, not the measured line: on a 2048 x 1311 world it is 1.06x to 4.5x the straight chain (it
+	## walks round water and relief; measured 2026-11-23, `docs/evidence/f1-measure-journey-2026-11-23/`) and it
+	## is never shorter. So the route says what it came from, in its own name (the planner's list shows the name and
+	## the route's km), and the status line says why the two figures differ. A non-distance mode exports only the
+	## points that mode places (Radius: centre and rim), so its reading (a circumference, an area) is a different
+	## quantity from the journey's length and the name says which mode it came from.
+	var measured_km := float(app.bridge.measure_result().get("total_km", 0.0))
+	var planned_km := float(app.bridge.route_get(idx).get("km", 0.0))
+	app.bridge.route_set_name(idx, plan_route_name(_measure_mode_label(_measure_mode), measured_km))
+	app.set_status("hint", plan_route_status(measured_km, planned_km), "accent")
 	app.open_journey_planner_with_route(idx)
+
+## The name a route committed from a Measure reading carries: the mode and the straight length of the points
+## exported, e.g. `From Distance measure (933 km straight)`. Pure.
+static func plan_route_name(mode_label: String, measured_km: float) -> String:
+	return "From %s measure (%s straight)" % [mode_label, DccUnits.format_thousands(measured_km)]
+
+## The status line after Plan a journey: both figures and why they differ. Pure.
+static func plan_route_status(measured_km: float, planned_km: float) -> String:
+	return "Planned along terrain: %s; as measured (straight between the points): %s" % [
+		DccUnits.format_thousands(planned_km), DccUnits.format_thousands(measured_km)]
 
 ## `Save measurement` button: appends the live reading (mode, points, value, unit) to
 ## `_saved_measurements` and rebuilds. Refuses with a hint when there is no reading yet. Saved

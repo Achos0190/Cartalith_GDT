@@ -1,0 +1,36 @@
+completed 
+form phone, window (450.0, 975.0)
+ok    a world exists
+grid (2048.0, 1311.0), width 800.0 km
+F1 view zoom 138% after 3 zoom-out clicks
+F1 phone/distance: 4 points, measure total 636.8 km, straight 349.0 km
+F1 phone: Window > Context panel opened=true
+ok    phone/distance the Measure dock offers Plan a journey
+F1 phone/distance: measured 636.8 km | route 879.2 km (771 pts, 0 unreachable legs) | planner 878.9 km
+ok    phone/distance the planner's km equals the committed route's  -- route 879.2, planner 878.9
+ok    phone/distance the journey is never shorter than the measured chain  -- measure 636.8, route 879.2
+ok    phone/distance the route is named for its measure  -- name 'From Distance measure (637 km straight)', wanted 'From Distance measure (637 km straight)'
+F1 phone/distance: the name is drawn by ["/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/RouteRow0/RouteOpen", "/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/@HBoxContainer@15809/@OptionButton@15820"]
+ok    phone/distance the planner's route list shows that name
+F1 view zoom 138% after 0 zoom-out clicks
+F1 phone/area: 4 points, measure total 636.8 km, straight 349.0 km
+F1 phone: Window > Context panel opened=true
+ok    phone/area the Measure dock offers Plan a journey
+F1 phone/area: measured 636.8 km | route 879.2 km (771 pts, 0 unreachable legs) | planner 878.9 km
+ok    phone/area the planner's km equals the committed route's  -- route 879.2, planner 878.9
+ok    phone/area the journey is never shorter than the measured chain  -- measure 636.8, route 879.2
+ok    phone/area the route is named for its measure  -- name 'From Area measure (637 km straight)', wanted 'From Area measure (637 km straight)'
+F1 phone/area: the name is drawn by ["/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/RouteRow1/RouteOpen", "/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/@HBoxContainer@21411/@OptionButton@21422"]
+ok    phone/area the planner's route list shows that name
+F1 view zoom 138% after 0 zoom-out clicks
+F1 phone/radius: 2 points, measure total 203.3 km, straight 203.3 km
+F1 phone: Window > Context panel opened=true
+ok    phone/radius the Measure dock offers Plan a journey
+F1 phone/radius: measured 203.3 km | route 361.0 km (322 pts, 0 unreachable legs) | planner 361.1 km
+ok    phone/radius the planner's km equals the committed route's  -- route 361.0, planner 361.1
+ok    phone/radius the journey is never shorter than the measured chain  -- measure 203.3, route 361.0
+ok    phone/radius the route is named for its measure  -- name 'From Radius measure (203 km straight)', wanted 'From Radius measure (203 km straight)'
+F1 phone/radius: the name is drawn by ["/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/RouteRow2/RouteOpen", "/root/App/@Control@3/@PanelContainer@220/@VBoxContainer@202/@ScrollContainer@219/@VBoxContainer@218/@VBoxContainer@8512/@MarginContainer@8516/@VBoxContainer@8515/@HBoxContainer@26401/@OptionButton@26412"]
+ok    phone/radius the planner's route list shows that name
+F1 PASS
+finished

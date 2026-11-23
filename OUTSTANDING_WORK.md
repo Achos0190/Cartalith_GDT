@@ -80,7 +80,7 @@ GUI, then engine, then the LLM interface).
 
 ### Civilisation, routes, planner and military
 - **Ruling HR (running):** provinces follow the nations' border logic (Ruling GO: friction cost-distance, seams snapped to rivers/crests/canyons, a drawn line); today `civ_generate_provinces` is a nearest-seed Voronoi inside each faction.
-- F1: Measure > export to Journey turned 897 km into 206 km; not reproduced, needs the owner's Measure mode and points. `right_dock.gd::_on_plan_journey`, `WorldGen::measure_result`.
+- F1 (narrowed 2026-11-23): 897 km to 206 km still not reproduced (40 random chains with the seam wrap off and 40 on, seed 7, 2048 x 1311: the journey is never shorter than the measure; `STATUS.md`). Open, owner: should Plan a journey follow the drawn line, not the least-cost route? Likeliest source of the owner's figures: a Radius reading (circumference 2 pi r) against a centre-to-rim journey. `right_dock.gd::_on_plan_journey`.
 - R8: seed 707's ~0.1-day sea route, not reproduced in Rust; print `route_get(i).points` in the shell. `journey_planner_view.gd`.
 - Military: on industrial rows a high-state-capacity standing army above its band (Ruling DL Q2, measure first). `manpower.rs`; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.7.
 - Military: DL Q8, the `improvedAgrarian` levy below its band (measure first). `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.8.

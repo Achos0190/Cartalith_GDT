@@ -1,0 +1,31 @@
+extends SceneTree
+func _init() -> void:
+	var w = ClassDB.instantiate("WorldGen")
+	if OS.get_environment("F1_WORLD") == "1":
+		w.set_params({"world": true})
+	var gw := int(OS.get_environment("F1_GW")) if OS.get_environment("F1_GW") != "" else 2048
+	var gh := int(float(gw) * 1311.0 / 2048.0)
+	w.generate_sized(int(OS.get_environment("F1_SEED")) if OS.get_environment("F1_SEED") != "" else 7, 800.0, gw, gh)
+	print("world ", w.get_map_width_km(), " grid ", gw, "x", gh)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for t in 40:
+		var n := rng.randi_range(2, 5)
+		w.measure_begin()
+		w.route_begin("mixed")
+		var pts: Array = []
+		for i in n:
+			var p := Vector2(rng.randf_range(0.03, 0.97) * gw, rng.randf_range(0.03, 0.97) * gh)
+			pts.append(p)
+			w.measure_add_point(p.x, p.y)
+			w.route_append_stop(p.x, p.y)
+		var m: Dictionary = w.measure_result()
+		var idx: int = w.route_commit()
+		if idx < 0:
+			print("commit failed")
+			continue
+		var r: Dictionary = w.route_get(idx)
+		var mk := float(m["total_km"])
+		var rk := float(r["km"])
+		print("t%d n=%d measure %.1f route %.1f ratio %.2f unreach %d pts %d" % [t, n, mk, rk, rk / mk, int(r["unreachable_legs"]), (r["points"] as PackedVector2Array).size()])
+	quit()

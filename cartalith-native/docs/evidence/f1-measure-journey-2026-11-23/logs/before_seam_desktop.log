@@ -1,0 +1,18 @@
+completed 
+form desktop, window (1600.0, 900.0)
+ok    a world exists
+grid (2048.0, 1311.0), width 800.0 km
+F1 desktop/distance: 4 points, measure total 1923.1 km, straight 648.1 km
+ok    desktop/distance the Measure dock offers Plan a journey
+F1 desktop/distance: measured 1923.1 km | route 3775.3 km (3415 pts, 0 unreachable legs) | planner 3776.0 km
+FAIL  desktop/distance the journey's km matches the measure's km  -- measure 1923.1 km, planner 3776.0 km
+F1 desktop/area: 4 points, measure total 1923.1 km, straight 648.1 km
+ok    desktop/area the Measure dock offers Plan a journey
+F1 desktop/area: measured 1923.1 km | route 3775.3 km (3415 pts, 0 unreachable legs) | planner 3776.0 km
+FAIL  desktop/area the journey's km matches the measure's km  -- measure 1923.1 km, planner 3776.0 km
+F1 desktop/radius: 2 points, measure total 640.5 km, straight 640.5 km
+ok    desktop/radius the Measure dock offers Plan a journey
+F1 desktop/radius: measured 640.5 km | route 1282.1 km (1145 pts, 0 unreachable legs) | planner 1282.6 km
+FAIL  desktop/radius the journey's km matches the measure's km  -- measure 640.5 km, planner 1282.6 km
+F1 FAIL: 3 check(s)
+finished

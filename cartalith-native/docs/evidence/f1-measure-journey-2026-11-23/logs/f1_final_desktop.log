@@ -1,0 +1,36 @@
+completed 
+form desktop, window (1600.0, 900.0)
+ok    a world exists
+grid (2048.0, 1311.0), width 800.0 km
+F1 view zoom 121% after 0 zoom-out clicks
+F1 desktop/distance: 4 points, measure total 933.0 km, straight 689.3 km
+ok    desktop/distance the Measure dock offers Plan a journey
+F1 desktop/distance: measured 933.0 km | route 1378.1 km (1226 pts, 0 unreachable legs) | planner 1378.0 km
+ok    desktop/distance the planner's km equals the committed route's  -- route 1378.1, planner 1378.0
+ok    desktop/distance the journey is never shorter than the measured chain  -- measure 933.0, route 1378.1
+ok    desktop/distance the route is named for its measure  -- name 'From Distance measure (933 km straight)', wanted 'From Distance measure (933 km straight)'
+F1 desktop/distance: the name is drawn by ["/root/App/PlannerWindow/@VBoxContainer@8139/@MarginContainer@8142/PlannerToolbarScroll/PlannerToolbar/@HBoxContainer@16215/@OptionButton@16226", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/RouteRow0/RouteOpen", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/@HBoxContainer@14764/@OptionButton@14775"]
+ok    desktop/distance the planner's route list shows that name
+ok    desktop/distance the status line says why the km differ
+F1 view zoom 121% after 0 zoom-out clicks
+F1 desktop/area: 4 points, measure total 933.0 km, straight 689.3 km
+ok    desktop/area the Measure dock offers Plan a journey
+F1 desktop/area: measured 933.0 km | route 1378.1 km (1226 pts, 0 unreachable legs) | planner 1378.0 km
+ok    desktop/area the planner's km equals the committed route's  -- route 1378.1, planner 1378.0
+ok    desktop/area the journey is never shorter than the measured chain  -- measure 933.0, route 1378.1
+ok    desktop/area the route is named for its measure  -- name 'From Area measure (933 km straight)', wanted 'From Area measure (933 km straight)'
+F1 desktop/area: the name is drawn by ["/root/App/PlannerWindow/@VBoxContainer@8139/@MarginContainer@8142/PlannerToolbarScroll/PlannerToolbar/@HBoxContainer@20385/@OptionButton@20396", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/RouteRow1/RouteOpen", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/@HBoxContainer@18934/@OptionButton@18945"]
+ok    desktop/area the planner's route list shows that name
+ok    desktop/area the status line says why the km differ
+F1 view zoom 121% after 0 zoom-out clicks
+F1 desktop/radius: 2 points, measure total 315.5 km, straight 315.5 km
+ok    desktop/radius the Measure dock offers Plan a journey
+F1 desktop/radius: measured 315.5 km | route 391.6 km (346 pts, 0 unreachable legs) | planner 391.7 km
+ok    desktop/radius the planner's km equals the committed route's  -- route 391.6, planner 391.7
+ok    desktop/radius the journey is never shorter than the measured chain  -- measure 315.5, route 391.6
+ok    desktop/radius the route is named for its measure  -- name 'From Radius measure (316 km straight)', wanted 'From Radius measure (316 km straight)'
+F1 desktop/radius: the name is drawn by ["/root/App/PlannerWindow/@VBoxContainer@8139/@MarginContainer@8142/PlannerToolbarScroll/PlannerToolbar/@HBoxContainer@23944/@OptionButton@23955", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/RouteRow2/RouteOpen", "/root/App/PlannerWindow/@VBoxContainer@8139/PlannerBody/PlannerLeftScroll/PlannerLeft/@VBoxContainer@8074/@MarginContainer@8078/@VBoxContainer@8077/@HBoxContainer@22730/@OptionButton@22741"]
+ok    desktop/radius the planner's route list shows that name
+ok    desktop/radius the status line says why the km differ
+F1 PASS
+finished
