@@ -30,9 +30,10 @@ So the scope is:
 
 **Evidence tags.**
 
-- **[source]** means a page was read, or a search returned the cited page's
-  own wording. Where only a search summary was read, the tag says
-  **[source, search summary]**.
+- **[source, search summary]** means a web search returned the cited page
+  with its wording. **No page was opened in full this session** (the one
+  fetch attempted, of Perseus, failed), so every web claim carries this tag,
+  and a claim beyond what the summary said is tagged separately.
 - **[recalled]** means from memory, not re-checked this session.
 - **[inference]** means my reasoning.
 - **[code]** means read at the named symbol in this tree, at `cbc49e73` (origin/main).
@@ -45,19 +46,20 @@ So the scope is:
    walking distance from a landing they used.** The reasons vary: piracy and
    raiding, storms and surges, cliffs, marsh and malaria, and silting or a
    shifting shore. Sections 1.1 to 1.5 give the sources.
-2. **The paired "port + mother town" is common and well attested.**
+2. **The paired "port + mother town" is common and well attested** (all from
+   search summaries, tagged in 1.6).
    - **Same-day walking distance (0.5–5 km):**
      - Lynton above Lynmouth: 500 ft up, joined by an 862 ft cliff railway.
      - The Cycladic choras above their ports: Schinoussa's is 1.2 km away;
        Iraklia's is 4.5 km by road.
      - Sóller and Port de Sóller, about 3 km apart.
      - Burnham Overy Town and Burnham Overy Staithe, about a mile apart.
-     - Canterbury and Fordwich, about 2 miles apart.
+     - Canterbury and Fordwich, about 2 miles apart (a river outport).
    - **Larger outports (4–7 km):**
      - Athens and Piraeus: the Long Walls ran about 6 km.
      - Ravenna and Classe, about 4 km.
      - Bruges and Damme, about 7 km.
-     - Exeter and Topsham, about 6 km.
+     - Exeter and Topsham, about 6 km (an estuary outport).
 3. **Thucydides states the piracy reason directly** (1.7): the old towns were
    built away from the sea, and later towns on the shore.
 4. **Walking distance has a well-anchored scale.**
@@ -284,13 +286,13 @@ So the scope is:
 | Lynton – Lynmouth | cliff top / harbour in a river cleft | ~260 m track, 152 m (500 ft) climb | cliff | source (search summary) |
 | Schinoussa Chora – port | hill chora / port | 1.2 km | piracy | source (search summary) |
 | Burnham Overy Town – Staithe | village / staithe | ~1 mile (1.6 km) | silting | source (search summary) |
-| Canterbury – Fordwich | city / river port on the Stour | ~2 miles (3.2 km) | navigation limit (river) | source (search summary) |
+| Canterbury – Fordwich | city / river port on the Stour (**river outport, not coastal evidence**) | ~2 miles (3.2 km) | navigation limit | distance: source (search summary); port role: recalled |
 | Sóller – Port de Sóller | town / port | ~3 km | piracy (weak) | source (search summary) |
 | Iraklia Chora – port | hill chora / port | 4.5 km road | piracy | source (search summary) |
 | Winchelsea – the sea (1288) | relocated hill town | ~3 miles | storms | source (search summary) |
-| Ravenna – Classe | city / naval and commercial port | ~4 km | lagoon, marsh | source (search summary) |
-| Athens – Piraeus | city / port | ~6 km (Long Walls) | harbour quality, defence | source (search summary) |
-| Exeter – Topsham | city / estuary port | ~6 km | navigation limit (river) | source (search summary) |
+| Ravenna – Classe | city / naval and commercial port | ~4 km | lagoon, marsh | distance: source (search summary); reason: recalled |
+| Athens – Piraeus | city / port | ~6 km (Long Walls) | harbour quality, defence | distance: source (search summary); reason: recalled |
+| Exeter – Topsham | city / estuary port (**estuary outport, not coastal evidence**) | ~6 km | navigation limit | distance: source (search summary); port role: recalled |
 | Bruges – Damme | city / outport | ~7 km | silting | source (search summary) |
 
 **Reading the table** [inference]:
@@ -372,14 +374,16 @@ about 3 km is its own settlement.
   - **Floodplains are the exception:**
     - **Oxford's medieval town** grew on the Summertown–Radley gravel terrace,
       *"above flood level"*. Its fords and its first bridge (1004) were at the
-      terrace edge over the Cherwell [source, search summary: VCH Oxfordshire
-      vol. 4, Oxford Archaeology, Oxford City Council HUCA 8].
+      terrace edge over the Cherwell [source, search summary: the Victoria
+      County History's "Medieval Oxford" (that it is volume 4 is recalled),
+      Oxford Archaeology, Oxford City Council HUCA 8].
       <https://prod.british-history.ac.uk/node/15951>.
     - **The Nile.** Its towns and villages *"were located on high ground in
       the floodplain, along the elevated river banks (levées), on rocky
       islands, or on hills of sand (geziras)"*, and some of the oldest still
-      stand on mounds [source, search summary: a Cambridge chapter on Nile
-      floodplain agriculture; Britannica].
+      stand on mounds [source, search summary: the quotation is from a
+      Cambridge chapter on Nile floodplain agriculture whose URL is not kept
+      here; the mounds from Britannica, linked below].
       <https://www.britannica.com/place/Egypt/Rural-settlement>.
     - **Bankfull flow**, which floods the floodplain, recurs about every
       1.5 years on many rivers (Leopold, Wolman and Miller 1964; Wolman and
@@ -504,6 +508,7 @@ All in `cartalith-civ/src/lib.rs` unless named [code]:
 | Exposure / fetch | `river_delta::exposure` (share of a half-disc in front of a point that is water) | **`cartalith-godot`**: `cartalith-civ` and `cartalith-urban` cannot call it (crate direction); would need moving or re-deriving | sub-cell |
 | Wind | `cartalith_climate::current_wind_field`, computed in the civ pass for the planner | `cartalith-godot/src/lib.rs` | per cell (onshore component = wind · shore normal) |
 | Defensibility | `civ_relative_elevation`, `terrain_ruggedness_d`, `civ_place_defensibility` | `cartalith-civ/src/military.rs` | per cell |
+| **Availability at layout time** | the flood field is a local of the civ pass (`cartalith-godot/src/lib.rs`, `let flood = build_flood_field(...)`) and is **not kept**: `urban_bridge.rs` hands the layout's `SiteProfileWorld` `flood: &[]`, so `floodplain` reads `0` there today. The wetland mask and the landform field are likewise built where used | — | the rule must keep these fields or recompute them per layout: a CS-0 cost item |
 | In-box relief | `TerrainCtx` (heights, `cell_m`, `h_min`, `h_max`) | `cartalith-urban/src/site.rs` | interpolated from the world grid: **at 384 the box is smaller than one cell, so it may not resolve a cliff or terrace** (CS-0) |
 | Raiding | none | — | no data; question Q4 |
 
@@ -561,6 +566,21 @@ setback_core = the reference's own market point (today's harbour_front_market an
 - `walk_min` is Tobler's function summed along the path, in minutes.
 - **A port with a quay keeps its quay** (`build_harbour`) at the water whatever
   the core does. Its harbour road joins core and quay (3.3).
+- **Defensible high ground** is not a fourth hazard: among reason-free points
+  at equal distance, the higher one (`civ_relative_elevation` sampled in the
+  box, or `TerrainCtx` height) wins the tie. This is the hill chora of 1.1 and
+  Winchelsea's Iham hill as a preference, never as a reason to move a town
+  with no hazard [design].
+- **Housing guard.** A set-back layout replaces the reference layout only if
+  it houses at least `HARBOUR_HOUSING_KEEP` (0.9) as many people, the guard
+  `urban_harbour_front` already applies; otherwise the reference stands and
+  the census reports it [design].
+- **Grain at 384.** The flood, wetland and landform fields are per cell, and
+  at 384 a cell (2.08 km) is larger than the town box, so these reasons are
+  all-or-nothing for a town there: they can say *whether* to set back, not
+  *where to*. Only the in-box heights (`TerrainCtx`) can pick the point, and
+  CS-0 measures whether they resolve anything at 384. 483920 #5 is a 384
+  case [inference from the cell and box sizes].
 - **Pull to the water.** For a trading port (sea lanes call there, or
   population at least `PORT_QUARTER_POP`), the harbour quarter stays
   continuous: buildings line the harbour road from the quay to the core, with
@@ -576,9 +596,9 @@ setback_core = the reference's own market point (today's harbour_front_market an
 | walking speed | Tobler, 5.04 km/h on the flat | [source] |
 | `H_SURGE` | swept in CS-1 (start 4 m above sea on an exposed shore, 2 m sheltered) | **judgement**; to be measured against the world's real height units (`peak_m`). No historical figure is cited for it |
 | `D_SURGE` | 100 m | the ICZM Article 8 setback [source], as a floor |
-| `R_EXP`, `E_EXPOSED` | `river_delta`'s radius and `EXPOSURE_SHELTERED` | reuse the existing labelled judgements |
+| `R_EXP`, `E_EXPOSED` | `river_delta`'s radius and `EXPOSURE_SHELTERED` (0.55, `cartalith-godot/src/river_delta.rs`) | reuse the existing labelled judgements |
 | `D_CLIFF`, `H_CLIFF` | 50 m, 15 m | **judgement**, swept in CS-1 |
-| `PORT_QUARTER_POP` | `PLAZA_MARKET_POP` | **judgement**, reusing an existing threshold |
+| `PORT_QUARTER_POP` | `PLAZA_MARKET_POP` (1 500, `cartalith-urban/src/plaza.rs`) | **judgement**, reusing an existing threshold |
 
 ### 3.3 The landing as its own small feature
 
@@ -734,7 +754,7 @@ confirms what is drawn at each one.
 
 | Id | What | Done when |
 |---|---|---|
-| **CS-0** | **Measure first.** On the three seeds at 384 and 2 048, for every harbour town, every coastal town and every HM river origin, record: <br>• which reasons the shore point or origin has (surge band with exposure, cliff, marsh or flood, floodplain); <br>• whether `TerrainCtx` relief resolves them in the box at each size; <br>• the distance to the nearest reason-free point; <br>• the FK leftovers re-measured (#5, #10, 154:136), and whether any reason explains them; <br>• the baseline of every bar in 3.7. <br>Data only; no product code. | A table per size. **Go/no-go:** if under 5 % of coastal towns at 2 048 have any reason, or relief does not resolve at either size, bring it to the owner before CS-1 |
+| **CS-0** | **Measure first.** On the three seeds at 384 and 2 048, for every harbour town, every coastal town and every HM river origin, record: <br>• which reasons the shore point or origin has (surge band with exposure, cliff, marsh or flood, floodplain); <br>• whether `TerrainCtx` relief resolves them in the box at each size; <br>• the distance to the nearest reason-free point; <br>• the FK leftovers re-measured (#5, #10, 154:136), and whether any reason explains them; <br>• the baseline of every bar in 3.7; <br>• the cost of keeping or recomputing the flood, wetland and landform fields at layout time. <br>Data only; no product code. | A table per size. **Go/no-go:** if under 5 % of coastal towns at 2 048 have any reason, or relief does not resolve at either size, bring it to the owner before CS-1 |
 | CS-1 | The hazard test and the nearest safe point, as pure functions with unit tests. Each constant is a literal, mutation-tested. | Tests red under each mutant; the constants swept and recorded |
 | CS-2 | The coastal core setback in the layout (`urban_coastal_setback`), with the quay unchanged and the harbour road as the path. | B-FK1–3, ports, housing and baseline bars at both sizes |
 | CS-3 | The landing for set-back towns without a harbour: point, lane and hard; drawn on the map and in the City Viewer; shown in Inspect. | x16 and City Viewer frames; walk bar |
@@ -775,8 +795,10 @@ It also carries Ruling BK's annotation rule.
 
 ## 6. Sources
 
-Each source is tagged in the text where it is used. Most were read as search
-summaries and are tagged so. The main pages:
+Each source is tagged in the text where it is used. **All were read as search
+summaries; none was opened in full.** CS-0 or a reviewer should open the
+ones a decision rests on (Thucydides 1.7, Lynton, Burnham Overy, Schinoussa,
+Oxford). The main pages:
 
 - Thucydides 1.7 (Crawley): <https://cts.perseids.org/read/greekLit/tlg0003/tlg001/1st1K-eng1/1.7.1>
 - Small Cyclades guide: <https://www.naxos.gr/wp-content/uploads/2018/04/SMALL-CYCLADES-GUIDE-EN.pdf>
