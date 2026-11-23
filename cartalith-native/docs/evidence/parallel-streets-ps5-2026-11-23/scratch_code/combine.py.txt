@@ -1,0 +1,51 @@
+"""combine.py: PS-5's frames. Per town a row BEFORE (switch off) | MID (PS-2 as shipped, base build) | AFTER (the PS-5
+prototype, `rE`: tier + deep platting + rear households + water gate) at the opening frame, then the same three at x4.
+Writes contact_<seed>.png (every town shot), combined.png (the chosen towns, larger), and prints whether the two
+sessions' BEFORE frames are pixel-identical (the control).
+  python -I combine.py SHOTS_BASE SHOTS_AFTER OUT_DIR"""
+import sys, os
+from PIL import Image, ImageChops, ImageDraw
+base, after, out = sys.argv[1:4]
+os.makedirs(out, exist_ok=True)
+def ids(seed):
+    return sorted({int(f.split('_')[2]) for f in os.listdir(base) if f.startswith(f'viewer_{seed}_') and f.endswith('.png')})
+def img(d, seed, i, ph, z):
+    p = os.path.join(d, f'viewer_{seed}_{i}_parallel{ph}_z{z}.png')
+    return Image.open(p).convert('RGB') if os.path.exists(p) else None
+same = diff = 0
+def row(seed, i, w):
+    cells = []
+    for z in (1, 4):
+        for d, ph in ((base, 0), (base, 1), (after, 1)):
+            im = img(d, seed, i, ph, z)
+            cells.append(im.resize((w, int(w * im.height / im.width))) if im else Image.new('RGB', (w, int(w * 0.66)), 'grey'))
+    h = max(c.height for c in cells)
+    r = Image.new('RGB', (w * 6 + 50, h + 18), 'white')
+    for k, c in enumerate(cells):
+        r.paste(c, (k * w + (10 if k >= 3 else 0), 18))
+    ImageDraw.Draw(r).text((4, 2), f'{seed} #{i}   before | PS-2 | PS-5 prototype  (opening frame)      before | PS-2 | PS-5 prototype  (x4)', fill='black')
+    return r
+for seed in (483920, 912345):
+    rows = []
+    for i in ids(seed):
+        for z in (1, 4):
+            a, b = img(base, seed, i, 0, z), img(after, seed, i, 0, z)
+            if a and b:
+                if ImageChops.difference(a, b).getbbox() is None: same += 1
+                else: diff += 1; print('BEFORE differs between sessions:', seed, i, z)
+        rows.append(row(seed, i, 260))
+    sheet = Image.new('RGB', (rows[0].width, sum(r.height for r in rows)), 'white')
+    y = 0
+    for r in rows:
+        sheet.paste(r, (0, y)); y += r.height
+    sheet.save(os.path.join(out, f'contact_{seed}.png'))
+pick = [(483920, i) for i in map(int, os.environ.get('PICK_483920', '').split(',')) if os.environ.get('PICK_483920')] + \
+       [(912345, i) for i in map(int, os.environ.get('PICK_912345', '').split(',')) if os.environ.get('PICK_912345')]
+if pick:
+    rows = [row(s, i, 420) for s, i in pick]
+    sheet = Image.new('RGB', (rows[0].width, sum(r.height for r in rows)), 'white')
+    y = 0
+    for r in rows:
+        sheet.paste(r, (0, y)); y += r.height
+    sheet.save(os.path.join(out, 'combined.png'))
+print(f'control: BEFORE frames identical between the sessions {same}, differing {diff}')

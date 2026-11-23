@@ -1,0 +1,31 @@
+"""PS-5 frames: one windowed City Viewer session of _ps5_probe.tscn (the scratch copy of `_viewerframe_probe` with the
+x4 frame, as section 17's `_psE_probe`), `--parallel 2` (off, then on live), in a project copy.
+  python -I run_frames.py PROJECT SEED IDS OUT_DIR LOG [KEY=VALUE env ...]
+Holds C:/cw/.win_lock only while Godot runs, with an owner file written at once (MISTAKES #26); waits for a lock
+that is not ours and never deletes it. Scratch APPDATA, LOCALAPPDATA and CARTALITH_CONFIG_PATH. No timeout wrapper."""
+import os, pathlib, subprocess, sys, time
+G = "C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+proj, seed, ids, out, log = sys.argv[1:6]
+env = dict(os.environ)
+env.update(kv.split("=", 1) for kv in sys.argv[6:])
+S = "C:/cw/ps5_scratch/frames_scratch"
+env.update(APPDATA=S + "/appdata", LOCALAPPDATA=S + "/localappdata", CARTALITH_CONFIG_PATH=S + "/cfg/cartalith.cfg")
+for d in (S + "/appdata", S + "/localappdata", S + "/cfg", out):
+    pathlib.Path(d).mkdir(parents=True, exist_ok=True)
+LOCK = pathlib.Path("C:/cw/.win_lock"); OWNER = LOCK / "owner_ps5_lane.txt"
+while True:
+    try:
+        LOCK.mkdir(); break
+    except FileExistsError:
+        time.sleep(10)
+lost = False
+try:
+    OWNER.write_text("PS-5 lane (worktree C:/cw/ps5), City Viewer frames seed %s, pid %d, %s\n" % (seed, os.getpid(), time.ctime()))
+    with open(log, "w", encoding="utf-8") as f:
+        rc = subprocess.call([G, "--path", proj, "--resolution", "1600x1000", "_ps5_probe.tscn", "--", "--seed", seed, "--grid", "384x288",
+                              "--quick", "1", "--parallel", "2", "--shots", out, "--ids", ids], stdout=f, stderr=subprocess.STDOUT, env=env)
+    lost = not OWNER.exists()
+finally:
+    if OWNER.exists():
+        OWNER.unlink(); LOCK.rmdir()
+print("rc", rc, "LOCK LOST" if lost else "")

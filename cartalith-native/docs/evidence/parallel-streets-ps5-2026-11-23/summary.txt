@@ -1,0 +1,40 @@
+PS-5 (owner Rulings GY, HB, HD, HT; 2026-11-23): MEASURED NO-GO, nothing built. PARALLEL_STREETS_SCOPE.md section 18
+has the result; this file lists the evidence.
+
+Census world: seeds 483920 912345 246371, 800 km, villages on, the app's params::defaults; release test binaries.
+BEFORE and MID come from origin/main 69a88c48 (a separate worktree and target): [off] = BEFORE (switch off), [proto] =
+MID (PS-2 and fix E as shipped). Every other run is the prototype (scratch_code/ps5_prototype.diff.txt) with scratch
+knobs (marked SCRATCH-PS5 in the diff), [proto] only:
+  census/rA    platting by quarter + rear households (PS5_GATE=0, no tier), frontage floor from the block's TARGET depth
+  census/rB    rA + the water gate (target floor)
+  census/rC    rB + the back-street tier and its closing lane (target floor)
+  census/rD    rC with only tiers that closed at both ends (PS5_TIER=2)
+  census/rA3   rA with the floor from the depth the lots REACH (the final rule)
+  census/rB3   rA3 + the water gate
+  census/rE    rB3 + the tier + the deep platting on every grain block 60 m or more deep (PS5_DEEPALL=1): the full
+               prototype, framed as AFTER
+  Each: agg_<gw>.txt (scratch_code/ps1_agg.py.txt, which adds depth by area and the rear households / water gates
+  line), bb_<gw>_p0|p1.txt (both_banks_audit off | on), sw_<gw>_p0|p1.txt (stretch_water_audit), <gw>/towns_<gw>.csv.
+  384 for all; 2048 for r_base, rB, rB3, rE.
+table_384.txt, table_2048.txt   one row of bars per run (scratch_code/table.py.txt)
+area.txt                         quads and 83 m+ depth by area, outside-core blocks (scratch_code/area.py.txt)
+
+town_census/   _towncensus_probe.gd --rows (headless, scratch APPDATA), seeds 483920 912345 246371 83744 at 384:
+  tc_before.txt (base dll, app defaults: switch off), tc_mid.txt (base dll, --params urban_parallel_streets: true),
+  tc_after.txt (prototype dll with PS5_DEEPALL=1, the same params). hnbars.txt (HU's bars.py), fate.txt (fate.py:
+  each town's crossing and housing in the three builds). tc_mid and tc_after both exit 1 on one street edge over the
+  drawn river in seed 483920 (PS-2's, present in MID).
+
+Frames: scratch_code/run_frames.py.txt, two dlls: the base build (origin/main 69a88c48, release, copied to its
+  worktree's target/debug) for BEFORE (switch off) and MID (on live), the prototype (knob tree, release, 20:49, after
+  its last .rs edit) with PS5_DEEPALL=1 for AFTER = E. 483920 ids 0-8,10-12,15,16,20,22,30 and the village 9;
+  912345 ids 0,3,4,8,12,13,19,25 and the village 1. probe_logs/ (RESULT: PASS in all four sessions; BEFORE frames
+  identical between the sessions, 54 of 54).
+  contact_<seed>.png   rows = towns; BEFORE | MID | AFTER at the opening frame, then at x4
+  combined.png         the sheet to send: 483920 #0, #2, #11, #15, #20, the village #9; 912345 #13, #8, #4
+  frames/triple_*.png  full size for 483920 #0, #15, #20, #9 and 912345 #13, #4
+
+scratch_code/  ps5_prototype.diff.txt (the four pieces, the variants' knobs, the unit tests), cen.sh.txt (one census
+  run), ps1_agg.py.txt, bars.py.txt, area.py.txt, table.py.txt, tc.sh.txt, run_frames.py.txt (the windowed launcher:
+  C:/cw/.win_lock held only while Godot runs, owner file at once, scratch APPDATA and CARTALITH_CONFIG_PATH, no
+  timeout wrapper), combine.py.txt, _ps5_probe.gd.txt (section 17's _psE_probe, unchanged).

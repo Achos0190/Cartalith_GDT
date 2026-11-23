@@ -1,0 +1,77 @@
+"""bars.py <gw> <run dir> ...: PS-4's bar lines per run (scratch). For each run: the [proto] (switch-on) figures, and for
+the first run also the [off] figures. Reads agg_<gw>.txt (ps1_agg.py), <gw>/towns_<gw>.csv, bb_<gw>_p1.txt (and _p0
+when present), sw_<gw>_p1.txt."""
+import sys, re, csv, statistics as S
+
+gw = sys.argv[1]
+q = lambda x, f: sorted(x)[int(round((len(x)-1)*f))]
+
+
+def agg_lines(d, variant):
+    a = open(f'{d}/agg_{gw}.txt', encoding='utf8').read().split('\n')
+    out = {}
+    for sect, key in (('8 largest', '24'), ('all towns', 'all')):
+        i = [k for k, l in enumerate(a) if l.startswith('== ' + sect)][0]
+        sec = a[i:i+20]
+        j = [k for k, l in enumerate(sec) if f'[{variant}]' in l][0]
+        p = sec[j:j+9]
+        oc = [l for l in p if 'outside core' in l][0]
+        m = re.search(r'quads ([\d.]+) tri ([\d.]+) compact tri ([\d.]+).*aspect ([\d.]+) rect ([\d.]+) depth ([\d.]+) m, >=83 m ([\d.]+)', oc).groups()
+        out[key + '_q'] = m
+        if key == 'all':
+            for l in p:
+                if 'housed p10' in l: out['housed'] = re.search(r'housed p10 (\d+)', l).group(1)
+                if 'NEEDLES' in l: out['needles'] = re.search(r'NEEDLES[^%]*?([\d.]+) %', l).group(1)
+                if 'needle buildings' in l: out['nb'] = re.search(r'\) ([\d.]+) %', l).group(1)
+                if 'kept >= 85' in l: out['fs1'] = re.search(r'FS-1.*', l).group(0)
+                if 'degree 4' in l: out['fs3'] = re.search(r'degree 4.*', l).group(0)
+    fs2 = [l.strip() for l in a if re.match(r'\s+(market_street|organic_core|river_front):', l)]
+    out['fs2'] = fs2
+    return out
+
+
+def walls(d, variant):
+    r = list(csv.DictReader(open(f'{d}/{gw}/towns_{gw}.csv')))
+    T = [x for x in r if x['variant'] == variant and x['walled'] == '1']
+    sh = [int(x['wall_sharp_convex'])+int(x['wall_sharp_reflex']) for x in T]
+    lh = sorted(float(x['wall_len_over_hull']) for x in T)
+    return f'walled {len(T)} sharp med/p90/total {S.median(sh)} {q(sh,.9)} {sum(sh)}; wall/hull p90 {q(lh,.9):.3f} max {lh[-1]:.3f}'
+
+
+def bb(d, p):
+    try:
+        t = open(f'{d}/bb_{gw}_p{p}.txt', encoding='utf8').read()
+    except FileNotFoundError:
+        return None
+    rs = re.search(r'within 2 street widths of the bank ([\d.]+) %', t)
+    rf = re.search(r'refused and laid out in the reference box (\d+)', t)
+    st = re.search(r'stretched towns (\d+)', t)
+    wet = re.search(r'buildings in water: river channel (\d+), sea or lake cell (\d+), water_poly (\d+)', t)
+    hs = re.search(r'towns \(pop_target >= 1500\) housed % n (\d+) min (\d+) p10 (\d+) median (\d+)', t)
+    return f'riverside {rs.group(1) if rs else "?"} %; stretched {st.group(1) if st else "?"} refused {rf.group(1) if rf else "?"}; wet {wet.groups() if wet else "?"}; housed(bb) min/p10/med {hs.groups()[1:] if hs else "?"}'
+
+
+def sw(d, p):
+    try:
+        t = open(f'{d}/sw_{gw}_p{p}.txt', encoding='utf8').read()
+    except FileNotFoundError:
+        return None
+    m = re.search(r'all seeds at \d+: planned stretched (\d+), laid out stretched (\d+), flagged (\d+)', t)
+    return f'stretch-water planned {m.group(1)} laid {m.group(2)} flagged {m.group(3)}' if m else 'stretch-water ?'
+
+
+for k, d in enumerate(sys.argv[2:]):
+    for v, p in ((('off', '0'),) if k == 0 else ()) + (('proto', '1'),):
+        a = agg_lines(d, v)
+        print(f'--- {d} [{v}]')
+        q24 = a['24_q']
+        print(f'  24 towns outside core: quads {q24[0]} tri {q24[1]} ctri {q24[2]} aspect {q24[3]} rect {q24[4]} 83m+ {q24[6]}')
+        print(f'  housed p10 {a["housed"]}; needles {a["needles"]} %; needle bldg {a["nb"]} %')
+        print(f'  {a["fs1"]}')
+        print(f'  {a["fs3"]}')
+        print(f'  {walls(d, v)}')
+        print(f'  {bb(d, p)}')
+        print(f'  {sw(d, p)}')
+        if v == 'proto':
+            for l in a['fs2']:
+                print('   ', l)

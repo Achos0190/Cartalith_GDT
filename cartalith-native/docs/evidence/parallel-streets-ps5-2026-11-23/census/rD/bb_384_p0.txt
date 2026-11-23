@@ -1,0 +1,3 @@
+
+running 1 test
+test town_river_census::both_banks_audit ... 

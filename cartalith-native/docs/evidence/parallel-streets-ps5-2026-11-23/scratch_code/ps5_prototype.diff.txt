@@ -1,0 +1,1086 @@
+diff --git a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+index 89118dd3..49da6be7 100644
+--- a/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
++++ b/cartalith-native/crates/cartalith-civ/src/urban_adapter.rs
+@@ -181,7 +181,7 @@
+ //!   beside it) is the one layer with no field here at all, and it is still one
+ //!   field away on the [`cartalith_urban::Town`] this function projects from.
+ 
+-pub use cartalith_urban::riverbank::{RIVER_MIN_W_M, STREAM_WIDTH_M};
++pub use cartalith_urban::riverbank::{RIVER_MIN_W_M, STREAM_WIDTH_M, WATER_GATE_PROV};
+ use cartalith_urban::{
+     Economy, GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
+ };
+@@ -3708,7 +3708,9 @@ fn layout_from_town(ctx: &UrbanContext, mut t: cartalith_urban::generate::Town)
+     // with no drawn widths, for a bastioned trace (its ring is the gorge, not the drawn wall) or an unwalled town.
+     if let (Some(w), Some(ring), true) = (ctx.water.as_ref().filter(|w| !w.strokes.is_empty()), t.wall.ring.as_deref(), t.wall.style != "bastioned") {
+         let wet = |p: Vec2| w.strokes.iter().any(|&(a, b, width)| cartalith_urban::geom::dist_pt_seg(p, a, b) < width / 2.0);
+-        let gates: Vec<Vec2> = t.wall.gates.iter().filter(|g| g.water).map(|g| g.pt).collect();
++        // PS-5's posterns (`WATER_GATE_PROV`) are doors in a dry riverside curtain, not the river passing under the
++        // wall, so they give no wet run leave to stay.
++        let gates: Vec<Vec2> = t.wall.gates.iter().filter(|g| g.water && g.prov != WATER_GATE_PROV).map(|g| g.pt).collect();
+         if let Some(r) = cartalith_urban::wallhug::ring_off_water(ring, &gates, &wet) {
+             for g in t.wall.gates.iter_mut() {
+                 g.pt = cartalith_urban::wallhug::nearest_on_ring(g.pt, &r);
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_measures.rs b/cartalith-native/crates/cartalith-godot/src/town_measures.rs
+index 8a84f51f..e84c191a 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_measures.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_measures.rs
+@@ -289,7 +289,8 @@ pub(crate) fn footprint_over(l: &cartalith_civ::urban_adapter::UrbanLayout, dept
+     let pt = |v: cartalith_civ::urban_adapter::Vec2| (v.x, v.y);
+     let buildings: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|&v| pt(v)).collect()).collect();
+     let ring: Vec<(f64, f64)> = l.wall.ring.iter().flatten().map(|&v| pt(v)).collect();
+-    let gates: Vec<(f64, f64)> = l.wall.gates.iter().filter(|g| g.water).map(|g| pt(g.pt)).collect();
++    // PS-5's posterns (`WATER_GATE_PROV`) do not gate a wall run over the river: they are doors in a dry curtain.
++    let gates: Vec<(f64, f64)> = l.wall.gates.iter().filter(|g| g.water && g.prov != cartalith_civ::urban_adapter::WATER_GATE_PROV).map(|g| pt(g.pt)).collect();
+     let edges: Vec<((f64, f64), (f64, f64), &str)> = l.edges.iter().map(|e| (pt(e.a), pt(e.b), e.cls)).collect();
+     let bridges: Vec<(f64, f64)> = l.bridges.iter().flatten().map(|b| pt(b.pt)).collect();
+     footprint_over_parts(&buildings, &ring, &gates, &edges, &bridges, depth, exempt)
+diff --git a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+index 814b3c77..aa79b4fd 100644
+--- a/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
++++ b/cartalith-native/crates/cartalith-godot/src/town_river_census.rs
+@@ -2803,7 +2803,7 @@ fn parallel_streets_audit() {
+         std::fs::create_dir_all(out).unwrap();
+         let f = |n: &str| std::fs::File::create(format!("{out}/{n}_{gw}.csv")).unwrap();
+         let (mut ft, mut fb, mut fl, mut fbd) = (f("towns"), f("blocks"), f("lots"), f("bldg"));
+-        writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges,wall_len_over_hull,wall_n,wall_sharp_convex,wall_sharp_reflex,wall_sharpest_deg").unwrap();
++        writeln!(ft, "seed,town,variant,cx,cy,pop_target,pop,max_rf,phi,h,d1,d2,d3,d4,d5,seg_med,settled_m2,keep_off,ptype,walled,edges,wall_len_over_hull,wall_n,wall_sharp_convex,wall_sharp_reflex,wall_sharpest_deg,rear,water_gates").unwrap();
+         writeln!(fb, "seed,town,variant,corners,aspect,rect,depth,area,outside").unwrap();
+         writeln!(fl, "seed,town,variant,front,back,depth,npts,x,y,outside,rear_served").unwrap();
+         writeln!(fbd, "seed,town,variant,long,short,area,x,y").unwrap();
+@@ -2946,7 +2946,10 @@ fn parallel_streets_audit() {
+                             writeln!(rf, "{seed},{i},{vn},{:.1},{:.1}", p.x, p.y).unwrap();
+                         }
+                     }
+-                    writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{},{}",
++                    // PS-5: its rear households (buildings by `districts::PROV_REAR_HOUSE`'s prefix) and water gates.
++                    let rear = l.buildings.iter().filter(|b| b.prov.starts_with("Rear household")).count();
++                    let wgates = l.wall.gates.iter().filter(|g| g.water).count();
++                    writeln!(ft, "{seed},{i},{vn},{},{},{:.0},{:.0},{:.1},{phi:.4},{:.4},{},{},{},{},{},{segm:.1},{:.0},{keep:.4},{},{},{},{},{rear},{wgates}",
+                         s.placement.x, s.placement.y, l.pop_target, l.pop, l.max_rf, h / hmax, deg[0], deg[1], deg[2], deg[3], deg[4], c_l.len() as f64 * SETTLED_CELL_M * SETTLED_CELL_M,
+                         pl.town_type.key(), u8::from(l.wall.ring.is_some()), l.edges.len(), wall_sharp(l.wall.ring.as_deref())).unwrap();
+                 }
+diff --git a/cartalith-native/crates/cartalith-godot/src/urban_bridge.rs b/cartalith-native/crates/cartalith-godot/src/urban_bridge.rs
+index c5af6b7f..9e2f97c1 100644
+--- a/cartalith-native/crates/cartalith-godot/src/urban_bridge.rs
++++ b/cartalith-native/crates/cartalith-godot/src/urban_bridge.rs
+@@ -594,6 +594,20 @@ pub(crate) fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
+             l.wall.gates.iter().filter(|g| g.water).map(|g| pt(g.pt)).collect();
+         d.set("wall_gates", &land);
+         d.set("wall_water_gates", &water);
++        // **Not the reference** (PS-5, owner Ruling HD Q26: *"the shell must
++        // then draw water gates in walls"*): the posterns where a water lane
++        // passes the riverside wall, the one kind of water gate drawn. Absent
++        // on every town without one (the switch off, or no gated lane).
++        let posterns: PackedVector2Array = l
++            .wall
++            .gates
++            .iter()
++            .filter(|g| g.water && g.prov == cartalith_civ::urban_adapter::WATER_GATE_PROV)
++            .map(|g| pt(g.pt))
++            .collect();
++        if !posterns.is_empty() {
++            d.set("wall_posterns", &posterns);
++        }
+         if !l.wall.spurs.is_empty() {
+             d.set(
+                 "wall_spurs",
+diff --git a/cartalith-native/crates/cartalith-urban/src/blocks.rs b/cartalith-native/crates/cartalith-urban/src/blocks.rs
+index 90149ba2..81c5d736 100644
+--- a/cartalith-native/crates/cartalith-urban/src/blocks.rs
++++ b/cartalith-native/crates/cartalith-urban/src/blocks.rs
+@@ -297,6 +297,14 @@ pub(crate) fn lot_is_wet(site: &Site, poly: &[Vec2]) -> bool {
+     wet(mean * (1.0 / n as f64))
+ }
+ 
++/// PS-5's tier platting (`PARALLEL_STREETS_SCOPE.md` section 5.2, Ruling GA):
++/// the most a tier lot's target depth may be over its frontage. **A labelled
++/// judgement** under section 8.4's needle definition (depth over mean width
++/// past 6.0, the real plans' p99, or past 3.5 under a 4.15 m width): at 5 a
++/// tier lot is neither, while depth over frontage stays above section 5.2's
++/// target of 3.
++pub const TIER_MAX_RATIO: f64 = 5.0;
++
+ /// `buildParcels` (line 30225) — series platting via bisector edge-cells.
+ ///
+ /// Each block vertex gets an angle-bisector capped by a ray-cast to the
+@@ -319,7 +327,7 @@ pub fn build_parcels(
+     site: &Site,
+     rules: Option<&Rules>,
+ ) -> Vec<Parcel> {
+-    build_parcels_with(seed, g, blocks, anchors_market, epochs, site, rules, false)
++    build_parcels_with(seed, g, blocks, anchors_market, epochs, site, rules, false, None)
+ }
+ 
+ /// [`build_parcels`], with `burgage` (**not the reference**, owner Ruling FE
+@@ -330,6 +338,17 @@ pub fn build_parcels(
+ /// reference's 22 / 30 m, 46 m and 0.42, the same arithmetic on the same
+ /// literals, so [`build_parcels`] is unchanged by control flow. Every draw is
+ /// the reference's, in its order: only the numbers a draw is scaled by move.
++///
++/// `tier` (**not the reference**; PS-5, `PARALLEL_STREETS_SCOPE.md` section
++/// 6, owner Ruling HT: *"reuse `cartalith_urban::burgage`"*): a block it
++/// accepts (the caller's test: a near-rectangular block in a town's grain) is
++/// platted with the burgage depths, cap and waist, as `burgage` plats every
++/// block, and, so a deep lot is never a needle (Ruling GA; scope 8.4), each
++/// edge's frontage grant is floored at the depth its lots reach over
++/// [`TIER_MAX_RATIO`] and a frontage is split by the burgage cycle only
++/// where both halves stay above that floor. `None` (and every block it
++/// refuses) is the platting above, draw for draw. It must never plat a block
++/// it refuses differently: the draws are the same, only their scale moves.
+ #[allow(clippy::too_many_arguments)]
+ pub fn build_parcels_with(
+     seed: u32,
+@@ -340,15 +359,9 @@ pub fn build_parcels_with(
+     site: &Site,
+     rules: Option<&Rules>,
+     burgage: bool,
++    tier: Option<&dyn Fn(&[Vec2]) -> bool>,
+ ) -> Vec<Parcel> {
+     let p = rules.unwrap_or(&DEFAULT_RULES).parcels;
+-    // (core depth, depth, depth cap, waist): the reference's M-PAR-2 literals,
+-    // or the prototype's.
+-    let (depth_core, depth_far, depth_cap, waist) = if burgage {
+-        (crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)
+-    } else {
+-        (22.0, 30.0, 46.0, 0.42)
+-    };
+     let mut parcels: Vec<Parcel> = Vec::new();
+     let mut pid = 0usize;
+     // This port's own stream, kept apart from every geometry draw. See
+@@ -364,6 +377,15 @@ pub fn build_parcels_with(
+         if n < 3 {
+             continue;
+         }
++        // PS-5: this block's tier (see the doc comment), then (core depth,
++        // depth, depth cap, waist): the reference's M-PAR-2 literals, or the
++        // burgage prototype's.
++        let in_tier = tier.is_some_and(|f| f(poly));
++        let (depth_core, depth_far, depth_cap, waist) = if burgage || in_tier {
++            (crate::burgage::DEPTH_CORE_M, crate::burgage::DEPTH_M, crate::burgage::DEPTH_MAX_M, crate::burgage::WAIST)
++        } else {
++            (22.0, 30.0, 46.0, 0.42)
++        };
+         let mut r_b = stream(fnv1a(&blk.id), &format!("parcels/{}", blk.id));
+         let mut cand: Vec<Parcel> = Vec::new();
+         // Ruling FN: `Site::market_dist` (the plain distance unless the town
+@@ -450,6 +472,17 @@ pub fn build_parcels_with(
+             }
+             let back_a = a + bis[i] * la;
+             let back_b = b + bis[(i + 1) % n] * lb;
++            // PS-5: a tier edge's frontage floor, from the depth its lots
++            // really reach (`edge_depth`, the target capped by the waist), and
++            // the least frontage the burgage cycle splits: the reference's
++            // 4.5 m and 6.4 m, or the width whose smaller half, at the cycle's
++            // 0.4, keeps the floor.
++            let (w_floor, split_min) = if in_tier {
++                let f = js_max(4.5, edge_depth[i] / TIER_MAX_RATIO);
++                (f, js_max(6.4, f / 0.4))
++            } else {
++                (4.5, 6.4)
++            };
+ 
+             // Frontage widths: grant then subdivide (M-PAR-1).
+             let eref = g.edge_between(blk.face_ids[i], blk.face_ids[(i + 1) % n]);
+@@ -461,7 +494,7 @@ pub fn build_parcels_with(
+             let mut spin = 0u32;
+             while acc < e_len - 3.0 {
+                 let placed_before = widths.len();
+-                let w = js_max(4.5, js_min(16.0, r_b.logn(11.0, p.frontage_width_variance)));
++                let w = js_max(w_floor, js_min(16.0, r_b.logn(11.0, p.frontage_width_variance)));
+                 let mut parts = vec![w];
+                 // `Math.min(P.subdivisionCap, Math.floor(age/3))` -- NaN when
+                 // the rule is NaN, and `s < NaN` is false, so the burgage cycle
+@@ -472,7 +505,7 @@ pub fn build_parcels_with(
+                 while s < splits {
+                     let mut np: Vec<f64> = Vec::with_capacity(parts.len() * 2);
+                     for pw in &parts {
+-                        if *pw > 6.4 && r_b.chance(0.4) {
++                        if *pw > split_min && r_b.chance(0.4) {
+                             let f = r_b.range(0.4, 0.6);
+                             np.push(pw * f);
+                             np.push(pw * (1.0 - f));
+diff --git a/cartalith-native/crates/cartalith-urban/src/burgage/tests.rs b/cartalith-native/crates/cartalith-urban/src/burgage/tests.rs
+index af31a4c8..6061507f 100644
+--- a/cartalith-native/crates/cartalith-urban/src/burgage/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/burgage/tests.rs
+@@ -101,7 +101,7 @@ fn deepest(xs: &[f64], ys: &[f64], burgage: bool, rules: Option<&crate::rules::R
+     let site = crate::site::build_site(1, 1700.0, 1250.0, "plain", crate::site::SiteOpts::default());
+     let blocks = crate::blocks::build_blocks(&g, None, &site);
+     assert!(!blocks.is_empty(), "premise: the grid closes blocks");
+-    let lots = crate::blocks::build_parcels_with(1, &g, &blocks, crate::geom::Vec2::new(-5000.0, -5000.0), 8, &site, rules, burgage);
++    let lots = crate::blocks::build_parcels_with(1, &g, &blocks, crate::geom::Vec2::new(-5000.0, -5000.0), 8, &site, rules, burgage, None);
+     assert!(!lots.is_empty(), "premise: the blocks are platted");
+     lots.iter().map(|p| p.depth).fold(0.0, f64::max)
+ }
+@@ -292,3 +292,47 @@ fn a_deep_plot_town_reads_unbuilt_ground_at_its_own_reach() {
+     }
+     assert!(smaller >= 1, "some deep yard reads open at 40 m");
+ }
++
++/// Protects PS-5's tier platting (`build_parcels_with`'s `tier`, owner Ruling
++/// HT): on 90 m blocks (a back-street tier's depth) with the market far away,
++/// a tier that refuses every block plats exactly as `build_parcels`; one that
++/// takes every block plats fewer, deeper lots (the burgage depths and waist,
++/// the frontage floored at the lot depth over 5) with fewer needles by scope
++/// 8.4's definition (the corner lots, whose backs converge on the bisectors,
++/// can still taper into one). Literals from a run (2026-11-23).
++#[test]
++fn a_tier_block_plats_deeper_lots_with_fewer_needles() {
++    let g = grid(&[300.0, 600.0, 900.0], &[300.0, 390.0, 480.0]);
++    let site = crate::site::build_site(1, 1700.0, 1250.0, "plain", crate::site::SiteOpts::default());
++    let blocks = crate::blocks::build_blocks(&g, None, &site);
++    let far = crate::geom::Vec2::new(-5000.0, -5000.0);
++    let plat = |t: Option<&dyn Fn(&[crate::geom::Vec2]) -> bool>| crate::blocks::build_parcels_with(1, &g, &blocks, far, 8, &site, None, false, t);
++    let reference = crate::blocks::build_parcels(1, &g, &blocks, far, 8, &site, None);
++    let refused = plat(Some(&|_: &[crate::geom::Vec2]| false));
++    assert_eq!(refused, reference, "a refused block is the reference's");
++    let tier = plat(Some(&|_: &[crate::geom::Vec2]| true));
++    // Scope 8.4: narrow end under 4.15 m and depth / mean width over 3.5, or over 6.0, or an end under 1 m.
++    let needles = |v: &[crate::blocks::Parcel]| {
++        v.iter()
++            .filter(|p| {
++                let (f, b) = (p.poly[0].dist(p.poly[1]), p.poly[3].dist(p.poly[2]));
++                let r = p.depth / ((f + b) / 2.0);
++                (f.min(b) < 4.15 && r > 3.5) || r > 6.0 || f.min(b) < 1.0
++            })
++            .count()
++    };
++    let deep = |v: &[crate::blocks::Parcel]| v.iter().map(|p| p.depth).fold(0.0, f64::max);
++    println!("lots {} -> {}, needles {} -> {}, deepest {:.2} -> {:.2}", reference.len(), tier.len(), needles(&reference), needles(&tier), deep(&reference), deep(&tier));
++    assert_eq!((reference.len(), needles(&reference)), (456, 217), "the reference");
++    assert_eq!((tier.len(), needles(&tier)), (252, 41), "the tier");
++    assert!(deep(&tier) > 48.0 && deep(&reference) < 37.0, "deeper: {:.2} against {:.2}", deep(&tier), deep(&reference));
++    // Shallower tier blocks, where the floor keeps the reference's 4.5 m and 6.4 m (30 m blocks: the lots reach 14.4 m,
++    // a floor of 2.9 m) and where the split's 0.4 binds (63 m blocks: lots of 30.2 m, a floor of 6.0 m, split from 15.1 m).
++    for (ys, want) in [([300.0, 330.0, 360.0], (279, 9)), ([300.0, 363.0, 426.0], (268, 35))] {
++        let g = grid(&[300.0, 600.0, 900.0], &ys);
++        let blocks = crate::blocks::build_blocks(&g, None, &site);
++        let tier = crate::blocks::build_parcels_with(1, &g, &blocks, far, 8, &site, None, false, Some(&|_: &[crate::geom::Vec2]| true));
++        println!("{} m blocks: tier lots {} needles {}", ys[1] - ys[0], tier.len(), needles(&tier));
++        assert_eq!((tier.len(), needles(&tier)), want, "{} m blocks", ys[1] - ys[0]);
++    }
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/districts.rs b/cartalith-native/crates/cartalith-urban/src/districts.rs
+index d44c21c5..7ac1ef24 100644
+--- a/cartalith-native/crates/cartalith-urban/src/districts.rs
++++ b/cartalith-native/crates/cartalith-urban/src/districts.rs
+@@ -1118,6 +1118,103 @@ pub fn build_buildings(
+     out
+ }
+ 
++// ---------------------------------------------------- rear households ----
++
++/// A rear dwelling's depth, metres, front to back. **A labelled judgement**:
++/// a one-room-deep cottage, about the 7-8 m of the backland cottages the
++/// research describes (`MEDIEVAL_TOWN_GROWTH_RESEARCH.md`, backland), and
++/// under the reference's main range (at most about 11.5 m deep).
++pub const REAR_HOUSE_DEPTH_M: f64 = 8.0;
++
++/// The least gap, metres, between a rear dwelling and any other building on
++/// its lot. **Scope section 9.2's** *"set back from the front building by at
++/// least 4 m"*.
++pub const REAR_SETBACK_M: f64 = 4.0;
++
++/// The most of a town's lots that may carry a rear household. **The owner's**
++/// 40 % (Ruling GF, Q13 (a); scope section 5.2).
++pub const REAR_MAX_SHARE: f64 = 0.40;
++
++/// The least width of a rear dwelling, metres: section 8.4's needle building
++/// is a short side under 3 m (scope section 9.2: *"its short side is the lot
++/// width, never under 3 m"*).
++pub const REAR_MIN_W_M: f64 = 3.0;
++
++/// A rear dwelling's provenance, as [`Building::prov`] carries it.
++pub const PROV_REAR_HOUSE: &str = "Rear household (not the reference; PARALLEL_STREETS_SCOPE.md PS-5, section 9.2): a cottage at the back of a deep lot, reached by a lane within 30 m.";
++
++/// **Not the reference** (PS-5, `PARALLEL_STREETS_SCOPE.md` section 9.2;
++/// owner Rulings GC and GF): rear households, for the demand the front lots
++/// left unhoused. Up to `want` of them, on lots that are built, neither a
++/// churchyard nor ruined (`ruined`, index-aligned with `lots`), and served
++/// from behind (`crate::field::rear_served`: four-cornered, over 30 m deep, a
++/// street of `streets` within 30 m of the rear edge), nearest the market
++/// first (`Site::market_dist`; backland fills where land is dear), at most
++/// one a lot and on at most [`REAR_MAX_SHARE`] of `lots`. Each is a `main`
++/// range across the lot's back [`REAR_HOUSE_DEPTH_M`] deep, pushed onto
++/// `buildings`, on a lot whose back is at least [`REAR_MIN_W_M`] wide and
++/// whose other buildings all stand [`REAR_SETBACK_M`] clear of it. Returns
++/// how many it built; the caller counts each as one household. Draws nothing
++/// and changes no lot, so a town given `want` 0 is unchanged.
++#[allow(clippy::too_many_arguments)]
++pub fn build_rear_households(
++    lots: &[Lot<'_>],
++    ruined: &[bool],
++    buildings: &mut Vec<Building>,
++    streets: &[(Vec2, Vec2)],
++    site: &Site,
++    market: Vec2,
++    want: usize,
++) -> usize {
++    let cap = (REAR_MAX_SHARE * lots.len() as f64).floor() as usize;
++    let want = want.min(cap);
++    if want == 0 {
++        return 0;
++    }
++    let mut cand: Vec<(f64, usize)> = lots
++        .iter()
++        .enumerate()
++        .filter(|&(i, l)| l.built && !l.churchyard && !ruined[i] && crate::field::rear_served(&l.par.poly, streets) == Some(true))
++        .map(|(i, l)| (site.market_dist(poly_centroid(&l.par.poly), market), i))
++        .collect();
++    cand.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
++    // Ids continue the run's `bld` count past its highest (a trim may have
++    // removed buildings, so the length is not the next id).
++    let mut next_id = buildings.iter().filter_map(|b| b.id.strip_prefix("bld")?.parse::<usize>().ok()).max().map_or(0, |m| m + 1);
++    let mut made = 0usize;
++    for (_, i) in cand {
++        if made == want {
++            break;
++        }
++        let par = lots[i].par;
++        if par.poly[2].dist(par.poly[3]) < REAR_MIN_W_M || par.depth <= REAR_HOUSE_DEPTH_M + REAR_SETBACK_M {
++            continue;
++        }
++        let v0 = 1.0 - REAR_HOUSE_DEPTH_M / par.depth;
++        let clear = rect_poly(par, 0.0, 1.0, v0 - REAR_SETBACK_M / par.depth, 1.0);
++        let touches = |b: &Building| b.poly.iter().any(|&q| point_in_poly(q, &clear)) || clear.iter().any(|&q| point_in_poly(q, &b.poly));
++        if buildings.iter().any(|b| b.parcel == par.id && touches(b)) {
++            continue;
++        }
++        let poly = rect_poly(par, 0.0, 1.0, v0, 1.0);
++        let ridge = ridge_of(&poly, false);
++        buildings.push(Building {
++            id: format!("bld{next_id}"),
++            poly,
++            ridge,
++            parcel: par.id.clone(),
++            kind: "main",
++            district: lots[i].district,
++            age: par.age,
++            courtyard: false,
++            prov: PROV_REAR_HOUSE,
++        });
++        next_id += 1;
++        made += 1;
++    }
++    made
++}
++
+ // ----------------------------------------------------------- faith sites ----
+ 
+ /// A tower on a place of worship — a spire, a minaret or a dome.
+diff --git a/cartalith-native/crates/cartalith-urban/src/districts/tests.rs b/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
+index 16c70764..03e2f0c1 100644
+--- a/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/districts/tests.rs
+@@ -1050,3 +1050,71 @@ fn the_pastoral_paddock_radius_is_exactly_62_percent_of_max_rf() {
+          paddocks start at {nearest_paddock:.4}; 0.62 must lie between them"
+     );
+ }
++
++/// Protects PS-5's rear households (`build_rear_households`, scope section 9.2):
++/// twelve lots 10 m wide and 40 m deep in a row along a street at y = 0, a lane
++/// 25 m behind their backs (y = 65). Nearest the market first, at most 40 %
++/// of the lots (4 of the first 10, 4 of all 12: floor(4.0) and floor(4.8)), a
++/// lot with another building inside its dwelling's 4 m setback (#1, an
++/// outbuilding reaching y = 28.5) or that is ruined (#2) skipped, a lot with
++/// one 4.5 m clear of it (#3, reaching y = 27.5) built; each dwelling the lot's
++/// full width across its back 8 m (y 32-40), a `main` range with its own prov
++/// and the next `bld` id. A back 3 m wide is built and 2.9 m is not; a lane 31 m
++/// behind serves none, and `want` 0 builds none and touches nothing.
++#[test]
++fn rear_households_fill_served_deep_lots_nearest_the_market_up_to_forty_percent() {
++    use crate::districts::{PROV_REAR_HOUSE, build_rear_households};
++    let v = |x: f64, y: f64| Vec2::new(x, y);
++    let lot = |k: usize, back_w: f64| {
++        let x = 10.0 * k as f64;
++        Parcel {
++            id: format!("par{k}"),
++            poly: vec![v(x, 0.0), v(x + 10.0, 0.0), v(x + back_w, 40.0), v(x, 40.0)],
++            block: "b".into(),
++            frontage: 10.0,
++            depth: 40.0,
++            area: 400.0,
++            age: 3.0,
++            edge_cls: "street",
++            tone: 0.0,
++            wall_backing: crate::wallside::WallBacking::No,
++            courtyard_ring: false,
++            gate_quality: None,
++        }
++    };
++    let pars: Vec<Parcel> = (0..12).map(|k| lot(k, 10.0)).collect();
++    fn mk(ps: &[Parcel]) -> Vec<Lot<'_>> {
++        ps.iter().map(|p| Lot { par: p, district: "burgher", prov_district: "", suitability: 1.0, empty: false, unsuitable: false, built: true, churchyard: false }).collect()
++    }
++    let lots = mk(&pars);
++    let bld = |id: &str, par: &str, y0: f64, y1: f64, x: f64| Building { id: id.into(), poly: vec![v(x + 1.0, y0), v(x + 9.0, y0), v(x + 9.0, y1), v(x + 1.0, y1)], ridge: [v(x, y0), v(x, y1)], parcel: par.into(), kind: "main", district: "burgher", age: 0.0, courtyard: false, prov: "test" };
++    let base = vec![bld("bld0", "par0", 0.0, 11.0, 0.0), bld("bld7", "par1", 20.0, 28.5, 10.0), bld("bld3", "par3", 15.0, 27.5, 30.0)];
++    let mut ruined = vec![false; 12];
++    ruined[2] = true;
++    let site = build_site(4242, 1700.0, 1250.0, "inland", SiteOpts::default());
++    let market = v(-20.0, 0.0);
++    let lane = |y: f64| vec![(v(-10.0, 0.0), v(200.0, 0.0)), (v(-10.0, y), v(200.0, y))];
++    let built = |lots: &[Lot<'_>], b: &mut Vec<Building>, y: f64, want: usize| {
++        let n = build_rear_households(lots, &ruined[..lots.len()], b, &lane(y), &site, market, want);
++        (n, b.iter().filter(|x| x.prov == PROV_REAR_HOUSE).map(|x| x.parcel.clone()).collect::<Vec<_>>())
++    };
++    let mut b = base.clone();
++    assert_eq!(built(&lots[..10], &mut b, 65.0, 10), (4, vec!["par0".to_string(), "par3".into(), "par4".into(), "par5".into()]), "nearest first, #1 and #2 skipped, 4 of 10");
++    let rear: Vec<&Building> = b.iter().filter(|x| x.prov == PROV_REAR_HOUSE).collect();
++    assert_eq!((rear[0].id.as_str(), rear[3].id.as_str()), ("bld8", "bld11"), "ids follow the highest");
++    assert_eq!(rear[0].poly, vec![v(0.0, 32.0), v(10.0, 32.0), v(10.0, 40.0), v(0.0, 40.0)], "the back 8 m, full width");
++    assert_eq!(rear[0].kind, "main");
++    assert_eq!(built(&lots, &mut base.clone(), 65.0, 12).0, 4, "4 of 12");
++    assert_eq!(built(&lots, &mut base.clone(), 65.0, 2).0, 2, "only the demand");
++    assert_eq!(built(&lots, &mut base.clone(), 71.0, 12).0, 0, "a lane 31 m behind serves none");
++    let mut b0 = base.clone();
++    assert_eq!(built(&lots, &mut b0, 65.0, 0).0, 0, "no demand, none");
++    assert_eq!(b0, base, "and nothing is touched");
++    // The back's width: lot 0 of three (cap 1) with a back 3 m wide is built, 2.9 m is not.
++    for (w, n) in [(3.0, 1), (2.9, 0)] {
++        let ps = [lot(0, w), lot(5, 10.0), lot(6, 10.0)];
++        let ls = mk(&ps);
++        let got = built(&ls, &mut Vec::new(), 65.0, 1);
++        assert_eq!((got.0, got.1.first().map(String::as_str) == Some("par0")), (1, n == 1), "a back {w} m wide");
++    }
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/field.rs b/cartalith-native/crates/cartalith-urban/src/field.rs
+index 46ba7cee..10357e8f 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field.rs
+@@ -775,6 +775,25 @@ pub fn plan(site: &Site, g: &Graph, market: Vec2, plaza: Option<&[Vec2]>, pop: f
+     ParallelPlan { town_type, approaches, field, ground: ground_gate(site, market, max_rf, both_banks), settled_m2: 0.0, settled_bank_m2: 0.0, samples }
+ }
+ 
++/// PS-5's platting tier (`PARALLEL_STREETS_SCOPE.md` section 4, "plot depth
++/// by quarter"; owner Ruling HT): whether block `poly` is platted with the
++/// deep-plot depths (`blocks::build_parcels_with`'s `tier`). It is when the
++/// block is four-cornered ([`block_corners`]) and near-rectangular
++/// ([`rectangularity`] at least `cleanup::KEEP_RECT`, the closed blocks PS-2
++/// keeps whole; scope 8.6 item 4: *"cut deep lots only where the block is
++/// near-rectangular"*), and its centroid lies in the grain
++/// (`field.at` at least `growth::PARALLEL_STRONG`, the strength PS-2 lays back
++/// streets at), so the organic core and the seams keep today's lots. Reads
++/// only.
++pub fn in_tier(field: &DirectionField, site: &Site, market: Vec2, poly: &[Vec2]) -> bool {
++    let deep_any = std::env::var("PS5_DEEPALL").is_ok() && block_mabr(poly).1 >= 60.0; // SCRATCH-PS5
++    if !deep_any && (block_corners(poly) != 4 || rectangularity(poly) < crate::cleanup::KEEP_RECT) {
++        return false;
++    }
++    let c = crate::geom::poly_centroid(poly);
++    field.at(c, site.market_dist(c, market)).strength >= crate::growth::PARALLEL_STRONG
++}
++
+ /// Scope section 9.2's access rule for a rear household (Ruling GF, Q13 (a)):
+ /// a rear dwelling needs a back lane (PS-3's back-street tier) within this
+ /// many metres, or a 2.5 m side passage. **The owner's** 30 m.
+diff --git a/cartalith-native/crates/cartalith-urban/src/field/tests.rs b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+index 98246a42..4dc25b18 100644
+--- a/cartalith-native/crates/cartalith-urban/src/field/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/field/tests.rs
+@@ -347,3 +347,24 @@ fn a_deep_lot_is_served_from_behind_only_by_a_street_within_30_m_of_its_rear_edg
+     assert!((rear_access_m(&lot, &street(65.0)).unwrap() - 25.0).abs() < 1e-12);
+     assert_eq!(rear_access_m(&lot, &[]), None, "no street, no distance");
+ }
++
++/// Protects PS-5's platting tier (`in_tier`): a four-cornered rectangle 40 m
++/// off a straight road (strength 1/(1+(40/80)^2) = 0.8, over 0.5) is in the
++/// tier; the same rectangle 100 m off (0.39), an L, a sheared block
++/// (rectangularity 0.67), and the rectangle inside an organic core are not.
++#[test]
++fn a_tier_block_is_four_cornered_near_rectangular_and_in_a_strong_grain() {
++    let v = |x: f64, y: f64| Vec2::new(x, y);
++    let site = build_site(4242, 1700.0, 1250.0, "inland", SiteOpts::default());
++    let f = one(v(0.0, 0.0), v(1000.0, 0.0));
++    let m = v(0.0, 0.0);
++    let rect = |y0: f64| [v(100.0, y0), v(200.0, y0), v(200.0, y0 + 40.0), v(100.0, y0 + 40.0)];
++    assert!(in_tier(&f, &site, m, &rect(20.0)), "a rectangle in the grain");
++    assert!(!in_tier(&f, &site, m, &rect(80.0)), "too far from the road: a weak grain");
++    let ell = [v(100.0, 20.0), v(200.0, 20.0), v(200.0, 40.0), v(150.0, 40.0), v(150.0, 60.0), v(100.0, 60.0)];
++    assert!(!in_tier(&f, &site, m, &ell), "an L is not four-cornered");
++    let shear = [v(100.0, 20.0), v(200.0, 20.0), v(250.0, 60.0), v(150.0, 60.0)];
++    assert!(!in_tier(&f, &site, m, &shear), "a sheared block is under 0.75");
++    let cored = DirectionField { core_m: 1000.0, ..f.clone() };
++    assert!(!in_tier(&cored, &site, m, &rect(20.0)), "inside the organic core");
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/generate.rs b/cartalith-native/crates/cartalith-urban/src/generate.rs
+index 8716b01b..7ef777f4 100644
+--- a/cartalith-native/crates/cartalith-urban/src/generate.rs
++++ b/cartalith-native/crates/cartalith-urban/src/generate.rs
+@@ -1481,8 +1481,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+     // waterfront back street and water lanes, laid first so the embankment
+     // below runs along all of it and the strip between closes into waterfront
+     // blocks. Organic plan only (the radial plan lays its own rings).
++    // **Not the reference** (PS-5, owner Rulings HB Q23 (a) and HD Q26): a
++    // town with a grain lays its water lanes through the riverside wall, and a
++    // water gate is opened where each crosses the finished circuit (below,
++    // after the wall is set off the water). Off is change 5 exactly.
++    let water_gate = parallel.as_ref().is_some_and(|p| p.field.is_some()) && scratch_knob("PS5_GATE"); // SCRATCH-PS5
+     let waterfront = if riverbank && pop_target >= BOTH_BANKS_MIN_POP && profile.planning != "radial" {
+-        Some(crate::riverbank::lay_back_street(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed))
++        Some(crate::riverbank::lay_back_street_with(&site, &mut g, wall_state.ring.as_deref(), plaza.as_ref().map(|p| p.poly.as_slice()), seed, water_gate))
+     } else {
+         None
+     };
+@@ -1518,7 +1523,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+         crate::cleanup::sweep_wet_streets(&site, &mut g, anchors.market);
+     }
+     let blocks = build_blocks(&g, plaza.as_ref(), &site);
+-    let mut parcels = crate::blocks::build_parcels_with(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules), burgage);
++    // **Not the reference** (PS-5, owner Ruling HT; `crate::field::in_tier`):
++    // a town with a grain plats its near-rectangular blocks in the grain with
++    // the deep-plot depths. `None` without a grain: today's platting.
++    let grain = parallel.as_ref().and_then(|p| p.field.as_ref()).filter(|_| scratch_knob("PS5_PLAT")); // SCRATCH-PS5
++    let (site_ref, market) = (&site, anchors.market);
++    let tier = grain.map(|f| move |poly: &[Vec2]| crate::field::in_tier(f, site_ref, market, poly));
++    let mut parcels = crate::blocks::build_parcels_with(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules), burgage, tier.as_ref().map(|t| t as &dyn Fn(&[Vec2]) -> bool));
+     // **Not the reference** (Ruling FE item 2, `crate::village::plat_tofts`): a
+     // street village's roads are lined with tofts up to its target, after the
+     // block lots (which they never overlap) and before the wall hug, so a
+@@ -1554,6 +1565,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+     if opts.bank_sites {
+         crate::wallhug::wall_off_water(&mut wall_state, &site);
+     }
++    // PS-5 (Ruling HD Q26): the water gates of the lanes laid through the wall,
++    // on the circuit as it is now drawn, after `wall_off_water` (which reads
++    // water gates as leave to keep a wet run, so they must not exist before it).
++    if water_gate && let Some(ring) = wall_state.ring.as_deref() {
++        let gates = crate::riverbank::water_gates(&g, ring);
++        wall_state.gates.extend(gates);
++    }
+     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
+     // backing onto the wall from inside, and a faubourg against it outside.
+     // Appended after every street-platted lot and drawn from their own
+@@ -1662,6 +1680,20 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
+             pop += 5.2;
+         }
+     }
++    // **Not the reference** (PS-5, scope section 9.2; owner Rulings GC and
++    // GF; `crate::districts::build_rear_households`): a town with a grain
++    // houses the demand its front lots left in rear households on its deep
++    // lots served from behind, each one household of 5.2. Nothing for a town
++    // without a grain or one its front lots already house.
++    if parallel.as_ref().is_some_and(|p| p.field.is_some()) && pop < pop_target && scratch_knob("PS5_REAR") { // SCRATCH-PS5
++        let streets: Vec<(Vec2, Vec2)> = g.edges.iter().filter(|e| e.alive).map(|e| (g.nodes[e.a].pt(), g.nodes[e.b].pt())).collect();
++        let want = ((pop_target - pop) / 5.2).ceil() as usize;
++        let rear = crate::districts::build_rear_households(&lots, &parcel_ruined, &mut buildings, &streets, &site, anchors.market, want);
++        building_ruined.resize(buildings.len(), false);
++        for _ in 0..rear {
++            pop += 5.2;
++        }
++    }
+     let pop = js_round(pop);
+ 
+     // `par.cleared`, written by the two sweeps below and read by neither.
+@@ -2072,3 +2104,9 @@ pub fn hash_model(m: &Town) -> u32 {
+     }
+     fnv1a(&parts.join("|"))
+ }
++
++/// SCRATCH (PS-5 measurement; removed before commit): a piece is on unless
++/// its environment knob is `0`.
++fn scratch_knob(k: &str) -> bool {
++    std::env::var(k).map_or(true, |v| v != "0")
++}
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth.rs b/cartalith-native/crates/cartalith-urban/src/growth.rs
+index fd76585d..6031a4ad 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth.rs
+@@ -602,6 +602,9 @@ pub fn grow(
+         0.0
+     };
+     let mut placed_len = 0.0f64;
++    // PS-3 (`Tier`): the back-street tiers laid so far, kept whole. Empty
++    // without a grain, so nothing is tested on a reference path.
++    let mut tiers: Vec<Tier> = Vec::new();
+ 
+     for ep in 1..=epochs {
+         let mut r = stream(seed, &format!("grow/e{ep}"));
+@@ -775,8 +778,13 @@ pub fn grow(
+             }
+             let par = opts.field.as_ref().map(|f| (f, anchors.market));
+             let made = match (back, par) {
+-                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par),
+-                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None).map(|m| m.0),
++                (Some(perp), Some(par)) => lay_back_street(&mut rb, s, site, g, wall_state, o, perp, ep, par, &tiers).map(|(m, t)| {
++                    if knob("PS5_TIER", 1.0) > 0.0 { // SCRATCH-PS5
++                        tiers.extend(t);
++                    }
++                    m
++                }),
++                _ => legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, "", opts.wide_spacing, par, None, &tiers).map(|m| m.0),
+             };
+             let Some(made) = made else {
+                 continue;
+@@ -853,6 +861,7 @@ fn legalize_street(
+     wide_spacing: bool,
+     par: Option<(&crate::field::DirectionField, Vec2)>,
+     fixed_len: Option<f64>,
++    tiers: &[Tier],
+ ) -> Option<(Vec<usize>, Vec2)> {
+     // segment lengths M-NET-4. **Not the reference** (PS-2's back street,
+     // `fixed_len`): the rib to a back street is exactly the block depth, and
+@@ -914,6 +923,14 @@ fn legalize_street(
+             return None;
+         }
+     }
++    // **Not the reference** (PS-3's back-street tier, `Tier`): no street is
++    // laid through the inside of a tier, so the block between a frontage and
++    // its back street stays one block depth deep. `tiers` is empty without a
++    // grain, so no reference path tests anything.
++    let mid = o.lerp(b, 0.5);
++    if tiers.iter().any(|t| t.holds(mid)) {
++        return None;
++    }
+     if refused_by_site(site, wall_state, o, b) {
+         return None;
+     }
+@@ -1051,6 +1068,51 @@ pub const CROSS_NODE_CLEAR_M: f64 = 30.0;
+ /// A cross lane must meet the far parallel within this of square, radians
+ /// (scope 9.1: 5 degrees).
+ pub const CROSS_SQUARE_RAD: f64 = 5.0 * PI / 180.0;
++/// How far inside a tier's edges a street's midpoint must lie to be refused
++/// ([`Tier::holds`]), metres. **A labelled judgement**: about a lot's frontage
++/// (today's median 7.8 m) plus half a street, so a street that closes a
++/// tier's end, or runs along its frontage or its back street, is still laid.
++pub const TIER_EDGE_M: f64 = 12.0;
++/// SCRATCH (PS-5 measurement; removed before commit).
++fn knob(k: &str, d: f64) -> f64 {
++    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
++}
++
++/// A tier's closing lane keeps this far from any node where it meets the
++/// frontage, metres. **A labelled judgement**: `Graph::add_street`'s node
++/// snap (11 m) plus a metre, so the lane ends on the frontage where it was
++/// aimed and is never pulled onto a node (which would skew it off square).
++pub const TIER_CLOSE_CLEAR_M: f64 = 12.0;
++
++/// **Not the reference** (PS-3, `PARALLEL_STREETS_SCOPE.md` section 6: the
++/// back-street tier). The band a back street closes: from the frontage point
++/// `o`, `v` the unit rib direction (toward the back street, [`BACK_DEPTH_M`]
++/// away) and `u` the unit direction along it, the back street walked from
++/// `lo` to `hi` metres along `u`. Why: PS-2's back streets made 90 m blocks
++/// that ordinary branches then cut up (scope section 11: depth across stayed
++/// at 29 m, 83 m+ at 3.7 %); a tier refuses those branches, so the block stays
++/// two plot depths and a yard deep. Must never refuse a street on a town
++/// without a grain (only [`lay_back_street`] makes one).
++#[derive(Debug, Clone, Copy)]
++pub struct Tier {
++    pub o: Vec2,
++    pub u: Vec2,
++    pub v: Vec2,
++    pub lo: f64,
++    pub hi: f64,
++}
++
++impl Tier {
++    /// Whether `p` lies inside the tier by more than [`TIER_EDGE_M`] from each
++    /// of its four sides.
++    pub fn holds(&self, p: Vec2) -> bool {
++        let d = p - self.o;
++        let (a, c) = (d.dot(self.u), d.dot(self.v));
++        let e = TIER_EDGE_M;
++        a > self.lo + e && a < self.hi - e && c > e && c < BACK_DEPTH_M - e
++    }
++}
++
+ const BACK_PROV: &str = " Back street (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): one block depth behind its frontage, along the grain.";
+ const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.md PS-2): closes a block square between two parallels.";
+ 
+@@ -1063,6 +1125,10 @@ const CROSS_PROV: &str = "Cross lane (not the reference; PARALLEL_STREETS_SCOPE.
+ /// kept as an ordinary street. Every piece passes `legalize_street`'s rules
+ /// or [`refused_by_site`]'s; nothing is laid that they refuse. Only ever
+ /// called with a grain, so it never runs on a reference path.
++///
++/// PS-3: also returns the [`Tier`] the back street closes, where the walk
++/// laid at least one step, and refuses the rib like any street inside an
++/// earlier tier (`tiers`).
+ #[allow(clippy::too_many_arguments)]
+ fn lay_back_street(
+     r: &mut crate::rng::Substream,
+@@ -1074,36 +1140,55 @@ fn lay_back_street(
+     perp: f64,
+     ep: i32,
+     par: (&crate::field::DirectionField, Vec2),
+-) -> Option<Vec<usize>> {
+-    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M))?;
++    tiers: &[Tier],
++) -> Option<(Vec<usize>, Option<Tier>)> {
++    let (mut made, p) = legalize_street(r, s, site, g, wall_state, o, perp, false, ep, BACK_PROV, false, Some(par), Some(BACK_DEPTH_M), tiers)?;
+     if p.dist(o) < BACK_DEPTH_M - 1.0 {
+-        return Some(made);
++        return Some((made, None));
+     }
+-    for dir in [perp + PI / 2.0, perp - PI / 2.0] {
++    let u0 = Vec2::new(js_cos(perp + PI / 2.0), js_sin(perp + PI / 2.0));
++    let mut ext = [0.0f64; 2];
++    let mut closed = [true; 2];
++    for (k, dir) in [perp + PI / 2.0, perp - PI / 2.0].into_iter().enumerate() {
+         let u = Vec2::new(js_cos(dir), js_sin(dir));
+         let (mut end, mut walked) = (p, 0.0);
+         let mut next = CROSS_STEP_M * r.range(0.8, 1.2);
+         for _ in 0..BACK_WALK_STEPS {
+-            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None) else { break };
++            let Some((m, b)) = legalize_street(r, s, site, g, wall_state, end, dir, true, ep, BACK_PROV, false, Some(par), None, tiers) else { break };
+             made.extend(m);
+             let seg = b.dist(end);
+             while next < walked + seg - CROSS_NODE_CLEAR_M {
+                 // A station within `CROSS_NODE_CLEAR_M` of the node the walk has just reached is refused by `cross_lane`'s own
+                 // node clearance, so no test of it is made here.
+-                if let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep) {
++                if let Some(c) = cross_lane(site, g, wall_state, end + u * (next - walked), perp + PI, ep, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M) {
+                     made.extend(c);
+                 }
+                 next += CROSS_STEP_M * r.range(0.8, 1.2);
+             }
+             walked += seg;
++            ext[k] = walked;
+             end = b;
+             // The step ended on a street (a T): the back street stops there.
+             if g.nearest_node(b.x, b.y, 0.5).is_some_and(|n| g.live_adj(n).count() > 1) {
+                 break;
+             }
+         }
++        // PS-3 (`Tier`): a walk that ends free is closed by a lane from its
++        // end back to the frontage, square, so the tier is a whole
++        // four-cornered block (`lane_pass_with` then keeps it).
++        if walked > 0.0 && g.nearest_node(end.x, end.y, 0.5).is_some_and(|n| g.live_adj(n).count() == 1) && knob("PS5_TIER", 1.0) > 0.0 && knob("PS5_CLOSE", 1.0) > 0.0 { // SCRATCH-PS5
++            if let Some(c) = cross_lane(site, g, wall_state, end, perp + PI, ep, 0.0, TIER_CLOSE_CLEAR_M) {
++                made.extend(c);
++            } else {
++                closed[k] = false;
++            }
++        }
++    }
++    if knob("PS5_TIER", 1.0) > 1.5 && !(closed[0] && closed[1]) { // SCRATCH-PS5: a tier only where it closed
++        return Some((made, None));
+     }
+-    Some(made)
++    let tier = (ext[0] + ext[1] > 0.0).then(|| Tier { o, u: u0, v: Vec2::new(js_cos(perp), js_sin(perp)), lo: -ext[1], hi: ext[0] });
++    Some((made, tier))
+ }
+ 
+ /// **Not the reference** (PS-2's `closing` mode, scope 9.1): a cross lane
+@@ -1112,7 +1197,13 @@ fn lay_back_street(
+ /// [`CROSS_SQUARE_RAD`] of square to it, both ends are [`CROSS_NODE_CLEAR_M`]
+ /// from every node, and [`refused_by_site`] passes it; then laid with both
+ /// ends exact (`add_street` edge-snaps them where they are). Draws nothing.
+-fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32) -> Option<Vec<usize>> {
++///
++/// PS-3: `start_clear_m` and `end_clear_m` are the node clearances at each
++/// end ([`CROSS_NODE_CLEAR_M`] both for PS-2's stations); a tier's closing
++/// lane starts on the walk's own end node (0, untested) and keeps
++/// [`TIER_CLOSE_CLEAR_M`] at the frontage.
++#[allow(clippy::too_many_arguments)]
++fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang: f64, ep: i32, start_clear_m: f64, end_clear_m: f64) -> Option<Vec<usize>> {
+     let far = st + Vec2::new(js_cos(ang), js_sin(ang)) * (1.25 * BACK_DEPTH_M);
+     let mut hit: Option<(f64, Vec2, f64)> = None;
+     for eid in g.edges_near(st, far) {
+@@ -1133,8 +1224,8 @@ fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang:
+     let (_, b, e_ang) = hit?;
+     let sq = (e_ang - ang).rem_euclid(PI);
+     if (sq - PI / 2.0).abs() > CROSS_SQUARE_RAD
+-        || g.nearest_node(st.x, st.y, CROSS_NODE_CLEAR_M).is_some()
+-        || g.nearest_node(b.x, b.y, CROSS_NODE_CLEAR_M).is_some()
++        || (start_clear_m > 0.0 && g.nearest_node(st.x, st.y, start_clear_m).is_some())
++        || g.nearest_node(b.x, b.y, end_clear_m).is_some()
+         || refused_by_site(site, wall_state, st, b)
+     {
+         return None;
+@@ -1278,7 +1369,7 @@ pub fn grow_far_bank(
+         if !explore && r.u() > 1.35 / (1.0 + d / s.market_gradient_decay) {
+             continue;
+         }
+-        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None) else {
++        let Some((made, _)) = legalize_street(&mut r, s, site, g, wall_state, o, ang, explore, ep, FAR_BANK_PROV, opts.wide_spacing, None, None, &[]) else {
+             continue;
+         };
+         for eid in made {
+diff --git a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+index 3fb1a06f..0ca87d11 100644
+--- a/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
++++ b/cartalith-native/crates/cartalith-urban/src/growth/ps2.rs
+@@ -32,7 +32,7 @@ fn two_parallels() -> (Site, Graph, WallState) {
+ fn a_cross_lane_closes_square_and_is_refused_oblique_near_a_node_or_with_nothing_to_meet() {
+     let (site, mut g, ws) = two_parallels();
+     let before = g.edges.len();
+-    let laid = cross_lane(&site, &mut g, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).expect("a square lane between two parallels");
++    let laid = cross_lane(&site, &mut g, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).expect("a square lane between two parallels");
+     // The near street is split at (200, 100) and the far one at (200, 190): each split retires an edge for two, so the
+     // two splits and the lane add five edges (the lane is the one id returned).
+     assert_eq!((g.edges.len() - before, laid.len()), (5, 1), "{laid:?}");
+@@ -46,29 +46,29 @@ fn a_cross_lane_closes_square_and_is_refused_oblique_near_a_node_or_with_nothing
+     let mut g2 = Graph::new();
+     g2.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g2.add_street(0.0, 160.0, 400.0, 220.0, "street", 4.0, 1, "slanted");
+-    assert!(cross_lane(&site2, &mut g2, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a lane 9 degrees off square is refused");
++    assert!(cross_lane(&site2, &mut g2, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a lane 9 degrees off square is refused");
+     // Near a node: the start 20 m from the near street's end (x = 0).
+     let (site3, mut g3, _) = two_parallels();
+-    assert!(cross_lane(&site3, &mut g3, &ws, Vec2::new(20.0, 100.0), PI / 2.0, 1).is_none(), "a start within 30 m of a node is refused");
++    assert!(cross_lane(&site3, &mut g3, &ws, Vec2::new(20.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a start within 30 m of a node is refused");
+     // A node near the meeting point: the far street ends at (215, 190), 15 m from where the lane would meet it.
+     let mut g5 = Graph::new();
+     g5.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g5.add_street(0.0, 190.0, 215.0, 190.0, "street", 4.0, 1, "ends at x = 215");
+-    assert!(cross_lane(&site2, &mut g5, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a meeting point within 30 m of a node is refused");
++    assert!(cross_lane(&site2, &mut g5, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a meeting point within 30 m of a node is refused");
+     // A short lane is laid, a 1 m one (a street just beside the start) is not.
+     let mut g6 = Graph::new();
+     g6.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g6.add_street(0.0, 130.0, 400.0, 130.0, "street", 4.0, 1, "30 m away");
+-    assert!(cross_lane(&site2, &mut g6, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_some(), "a 30 m lane is laid");
++    assert!(cross_lane(&site2, &mut g6, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_some(), "a 30 m lane is laid");
+     let mut g7 = Graph::new();
+     g7.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g7.add_street(0.0, 101.0, 400.0, 101.0, "street", 4.0, 1, "1 m away");
+-    assert!(cross_lane(&site2, &mut g7, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a street within 3 % of the reach is not a meeting");
++    assert!(cross_lane(&site2, &mut g7, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a street within 3 % of the reach is not a meeting");
+     // Nothing to meet: the far street is 150 m away, past 1.25 depths.
+     let mut g4 = Graph::new();
+     g4.add_street(0.0, 100.0, 400.0, 100.0, "street", 4.0, 1, "near");
+     g4.add_street(0.0, 250.0, 400.0, 250.0, "street", 4.0, 1, "too far");
+-    assert!(cross_lane(&site2, &mut g4, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1).is_none(), "a street beyond 112.5 m is not met");
++    assert!(cross_lane(&site2, &mut g4, &ws, Vec2::new(200.0, 100.0), PI / 2.0, 1, CROSS_NODE_CLEAR_M, CROSS_NODE_CLEAR_M).is_none(), "a street beyond 112.5 m is not met");
+ }
+ 
+ /// Protects the grain's switch in `grow`: with the switch off a town has no back street and no cross lane; with it on
+@@ -117,7 +117,7 @@ fn a_street_does_not_end_as_a_t_on_a_street_oblique_to_a_strong_grain() {
+         let mut g = Graph::new();
+         g.add_street(0.0, 190.0, 400.0, 190.0, "street", 4.0, 1, "horizontal");
+         let mut r = stream(7, "oblique");
+-        legalize_street(&mut r, &rules, &site, &mut g, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, true, 1, "", false, par.map(|f| (f, Vec2::new(900.0, 900.0))), Some(120.0)).map(|(_, end)| end)
++        legalize_street(&mut r, &rules, &site, &mut g, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, true, 1, "", false, par.map(|f| (f, Vec2::new(900.0, 900.0))), Some(120.0), &[]).map(|(_, end)| end)
+     };
+     let end = try_street(None).expect("laid with no grain");
+     assert!((end.x - 200.0).abs() < 1e-9 && (end.y - 190.0).abs() < 1e-9, "{end:?}");
+@@ -138,7 +138,7 @@ fn a_back_street_is_a_rib_of_one_depth_and_a_street_along_the_grain() {
+     let mut g = Graph::new();
+     g.add_street(0.0, 100.0, 800.0, 100.0, "street", 4.0, 1, "the frontage");
+     let mut r = stream(0, "back");
+-    let made = lay_back_street(&mut r, &rules, &site, &mut g, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, 1, par).expect("a back street on open ground");
++    let made = lay_back_street(&mut r, &rules, &site, &mut g, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, 1, par, &[]).expect("a back street on open ground").0;
+         let rib = g.edges.iter().find(|e| e.alive && (g.nodes[e.a].pt().x - 200.0).abs() < 1e-6 && (g.nodes[e.b].pt().x - 200.0).abs() < 1e-6).expect("the rib is on x = 200");
+     assert!((g.nodes[rib.a].pt().dist(g.nodes[rib.b].pt()) - BACK_DEPTH_M).abs() < 1e-6, "the rib is one block depth");
+     assert!(made.iter().all(|&i| g.edges[i].prov.contains(BACK_MARK) || g.edges[i].prov.contains(CROSS_MARK)));
+@@ -149,7 +149,7 @@ fn a_back_street_is_a_rib_of_one_depth_and_a_street_along_the_grain() {
+     let mut g2 = Graph::new();
+     g2.add_street(0.0, 150.0, 400.0, 150.0, "street", 4.0, 1, "across");
+     let mut r2 = stream(7, "back");
+-    let short = lay_back_street(&mut r2, &rules, &site, &mut g2, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, 1, par).expect("the rib is laid up to the street");
++    let short = lay_back_street(&mut r2, &rules, &site, &mut g2, &WallState::default(), Vec2::new(200.0, 100.0), PI / 2.0, 1, par, &[]).expect("the rib is laid up to the street").0;
+     assert_eq!(short.len(), 1, "a rib that meets a street first is the only edge laid");
+ }
+ 
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank.rs b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+index 1b8ac214..2ba3885d 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank.rs
+@@ -38,6 +38,7 @@
+ use crate::districts::TERRAIN_BUILD_MIN;
+ use crate::geom::{Vec2, dist_pt_seg, js_or, point_in_poly, seg_int, simplify};
+ use crate::graph::Graph;
++use crate::growth::{Gate, ring_crossings};
+ use crate::plaza::PLAZA_MARKET_POP;
+ use crate::rng::stream;
+ use crate::routes::Anchors;
+@@ -643,6 +644,19 @@ const WATER_LANE_PROV: &str = "Water lane (not the reference; 2026-11-15, TOWN_G
+ /// box, across the town wall (`wall`) or through the square, and it adds edges
+ /// only.
+ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32) -> Waterfront {
++    lay_back_street_with(site, g, wall, plaza, seed, false)
++}
++
++/// [`lay_back_street`], and with `water_gate` (**not the reference**; owner
++/// Ruling HB Q23 (a), 2026-11-22, `PARALLEL_STREETS_SCOPE.md` section 17) a
++/// water lane is laid through the town's wall instead of refused by it: the
++/// wall of a one-bank river town follows its bank between the back line and
++/// the embankment (`fortify`), so without this every water lane of a walled
++/// town crosses it and none is laid (PS-4). `generate` then opens a water
++/// gate where each such lane crosses the finished circuit ([`water_gates`]),
++/// so the rampart sweep keeps it. `false` is [`lay_back_street`] exactly. It
++/// must never let a back street or a tie through the wall: only the lanes.
++pub fn lay_back_street_with(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza: Option<&[Vec2]>, seed: u32, water_gate: bool) -> Waterfront {
+     let mut out = Waterfront::default();
+     let r = &site.river;
+     if !site.riverbank() || r.len() < 2 {
+@@ -807,7 +821,7 @@ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza:
+             at.push(run.len() - 1);
+             for k in at {
+                 let (b, _, w) = run[k];
+-                if dry_on_side_w(site, b, w, side, WATER_LANE_W) && !crosses_wall(b, w, wall) && !crosses_plaza(b, w) {
++                if dry_on_side_w(site, b, w, side, WATER_LANE_W) && (water_gate || !crosses_wall(b, w, wall)) && !crosses_plaza(b, w) {
+                     g.add_street(b.x, b.y, w.x, w.y, "lane", WATER_LANE_W, 0, WATER_LANE_PROV);
+                     out.lanes += 1;
+                 }
+@@ -822,6 +836,30 @@ pub fn lay_back_street(site: &Site, g: &mut Graph, wall: Option<&[Vec2]>, plaza:
+     out
+ }
+ 
++/// The provenance string of a water gate [`water_gates`] opens: a postern, the
++/// only water gate the shell draws (`urban_bridge`'s `wall_posterns`; owner
++/// Ruling HD Q26). Every other water gate (the river under the circuit, the
++/// harbour mouth) stays undrawn, as in the reference.
++pub const WATER_GATE_PROV: &str = "Water gate (not the reference; PARALLEL_STREETS_SCOPE.md PS-5, owner Rulings HB Q23 (a) and HD Q26): a postern in the riverside wall where a water lane runs from the waterfront back street down to the bank.";
++
++/// **Not the reference** (owner Ruling HB Q23 (a), 2026-11-22): a water gate
++/// at every point where a live water lane ([`lay_back_street_with`] with
++/// `water_gate`) crosses the finished circuit `ring`, so
++/// `cleanup::clear_fort_zone` keeps the lane (it kills an edge crossing the
++/// ring with no gate within its reach). Called after the wall is refitted and
++/// set on the shore, so the gates stand on the circuit that is drawn. Gates
++/// are `water: true`: the reference draws no water gate, and the wall lots
++/// (`crate::wallside`) read only the land gates. Must never open a gate on an
++/// edge that is not a water lane.
++pub fn water_gates(g: &Graph, ring: &[Vec2]) -> Vec<Gate> {
++    g.edges
++        .iter()
++        .filter(|e| e.alive && e.prov == WATER_LANE_PROV)
++        .flat_map(|e| ring_crossings(ring, g.nodes[e.a].pt(), g.nodes[e.b].pt()))
++        .map(|pt| Gate { pt, water: true, prov: WATER_GATE_PROV.to_string() })
++        .collect()
++}
++
+ /// What [`lay_town_bridge`] found or laid.
+ #[derive(Debug, Clone, Copy, PartialEq)]
+ pub enum TownBridge {
+diff --git a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+index 8afec049..c2258208 100644
+--- a/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
++++ b/cartalith-native/crates/cartalith-urban/src/riverbank/tests.rs
+@@ -1665,3 +1665,67 @@ fn the_bank_site_rules_reach_the_layout_only_where_something_stands_in_the_water
+     assert!(b.buildings.len() < a.buildings.len() && b.buildings.len() >= 150, "{} houses against {}", b.buildings.len(), a.buildings.len());
+     assert_eq!(hash_model(&generate(4242, &o)), hash_model(&generate(4242, &on)), "and leaves a town with nothing in the water alone");
+ }
++
++/// Protects PS-5's water gate (owner Rulings HB Q23 (a) and HD Q26, `lay_back_street_with`
++/// and `water_gates`, literals from a run): with the 20 m wall of
++/// `the_waterfront_points_carry_the_embankment`, which refuses every water
++/// lane, `water_gate` lays the same back street and its lanes through the
++/// wall, and `water_gates` opens one gate on the wall's water side (20 m out)
++/// per lane; a street or tie never passes the wall, and with `water_gate`
++/// false nothing changes.
++#[test]
++fn a_water_lane_passes_the_riverside_wall_at_a_water_gate() {
++    let r = RIVER_Y;
++    let ring = [Vec2::new(0.0, r - 20.0), Vec2::new(1700.0, r - 20.0), Vec2::new(1700.0, r - 400.0), Vec2::new(0.0, r - 400.0)];
++    let (site, g0) = bank_site_and_streets(&stand_back_town());
++    let (mut g, mut ga, mut gb) = (g0.clone(), g0.clone(), g0.clone());
++    let off = super::lay_back_street_with(&site, &mut ga, Some(&ring), None, 5, false);
++    assert_eq!(off, super::lay_back_street(&site, &mut gb, Some(&ring), None, 5), "false is lay_back_street");
++    assert_eq!(off.lanes, 0, "premise: the wall refuses every lane");
++    assert!(super::water_gates(&ga, &ring).is_empty(), "no lane, no gate");
++    let on = super::lay_back_street_with(&site, &mut g, Some(&ring), None, 5, true);
++    assert_eq!(on.streets, off.streets, "the same back street");
++    assert_eq!(on.lanes, 8, "lanes through the wall");
++    let gates = super::water_gates(&g, &ring);
++    assert_eq!(gates.len(), 8, "one gate per lane");
++    for gt in &gates {
++        assert!(gt.water && (gt.pt.y - (r - 20.0)).abs() < 1e-9, "a water gate on the water side: {:?}", gt.pt);
++    }
++    // Only lanes cross the wall.
++    for e in g.edges.iter().filter(|e| e.alive && !crate::growth::ring_crossings(&ring, g.nodes[e.a].pt(), g.nodes[e.b].pt()).is_empty()) {
++        assert_eq!(e.cls, "lane", "a {} edge crosses the wall", e.cls);
++    }
++    // A street through the wall opens no water gate, and a dead lane none.
++    g.add_street(100.0, r - 60.0, 100.0, r + 60.0, "street", 6.0, 0, "test");
++    assert_eq!(super::water_gates(&g, &ring).len(), 8, "a street is not a water lane");
++    let lane = g.edges.iter().find(|e| e.alive && e.prov == super::WATER_LANE_PROV).map(|e| e.id).unwrap();
++    crate::cleanup::kill_edge(&mut g, lane);
++    assert_eq!(super::water_gates(&g, &ring).len(), 7, "a dead lane keeps no gate");
++}
++
++/// Protects `generate`'s water gates (PS-5; owner Rulings HB Q23 (a) and HD Q26), opened after the wall is set off the
++/// water: on the
++/// fixture's straight river, a walled chartered town (6 000) with a grain
++/// (`parallel_streets`) keeps water lanes through its finished wall on some of
++/// the seeds 4240-4251, every crossing of the wall by a live water lane has a
++/// water gate on it (so the rampart sweep kept the lane), and with the switch
++/// off no water lane crosses the wall.
++#[test]
++fn a_walled_river_town_keeps_its_water_lanes_at_water_gates() {
++    let mut gated = 0;
++    for s in 4240..4252u32 {
++        for on in [false, true] {
++            let t = generate(s, &GenOpts { walls: Some(true), parallel_streets: on, ..opts(true, true) });
++            let Some(ring) = t.wall.ring.as_deref() else { continue };
++            let nodes = &t.graph.nodes;
++            for e in t.graph.edges.iter().filter(|e| e.prov == super::WATER_LANE_PROV) {
++                for cp in crate::growth::ring_crossings(ring, nodes[e.a].pt(), nodes[e.b].pt()) {
++                    assert!(on, "seed {s}: a water lane crosses the wall with the switch off");
++                    assert!(t.wall.gates.iter().any(|g| g.water && g.pt.dist(cp) < 1e-6), "seed {s}: a lane crosses the wall at {cp:?} with no water gate");
++                    gated += 1;
++                }
++            }
++        }
++    }
++    assert_eq!(gated, 89, "water lanes kept through the wall over the twelve seeds");
++}
+diff --git a/cartalith-native/godot-project/shell/urban_layout_draw.gd b/cartalith-native/godot-project/shell/urban_layout_draw.gd
+index bac4eb02..b4cdf8f0 100644
+--- a/cartalith-native/godot-project/shell/urban_layout_draw.gd
++++ b/cartalith-native/godot-project/shell/urban_layout_draw.gd
+@@ -900,7 +900,9 @@ static func _draw_farmland(ci: CanvasItem, layout: Dictionary, project: Callable
+ ## Water gates are carried by the bridge and deliberately not drawn, which is
+ ## what all three reference renderers do (`if(gt&&gt.pt&&!gt.water)`): a water
+ ## gate is the river passing under the circuit or the harbour mouth, and a
+-## marker there would read as a road entrance that is not one.
++## marker there would read as a road entrance that is not one. The one
++## exception is not the reference: PS-5's posterns (`"wall_posterns"`, owner
++## Ruling HD Q26), where a water lane passes the riverside wall, drawn small.
+ ##
+ ## **`bastioned` is a fourth branch, not a stone-family variant.** `wall_ring`
+ ## is `wall.fort`'s GORGE polygon (the containment ring through the bastion
+@@ -967,12 +969,15 @@ static func _draw_wall(ci: CanvasItem, layout: Dictionary, project: Callable,
+ 				ci.draw_circle(to_screen.call(v), tr, tower_col)
+ 
+ 	var gates: PackedVector2Array = layout.get("wall_gates", PackedVector2Array())
+-	if gates.is_empty():
+-		return
+ 	var gc: Color = GATE_PALISADE if style == "palisade" else GATE_STONE
+ 	var gr: float = maxf(px_floor * 0.8, (1.8 if style == "palisade" else 2.2) * m_scale)
+ 	for g in gates:
+ 		ci.draw_circle(to_screen.call(g), gr, Color(gc.r, gc.g, gc.b, alpha))
++	# **Not the reference** (PS-5, owner Ruling HD Q26): a postern where a water lane passes the riverside wall
++	# (`"wall_posterns"`, absent on every town without one), drawn as a gate at two-thirds a land gate's size so it
++	# reads as a small door, not a road entrance. The other water gates stay undrawn, as above.
++	for g in layout.get("wall_posterns", PackedVector2Array()):
++		ci.draw_circle(to_screen.call(g), gr * 0.67, Color(gc.r, gc.g, gc.b, alpha))
+ 
+ 
+ ## The citadel -- **not the reference** (Ruling I / AC). `"citadel_wall"` is
+diff --git a/cartalith-native/godot-project/shell/urban_layout_look.gd b/cartalith-native/godot-project/shell/urban_layout_look.gd
+index 8be31d7d..028523c6 100644
+--- a/cartalith-native/godot-project/shell/urban_layout_look.gd
++++ b/cartalith-native/godot-project/shell/urban_layout_look.gd
+@@ -603,9 +603,16 @@ static func _draw_curtain(ci: CanvasItem, layout: Dictionary, project: Callable,
+ 		_round_tower(ci, to_screen.call(v), tr, px_floor, alpha)
+ 
+ 	var gates: PackedVector2Array = layout.get("wall_gates", PackedVector2Array())
++	# **Not the reference** (PS-5, owner Ruling HD Q26): the posterns where a water lane passes the riverside wall
++	# (`"wall_posterns"`, absent on every town without one) are drawn after the land gates as the same paved
++	# opening at half its length, a small door rather than a road entrance.
++	var n_land := gates.size()
++	gates = gates + (layout.get("wall_posterns", PackedVector2Array()) as PackedVector2Array)
+ 	var hl := maxf(px_floor * 4.0, 6.0 * m_scale)
+ 	var hd := maxf(px_floor * 3.0, 4.0 * m_scale)
+-	for g in gates:
++	for gi in gates.size():
++		var g: Vector2 = gates[gi]
++		var hl_g := hl if gi < n_land else hl * 0.5
+ 		var t := _tangent_at(ring, g)
+ 		var gs: Vector2 = to_screen.call(g)
+ 		# `t` is a model-space direction; the screen direction of the same edge is the difference of two
+@@ -613,8 +620,8 @@ static func _draw_curtain(ci: CanvasItem, layout: Dictionary, project: Callable,
+ 		var ts: Vector2 = (to_screen.call(g + t) as Vector2) - gs
+ 		var ts_n := ts.normalized() if ts.length() > 0.0001 else Vector2.RIGHT
+ 		var ns := Vector2(-ts_n.y, ts_n.x)
+-		var quad := PackedVector2Array([gs - ts_n * hl - ns * hd, gs + ts_n * hl - ns * hd,
+-			gs + ts_n * hl + ns * hd, gs - ts_n * hl + ns * hd])
++		var quad := PackedVector2Array([gs - ts_n * hl_g - ns * hd, gs + ts_n * hl_g - ns * hd,
++			gs + ts_n * hl_g + ns * hd, gs - ts_n * hl_g + ns * hd])
+ 		BASE._fill_ground_polygon(ci, quad, Color(PAVING.r, PAVING.g, PAVING.b, alpha))
+ 		quad.append(quad[0])
+ 		## 1.2 SCREEN pixels, as `px_floor * 1.2`: the literal `maxf(px_floor, 1.2)` was 1.2 LOCAL units, which the map's

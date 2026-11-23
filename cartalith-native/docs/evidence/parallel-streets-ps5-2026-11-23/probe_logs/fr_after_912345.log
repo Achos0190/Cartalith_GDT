@@ -1,0 +1,74 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+ERROR: Error loading GDExtension configuration file: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: parse_gdextension_file (core/extension/gdextension_library_loader.cpp:282)
+ERROR: GDExtension dynamic library not found: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: open_library (core/extension/gdextension.cpp:810)
+ERROR: Error loading extension: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: load_extensions (core/extension/gdextension_manager.cpp:333)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 769d7fbdf347
+ERROR: Couldn't open directory at path "C:/cw/ps5_scratch/frames_scratch/appdata/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:882)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:912)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:980)
+       [3] _refresh (res://shell/open_project_dialog.gd:939)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5366)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2837)
+  PASS  the world generated (235 settlements)
+canvas (1296.0, 888.0)
+  TOWN #0 at (358,240) pop 21500
+  TOWN #3 at (20,105) pop 18161
+  TOWN #4 at (296,218) pop 25792
+  TOWN #8 at (139,163) pop 19111
+  TOWN #12 at (144,214) pop 2092
+  TOWN #13 at (375,190) pop 1971
+  TOWN #19 at (177,285) pop 23713
+  TOWN #25 at (81,105) pop 2034
+MEASURE seed 912345 grid 384x288: 235 settlements, 0 river-kind, 0 with water geometry, 0 with water in the opening frame, 0 MISS: []
+  PASS  a river 30 m off pulls the frame to it plus one river width, 140 m ([P: (0.0, -10.0), S: (140.0, 110.0)])
+  PASS  a river 100 m off (over 0.6 of 100 m) leaves the frame alone
+  PASS  a river through the built mass leaves the frame alone
+  PASS  no water leaves the frame alone
+  PASS  a 20 m hamlet reaches a river 25 m off (the 30 m floor, [P: (0.0, -3.375), S: (49.0, 23.375)])
+  PASS  a water body 20 m off pulls the frame to it
+  PASS  a map-water mask run 15 m off pulls the frame to it
+  PASS  urban_parallel_streets set live to 0
+  PASS  #0 has no plan with the switch off
+  PARALLEL0 #0 buildings 4358 edges 1280 type - approaches - ratio - ticks 0
+  PASS  #3 has no plan with the switch off
+  PARALLEL0 #3 buildings 4518 edges 1492 type - approaches - ratio - ticks 0
+  PASS  #4 has no plan with the switch off
+  PARALLEL0 #4 buildings 3348 edges 1131 type - approaches - ratio - ticks 0
+  PASS  #8 has no plan with the switch off
+  PARALLEL0 #8 buildings 3415 edges 1280 type - approaches - ratio - ticks 0
+  PASS  #12 has no plan with the switch off
+  PARALLEL0 #12 buildings 459 edges 171 type - approaches - ratio - ticks 0
+  PASS  #13 has no plan with the switch off
+  PARALLEL0 #13 buildings 646 edges 225 type - approaches - ratio - ticks 0
+  PASS  #19 has no plan with the switch off
+  PARALLEL0 #19 buildings 3975 edges 1234 type - approaches - ratio - ticks 0
+  PASS  #25 has no plan with the switch off
+  PARALLEL0 #25 buildings 908 edges 293 type - approaches - ratio - ticks 0
+  PASS  #1 has no plan with the switch off
+  PARALLEL0 #1 buildings 224 edges 42 type - approaches - ratio - ticks 0
+  PASS  urban_parallel_streets set live to 1
+  PARALLEL1 #0 buildings 5446 edges 1295 type organic_core approaches 3 ratio 1.88512731481481 ticks 1574
+  PARALLEL1 #3 buildings 4053 edges 1270 type market_street approaches 3 ratio 1.90035885167464 ticks 1485
+  PARALLEL1 #4 buildings 3316 edges 858 type organic_core approaches 3 ratio 2.16346696781479 ticks 1245
+  PARALLEL1 #8 buildings 3727 edges 1521 type organic_core approaches 1 ratio 2.42213687150838 ticks 2098
+  PARALLEL1 #12 buildings 473 edges 179 type organic_core approaches 3 ratio 3.30098684210526 ticks 391
+  PARALLEL1 #13 buildings 1057 edges 204 type market_street approaches 2 ratio 1.82369402985075 ticks 329
+  PARALLEL1 #19 buildings 4508 edges 1657 type organic_core approaches 3 ratio 1.8157747005988 ticks 1245
+  PARALLEL1 #25 buildings 611 edges 176 type market_street approaches 3 ratio 3.74519230769231 ticks 271
+  PARALLEL1 #1 buildings 224 edges 42 type - approaches - ratio - ticks 0
+  PASS  the live toggle moved 8 of 9 towns' layouts
+RESULT: PASS (0 failed) checks=20
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

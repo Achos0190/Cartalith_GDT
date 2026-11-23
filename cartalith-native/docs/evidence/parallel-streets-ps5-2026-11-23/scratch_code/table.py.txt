@@ -1,0 +1,34 @@
+"""table.py <gw> <run:variant> ...: one row of PS-5's bars per run (scratch, PS-5 evidence)."""
+import re, sys, csv, subprocess
+gw = sys.argv[1]
+def sect(a, name):
+    i = [k for k, l in enumerate(a) if l.startswith('== ' + name)][0]; return a[i:i+24]
+def block(sec, v):
+    i = [k for k, l in enumerate(sec) if f'[{v}]' in l][0]; return sec[i:i+11]
+print('run | quads 24 count / area | 83m+ by area 24 | needles / bldg | housed p10 | FS-1 kept | riverside | sq outside wall; unbuilt >1 ha | wall/hull p90 max; sharp | ms phi max / delta | rear hh')
+for spec in sys.argv[2:]:
+    d, v = spec.split(':')
+    a = open(f'{d}/agg_{gw}.txt', encoding='utf8').read().split('\n')
+    b24 = block(sect(a, '8 largest'), v); ball = block(sect(a, 'all towns'), v)
+    oc = [l for l in b24 if 'outside core' in l][0]
+    quads = re.search(r'quads ([\d.]+)', oc).group(1); darea = re.search(r'by area ([\d.]+)', oc).group(1)
+    ar = subprocess.run([sys.executable, 'area.py', d, gw, v], capture_output=True, text=True).stdout.split('\n')[0]
+    qarea = re.search(r'quads by area ([\d.]+)', ar).group(1)
+    j = '\n'.join(ball)
+    hp = re.search(r'housed p10 (\d+)', j).group(1)
+    nd = re.search(r'NEEDLES[^%]*?([\d.]+) %', j).group(1); nb = re.search(r'needle buildings[^)]*\) ([\d.]+) %', j).group(1)
+    fs1 = re.search(r'kept >= 85 %: (\d+/\d+)', j).group(1)
+    rr = re.search(r'REAR households (\d+)', j); rr = rr.group(1) if rr else '-'
+    p = '0' if v == 'off' else '1'
+    try:
+        t = open(f'{d}/bb_{gw}_p{p}.txt', encoding='utf8').read()
+        rs = re.search(r'within 2 street widths of the bank ([\d.]+) %', t).group(1)
+        sq = re.search(r'market square outside the wall (\d+)', t).group(1); ub = re.search(r'over 1 ha (\d+)', t).group(1)
+    except Exception:
+        rs = sq = ub = '?'
+    r = [x for x in csv.DictReader(open(f'{d}/{gw}/towns_{gw}.csv')) if x['variant'] == v and x['walled'] == '1']
+    lh = sorted(float(x['wall_len_over_hull']) for x in r); sh = sum(int(x['wall_sharp_convex'])+int(x['wall_sharp_reflex']) for x in r)
+    p90 = lh[int(round((len(lh)-1)*.9))]
+    ms = [l for l in a if l.strip().startswith('market_street:')]
+    msv = re.search(r'max ([\d.]+); on-off delta max ([\d.]+)', ms[0]).groups() if ms and v != 'off' else ('-', '-')
+    print(f'{d}[{v}] | {quads} / {qarea} | {darea} | {nd} / {nb} | {hp} | {fs1} | {rs} | {sq}; {ub} | {p90:.3f} {lh[-1]:.3f}; {sh} | {msv[0]} / {msv[1]} | {rr}')

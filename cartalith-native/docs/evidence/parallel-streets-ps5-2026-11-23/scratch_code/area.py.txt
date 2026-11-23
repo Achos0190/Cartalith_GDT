@@ -1,0 +1,18 @@
+"""area.py <run dir> <gw> [variant]: quads by area and deep (83 m+) by area over the outside-core blocks of the 8 largest towns a seed (as ps1_agg's 24), and lot depth over 30 / 40 m."""
+import csv, sys, collections
+D, GW = sys.argv[1], sys.argv[2]
+rd = lambda n: list(csv.DictReader(open(f'{D}/{GW}/{n}_{GW}.csv')))
+towns, blocks = rd('towns'), rd('blocks')
+off = [t for t in towns if t['variant'] == 'off']
+by = collections.defaultdict(list)
+for t in off: by[t['seed']].append(t)
+sel = set()
+for s, ts in by.items():
+    ts.sort(key=lambda t: (-float(t['pop_target']), int(t['town']))); sel |= {(s, t['town']) for t in ts[:8]}
+for v in sys.argv[3:] or ['off', 'proto']:
+    for name, keys in (('24', sel), ('all', {(t['seed'], t['town']) for t in off})):
+        B = [b for b in blocks if b['variant'] == v and (b['seed'], b['town']) in keys and b['outside'] == '1']
+        A = sum(float(b['area']) for b in B)
+        qa = sum(float(b['area']) for b in B if b['corners'] == '4')
+        da = sum(float(b['area']) for b in B if float(b['depth']) >= 83)
+        print(f'{D} [{v}] {name}: outside-core blocks {len(B)} area {A/1e4:.0f} ha; quads by area {100*qa/A:.1f} %; 83 m+ by area {100*da/A:.1f} %')

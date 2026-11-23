@@ -1,0 +1,30 @@
+== 384
+r_base [off] 24: outside-core blocks 2789 area 518 ha; quads by area 34.4 %; 83 m+ by area 19.3 %
+r_base [off] all: outside-core blocks 3223 area 595 ha; quads by area 34.5 %; 83 m+ by area 18.7 %
+r_base [proto] 24: outside-core blocks 3300 area 678 ha; quads by area 39.6 %; 83 m+ by area 19.2 %
+r_base [proto] all: outside-core blocks 3772 area 769 ha; quads by area 40.1 %; 83 m+ by area 18.2 %
+rA [proto] 24: outside-core blocks 3356 area 689 ha; quads by area 38.8 %; 83 m+ by area 19.2 %
+rA [proto] all: outside-core blocks 3832 area 782 ha; quads by area 39.3 %; 83 m+ by area 18.4 %
+rA3 [proto] 24: outside-core blocks 3323 area 681 ha; quads by area 39.2 %; 83 m+ by area 19.1 %
+rA3 [proto] all: outside-core blocks 3796 area 773 ha; quads by area 39.7 %; 83 m+ by area 18.2 %
+rB [proto] 24: outside-core blocks 3400 area 683 ha; quads by area 40.0 %; 83 m+ by area 18.9 %
+rB [proto] all: outside-core blocks 3889 area 776 ha; quads by area 41.0 %; 83 m+ by area 17.9 %
+rB3 [proto] 24: outside-core blocks 3358 area 674 ha; quads by area 40.3 %; 83 m+ by area 18.6 %
+rB3 [proto] all: outside-core blocks 3846 area 767 ha; quads by area 41.2 %; 83 m+ by area 17.6 %
+rC [proto] 24: outside-core blocks 2928 area 743 ha; quads by area 40.3 %; 83 m+ by area 26.4 %
+rC [proto] all: outside-core blocks 3364 area 851 ha; quads by area 41.2 %; 83 m+ by area 25.9 %
+rD [proto] 24: outside-core blocks 3247 area 709 ha; quads by area 42.6 %; 83 m+ by area 22.5 %
+rD [proto] all: outside-core blocks 3788 area 830 ha; quads by area 43.3 %; 83 m+ by area 21.3 %
+rE [proto] 24: outside-core blocks 2942 area 751 ha; quads by area 40.0 %; 83 m+ by area 26.9 %
+rE [proto] all: outside-core blocks 3379 area 859 ha; quads by area 40.9 %; 83 m+ by area 26.3 %
+== 2048
+r_base [off] 24: outside-core blocks 3189 area 673 ha; quads by area 29.0 %; 83 m+ by area 25.8 %
+r_base [off] all: outside-core blocks 3555 area 734 ha; quads by area 29.9 %; 83 m+ by area 24.7 %
+r_base [proto] 24: outside-core blocks 3604 area 773 ha; quads by area 39.1 %; 83 m+ by area 23.2 %
+r_base [proto] all: outside-core blocks 3982 area 853 ha; quads by area 38.7 %; 83 m+ by area 23.8 %
+rB [proto] 24: outside-core blocks 3753 area 801 ha; quads by area 39.0 %; 83 m+ by area 23.5 %
+rB [proto] all: outside-core blocks 4147 area 883 ha; quads by area 38.7 %; 83 m+ by area 23.8 %
+rB3 [proto] 24: outside-core blocks 3696 area 783 ha; quads by area 39.5 %; 83 m+ by area 22.9 %
+rB3 [proto] all: outside-core blocks 4090 area 864 ha; quads by area 39.3 %; 83 m+ by area 23.2 %
+rE [proto] 24: outside-core blocks 3188 area 866 ha; quads by area 39.1 %; 83 m+ by area 30.8 %
+rE [proto] all: outside-core blocks 3570 area 962 ha; quads by area 40.0 %; 83 m+ by area 30.3 %

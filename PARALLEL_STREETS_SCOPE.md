@@ -1555,3 +1555,112 @@ the riverside bar (Q25), or drop it? If it comes back, the shell must draw a pos
 curtain. [build it with PS-5, measured with PS-5's platting; draw the postern with it] **Q27.** E misses PS-2 at 2 048 on
 riverside (3.4 / 3.5 %), needles (12.2 / 12.1 %) and FS-1 (20 / 21) through the one town it changes there. Accept it as
 Q24 did, or hold it? [accept: those are section 16's figures, which Q24 ruled on]
+
+## 18. PS-5 measured (2026-11-23, owner Rulings GY, HB, HD, HT): NO-GO on its bars; nothing built
+
+**Verdict: no-go.** PS-5's four pieces (platting by quarter on `burgage`'s depths, rear households served from behind,
+PS-3's back-street tier, the water gate with a postern drawn in the wall) were prototyped behind
+`urban_parallel_streets`, measured on the census world at 384 and 2 048 against PS-5's bars and PS-2's baseline
+(Ruling GM), swept, framed and reverted. **No variant holds every bar.** The variants that leave the block shapes alone
+(platting, rear households, the gate) hold PS-2's baseline but do not move depth by area at all (18.6-18.9 % against
+19.2 %), and so do none of PS-5's purpose; every variant with the tier moves depth by area toward the traced plans'
+32-40 % (26.9 % at 384, 30.8 % at 2 048) but drops quads by count under 58.5 % (54.4 / 52.9 %) and housed p10 under
+PS-2's (91 / 87 against 96 / 100; at 2 048 under the switch-off town's 91). The product code is
+`scratch_code/ps5_prototype.diff.txt` (all four pieces, the tier variant `PS5_DEEPALL`, the scratch knobs marked
+`SCRATCH-PS5`, its unit tests). Evidence: `cartalith-native/docs/evidence/parallel-streets-ps5-2026-11-23/`
+(`summary.txt` lists every file). Census world as section 15, today's tree `origin/main` `69a88c48`; before = switch
+off, mid = PS-2 and fix E as shipped (both reproduce section 17's before and E columns exactly).
+
+**The pieces, as prototyped:**
+- **Platting by quarter** (Ruling HT: no second platting code). `blocks::build_parcels_with` took a per-block `tier`
+  test; a block it accepted was platted with `burgage::DEPTH_CORE_M` / `DEPTH_M` / `DEPTH_MAX_M` / `WAIST`, and each
+  edge's frontage grant was floored at the depth its lots reach over 5 (`TIER_MAX_RATIO`, labelled; section 8.4's
+  needle ratios), the burgage cycle splitting a frontage only where both halves keep the floor. The test
+  (`field::in_tier`): a four-cornered block of rectangularity 0.75+ (`KEEP_RECT`, scope 8.6 item 4) whose centroid lies
+  in a grain of strength 0.5+ (`PARALLEL_STRONG`); variant E (`PS5_DEEPALL`) also every grain block 60 m or more deep
+  whatever its shape. A block it refused was the reference's draw for draw (unit test).
+- **Rear households** (section 9.2, Rulings GC and GF). `districts::build_rear_households`: for the demand the front
+  lots left, a cottage across the back 8 m of a lot over 30 m deep with a street within 30 m of its rear edge
+  (`field::rear_served`, PS-3's measure; the brief's "back lane within 30 m", so the 2.5 m side passage Ruling GF also
+  allows was not built), nearest the market first, at most one a lot and on at most 40 % of the lots, 4 m clear of
+  every other building on its lot, each one household of 5.2 in `Town::pop`.
+- **The back-street tier** (PS-3's prototype, section 15, without the spindle market, Ruling GY Q21): `growth::Tier`
+  refuses a street inside the band behind a frontage; a free end is closed by a lane. Variant D kept only tiers that
+  closed at both ends.
+- **The water gate** (section 17's prototype, Ruling HD Q26): water lanes laid through the riverside wall and a
+  `Gate { water: true }` opened on the finished ring **after** `wallhug::wall_off_water` (which reads water gates as
+  leave for a wet run to stay; section 17's gate predates it), the posterns bridged as `wall_posterns` and drawn in
+  `urban_layout_draw.gd` (a small gate) and `urban_layout_look.gd` (a short paved opening); a bastioned trace draws no
+  gate, as before. `urban_adapter::layout_from_town`'s ring-off-the-drawn-water and the town census's gated-wall test
+  both read every water gate, so a postern would have let a wet wall run stand and pass the census vacuously; both
+  were made to skip posterns.
+
+**Numbers** (24 towns' outside-core blocks for quads and depth, as before; every other row over the 38 / 39 towns of 1 500+;
+riverside and squares from `both_banks_audit`; quads and depth by area from `area.txt`). Variants: A platting + rear;
+B A + gate; C B + tier; D C with only closed tiers; E C with the deep platting on every deep grain block. A, B, C and D
+took the floor from the block's target depth, A3 and B3 and E from the depth the lots reach (below):
+
+| 384 | quads count / area | 83 m+ by area | needles / bldg | housed p10 | FS-1 kept | riverside | squares out; unbuilt > 1 ha | wall / hull p90, max; sharp | rear |
+|---|---|---|---|---|---|---|---|---|---|
+| before (off) | 51.8 / 34.4 | 19.3 | 11.5 / 0.50 | 91 | 38 | 4.1 | 1; 0 | 1.099, 1.167; 162 | |
+| mid (PS-2 + E) | **58.8 / 39.6** | 19.2 | **11.6** / 0.60 | 96 | 22 | 4.1 | 1; 4 | 1.106, 1.131; 140 | |
+| A3 | 58.6 / 39.2 | 19.1 | 11.4 / 0.56 | 96 | 22 | 4.0 | 0; 5 | 1.087, 1.130; 148 | 99 |
+| B3 | 59.4 / 40.3 | 18.6 | 12.0 / 0.57 | 96 | 22 | 4.5 | 0; 4 | 1.086, 1.130; 147 | 92 |
+| B (target floor) | 59.2 / 40.0 | 18.9 | 11.5 / 0.55 | 95 | 21 | 4.4 | 0; 4 | 1.090, 1.135; 131 | 102 |
+| C | 54.5 / 40.3 | 26.4 | 12.9 / 0.69 | 93 | 24 | 4.3 | 4; 3 | 1.095, 1.129; 145 | 144 |
+| D | 58.0 / 42.6 | 22.5 | 12.2 / 0.62 | 94 | 23 | | | 1.086, 1.136; 129 | 96 |
+| **E** | **54.4 / 40.0** | **26.9** | **11.6 / 0.58** | **91** | 24 | **4.6** | **3**; 4 | 1.096, 1.129; 137 | 173 |
+
+| 2 048 | quads count / area | 83 m+ by area | needles / bldg | housed p10 | FS-1 kept | riverside | squares out; unbuilt > 1 ha | wall / hull p90, max; sharp | rear |
+|---|---|---|---|---|---|---|---|---|---|
+| before (off) | 48.4 / 29.0 | 25.8 | 11.4 / 0.60 | 91 | 39 | 3.9 | 1; 0 | 1.099, 1.125; 170 | |
+| mid (PS-2 + E) | **57.9 / 39.1** | 23.2 | **12.2** / 0.64 | 100 | 20 | 3.4 | 0; 3 | 1.092, 1.117; 118 | |
+| B3 | 58.0 / 39.5 | 22.9 | 12.2 / 0.62 | 102 | 20 | 4.1 | 0; 2 | 1.098, 1.116; 134 | 9 |
+| B (target floor) | 57.7 / 39.0 | 23.5 | 11.6 / 0.65 | 98 | 20 | 4.0 | 0; 2 | 1.101, 1.121; 118 | 85 |
+| **E** | **52.9 / 39.1** | **30.8** | **11.8 / 0.63** | **87** | 22 | **4.3** | 1; 3 | 1.104, 1.134; 152 | 196 |
+
+Every run: buildings in water 0, stretch-water flags 0, stretched towns refused as off (2 / 0). FS-2 (market-street
+phi on minus off, max): mid 0.164 / 0.202, E 0.167 / **0.319** (over 0.30 at 2 048; Ruling GM judges it against a
+re-roll). Section 5.2's lot bars are out of reach in every variant: lots over 40 m deep at most 1.0 % (bar 10 %),
+depth over frontage median at most 1.49 (bar 3).
+
+**Why it misses.**
+- **Without the tier there is nothing deep to plat.** The grain's near-rectangular blocks are about 30 m across, so a
+  lot reaches the 0.48 waist, about 14 m, whatever its target. The first build floored the frontage at the *target*
+  depth (42 m over 5, 8.4 m) and so platted wide shallow lots: its needle gain (B, 11.5 %) was a frontage floor, not
+  deep plots. Taken from the depth the lots reach (B3), the gain is gone (12.0 / 12.2 %, PS-2's figures), and the gate
+  alone is section 17's result again.
+- **The tier makes the deep blocks and costs the count.** It joins many small quads into fewer long blocks: by count
+  quads fall to 54.4 / 52.9 %, by area they hold (40.0 / 39.1 % against 39.6 / 39.1 %). Platted with the deep depths
+  and the floor (E), the tier's deep irregular blocks no longer fan into needles (C 12.9 %, E 11.6 / 11.8 %).
+- **Housing falls with the tier.** Deep lots are fewer lots, and rear households served by a street within 30 m of
+  the back are few (173 / 196 households in 7 / 6 towns; 41 / 37 % of the lots over 30 m deep are served), so housed p10 falls
+  to 91 / 87. The 2.5 m side passage Ruling GF allows would serve the rest.
+- **The tier also puts squares outside the wall** (3 at 384 against 1; C 4); not traced.
+
+**The town-on-bank census with the switch on** (`town_census/`, `_towncensus_probe.gd --rows` on four seeds at 384,
+`civ.bank_sites` off and on; before = the switch off, mid = PS-2 by `--params urban_parallel_streets: true`, after =
+E): no building or wall run over the drawn river, lake or sea in any build; one street edge over the drawn river in
+seed 483920 in **mid and after alike** (PS-2's, not PS-5's: the probe exits 1 on it in both); markers across from
+their market 0 at x1-x64 in all three; bank-sites-on housed p10 held (after 92.3 / 85.8 / 91.0 / 91.0 against mid
+92.3 / 85.8 / 89.8 / 91.0); no town loses its crossing against before (`fate.txt`: 2 bridges, 37 ferries; mid 38). Two
+towns' ferries differ from mid: 483920 #11 (a ferry PS-2 added; E has none, as off) and 912345 #7 (lost in mid and
+after alike).
+
+**Frames:** City Viewer, the shell's world at 384 x 288, windowed under `C:/cw/.win_lock` (scratch APPDATA), opening frame and x4 market-centred, every town of 1 500+ the probe lists and a village a seed (483920: 17 towns and #9; 912345: 8 towns and #1); before and mid from the base build's dll (off, then on live), after from the prototype's dll (E). Probe `RESULT: PASS` in all four sessions; the two sessions' before frames are pixel-identical (54 of 54); the villages are the same in all three. All looked at (`contact_<seed>.png`, `combined.png`, `frames/triple_*`). At first sight E keeps PS-2's towns: the silhouettes that move are PS-2's own (483920 #8 a long wall round a thin town, 912345 #4 laid round another centre, as in mid). E adds long rectangular blocks along the spines (912345 #13's south half, 483920 #11 and #20 at x4), and one first-sight change of its own: 483920 #15's wall is routed along the shore with dense towers at x4 (mid: on land, few towers). Posterns were not looked for pixel by pixel.
+
+**Mutants and tests.** Nothing ships, so no constant is mutated. The prototype carried unit tests (in the diff): the
+tier test on literal blocks; the platting (a refused block plats as the reference; on 90 m blocks 456 lots with 217
+needles become 252 with 41; on 30 m and 63 m blocks the reference's 4.5 m and the split's 0.4 bind); rear households
+(the 40 % cap at 10 and 12 lots, the 4 m setback both ways, the 3 m back, the 30 m access, nearest first, ids);
+section 17's two water-gate tests, passing unchanged (8 lanes and gates; 89 over seeds 4240-4251).
+
+**What this leaves for the owner.** **Q28.** Restate PS-2's quads baseline by area, as Ruling GY restated depth? By
+area the full prototype holds it (40.0 / 39.1 % against 39.6 / 39.1 %), and a count bar cannot tell a few long blocks
+from many short ones. [yes, by area] **Q29.** Housing falls with the tier (housed p10 91 / 87 against 96 / 100). Let a
+rear household be reached by the 2.5 m side passage Ruling GF already allows, as well as by a street within 30 m?
+[yes: build the passage, measured] **Q30.** With Q28 and Q29, one more measured attempt at E (squares outside the wall
+traced first), or stop parallel streets at PS-2 and fix E and go to PS-6 / PS-7? [one more attempt] **Ruling HT's
+switch question:** `urban_burgage` keeps its own switch (off at both boundaries): the prototype read its depths
+through `build_parcels_with` and wrote no second platting; it is scrubbed at PS-7 with the rest (Q7) if the owner
+turns parallel streets on.
