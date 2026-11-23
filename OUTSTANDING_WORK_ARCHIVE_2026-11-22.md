@@ -5686,3 +5686,5 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Ruling HQ: far bank (owner's town 78 -> 91 %), ferries past 400 m, walls along the shore, first-marker cost to the worker (`62a9443e`, `f296e24e`).
 - Ruling HR: provinces grown on the nations' friction, seams snapped, drawn lines (`44e2f8df`, `638521b4`).
 - Rendering rows: export overlay probe, paint draft undo, redo_labels chain, colour popup edge; ET-C2/Curves/ET-D4/halo/zoom measured (`52bad8cb`).
+- Label editing on touch (phone and tablet): drag claimed by the Label tool, form revealed, 22 dp handles, tablet sliders 44 px (`5e71430e`, `7f1a4c15`).
+- FEATURES.md, the verified feature list (`5565663a`, `15d21b7b`).
