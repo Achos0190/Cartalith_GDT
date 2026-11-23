@@ -477,8 +477,9 @@ fn province_harness() {
 /// provinces are the nearest-seat split and do not follow the terrain; at 0.6
 /// they differ from it (the fixture reaches the growth) with the same list (so
 /// every `Province::id` the vault links by is unchanged), an edit-free
-/// `civ_reprovince` keeps them cell for cell (the carry, not a re-cut), and a
-/// polity move of a seat takes its province as drawn.
+/// `civ_reprovince` keeps them cell for cell (the carry, not a re-cut), a
+/// polity move of a seat takes its province as drawn, and a town promoted to
+/// City without a reprovince does not take its old province's seat with it.
 #[test]
 fn provinces_follow_terrain_through_reprovince_and_polity_move() {
     let (_, a, gh, _) = generate(483920, 384, 0.0);
@@ -516,6 +517,23 @@ fn provinces_follow_terrain_through_reprovince_and_polity_move() {
     }
     run.sort_unstable();
     assert_eq!(mv.cells, run, "the move takes the province as drawn");
+    // A town made a City without a reprovince (a kind edit), then moved: its
+    // stored province is the real seat's, so the move must not take the
+    // whole of it, the real seat's own cell included.
+    let seat_cell = seat.y * 384 + seat.x;
+    let town = b
+        .settlements
+        .iter()
+        .position(|s| {
+            s.placement.faction == q.faction
+                && !matches!(s.placement.kind, cartalith_civ::SettlementKind::City | cartalith_civ::SettlementKind::Capital | cartalith_civ::SettlementKind::Metropolis)
+                && grown[s.placement.y * 384 + s.placement.x] == q.id
+        })
+        .expect("a town inside the province");
+    b.settlements[town].placement.kind = cartalith_civ::SettlementKind::City;
+    let mv = crate::civ_polity_move_plan(&b, Some(&tools), 384, gh, town, to).expect("a plan");
+    assert!(mv.seed_province.is_some() && !mv.cells.is_empty(), "the promoted town seeds a province");
+    assert!(!mv.cells.contains(&seat_cell), "the real seat stays with its faction");
 }
 
 /// Protects: `compute_civilisation` reads `civ.border_friction` (a world at

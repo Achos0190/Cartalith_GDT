@@ -1,8 +1,9 @@
+Final run (after the review fixes: seats-only pins, polity move over carry_provinces, Provinces-alone outline):
 faction wall: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
 no snap: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::province_seam_grows_and_snaps_to_a_river
 no pins: KILLED by border_terrain::tests::province_snap_never_moves_a_seat
 plain cost: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit,border_terrain::tests::province_seam_grows_and_snaps_to_a_river
-gate < 0: SURVIVED on the first run (the fixture split equally with no wall in reach, so growth = nearest seat); the strength-0 check then got a second fixture (river at 510, unequal seats) and on re-run: KILLED by border_terrain::tests::province_seam_grows_and_snaps_to_a_river
+gate < 0: KILLED by border_terrain::tests::province_seam_grows_and_snaps_to_a_river
 no fallback: KILLED by border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
 seat on foreign land seeds: KILLED by border_terrain::tests::provinces_stay_inside_their_faction_with_no_gaps
 carry ignores faction: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit
@@ -10,7 +11,18 @@ carry ignores old: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_
 carry keeps dup: KILLED by border_terrain::tests::carry_keeps_the_grown_shape_over_an_edit
 lines across factions: KILLED by border_terrain::tests::province_lines_trace_inner_seams_only
 reprovince re-cuts: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
-move ignores live: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
+move re-cuts: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
 flag never set: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
 pipeline Voronoi: KILLED by border_harness::provinces_follow_terrain_through_reprovince_and_polity_move
-Probe mutants (map_overlay.gd / probe): --mutate noline KILLED (DRAWN 0 px); PROVINCE_LINE_INK alpha 110 -> 230 KILLED (lighter check). See probe_runs.txt.
+
+Earlier run: 'gate < 0' SURVIVED once (the fixture split equally with no wall in reach, so growth = nearest seat); the strength-0 check gained a second fixture (river at 510, unequal seats), which kills it above.
+
+GDScript mutants through _provborders_probe.gd (912345 at 384):
+noline exit 1
+PB  FAIL  DRAWN: the province line on vs off moves pixels  -- 0 px
+PB  FAIL  Provinces alone also outline the nations  -- 0 px > 0 px
+PB  FAIL  EXPORT: the province line is in the exported image  -- 0 px
+ink exit 1
+PB  FAIL  lighter than the national line  -- alpha 0.90 < 0.82, width 1.2 < 1.6
+provonly exit 1
+PB  FAIL  Provinces alone also outline the nations  -- 889 px > 889 px

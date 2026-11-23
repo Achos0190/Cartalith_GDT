@@ -1,0 +1,21 @@
+== seats-only pins (final), BORDER_GW=384,2048
+PROVINCE seed 483920 gw 384: seam near feature before 0.614 (332 sides) after 0.539 (410 sides), owned land 0.225; sizes before [n 9 min 3062 median 6127 max 18769 cv 0.58] after [n 9 min 2297 median 8049 max 18769 cv 0.60]; cross-faction cells 0; pass 0.003 s -> 0.046 s
+PROVINCE seed 912345 gw 384: seam near feature before 0.347 (294 sides) after 0.623 (297 sides), owned land 0.298; sizes before [n 8 min 1496 median 5494 max 16007 cv 0.68] after [n 8 min 1494 median 5494 max 16007 cv 0.68]; cross-faction cells 0; pass 0.001 s -> 0.052 s
+PROVINCE seed 246371 gw 384: seam near feature before 0.217 (184 sides) after 0.342 (319 sides), owned land 0.254; sizes before [n 8 min 2861 median 9289 max 14785 cv 0.47] after [n 8 min 2861 median 9289 max 15084 cv 0.58]; cross-faction cells 0; pass 0.000 s -> 0.043 s
+PROVINCE seed 483920 gw 2048: seam near feature before 0.036 (1837 sides) after 0.321 (1438 sides), owned land 0.058; sizes before [n 8 min 82107 median 211328 max 326236 cv 0.39] after [n 8 min 42160 median 237105 max 359047 cv 0.57]; cross-faction cells 0; pass 0.001 s -> 0.220 s
+PROVINCE seed 912345 gw 2048: seam near feature before 0.051 (836 sides) after 0.043 (845 sides), owned land 0.064; sizes before [n 7 min 57939 median 131634 max 618637 cv 0.82] after [n 7 min 57939 median 175056 max 618637 cv 0.81]; cross-faction cells 0; pass 0.001 s -> 0.146 s
+PROVINCE seed 246371 gw 2048: seam near feature before 0.000 (0 sides) after 0.000 (0 sides), owned land 0.061; sizes before [n 6 min 164036 median 358068 max 423622 cv 0.32] after [n 6 min 164036 median 358068 max 423622 cv 0.32]; cross-faction cells 0; pass 0.001 s -> 0.136 s
+PROVINCE seed 246371 gw 2048: no faction holds two provinces; no seam to measure
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1518 filtered out; finished in 48.39s
+
+== every settlement pinned (first commit): identical metrics, see harness_384.txt / harness_2048.txt
+
+== diagnostic: growth without the snap
+PROVINCE seed 483920 gw 384: seam near feature before 0.614 (332 sides) after 0.528 (477 sides), owned land 0.225; sizes before [n 9 min 3062 median 6127 max 18769 cv 0.58] after [n 9 min 2311 median 8005 max 18769 cv 0.60]; cross-faction cells 0; pass 0.000 s -> 0.005 s
+PROVINCE seed 912345 gw 384: seam near feature before 0.347 (294 sides) after 0.569 (306 sides), owned land 0.298; sizes before [n 8 min 1496 median 5494 max 16007 cv 0.68] after [n 8 min 1512 median 5494 max 16007 cv 0.68]; cross-faction cells 0; pass 0.000 s -> 0.004 s
+PROVINCE seed 246371 gw 384: seam near feature before 0.217 (184 sides) after 0.325 (338 sides), owned land 0.254; sizes before [n 8 min 2861 median 9289 max 14785 cv 0.47] after [n 8 min 2861 median 9289 max 15132 cv 0.58]; cross-faction cells 0; pass 0.000 s -> 0.005 s
+PROVINCE seed 483920 gw 2048: seam near feature before 0.036 (1837 sides) after 0.156 (1589 sides), owned land 0.058; sizes before [n 8 min 82107 median 211328 max 326236 cv 0.39] after [n 8 min 41894 median 237105 max 362257 cv 0.58]; cross-faction cells 0; pass 0.001 s -> 0.175 s
+PROVINCE seed 912345 gw 2048: seam near feature before 0.051 (836 sides) after 0.026 (924 sides), owned land 0.064; sizes before [n 7 min 57939 median 131634 max 618637 cv 0.82] after [n 7 min 57939 median 175593 max 618637 cv 0.81]; cross-faction cells 0; pass 0.001 s -> 0.138 s
+PROVINCE seed 246371 gw 2048: seam near feature before 0.000 (0 sides) after 0.000 (0 sides), owned land 0.061; sizes before [n 6 min 164036 median 358068 max 423622 cv 0.32] after [n 6 min 164036 median 358068 max 423622 cv 0.32]; cross-faction cells 0; pass 0.001 s -> 0.113 s
+PROVINCE seed 246371 gw 2048: no faction holds two provinces; no seam to measure
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1518 filtered out; finished in 26.34s

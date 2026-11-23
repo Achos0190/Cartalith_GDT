@@ -21,6 +21,8 @@ extends Node
 ## must fail (exit 1). Lines are prefixed `PB  `.
 ## Exit 0 = all passed, 1 = a check failed, 2 = could not run, 3 = watchdog.
 
+const EXPORT_OVERLAY := preload("res://shell/export_overlay.gd")
+
 var _app: Node
 var _bridge
 var _fail := 0
@@ -167,6 +169,46 @@ func _ready() -> void:
 		ov.set_show_province_lines(true)
 		var d := _moved(on, off)
 		_check("DRAWN: the province line on vs off moves pixels", d > 0, "%d px" % d)
+		## Provinces alone (Territory off): the national lines are drawn too, in
+		## the province ink, so a province reads as a closed shape. P: Provinces
+		## on vs off; Q: the same with no national line handed in. P > Q.
+		_app.viewport.set_layer_visible("territory", false)
+		var p_on := await _shot()
+		_save(p_on, "%d_%d_x1_provinces_only_%s.png" % [_seed, _gw, _tag])
+		_app.viewport.set_layer_visible("provinces", false)
+		var p_off := await _shot()
+		var keep: Array = ov._border_lines
+		ov.set_border_lines([])
+		var q_off := await _shot()
+		_app.viewport.set_layer_visible("provinces", true)
+		var q_on := await _shot()
+		ov.set_border_lines(keep)
+		var pp := _moved(p_on, p_off)
+		var qq := _moved(q_on, q_off)
+		_check("Provinces alone also outline the nations", pp > qq and qq > 0, "%d px > %d px" % [pp, qq])
+		_app.viewport.set_layer_visible("territory", true)
+		## The export draws the province line (with `content.territory`, as the
+		## raster line): the same export with and without the lines differs.
+		var runner := EXPORT_OVERLAY.new()
+		add_child(runner)
+		var borders := [_app.viewport.territory_view, _app.viewport.province_view]
+		var ex := func(name: String) -> Image:
+			var path := OS.get_user_data_dir().path_join(name)
+			var r: Dictionary = await runner.run(_bridge, path, {"width": 2048, "content": {"territory": true}}, ov, borders)
+			_check("export %s ok" % name, bool(r.get("ok", false)), str(r.get("error", "")))
+			return Image.load_from_file(path)
+		var e_on: Image = await ex.call("hr_export_on.png")
+		var lines_keep: Array = ov._province_lines
+		ov.set_province_lines([], true)
+		var e_off: Image = await ex.call("hr_export_off.png")
+		ov.set_province_lines(lines_keep, true)
+		if e_on != null and e_off != null:
+			var de := _moved(e_on, e_off)
+			_check("EXPORT: the province line is in the exported image", de > 0, "%d px" % de)
+			_save(e_on, "%d_%d_export_%s.png" % [_seed, _gw, _tag])
+		else:
+			_check("EXPORT: both images read back", false)
+		runner.queue_free()
 	_save(await _shot(), "%d_%d_x1_%s.png" % [_seed, _gw, _tag])
 
 	var p := _look()

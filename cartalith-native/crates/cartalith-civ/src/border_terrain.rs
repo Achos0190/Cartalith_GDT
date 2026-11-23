@@ -303,7 +303,10 @@ pub fn assign_territory_terrain(
 /// 4. the seams between one faction's provinces snap to [`feature_walls`] by
 ///    [`snap_seams`], run once per faction on that faction's cells alone (the
 ///    rest read as unowned, which `snap_seams` never claims), with the
-///    faction's settlements as pins.
+///    faction's seats as pins: a seat never leaves its own province, while
+///    another settlement may change province (it never changes faction).
+///    Pinning every settlement was measured too (`province_harness`, three
+///    seeds at 384 and 2048, 2026-11-23): identical output on all six.
 ///
 /// What it must never do: put a cell in a province of another faction than
 /// `territory` gives it, leave an owned cell of a seeded faction without a
@@ -346,7 +349,12 @@ pub fn provinces_terrain(
     let factions: std::collections::BTreeSet<i32> = list.iter().map(|p| p.faction).collect();
     for f in factions {
         let mut own: Vec<i32> = province.iter().zip(territory).map(|(&p, &o)| if o == f { p } else { 0 }).collect();
-        let pins: Vec<usize> = settlements.iter().filter(|s| s.placement.faction == f).map(|s| s.placement.y * gw + s.placement.x).collect();
+        let pins: Vec<usize> = list
+            .iter()
+            .filter(|q| q.faction == f)
+            .map(|q| &settlements[q.capital_settlement_index].placement)
+            .map(|s| s.y * gw + s.x)
+            .collect();
         snap_seams(&mut own, &walls, &pins, gw, gh, reach);
         for ((p, &o), &f2) in province.iter_mut().zip(&own).zip(territory) {
             if f2 == f {

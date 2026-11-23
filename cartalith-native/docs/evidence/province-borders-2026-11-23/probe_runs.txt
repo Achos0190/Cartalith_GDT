@@ -1,17 +1,29 @@
-== run_after_483920_2048.log
+== run_after_483920_2048.log (final)
 PB  ok    the engine hands province lines  -- 5 runs
 PB  ok    no raster province line beside them
-PB  ok    lighter than the national line  -- alpha 0.43 < 0.82, width 1.0 < 1.6
-PB  ok    DRAWN: the province line on vs off moves pixels  -- 938 px
+PB  ok    lighter than the national line  -- alpha 0.63 < 0.82, width 1.2 < 1.6
+PB  ok    DRAWN: the province line on vs off moves pixels  -- 1121 px
+PB  frame C:/cw/hr_scratch/shots/483920_2048_x1_provinces_only_after.png
+PB  ok    Provinces alone also outline the nations  -- 3035 px > 1122 px
+PB  ok    export hr_export_on.png ok
+PB  ok    export hr_export_off.png ok
+PB  ok    EXPORT: the province line is in the exported image  -- 3499 px
+PB  frame C:/cw/hr_scratch/shots/483920_2048_export_after.png
 PB  frame C:/cw/hr_scratch/shots/483920_2048_x1_after.png
 PB  look at grid (1295, 1087)
 PB  frame C:/cw/hr_scratch/shots/483920_2048_x4_after.png
 PB  RESULT fail=0
-== run_after_912345_384.log
+== run_after_912345_384.log (final)
 PB  ok    the engine hands province lines  -- 2 runs
 PB  ok    no raster province line beside them
-PB  ok    lighter than the national line  -- alpha 0.43 < 0.82, width 1.0 < 1.6
-PB  ok    DRAWN: the province line on vs off moves pixels  -- 586 px
+PB  ok    lighter than the national line  -- alpha 0.63 < 0.82, width 1.2 < 1.6
+PB  ok    DRAWN: the province line on vs off moves pixels  -- 891 px
+PB  frame C:/cw/hr_scratch/shots/912345_384_x1_provinces_only_after.png
+PB  ok    Provinces alone also outline the nations  -- 3631 px > 889 px
+PB  ok    export hr_export_on.png ok
+PB  ok    export hr_export_off.png ok
+PB  ok    EXPORT: the province line is in the exported image  -- 3328 px
+PB  frame C:/cw/hr_scratch/shots/912345_384_export_after.png
 PB  frame C:/cw/hr_scratch/shots/912345_384_x1_after.png
 PB  look at grid (357, 216)
 PB  frame C:/cw/hr_scratch/shots/912345_384_x4_after.png
@@ -26,18 +38,4 @@ PB  frame C:/cw/hr_scratch/shots/912345_384_x1_before.png
 PB  look at grid (357, 216)
 PB  frame C:/cw/hr_scratch/shots/912345_384_x4_before.png
 PB  RESULT fail=0
-== run_mut.log
-PB  ok    the engine hands province lines  -- 2 runs
-PB  ok    no raster province line beside them
-PB  FAIL  lighter than the national line  -- alpha 0.90 < 0.82, width 1.0 < 1.6
-PB  ok    DRAWN: the province line on vs off moves pixels  -- 588 px
-PB  look at grid (357, 216)
-PB  RESULT fail=1
-(run_mut.log above is the ink mutant: PROVINCE_LINE_INK alpha 110 -> 230 in map_overlay.gd, exit 1.)
-== --mutate noline (912345 at 384), exit 1
-PB  ok    the engine hands province lines  -- 2 runs
-PB  ok    no raster province line beside them
-PB  ok    lighter than the national line  -- alpha 0.43 < 0.82, width 1.0 < 1.6
-PB  FAIL  DRAWN: the province line on vs off moves pixels  -- 0 px
-PB  RESULT fail=1
-"before" frames: the DLL built from origin/main at fa5a9595 (C:/Users/Vincent/Cartalith_GDT/cartalith-native/target/debug, 14:39, after the last crate commit 0b3ba6cd), same probe with --before (no checks, frames only). Desktop 1600x900, scratch APPDATA, window lock held only while Godot ran.
+"before" frames: the DLL built from origin/main at fa5a9595 (main checkout target/debug, built 14:39 after the last crate commit 0b3ba6cd), same probe with --before (frames only). Desktop 1600x900, scratch APPDATA, window lock held only while Godot ran.

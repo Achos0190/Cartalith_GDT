@@ -1,0 +1,14 @@
+#!/bin/bash
+# GDScript mutants through the probe (912345 at 384); each restores map_overlay.gd.
+G="C:/Users/Vincent/AppData/Local/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
+P=C:/cw/hr_scratch/proj/godot-project
+export APPDATA=C:/cw/hr_scratch/appdata CARTALITH_CONFIG_PATH=C:/cw/hr_scratch/appdata/cartalith.cfg
+cp C:/cw/hr_after.dll C:/cw/hr_scratch/proj/target/debug/cartalith_godot.dll
+cp $P/map_overlay.gd C:/cw/hr_scratch/map_overlay.bak
+run() { timeout 400 "$G" --path "$P" _provborders_probe.tscn --resolution 1600x900 -- --seed 912345 --gw 384 --tag mut "$@" > C:/cw/hr_scratch/gdmut_$name.log 2>&1; echo "$name exit $?"; grep "FAIL" C:/cw/hr_scratch/gdmut_$name.log; }
+name=noline; run --mutate noline
+name=ink; python -I -c "
+p='$P/map_overlay.gd'; s=open(p,encoding='utf-8',newline='').read(); o='const PROVINCE_LINE_INK := Color8(35, 24, 9, 160)'; assert s.count(o)==1; open(p,'w',encoding='utf-8',newline='').write(s.replace(o,'const PROVINCE_LINE_INK := Color8(35, 24, 9, 230)'))"; run; cp C:/cw/hr_scratch/map_overlay.bak $P/map_overlay.gd
+name=provonly; python -I -c "
+p='$P/map_overlay.gd'; s=open(p,encoding='utf-8',newline='').read(); o='elif _show_province_lines and _provinces_as_lines:'; assert s.count(o)==1; open(p,'w',encoding='utf-8',newline='').write(s.replace(o,'elif false:'))"; run; cp C:/cw/hr_scratch/map_overlay.bak $P/map_overlay.gd
+cmp $P/map_overlay.gd C:/cw/hr/cartalith-native/godot-project/map_overlay.gd && echo restored

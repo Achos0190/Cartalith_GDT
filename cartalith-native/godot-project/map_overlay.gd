@@ -2482,16 +2482,24 @@ var _province_lines: Array = []
 ## The provinces layer's switch, pushed by `viewport_host.gd::set_layer_visible`;
 ## an export copy follows `content.territory`, as the raster line did.
 var _show_province_lines := false
-## The province line's ink: the national line's tone at about half its alpha,
-## so it reads as the lesser border. Labelled judgement.
-const PROVINCE_LINE_INK := Color8(35, 24, 9, 110)
+## The province line's ink: the national line's tone at about three quarters
+## of its alpha, so it reads as the lesser border. Labelled judgement: alpha
+## 110 at 1.0 px was tried first and was near invisible at the fit zoom of a
+## 2048-wide world (frames, `docs/evidence/province-borders-2026-11-23/`).
+const PROVINCE_LINE_INK := Color8(35, 24, 9, 160)
 ## The province line's width in screen pixels, under `BORDER_LINE_PX`.
-## Labelled judgement.
-const PROVINCE_LINE_PX := 1.0
+## Labelled judgement (see the ink).
+const PROVINCE_LINE_PX := 1.2
 
-## Replaces the province polylines; see `_province_lines`.
-func set_province_lines(lines: Array) -> void:
+## Whether this world's provinces are drawn as lines (no raster province line):
+## then the Provinces layer alone also draws the national lines, in its ink.
+var _provinces_as_lines := false
+
+## Replaces the province polylines; see `_province_lines`. `as_lines`: the
+## world has no raster province line (`_provinces_as_lines`).
+func set_province_lines(lines: Array, as_lines: bool = false) -> void:
 	_province_lines = lines
+	_provinces_as_lines = as_lines
 	queue_redraw()
 
 ## Shows or hides the province line with the provinces layer.
@@ -2513,6 +2521,9 @@ func set_show_border_lines(shown: bool) -> void:
 ## roads. Width is `BORDER_LINE_PX` screen pixels at any zoom (and the export's
 ## symbol gain on an export copy).
 ## Ruling HR: the province lines first, so a national line lies over them.
+## With the Provinces layer on and Territory off, the national lines are drawn
+## too, in the province ink: a province's outer edge is its nation's border,
+## and the raster province line this replaces outlined whole provinces.
 func _draw_border_lines(rect: Rect2) -> void:
 	if _gw <= 0:
 		return
@@ -2521,6 +2532,8 @@ func _draw_border_lines(rect: Rect2) -> void:
 		_draw_polylines(_province_lines, rect, PROVINCE_LINE_INK, PROVINCE_LINE_PX * gain)
 	if _show_border_lines:
 		_draw_polylines(_border_lines, rect, BORDER_LINE_INK, BORDER_LINE_PX * gain)
+	elif _show_province_lines and _provinces_as_lines:
+		_draw_polylines(_border_lines, rect, PROVINCE_LINE_INK, PROVINCE_LINE_PX * gain)
 
 ## Draws grid-space polylines `lines` in `ink` at local width `w`.
 func _draw_polylines(lines: Array, rect: Rect2, ink: Color, w: float) -> void:

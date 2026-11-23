@@ -3306,7 +3306,7 @@ func refresh() -> void:
 		overlay.set_border_lines(_bridge.border_lines())
 	## Ruling HR: the province line, with the provinces layer.
 	if overlay.has_method("set_province_lines"):
-		overlay.set_province_lines(_bridge.province_lines())
+		overlay.set_province_lines(_bridge.province_lines(), province_view.texture == null)
 	refresh_urban_boxes()
 	## A new river network makes a traced branch or a catchment from the old
 	## one describe rivers that are no longer there. The rivers themselves are

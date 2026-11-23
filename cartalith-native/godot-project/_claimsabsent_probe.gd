@@ -193,7 +193,7 @@ func _ready() -> void:
 	_check("control: relations have values", _all_rows_have(rel, "value") and _no_row_has(rel, "absent"), str(rel.size()))
 	var fits: Array = wg.civ_faction_terrain_fits()
 	_check("control: terrain fits have a mix", _all_rows_have(fits, "mix") and _no_row_has(fits, "absent"), str(fits.size()))
-	_check("control: a province overlay draws", wg.build_province_boundary_texture() != null)
+	_check("control: a province overlay draws", wg.build_province_boundary_texture() != null or not (wg.civ_province_lines() as Array).is_empty())
 	_check("control: regional population reports the claimed share", (wg.civ_regional_population() as Dictionary).has("claimed"))
 	var t0: String = await _roster_text(app)
 	_check("control: the roster prints a claimed-cell total", t0.contains(" claimed cells") and not t0.contains("claimed cells —"), "")
@@ -293,11 +293,11 @@ func _ready() -> void:
 		if String(w).contains("provinces.i32"):
 			pw.append(String(w))
 	_check("no provinces: project_open says the raster is absent", pw.size() == 1 and String(pw[0]).begins_with("rasters/provinces.i32: absent"), str(pw))
-	_check("no provinces: no boundary overlay, and no panic", direct.build_province_boundary_texture() == null)
+	_check("no provinces: no boundary overlay, and no panic", direct.build_province_boundary_texture() == null and (direct.civ_province_lines() as Array).is_empty())
 	_check("no provinces: the province list is kept", (direct.get_provinces() as Array).size() > 0)
 	_check("no provinces: a stroke is staged", direct.civ_territory_paint_at(20.0, 20.0, f, 3.0, false) == true)
 	_check("no provinces: the commit reports it", direct.civ_territory_commit() == true)
-	_check("no provinces: the overlay is back after a territory commit", direct.build_province_boundary_texture() != null)
+	_check("no provinces: the overlay is back after a territory commit", direct.build_province_boundary_texture() != null or not (direct.civ_province_lines() as Array).is_empty())
 
 	DirAccess.remove_absolute(path)
 	DirAccess.remove_absolute(no_terr)

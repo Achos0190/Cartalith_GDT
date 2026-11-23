@@ -1052,6 +1052,10 @@ struct PolityMove {
 /// City -- and, for a faction with none of those, its single most-populous
 /// place (its fallback), which a `kind` test would miss. Any other settlement
 /// takes only its own cell -- a labelled judgement (§9 Q1), not a measurement.
+/// On a world whose provinces follow the terrain (Ruling HR) the fresh run is
+/// `carry_provinces` over the stored raster, the call [`civ_reprovince`] makes
+/// there: the list and seeds are the same fresh ones, the cells keep the
+/// grown shape, and a stored province now claimed by two seats is re-cut.
 ///
 /// Cost: one `civ_generate_provinces` pass (O(cells x same-faction seeds),
 /// parallel) per plan -- the pass every Territory commit already pays.
@@ -1094,7 +1098,14 @@ fn civ_polity_move_plan(
     }
     let from = s.placement.faction;
     let own = y * gw + x;
-    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
+    // Ruling HR: on a world whose provinces follow the terrain, the fresh
+    // pass is the carry `civ_reprovince` makes (the stored shape, re-cut only
+    // where it is stale), so the move takes the province as drawn.
+    let (provinces, province_list) = if civ.provinces_follow_terrain {
+        cartalith_civ::border_terrain::carry_provinces(&civ.provinces, &civ.settlements, &civ.territory, gw, gh)
+    } else {
+        cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh)
+    };
     let seed_province = province_list.iter().find(|p| p.capital_settlement_index == index).map(|p| p.id);
 
     let mut cells = Vec::new();
@@ -1103,16 +1114,7 @@ fn civ_polity_move_plan(
         // raster (a province is only drawn on its own faction's cells); kept
         // as the rule's own wording, so a mutation dropping it survives as an
         // equivalent mutant.
-        //
-        // Ruling HR: on a world whose provinces follow the terrain, the cells
-        // are the province as stored and drawn (grown, snapped and carried
-        // over), found by the id at the settlement's own cell; the fresh pass
-        // above still decides whether the place is a seat at all.
-        let live = civ.provinces_follow_terrain && civ.provinces.len() == n;
-        let belongs = |c: usize| {
-            civ.territory[c] == from
-                && seed_province.is_none_or(|pid| if live { civ.provinces[c] == civ.provinces[own] } else { provinces[c] == pid })
-        };
+        let belongs = |c: usize| civ.territory[c] == from && seed_province.is_none_or(|pid| provinces[c] == pid);
         match seed_province {
             None => cells.push(own),
             Some(_) => {

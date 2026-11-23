@@ -18,8 +18,8 @@ M = [
  ('carry ignores old', CIV, 'if old.len() != gw * gh {\n        return (province, list);', 'if true {\n        return (province, list);', CIV_T),
  ('carry keeps dup', CIV, '.and_modify(|v| *v = None)', '.and_modify(|_| ())', CIV_T),
  ('lines across factions', CIV, 'territory[i] > 0 && territory[i] == territory[j] && province[i] != province[j]', 'territory[i] > 0 && province[i] != province[j]', CIV_T),
- ('reprovince re-cuts', GOD, 'let (provinces, province_list) = if civ.provinces_follow_terrain {', 'let (provinces, province_list) = if false {', GOD_T),
- ('move ignores live', GOD, 'let live = civ.provinces_follow_terrain && civ.provinces.len() == n;', 'let live = false;', GOD_T),
+ ('reprovince re-cuts', GOD, '        return;\n    }\n    let (provinces, province_list) = if civ.provinces_follow_terrain {', '        return;\n    }\n    let (provinces, province_list) = if false {', GOD_T),
+ ('move re-cuts', GOD, 'takes the province as drawn.\n    let (provinces, province_list) = if civ.provinces_follow_terrain {', 'takes the province as drawn.\n    let (provinces, province_list) = if false {', GOD_T),
  ('flag never set', GOD, 'provinces_follow_terrain: opts.border_friction > 0.0,', 'provinces_follow_terrain: false,', GOD_T),
  ('pipeline Voronoi', GOD, 'terrain_provinces.unwrap_or_else(|| cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh));', 'cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);', GOD_T),
 ]
