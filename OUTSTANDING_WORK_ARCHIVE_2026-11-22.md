@@ -5682,3 +5682,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Builds v.26.11.23-001: APK on the 6T and the D: folder; Godot debug Windows export to `Cartalith Windows Debug`.
 - CS-0, today's coastal and river placing against the research (`8391599f`, `e62a5095`): GO at 2048; the Ruling FK leftovers are closed or explained (483920 #10 closed at 5 m; #5 and 154:136 sit back on marsh/flood, class (a)); the build is Ruling HS (line 2b).
 - Installer v.26.11.23-001, self-signed, to the D: folder.
+- F1 (Measure -> Journey 897 -> 206 km): not reproduced in 80+ runs (the journey is always the longer, terrain-routed path); journeys now name their measure (`9ae58a2c`); owner 2026-11-23: "lets assume it was a fluke" -- closed.
