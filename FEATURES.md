@@ -10,7 +10,8 @@ does **today**. It does not cover the legacy HTML version or any plans.
 
 **How to read the platform tags.** **All** means desktop, tablet and phone. The phone's MENU tab is built from the
 desktop menu bar row for row, and the tablet's short bar reaches the same menus through its ☰ overflow, so a feature
-reached from a menu is on all three forms unless a gate in the code says otherwise. The exceptions found are tagged.
+reached from a menu is on all three forms unless a gate in the code says otherwise. Features in the domain docks reach
+the phone through its domain tab. The exceptions found are tagged.
 **On** means the feature is on in a new world. **Off by default** means a setting the user turns on. **Behind a switch,
 off** means it is built but switched off in the app.
 
@@ -91,7 +92,7 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
 - **Brush edge sliders**: radius and strength on the screen edge while a brush is armed. *Tablet only.*
 
 ### Reading the world
-- **Data overlays** (about 30), grouped Base, Climate, Tectonics, Hydrology, Surface and Civilization. They include
+- **Data overlays** (38), grouped Base, Climate, Tectonics, Hydrology, Surface and Civilization. They include
   elevation, plates, crust age, geoid and tides previews, rock resistance, river flow, stream order, flood risk, fjord
   mask, landforms, slope, aspect, local relief, settlement suitability, route corridors and travel cost. *All.*
 - **Measure tools**: distance, bearing, area, radius, cross-section and vertical difference, plus point sampling. *All.*
@@ -124,8 +125,9 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
   walls hug the built-up area. *On.*
 - **Frozen towns**: freeze a town from the City Viewer, or by placing a point of interest, label or measurement inside
   it. Its plan is then kept in the save. Records ▸ Check frozen towns… and Re-lay all frozen towns… manage them. *All.*
-- **Landmarks**: mountain passes, river crossings and other causally placed sites, with their own types window
-  (Assets ▸ Landmark types…). *All.*
+- **Landmarks**: over 40 kinds placed where the terrain and history put them: peaks, gorges, waterfalls, mountain passes,
+  fords, harbours, mines, forts, shrines, ruins and more. They have their own types window (Assets ▸ Landmark
+  types…). *All.*
 
 ### Routes, trade and travel
 - **Roads and ways**: generated road networks, plus routed or freehand ways drawn by hand (W) and committed routes
@@ -174,7 +176,7 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
   icon families and texture sets, and apply the library to the map. The library persists on each device. *All.*
 
 ### Output
-- **Export** (File ▸ Export): player map and DM/full map, a map image as PNG, BigTIFF or JPEG up to 32 768 px wide, tile
+- **Export** (File ▸ Export): player map and DM/full map, a map image as PNG, BigTIFF or JPEG (sizes offered from 2 048 to 32 768 px wide), tile
   sets (XYZ, TMS or WMTS), and GeoJSON of the whole world. *All.*
 - **3D view** (Window ▸ 3D view): a navigable 3D terrain view. Each device measures what it can draw and sets a tier
   (Off, Basic, Standard or Full), which you can override. *All, as the device allows.*
@@ -220,12 +222,12 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
 ### Forms and controls
 - **Three shells from one app**: desktop, tablet and phone layouts, chosen from the window's size and re-chosen live when
   it changes. *All.*
-- **Context card and cartwheel**: right-click (or long-press) a map item for its actions; hold for an 8-slot tool ring.
-  *All.*
+- **Context card**: right-click (or long-press) a map item for its actions. *All; a sheet on the phone.*
+- **Cartwheel**: an 8-slot tool ring at the pointer (Q, or hold). *Desktop and tablet.*
 - **Context panel**: a right dock with Inspect, Note and Ask plus modules you arrange as tabs. *All; a sheet on the phone.*
 - **Quick bar**: pin any command to the top bar (Preferences ▸ Quick bar…). *All.*
-- **Find any command** by name, keyboard shortcuts you can rebind, and a gesture reference (Help). *Shortcuts: desktop;
-  the rest: all.*
+- **Find on map** (Edit ▸ Find on map…) finds places, and a `.` prefix searches commands. Keyboard shortcuts can be
+  rebound, and Help has a gesture reference. *Shortcuts: desktop; the rest: all.*
 - **Panels in their own windows**, for a second monitor (Preferences ▸ Open panels in their own window). *Desktop only;
   off by default.*
 - **Theme** (dark, light or follow the system), **units**, **UI scale** (100-200 %), **handedness** on touch forms,
@@ -242,7 +244,7 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
   place. *Windows.*
 - **Android build** (APK) for phones and tablets. *Android.*
 - **Multithreaded generation**, with the worker-thread count in Preferences. *All.*
-- **GPU acceleration**: a choice of device, in Preferences. *Off by default on every device.*
+- **GPU acceleration**, with a choice of graphics device, in Preferences. *Off by default on every device.*
 - **Diagnostics**: a diagnostics overlay, a diagnostic trace (*off by default*), and a diagnostic report to save
   (Help ▸ Save diagnostic report…). *All.*
 
@@ -250,12 +252,13 @@ map looks). The menus are File, Edit, Assets, Records, Story, Preferences, Windo
 
 ## Unverified (left out of the list above)
 
+- **Platform tags** come from gates in the code. No device or windowed run was made for this list.
 - **Stylo 2 pen link** (Preferences ▸ Stylus ▸ Pen link, touch forms). The menu exists, but it needs an Android plugin
   (`cartalith-native/android/pen-plugin/`) that is not under the Godot project's `addons/`. Whether a shipped APK carries
   it was not checked, and the code treats the plugin as absent when it is missing.
 - **Haptics.** Not checked in this pass.
-- **Multi-GPU modes** (split tiles, alternate frames) and the VRAM budget. The rows are live only when the engine reports
-  GPU support, and they were not exercised here.
+- **Multi-GPU modes** (split tiles, alternate frames) and the VRAM budget. The rows are built, but what they do was not
+  checked in this pass.
 - **Map image import** (Data manager ▸ Import ▸ Maps), **external sources** and **validation checks** show as gaps in
   the code itself, so they are left out. The same applies to the Print sheet (PDF) and VTT battle map rows in the
   Export menu.
@@ -289,7 +292,8 @@ Opened in the worktree at `origin/main` `0ccfd3a7`, 2026-11-23. Paths are relati
   block, `RING_UPLIFT_KEYS`; `tool_bar.gd` `SYM_LABELS`, `WAY_MODES`; `crates/cartalith-terrain/src/sculpt.rs` `Feature`,
   `FreehandMode`; `lib.rs` `carve_fjords`, `import_heightmap`; `app.gd` `CENTRE_TOOLTIP`, `_import_heightmap_at`;
   `sample_bridge.rs` `LAYER_GROUPS` (entries marked "Not available" were excluded); `wind_fx_layer.gd`;
-  `global_tools.gd` measure tools.
+  `global_tools.gd` measure tools; `RING_CARVE_KEYS`; `cartalith-civ/src/landmark.rs` `kinds()` (only `buildable: true`
+  kinds named).
 - **CIVIL.** `workspaces/civilization_workspace.gd` and `infrastructure_workspace.gd` categories and tools blocks; shell
   callers of `civ_government_vocabulary`, `civ_add_religion`, `civ_belief_run`, `civ_run_collapse_simulation`,
   `civ_military_summary`, `civ_faction_economy`, `civ_trade_flows`, `civ_food_shed`, `civ_polity_reassign`,
@@ -302,13 +306,16 @@ Opened in the worktree at `origin/main` `0ccfd3a7`, 2026-11-23. Paths are relati
   (custom pins); `adjust_panel.gd`; `look_history.gd`; `menus.gd` `_build_marker_style_menu`;
   `crates/cartalith-godot/src/export_options.rs` `FORMAT_NAMES`; `export_raster.rs` `BAKE_WIDTHS`;
   `data_manager_window.gd` `ROUTES` (kind `live` only); `view3d_gate.gd` `TIER_NAMES`.
-- **Records and Vault.** `crates/cartalith-godot/src/vault_bridge.rs` (the `vault_*` functions); `vault_saf_android.gd`;
+- **Records and Vault.** `crates/cartalith-godot/src/vault_bridge.rs` (the `vault_*` functions) and their shell callers
+  (`vault_rename`, `vault_suggest`, `vault_toggle_task`, `vault_read_image` in `vault_window.gd`; `vault_file_backlinks`,
+  `vault_tag_index`, `vault_note_properties` in `vault_side_panel.gd`; `vault_private_marks` in `vault_privacy.gd`); `vault_saf_android.gd`;
   `chronos_items.gd` and `chronos_prompt.gd` headers, mounted by `app.gd`.
 - **Assistant.** `crates/cartalith-llm/src/presets.rs` preset ids; `settings.rs` `Capability`;
   `crates/cartalith-godot/src/llm_keystore.rs` and `llm_keystore_android.rs`; `knowledge_bridge.rs`.
 - **Platform.** `crates/cartalith-io/src/project.rs` `PROJECT_FORMAT_VERSION` (3); `legacy_import.rs`;
   `installer/cartalith.iss`; `godot-project/export_presets.cfg` (Windows Desktop and Android); `tools/form_determinism.py`
-  and `godot-project/tools/form_determinism_drive.gd`. `docs/STATUS.md` entries "CPU by default on every device", "Form
+  and `godot-project/tools/form_determinism_drive.gd`; `context_broker.gd` (the ring is not built on the phone),
+  `menus.gd` `_build_map_surface_rows`, `dcc_shell.gd` `_ensure_command_index`, `engine_bridge.gd` `gpu_api`. `docs/STATUS.md` entries "CPU by default on every device", "Form
   determinism", "Windows installer", "Ruling GX and Ruling GW" and the Pad 3 timing entry (the cross-device digests were
   read there, not re-run).
 - **Method and its limit.** The platform tags come from the menu mirroring and the gates listed above. This pass ran no
