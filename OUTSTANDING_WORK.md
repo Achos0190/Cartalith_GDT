@@ -62,7 +62,7 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
-- Province and national border lines (Rulings GO, HR) ignore the style presets' province/border ink; the old raster province line's coast outline is gone with HR (decide whether coasts want their own line).
+- Province and national border lines (Rulings GO, HR) ignore the style presets' province/border ink; the coast gets its own line (Ruling HV): traced from the drawn sea/lake edge, own layer toggle and preset ink, map/tiles/export, smooth at every zoom.
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.
 - Ruling FG bars B1, B4, B5 (x4-x32) need real sub-cell landforms; goes with world-scale terrain.

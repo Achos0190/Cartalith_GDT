@@ -4142,3 +4142,7 @@ PS-5 (platting by quarter, rear households, the back-street tier of Ruling GY, t
 ## Ruling HU: HQ's answers (owner, 2026-11-23)
 
 After `62a9443e`/`f296e24e`: **the 400 m span counts the whole bridge, approaches included** (so the owner's 532187 town, 404 m with approaches, crosses by ferry); **every remaining main-thread marker rebuild** (live sea-level move, sculpt, opening a save, a parameter write; about 0.8 s at 236 settlements) **moves to a background job**; **trace now** the two ferry hamlets that lost housing (83744 #85 95 -> 76 %, 246371 #205 11 -> 0 %) and the 8 towns that lost their crossing for want of a landing pair, before PS-5 and the setback rule build on them.
+
+## Ruling HV: the coast gets its own line (owner, 2026-11-23)
+
+Ruling HR's province lines replaced the old raster province line, which also outlined coasts; that outline is gone. Owner: **the coast gets its own line** -- a coastline stroke traced from the map's drawn sea and lake edge (not from province or territory cells), its own layer toggle and style-preset ink, drawn in the map, the tiles and the export, smooth at every zoom, never doubling a border line that runs along the shore. Render-only, so no §7p switch.
