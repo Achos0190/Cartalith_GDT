@@ -1,0 +1,13 @@
+('R1 crossing at the midpoint, not the interpolated zero', 'KILLED')
+('R2 no Newton step on the midpoint (a chord across the hyperbola)', 'KILLED')
+('R3 saddle paired by the opposite centre sign', 'KILLED')
+('R4 run floor 16 -> 1 (a perpendicular border cuts the coast)', 'KILLED')
+('R5 run floor 16 -> 400 (a parallel border cuts nothing)', 'KILLED')
+('R6 near distance 1.25 -> 0.5 (a border one cell inland is not near)', 'KILLED')
+('R7 hidden mask always 0', 'KILLED')
+("R8 the vertical edge's interpolation swaps x and y", 'KILLED')
+('R9 the half-cell offset of the cell centres dropped', 'KILLED')
+('R10 coarse strides all 1 (no decimation)', 'KILLED')
+('R11 the coarsest level is only 8', 'KILLED')
+restored; residue check ok
+done

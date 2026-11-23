@@ -94,7 +94,7 @@ static func facts(app, bridge) -> Dictionary:
 	if vp == null:
 		return {"withheld": {"set_layer_visible": "There is no map yet.", "set_style_preset": "There is no map yet.",
 			"zoom_to": "There is no map yet.", "set_landmark_filter": "There is no map yet.", "open_window": "There is no map yet."}}
-	# -- layers: the nine ids (ten before F23 removed Rivers) `ViewportHost.set_layer_visible` takes, in the Layers popover's order.
+	# -- layers: the ten ids (nine until Ruling HV's Coastline; ten before F23 removed Rivers) `ViewportHost.set_layer_visible` takes, in the Layers popover's order.
 	var layers: Array = []
 	for l in CartographyWorkspace.LIVE_LAYERS:
 		var ld: Dictionary = l

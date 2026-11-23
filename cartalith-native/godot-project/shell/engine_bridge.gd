@@ -1487,6 +1487,15 @@ func province_lines() -> Array:
 		return []
 	return world_gen.civ_province_lines()
 
+## Ruling HV: `WorldGen.civ_coast_lines`, the coastline traced from the drawn water edge: `{kept, coarse, hidden}`
+## (polylines in continuous grid coordinates like `border_lines()`, three thinned copies of them (every 4th, 8th and 16th
+## vertex), and the runs a border follows as `{mask, points}`). Empty for a look
+## that draws the cell coast, before any world, or against a binary without the `#[func]`.
+func coast_lines() -> Dictionary:
+	if not _has("civ_coast_lines"):
+		return {}
+	return world_gen.civ_coast_lines()
+
 ## `WorldGen.get_settlements`: one dictionary per settlement (x, y, name,
 ## population, kind, ...). Indices into this array are the `index` other wrappers take.
 ##

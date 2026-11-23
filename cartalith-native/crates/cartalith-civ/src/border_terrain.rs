@@ -698,6 +698,256 @@ fn seam_polylines(gw: usize, gh: usize, differ: &dyn Fn(usize, usize) -> bool) -
         .collect()
 }
 
+/// How far (grid cells) a coast vertex must lie from a border vertex to count
+/// as running along it. A border seam lies on a cell edge and the shore
+/// contour between a land and a water centre, so a border one cell inside a
+/// coastal strip is up to 1.5 cells from the shore; 1.25 catches that and
+/// stays under the spacing of two parallel runs of different things. Labelled
+/// judgement (Ruling HV), tuned on the frames in `docs/evidence/coast-line-2026-11-23/`.
+const COAST_BORDER_NEAR: f32 = 1.25;
+/// The fewest consecutive coast vertices within [`COAST_BORDER_NEAR`] of a
+/// border for the run to be dropped. A border that merely ends at the shore
+/// sits near about 6 vertices of the coast (2 * 1.25 cells at a vertex per half
+/// cell); 16 is eight cells, so only a border that follows the shore is cut.
+/// Labelled judgement (Ruling HV).
+const COAST_RUN_MIN: usize = 16;
+
+/// Every this-many vertices of a coast line survive into the three [`Coast::coarse`] levels. A vertex is about half a cell
+/// apart, so the strides are chords of 2, 4 and 8 cells, drawn from 1.5, 1.0 and 0.5 screen pixels a cell down (`map_overlay.gd`'s
+/// `COAST_*_BELOW_PX`): chords of two to four pixels, whose sag from the contour is under a pixel on a bend three cells wide.
+/// Labelled judgement (Ruling HV); the frame-cost bar at fit (2 ms) is what asked for them, `docs/evidence/coast-line-2026-11-23/`.
+pub const COAST_STRIDES: [usize; 3] = [4, 8, 16];
+
+/// [`coast_polylines`]' answer: the lines to draw, and the runs left out because
+/// a border follows them, each with the bit mask of the `avoid` sets it follows.
+#[derive(Default, Debug, PartialEq)]
+pub struct Coast {
+    pub kept: Vec<Vec<(f32, f32)>>,
+    /// `kept` thinned to every [`COAST_STRIDES`]`[k]`th vertex (the last always kept), for `k` = 0, 1, 2: what the shell draws
+    /// when a cell is under 1.5, 1.0 and 0.5 screen pixels, where the full line's vertices are sub-pixel apart and only cost
+    /// draw time.
+    pub coarse: [Vec<Vec<(f32, f32)>>; 3],
+    pub hidden: Vec<(u8, Vec<(f32, f32)>)>,
+}
+
+/// Ruling HV: the coastline as polylines in continuous grid coordinates (the
+/// borders' convention, cell `(x, y)` spanning `[x, x+1)`).
+///
+/// `shore` is the shore field (`render::shore_field`: positive on water,
+/// negative on land, sampled at cell centres). The line is its zero contour
+/// under the bilinear interpolation the base map's shader contours
+/// (`shore_field.gdshaderinc::shore_value`), so it lies on the water edge the
+/// map draws; the deep-zoom tiles draw the same contour (`is_lake_pixel`, and
+/// the sea's `ht < sea_level` whose side is its bilinear base's). Each cell's
+/// crossing is found on its edges by linear interpolation; a saddle cell is
+/// paired by the bilinear value at its centre, which fixes the true topology;
+/// and each segment's midpoint is moved onto the bilinear contour (two Newton
+/// steps) so the chord does not cut the hyperbola. Lines run to the grid edge
+/// and stop there (the shader clamps, it does not wrap).
+///
+/// `avoid` is the sets of border polylines (bit `k` of a run's mask is set `k`):
+/// a run of at least [`COAST_RUN_MIN`] coast vertices within
+/// [`COAST_BORDER_NEAR`] of one is taken out of `kept` and returned in
+/// [`Coast::hidden`] with the mask of the sets it follows, so a border that
+/// follows the shore is the only stroke there while the shell draws the run
+/// whenever none of those sets is drawn (a hidden border layer must not leave a
+/// hole in the coast). Must never read territory or province cells itself, and
+/// never moves the contour: it only sorts runs.
+pub fn coast_polylines(shore: &[f32], gw: usize, gh: usize, avoid: &[&[Vec<(f32, f32)>]]) -> Coast {
+    use std::collections::HashMap;
+    if gw < 2 || gh < 2 || shore.len() != gw * gh {
+        return Coast::default();
+    }
+    // Edge id: horizontal edge (i,j)-(i+1,j) is 2*(j*gw+i), vertical (i,j)-(i,j+1) is 2*(j*gw+i)+1.
+    let at = |i: usize, j: usize| shore[j * gw + i] as f64;
+    let point = |e: usize| -> (f32, f32) {
+        let (c, vert) = (e / 2, e % 2 == 1);
+        let (i, j) = (c % gw, c / gw);
+        let (v0, v1) = if vert { (at(i, j), at(i, j + 1)) } else { (at(i, j), at(i + 1, j)) };
+        let t = (v0 / (v0 - v1)) as f32;
+        if vert { (i as f32 + 0.5, j as f32 + t + 0.5) } else { (i as f32 + t + 0.5, j as f32 + 0.5) }
+    };
+    // (edge a, edge b, midpoint on the bilinear contour)
+    let mut segs: Vec<(usize, usize, (f32, f32))> = Vec::new();
+    for j in 0..gh - 1 {
+        for i in 0..gw - 1 {
+            let (a, b, c, d) = (at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1));
+            let (top, right, bottom, left) = ((a > 0.0) != (b > 0.0), (b > 0.0) != (c > 0.0), (d > 0.0) != (c > 0.0), (a > 0.0) != (d > 0.0));
+            let (et, er, eb, el) = (2 * (j * gw + i), 2 * (j * gw + i + 1) + 1, 2 * ((j + 1) * gw + i), 2 * (j * gw + i) + 1);
+            let pairs: Vec<(usize, usize)> = match (top, right, bottom, left) {
+                (false, false, false, false) => continue,
+                (true, true, true, true) => {
+                    // Saddle: the bilinear value at the centre is the mean of the corners.
+                    if (a + b + c + d > 0.0) == (a > 0.0) { vec![(et, er), (el, eb)] } else { vec![(et, el), (er, eb)] }
+                }
+                _ => {
+                    let e: Vec<usize> = [(top, et), (right, er), (bottom, eb), (left, el)].iter().filter(|p| p.0).map(|p| p.1).collect();
+                    vec![(e[0], e[1])]
+                }
+            };
+            for (ea, eb2) in pairs {
+                let (pa, pb) = (point(ea), point(eb2));
+                // Newton on s(u, v) from the chord midpoint, in the cell's local coordinates.
+                let (mut u, mut v) = (((pa.0 + pb.0) * 0.5 - i as f32 - 0.5) as f64, ((pa.1 + pb.1) * 0.5 - j as f32 - 0.5) as f64);
+                for _ in 0..2 {
+                    let s = (1.0 - u) * (1.0 - v) * a + u * (1.0 - v) * b + u * v * c + (1.0 - u) * v * d;
+                    let gx = (1.0 - v) * (b - a) + v * (c - d);
+                    let gy = (1.0 - u) * (d - a) + u * (c - b);
+                    let g2 = gx * gx + gy * gy;
+                    if g2 > 1e-24 {
+                        u = (u - s * gx / g2).clamp(0.0, 1.0);
+                        v = (v - s * gy / g2).clamp(0.0, 1.0);
+                    }
+                }
+                segs.push((ea, eb2, (i as f32 + u as f32 + 0.5, j as f32 + v as f32 + 0.5)));
+            }
+        }
+    }
+    // Chain segments through shared edges. An edge belongs to at most two segments.
+    let mut by_edge: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (k, &(ea, eb, _)) in segs.iter().enumerate() {
+        by_edge.entry(ea).or_default().push(k);
+        by_edge.entry(eb).or_default().push(k);
+    }
+    let mut used = vec![false; segs.len()];
+    let mut lines: Vec<(Vec<(f32, f32)>, bool)> = Vec::new();
+    let walk = |start_seg: usize, start_edge: usize, used: &mut Vec<bool>| -> (Vec<(f32, f32)>, bool) {
+        let mut out = vec![point(start_edge)];
+        let (mut k, mut from) = (start_seg, start_edge);
+        loop {
+            used[k] = true;
+            let (ea, eb, mid) = segs[k];
+            let to = if ea == from { eb } else { ea };
+            out.push(mid);
+            out.push(point(to));
+            match by_edge[&to].iter().find(|&&n| !used[n]) {
+                Some(&n) => {
+                    k = n;
+                    from = to;
+                }
+                None => return (out, to == start_edge),
+            }
+        }
+    };
+    // Open lines first (they begin at an edge with one segment: the grid's edge), then closed rings.
+    let mut ends: Vec<usize> = by_edge.iter().filter(|(_, v)| v.len() == 1).map(|(&e, _)| e).collect();
+    ends.sort_unstable();
+    for e in ends {
+        let k = by_edge[&e][0];
+        if !used[k] {
+            lines.push(walk(k, e, &mut used));
+        }
+    }
+    for k in 0..segs.len() {
+        if !used[k] {
+            lines.push(walk(k, segs[k].0, &mut used));
+        }
+    }
+    // No-doubling: bucket the avoided vertices (with their set's bit), flag the coast vertices near one, take long runs out.
+    let mut buckets: HashMap<(i32, i32), Vec<(f32, f32, u8)>> = HashMap::new();
+    for (k, set) in avoid.iter().enumerate() {
+        for line in set.iter() {
+            for &(x, y) in line {
+                buckets.entry(((x / COAST_BORDER_NEAR).floor() as i32, (y / COAST_BORDER_NEAR).floor() as i32)).or_default().push((x, y, 1u8 << k));
+            }
+        }
+    }
+    // The mask of the sets with a vertex within COAST_BORDER_NEAR of `p`; 0 when none.
+    let near = |p: (f32, f32)| -> u8 {
+        if buckets.is_empty() {
+            return 0;
+        }
+        let (bx, by) = ((p.0 / COAST_BORDER_NEAR).floor() as i32, (p.1 / COAST_BORDER_NEAR).floor() as i32);
+        let mut m = 0u8;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if let Some(v) = buckets.get(&(bx + dx, by + dy)) {
+                    for q in v {
+                        if (q.0 - p.0).powi(2) + (q.1 - p.1).powi(2) <= COAST_BORDER_NEAR * COAST_BORDER_NEAR {
+                            m |= q.2;
+                        }
+                    }
+                }
+            }
+        }
+        m
+    };
+    let mut out = Coast::default();
+    for (line, closed) in lines {
+        let flags: Vec<u8> = line.iter().map(|&p| near(p)).collect();
+        // `cut[k]`: vertex k lies in a near run of at least COAST_RUN_MIN.
+        let mut cut = vec![false; line.len()];
+        let mut k = 0;
+        while k < flags.len() {
+            if flags[k] != 0 {
+                let s = k;
+                while k < flags.len() && flags[k] != 0 {
+                    k += 1;
+                }
+                if k - s >= COAST_RUN_MIN {
+                    cut[s..k].iter_mut().for_each(|c| *c = true);
+                }
+            } else {
+                k += 1;
+            }
+        }
+        if !cut.iter().any(|&c| c) {
+            out.kept.push(line);
+            continue;
+        }
+        // Split into kept stretches and hidden runs (a hidden run carries the OR of its vertices' masks, and one vertex of overlap each side so
+        // the pieces meet).
+        let mut pieces: Vec<Vec<(f32, f32)>> = Vec::new();
+        let mut cur: Vec<(f32, f32)> = Vec::new();
+        let mut hid: Vec<(u8, Vec<(f32, f32)>)> = Vec::new();
+        let mut run: Option<(u8, Vec<(f32, f32)>)> = None;
+        for (i, p) in line.iter().enumerate() {
+            if cut[i] {
+                if cur.len() >= 2 {
+                    pieces.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+                let r = run.get_or_insert_with(|| (0, if i > 0 { vec![line[i - 1]] } else { Vec::new() }));
+                r.0 |= flags[i];
+                r.1.push(*p);
+            } else {
+                if let Some(mut r) = run.take() {
+                    r.1.push(*p);
+                    hid.push(r);
+                }
+                cur.push(*p);
+            }
+        }
+        if let Some(r) = run.take() {
+            hid.push(r);
+        }
+        if cur.len() >= 2 {
+            pieces.push(cur);
+        }
+        // A ring cut in the middle of a kept stretch has that stretch split at its seam: rejoin it.
+        if closed && !cut[0] && !cut[line.len() - 1] && pieces.len() >= 2 {
+            let last = pieces.pop().unwrap();
+            pieces[0].splice(0..0, last);
+        }
+        out.kept.extend(pieces);
+        out.hidden.extend(hid);
+    }
+    for (k, stride) in COAST_STRIDES.iter().enumerate() {
+        out.coarse[k] = out
+            .kept
+            .iter()
+            .map(|l| {
+                let mut c: Vec<(f32, f32)> = l.iter().copied().step_by(*stride).collect();
+                if l.len() > 1 && c.last() != l.last() {
+                    c.push(*l.last().unwrap());
+                }
+                c
+            })
+            .collect();
+    }
+    out
+}
+
 /// One round of Chaikin corner cutting (each segment replaced by its points at
 /// 1/4 and 3/4). An open line keeps its two ends; a closed one (first point ==
 /// last) stays closed.
@@ -1130,5 +1380,93 @@ mod tests {
         let lines = province_polylines(&province, &territory, &field, 0.3, gw, gh);
         assert_eq!(lines.len(), 1, "one inner seam");
         assert!(lines[0].iter().all(|&(x, y)| (y - 3.0).abs() < 1e-6 && x <= 5.0), "on y = 3, west of the faction border: {:?}", lines[0]);
+    }
+
+    // ---- Ruling HV: coast_polylines ----
+
+    /// Bilinear value of `f` at index coordinates `(u, v)` (cell centres at integers): the shader's `shore_value`.
+    fn bilin(f: &[f32], gw: usize, u: f64, v: f64) -> f64 {
+        let (x0, y0) = (u.floor() as usize, v.floor() as usize);
+        let (tx, ty) = (u - x0 as f64, v - y0 as f64);
+        let g = |x: usize, y: usize| f[y * gw + x] as f64;
+        (1.0 - tx) * (1.0 - ty) * g(x0, y0) + tx * (1.0 - ty) * g(x0 + 1, y0) + (1.0 - tx) * ty * g(x0, y0 + 1) + tx * ty * g(x0 + 1, y0 + 1)
+    }
+
+    /// A disc of water (positive) of radius `r` cells centred at index `(cx, cy)`, value = `r` minus distance.
+    fn disc(gw: usize, gh: usize, cx: f64, cy: f64, r: f64) -> Vec<f32> {
+        (0..gw * gh).map(|i| (r - (((i % gw) as f64 - cx).powi(2) + ((i / gw) as f64 - cy).powi(2)).sqrt()) as f32).collect()
+    }
+
+    /// Protects the trace's placement: every vertex of a closed ring around a water disc lies on the bilinear zero
+    /// contour (its value within 1e-3 of zero, against a gradient of 1 per cell), the ring closes, and there is
+    /// exactly one. Midpoint vertices count, so a skipped Newton step (a chord across the hyperbola) fails it.
+    #[test]
+    fn coast_ring_lies_on_the_bilinear_contour() {
+        let (gw, gh) = (40, 40);
+        let f = disc(gw, gh, 19.3, 20.2, 9.7);
+        let lines = coast_polylines(&f, gw, gh, &[]).kept;
+        assert_eq!(lines.len(), 1, "one ring");
+        let l = &lines[0];
+        assert!(l.len() > 100 && l[0] == l[l.len() - 1], "closed, dense: {}", l.len());
+        let worst = l.iter().map(|&(x, y)| bilin(&f, gw, x as f64 - 0.5, y as f64 - 0.5).abs()).fold(0.0, f64::max);
+        assert!(worst < 1e-3, "worst |s| on the line {worst}");
+        // The coarse levels: a fourth, an eighth and a sixteenth of the vertices (plus the last), the same ends, every one a
+        // vertex of the full line.
+        let coarse = coast_polylines(&f, gw, gh, &[]).coarse;
+        for (k, stride) in [4usize, 8, 16].into_iter().enumerate() {
+            let c = &coarse[k];
+            assert_eq!(c.len(), 1);
+            assert_eq!((c[0][0], *c[0].last().unwrap()), (l[0], *l.last().unwrap()), "stride {stride}");
+            assert_eq!(c[0].len(), (l.len() - 1) / stride + 1 + usize::from((l.len() - 1) % stride != 0), "stride {stride}");
+            assert!(c[0].iter().all(|p| l.contains(p)));
+        }
+    }
+
+    /// Protects the saddle rule: a 2x2 checkerboard (water on one diagonal) with a wet centre joins the water
+    /// (one S-less line through the middle region), a dry centre keeps the two wet corners apart. The centre's sign
+    /// is the mean of the corners, so the two cases differ only by the corner magnitudes.
+    #[test]
+    fn coast_saddle_follows_the_centre_sign() {
+        // tl, br wet. Wet-heavy: the centre is wet, the two dry corners are cut off: two lines.
+        let wet = [3.0f32, -1.0, -1.0, 3.0];
+        let dry = [1.0f32, -3.0, -3.0, 1.0];
+        let a = coast_polylines(&wet, 2, 2, &[]).kept;
+        let b = coast_polylines(&dry, 2, 2, &[]).kept;
+        assert_eq!((a.len(), b.len()), (2, 2));
+        // Wet centre: each line hugs a dry corner (tr at (1.5, 0.5), bl at (0.5, 1.5)); dry centre: a wet corner (tl, br).
+        let near = |l: &Vec<(f32, f32)>, p: (f32, f32)| l.iter().all(|q| (q.0 - p.0).hypot(q.1 - p.1) < 0.9);
+        assert!(a.iter().any(|l| near(l, (1.5, 0.5))) && a.iter().any(|l| near(l, (0.5, 1.5))), "wet centre: {a:?}");
+        assert!(b.iter().any(|l| near(l, (0.5, 0.5))) && b.iter().any(|l| near(l, (1.5, 1.5))), "dry centre: {b:?}");
+    }
+
+    /// Protects the no-doubling rule from both sides: a border running along a straight shore removes the coast
+    /// along it (and only there), while a border that merely ends at the shore leaves the coast whole.
+    #[test]
+    fn coast_drops_only_runs_that_follow_a_border() {
+        // Water above row 20 (y < 20.5), land below: a straight shore at y = 20.5 over 60 columns.
+        let (gw, gh) = (60, 40);
+        let f: Vec<f32> = (0..gw * gh).map(|i| 20.0 - (i / gw) as f32).collect();
+        let whole = coast_polylines(&f, gw, gh, &[]).kept;
+        assert_eq!(whole.len(), 1);
+        let whole_n = whole[0].len();
+        // A border parallel to the shore, one cell inland, over columns 10..40.
+        let parallel: Vec<Vec<(f32, f32)>> = vec![(0..=120).map(|k| (10.0 + k as f32 * 0.25, 21.5)).collect()];
+        let c = coast_polylines(&f, gw, gh, &[&parallel]);
+        let kept: usize = c.kept.iter().map(|l| l.len()).sum();
+        assert!(kept < whole_n - 40, "the parallel stretch is gone: {kept} of {whole_n}");
+        assert!(c.kept.iter().all(|l| l.iter().all(|&(x, _)| !(14.0..36.0).contains(&x))), "nothing kept in the middle of the run");
+        assert!(c.kept.iter().flatten().any(|&(x, _)| x < 8.0) && c.kept.iter().flatten().any(|&(x, _)| x > 42.0), "both ends kept");
+        // The cut run is returned, tagged with the set it follows, and a hidden border layer needs it: kept + hidden is the whole coast.
+        assert_eq!(c.hidden.len(), 1);
+        assert_eq!(c.hidden[0].0, 1, "mask of set 0");
+        assert!(c.hidden[0].1.iter().any(|&(x, _)| (20.0..30.0).contains(&x)));
+        // The same border as the SECOND set tags bit 1.
+        let none: Vec<Vec<(f32, f32)>> = Vec::new();
+        assert_eq!(coast_polylines(&f, gw, gh, &[&none, &parallel]).hidden[0].0, 2);
+        // A border that ends at the shore, running inland: the coast keeps every vertex and hides nothing.
+        let ending: Vec<Vec<(f32, f32)>> = vec![(0..=40).map(|k| (30.5, 21.0 + k as f32 * 0.25)).collect()];
+        let c2 = coast_polylines(&f, gw, gh, &[&ending]);
+        assert_eq!(c2.kept.iter().map(|l| l.len()).sum::<usize>(), whole_n, "a perpendicular border cuts nothing");
+        assert!(c2.hidden.is_empty());
     }
 }

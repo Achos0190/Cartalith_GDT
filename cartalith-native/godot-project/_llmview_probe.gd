@@ -383,7 +383,7 @@ func _ready() -> void:
 	_win._pick_task("commands")
 	var vscript = load("res://shell/llm_view.gd")
 	var facts: Dictionary = vscript.facts(_app, _bridge)
-	_ok(facts.has("layers") and (facts["layers"] as Array).size() == 9, "the facts list the nine layers (ten until F23 removed Rivers, 2026-11-21) (%d)" % (facts.get("layers", []) as Array).size())
+	_ok(facts.has("layers") and (facts["layers"] as Array).size() == 10, "the facts list the ten layers (nine until Ruling HV's Coastline; ten until F23 removed Rivers, 2026-11-21) (%d)" % (facts.get("layers", []) as Array).size())
 	_ok(facts.has("presets") and (facts["presets"] as Array).size() == RenderWorkspace.STYLE_PRESETS.size(), "the facts list every style preset (%d)" % (facts.get("presets", []) as Array).size())
 	_ok(facts.has("camera") and int(facts["camera"]["w"]) == 256 and int(facts["camera"]["h"]) == 164, "the camera facts carry the grid 256 x 164")
 	_ok((facts.get("withheld", {}) as Dictionary).has("set_landmark_filter"), "with no landmark pass yet, landmark filtering is withheld with a reason: '%s'" % str(facts.get("withheld", {}).get("set_landmark_filter", "")))

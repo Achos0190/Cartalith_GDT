@@ -186,7 +186,7 @@ pub fn settlements_from(flag: Option<bool>, tier: Option<SettlementTier>) -> Res
 ///   color_space: "sRGB" | "Display P3", # default "sRGB" (ET-E1); P3 is PNG or JPEG
 ///   style: { look, preset, ramp, tunables: {key: value} },   # all optional
 ///   content: { rivers, settlements, settlement_tier,
-///              routes, ways, labels, territory, icons,
+///              routes, ways, labels, territory, coast, icons,
 ///              colour_paint } }                               # all optional
 /// ```
 ///
@@ -208,7 +208,7 @@ pub struct ExportOptions {
 impl ExportOptions {
     pub const KEYS: [&'static str; 6] = ["width", "format", "quality", "color_space", "style", "content"];
     pub const STYLE_KEYS: [&'static str; 4] = ["look", "preset", "ramp", "tunables"];
-    pub const CONTENT_KEYS: [&'static str; 9] = ["rivers", "settlements", "settlement_tier", "routes", "ways", "labels", "territory", "icons", "colour_paint"];
+    pub const CONTENT_KEYS: [&'static str; 10] = ["rivers", "settlements", "settlement_tier", "routes", "ways", "labels", "territory", "coast", "icons", "colour_paint"];
 }
 
 /// What the exported image contains. `rivers` is the baked river ink every
@@ -222,6 +222,8 @@ pub struct ExportContent {
     pub ways: bool,
     pub labels: bool,
     pub territory: bool,
+    /// Ruling HV: the coastline stroke, traced from the drawn water edge (`WorldGen::civ_coast_lines`). An overlay.
+    pub coast: bool,
     pub icons: bool,
     /// CP-6 (`COLOUR_PAINT_SCOPE.md` §7, Ruling EA item 15): whether the export carries the
     /// project's colour paint. **Default `true`** -- what the screen shows is what exports -- and
@@ -234,13 +236,13 @@ pub struct ExportContent {
 impl Default for ExportContent {
     /// What `export_raster_png` has always drawn: terrain and rivers (and the project's colour paint, when it has any).
     fn default() -> Self {
-        ExportContent { rivers: true, settlements: None, routes: false, ways: false, labels: false, territory: false, icons: false, colour_paint: true }
+        ExportContent { rivers: true, settlements: None, routes: false, ways: false, labels: false, territory: false, coast: false, icons: false, colour_paint: true }
     }
 }
 
 impl ExportContent {
     /// The boolean overlay keys, in the order `overlays` reports them.
-    pub const OVERLAY_KEYS: [&'static str; 5] = ["routes", "ways", "labels", "territory", "icons"];
+    pub const OVERLAY_KEYS: [&'static str; 6] = ["routes", "ways", "labels", "territory", "coast", "icons"];
 
     /// Every requested item only E4's overlay session could draw.
     pub fn overlays(&self) -> Vec<&'static str> {
@@ -248,7 +250,7 @@ impl ExportContent {
         if self.settlements.is_some() {
             out.push("settlements");
         }
-        for (key, on) in Self::OVERLAY_KEYS.iter().zip([self.routes, self.ways, self.labels, self.territory, self.icons]) {
+        for (key, on) in Self::OVERLAY_KEYS.iter().zip([self.routes, self.ways, self.labels, self.territory, self.coast, self.icons]) {
             if on {
                 out.push(key);
             }
@@ -263,6 +265,7 @@ impl ExportContent {
             "ways" => &mut self.ways,
             "labels" => &mut self.labels,
             "territory" => &mut self.territory,
+            "coast" => &mut self.coast,
             "icons" => &mut self.icons,
             _ => return false,
         };

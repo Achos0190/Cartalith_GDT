@@ -357,6 +357,11 @@ func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: A
 	step_ms = {}
 	if tile_max <= 0 or tile_max > TILE_MAX:
 		return {"ok": false, "error": "tile size %d is outside 1..%d" % [tile_max, TILE_MAX]}
+	## Ruling HV: the coastline is read from the engine BEFORE the session opens, so the export never depends on a read made
+	## while it is open (an ordering choice: the urban fetch below does read the engine mid-session, and no hang was traced to
+	## fetching the coast from inside the overlay copy; the first exports simply ran past their driver's timeout).
+	if bool((opts.get("content", {}) as Dictionary).get("coast", false)) and live != null and live.has_method("ensure_coast_lines"):
+		live.ensure_coast_lines()
 	progress.emit(0.0, "Opening the export")
 	var begun: Dictionary = await _engine(bridge, "export_session_begin", [path, opts])
 	if not bool(begun.get("ok", false)):

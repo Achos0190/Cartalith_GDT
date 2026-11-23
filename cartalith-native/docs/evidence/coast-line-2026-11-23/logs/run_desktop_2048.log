@@ -1,0 +1,50 @@
+completed 
+form: desktop, canvas (1600.0, 900.0), grid 2048
+ok    welcome card shows Continue
+ok    a world exists  -- 25128 ms
+ok    the engine traced a coastline  -- 52 lines, 30306 vertices, 0 runs hidden under a border; the first fetch (shore field contour plus both border traces) took 57 ms on the main thread
+ok    the world has national and province lines to compare with  -- 14 national, 8 province
+ok    the layer starts off
+ok    the Coastline row is in the layer list (a CheckBox in CARTO's Layers)
+ok    the row is on screen  -- [P: (316.0, 518.0), S: (30.0, 24.0)]
+ok    clicking the row turns the layer on
+ok    clicking again turns it off
+ok    x1: the stroke is visible (layer on differs from off)  -- 16698 px differ, zoom 1.21
+ok    x1: the stroke is drawn where the trace says (139 of 151 sampled vertices have ink under them)
+ok    x1: off again restores the frame (control)
+ok    x4: the stroke is visible (layer on differs from off)  -- 5374 px differ, zoom 4.85
+ok    x4: the stroke is drawn where the trace says (149 of 151 sampled vertices have ink under them)
+ok    x4: off again restores the frame (control)
+x4 outliers over 1 px: ["(419.0, 790.0):1.0", "(433.0, 698.0):1.0", "(773.0, 268.0):1.0"]
+ok    x4: the coast lies within 1 px of the drawn water edge (median 0.32, p90 0.68, max 1.05 px over 91 samples, 88 within 1 px, 1 with no crossing skipped; the over-1 px ones are marked in the _outliers frame)
+ok    x4 miss 1 (grid (1107.0, 783.0), 1.0 px at x4): re-measured at x16 it is 0.71 px (bar: 1.5 px or 6 % of a cell, whichever is more: where a cell is 60 px the water/sand colour gradient is wider than the line)
+ok    x4 miss 2 (grid (1265.0, 551.0), 1.0 px at x4): re-measured at x16 it is no water/land crossing in reach (the colour test, not the trace, had no edge there) (bar: 1.5 px or 6 % of a cell, whichever is more: where a cell is 60 px the water/sand colour gradient is wider than the line)
+ok    x4 miss 3 (grid (1113.0, 743.0), 1.0 px at x4): re-measured at x16 it is 0.96 px (bar: 1.5 px or 6 % of a cell, whichever is more: where a cell is 60 px the water/sand colour gradient is wider than the line)
+ok    x16: the stroke is visible (layer on differs from off)  -- 4035 px differ, zoom 19.39
+ok    x16: the stroke is drawn where the trace says (299 of 299 sampled vertices have ink under them)
+ok    x16: off again restores the frame (control)
+x16 outliers over 1 px: ["(934.0, 280.0):2.2"]
+ok    x16: the coast lies within 1 px of the drawn water edge (median 0.22, p90 0.58, max 2.18 px over 99 samples, 98 within 1 px, 0 with no crossing skipped; the over-1 px ones are marked in the _outliers frame)
+ok    x64: the stroke is visible (layer on differs from off)  -- 3235 px differ, zoom 77.55
+ok    x64: the stroke is drawn where the trace says (58 of 58 sampled vertices have ink under them)
+ok    x64: off again restores the frame (control)
+ok    x4: every sampled vertex lies on the zero of the shipped shore field (415 vertices: median 0.000 px, max 0.001 px)
+ok    x16: every sampled vertex lies on the zero of the shipped shore field (299 vertices: median 0.000 px, max 0.287 px)
+ok    coast line: its own ink changes with the preset (stroke contribution Antique (-0.18 -0.21 -0.15), Blueprint (+0.11 +0.15 +0.25), Default (-0.27 -0.24 -0.11))
+ok    national line: its own ink changes with the preset (stroke contribution Antique (+0.03 +0.01 -0.02), Blueprint (+0.11 +0.10 +0.10), Default (+0.00 -0.02 -0.03))
+ok    province line: its own ink changes with the preset (stroke contribution Antique (-0.04 -0.07 -0.06), Blueprint (+0.14 +0.15 +0.21), Default (-0.10 -0.12 -0.09))
+ok    the Antique Look button exists
+ok    the Blueprint Look button exists
+ok    the Night Look button exists
+ok    coast line over each preset's own ground: its ink differs between Antique (-0.25 -0.24 -0.16), Blueprint (+0.21 +0.23 +0.26) and Night (+0.23 +0.23 +0.22)
+ok    national line over each preset's own ground: its ink differs between Antique (+0.03 -0.00 -0.08), Blueprint (+0.38 +0.34 +0.21) and Night (+0.48 +0.40 +0.20)
+ok    province line over each preset's own ground: its ink differs between Antique (-0.07 -0.08 -0.06), Blueprint (+0.17 +0.17 +0.16) and Night (+0.20 +0.18 +0.12)
+export step skipped (COAST_SKIP_EXPORT)
+batch 0: frame ms on 51.92 (34.98..65.51), off 50.60 (34.60..64.70)
+batch 1: frame ms on 39.23 (34.85..57.58), off 38.73 (34.10..59.40)
+batch 2: frame ms on 37.32 (35.03..58.44), off 36.62 (34.34..57.14)
+batch 3: frame ms on 35.32 (34.64..51.69), off 34.78 (33.92..42.77)
+batch 4: frame ms on 36.71 (34.79..66.21), off 36.21 (34.17..64.14)
+ok    frame-cost control: the stroke was drawn on every 'on' frame (400 draws, 400 on frames)
+ok    frame cost at fit with the stroke on is within 2 ms of off (median of 5: on 37.32 ms, off 36.62 ms, difference 0.70)
+PROOF PASS

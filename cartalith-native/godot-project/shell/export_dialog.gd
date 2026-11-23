@@ -121,6 +121,7 @@ const LAYERS := [
 	["labels", "Labels", true, "Place names."],
 	["icons", "Icons", true, "Landmark and settlement icons."],
 	["territory", "Borders", true, "Faction territory and province lines."],
+	["coast", "Coastline", false, "The coastline, traced from the drawn sea and lake edge. Off by default."],
 	["routes", "Journey routes", false, "Planned journey routes. Off by default."],
 	## CP-6 (`COLOUR_PAINT_SCOPE.md` §7, Ruling EA item 15): the project's colour paint (CARTO ▸ Colours) is part of the
 	## terrain picture, so it exports by default, as the screen shows it. Off draws the unpainted terrain. With no
@@ -132,7 +133,8 @@ const LAYERS := [
 ## THE TABLE presets, `id -> {title, off, note}`. `off` lists the `LAYERS` keys
 ## the preset switches off; every other layer, and Settlements, is switched on.
 ## **Player hides Journey routes and nothing else, because that is all this
-## dialog can hide by audience**: its six switches are whole layers, and
+## dialog can hide by audience**: its switches are whole layers (Ruling HV added Coastline: both presets switch it on, as they
+## do every key not in `off`, so a table map carries the shore line), and
 ## nothing in the engine or the save marks one place, label or icon DM-only
 ## (§7 risk 7: "do not relabel it safe for players"). The note says so in the
 ## dialog itself, not only on the menu row. DM is every switch on.

@@ -7260,6 +7260,11 @@ struct WorldGen {
     /// never be read as a classification: it only says where between two cell
     /// centres of different class the shore runs.
     shore_field_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// Ruling HV: the same shore field's f32 values (what `shore_field_tex`
+    /// holds as half floats), kept so `civ_coast_lines` can contour the very
+    /// surface the map's shader contours. Replaced with the texture in
+    /// `build_color_texture`; empty when that is `None`.
+    shore_field_vals: std::cell::RefCell<Vec<f32>>,
     /// RIM-1's river distance field (`river_field::build`) as a half-float
     /// RGBA texture, for the base map's painted river (`river_field_texture`),
     /// and the key it was built under (`river_field_key`: the drawn network's
@@ -8170,6 +8175,7 @@ impl IRefCounted for WorldGen {
             river_color_tex: std::cell::RefCell::new(None),
             river_water_mask_tex: std::cell::RefCell::new(None),
             shore_field_tex: std::cell::RefCell::new(None),
+            shore_field_vals: std::cell::RefCell::new(Vec::new()),
             river_field_tex: std::cell::RefCell::new(None),
             river_field_key: std::cell::RefCell::new(None),
             river_field_width: std::cell::Cell::new(1.0),
@@ -13557,11 +13563,16 @@ impl WorldGen {
             let fld = render::shore_field_forced_with(field, &lakes, &fill_level, rainfall, self.drawn_lakes_rain_gated(), self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
             if fld.len() == gw * gh {
                 let bytes: Vec<u8> = fld.iter().flat_map(|&v| render::f16_bits(v).to_le_bytes()).collect();
+                // Ruling HV: the f32 values are kept for the coastline trace (moved, not copied: 4 bytes a cell held for the
+                // life of the world, whether or not the Coast layer is on).
+                *self.shore_field_vals.borrow_mut() = fld;
                 Image::create_from_data(gw as i32, gh as i32, false, Format::RH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
             } else {
+                self.shore_field_vals.borrow_mut().clear();
                 None
             }
         } else {
+            self.shore_field_vals.borrow_mut().clear();
             None
         };
         // RIM-1: the river as water in the map's own pixels -- the distance
@@ -14062,34 +14073,7 @@ impl WorldGen {
     /// with no claim grid.
     #[func]
     fn civ_border_lines(&self) -> VarArray {
-        let mut out = VarArray::new();
-        // F26 / Ruling GL: a sphere's edge is drawn too (the spheres join the
-        // owner grid as ids past every faction's), so a cluster is outlined
-        // like a nation. With spheres, the line is drawn whatever the friction.
-        let spheres = self.sphere_view().filter(|v| !v.seats.is_empty());
-        if self.params.civ.border_friction <= 0.0 && spheres.is_none() {
-            return out;
-        }
-        let Some(civ) = self.civ.as_ref() else { return out };
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let field: &[f32] = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => &ws.field,
-            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
-            None => return out,
-        };
-        if civ.territory.len() != gw * gh || field.len() != gw * gh {
-            return out;
-        }
-        let merged: Option<Vec<i32>> = spheres.map(|v| {
-            let base = civ.faction_roster.0.len() as i32;
-            civ.territory.iter().zip(&v.cell).map(|(&t, &c)| if t == 0 && c != 0 { base + c as i32 } else { t }).collect()
-        });
-        let owner = merged.as_deref().unwrap_or(&civ.territory);
-        for line in cartalith_civ::border_terrain::border_polylines(owner, field, self.sea_level, gw, gh) {
-            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
-            out.push(&pts.to_variant());
-        }
-        out
+        Self::polylines_to_array(&self.border_polys())
     }
 
     /// Owner Ruling HR: the seams between one faction's provinces as smoothed
@@ -14101,21 +14085,47 @@ impl WorldGen {
     /// world, or with no province grid.
     #[func]
     fn civ_province_lines(&self) -> VarArray {
-        let mut out = VarArray::new();
-        let Some(civ) = self.civ.as_ref().filter(|c| c.provinces_follow_terrain) else { return out };
+        Self::polylines_to_array(&self.province_polys())
+    }
+
+    /// Owner Ruling HV: the coastline, in the same grid coordinates as
+    /// [`Self::civ_border_lines`], traced from the map's own drawn sea and lake
+    /// edge -- the zero contour of the shore field the base map's shader
+    /// contours (`cartalith_civ::border_terrain::coast_polylines`), never from
+    /// territory or province cells. A `Dictionary`: `kept`, the polylines to
+    /// draw, `coarse`, three thinned copies of them (every 4th, 8th and 16th
+    /// vertex) for a cell under 1.5, 1.0 and 0.5 screen pixels, and `hidden`, the runs a border follows (so the shore is not
+    /// stroked twice) as `{mask, points}` where `mask` bit 0 is the national
+    /// line and bit 1 the province line the run follows; the shell draws a hidden
+    /// run only when none of its lines is drawn, so a border layer that is off
+    /// leaves no hole. Both empty when the look draws the cell coast
+    /// (`smooth_shores` false) or with no world. Render only: nothing here is
+    /// read back into the simulation.
+    #[func]
+    fn civ_coast_lines(&self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let shore = self.shore_field_vals.borrow();
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let field: &[f32] = match self.source.as_ref() {
-            Some(WorldSource::Generated(ws)) => &ws.field,
-            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
-            None => return out,
-        };
-        if civ.territory.len() != gw * gh || civ.provinces.len() != gw * gh || field.len() != gw * gh {
+        if shore.len() != gw * gh || gw == 0 {
             return out;
         }
-        for line in cartalith_civ::border_terrain::province_polylines(&civ.provinces, &civ.territory, field, self.sea_level, gw, gh) {
-            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
-            out.push(&pts.to_variant());
+        let (borders, provinces) = (self.border_polys(), self.province_polys());
+        let coast = cartalith_civ::border_terrain::coast_polylines(&shore, gw, gh, &[&borders, &provinces]);
+        out.set("kept", &Self::polylines_to_array(&coast.kept));
+        let mut coarse = VarArray::new();
+        for level in &coast.coarse {
+            coarse.push(&Self::polylines_to_array(level).to_variant());
         }
+        out.set("coarse", &coarse);
+        let mut hidden = VarArray::new();
+        for (mask, line) in &coast.hidden {
+            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
+            let mut d = VarDictionary::new();
+            d.set("mask", *mask as i64);
+            d.set("points", &pts);
+            hidden.push(&d.to_variant());
+        }
+        out.set("hidden", &hidden);
         out
     }
 
@@ -30626,3 +30636,60 @@ Threads:	43
 #[cfg(test)]
 #[path = "junction_timeline_tests.rs"]
 mod junction_timeline_tests;
+
+/// Ruling HV: the border and province polylines as plain vectors, shared by the
+/// `civ_*_lines` getters and by `civ_coast_lines`' no-doubling rule so all
+/// three read one definition.
+impl WorldGen {
+    /// [`Self::civ_border_lines`]' lines; see there for when it is empty.
+    fn border_polys(&self) -> Vec<Vec<(f32, f32)>> {
+        // F26 / Ruling GL: a sphere's edge is drawn too (the spheres join the
+        // owner grid as ids past every faction's), so a cluster is outlined
+        // like a nation. With spheres, the line is drawn whatever the friction.
+        let spheres = self.sphere_view().filter(|v| !v.seats.is_empty());
+        if self.params.civ.border_friction <= 0.0 && spheres.is_none() {
+            return Vec::new();
+        }
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return Vec::new(),
+        };
+        if civ.territory.len() != gw * gh || field.len() != gw * gh {
+            return Vec::new();
+        }
+        let merged: Option<Vec<i32>> = spheres.map(|v| {
+            let base = civ.faction_roster.0.len() as i32;
+            civ.territory.iter().zip(&v.cell).map(|(&t, &c)| if t == 0 && c != 0 { base + c as i32 } else { t }).collect()
+        });
+        let owner = merged.as_deref().unwrap_or(&civ.territory);
+        cartalith_civ::border_terrain::border_polylines(owner, field, self.sea_level, gw, gh)
+    }
+
+    /// [`Self::civ_province_lines`]' lines; see there for when it is empty.
+    fn province_polys(&self) -> Vec<Vec<(f32, f32)>> {
+        let Some(civ) = self.civ.as_ref().filter(|c| c.provinces_follow_terrain) else { return Vec::new() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return Vec::new(),
+        };
+        if civ.territory.len() != gw * gh || civ.provinces.len() != gw * gh || field.len() != gw * gh {
+            return Vec::new();
+        }
+        cartalith_civ::border_terrain::province_polylines(&civ.provinces, &civ.territory, field, self.sea_level, gw, gh)
+    }
+
+    /// Polylines as the `Array` of `PackedVector2Array`s the shell draws.
+    fn polylines_to_array(lines: &[Vec<(f32, f32)>]) -> VarArray {
+        let mut out = VarArray::new();
+        for line in lines {
+            let pts: PackedVector2Array = line.iter().map(|&(x, y)| Vector2::new(x, y)).collect();
+            out.push(&pts.to_variant());
+        }
+        out
+    }
+}

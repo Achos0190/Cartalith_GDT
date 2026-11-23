@@ -293,7 +293,7 @@ fn overlays_are_reported_not_dropped() {
         assert!(c.set_overlay(key, true));
     }
     assert!(!c.set_overlay("rivers", true), "rivers is drawable, not an overlay");
-    assert_eq!(c.overlays(), ["settlements", "routes", "ways", "labels", "territory", "icons"]);
+    assert_eq!(c.overlays(), ["settlements", "routes", "ways", "labels", "territory", "coast", "icons"]);
 }
 
 /// Protects: CP-6's export option (`COLOUR_PAINT_SCOPE.md` §7, Ruling EA item 15). `colour_paint` defaults to **on**
@@ -307,7 +307,7 @@ fn colour_paint_is_a_default_on_content_key_and_not_an_overlay() {
     let mut c = ExportContent::default();
     assert!(c.colour_paint, "the default export carries the paint");
     assert!(ExportOptions::CONTENT_KEYS.contains(&"colour_paint"));
-    assert_eq!(ExportOptions::CONTENT_KEYS.len(), 9);
+    assert_eq!(ExportOptions::CONTENT_KEYS.len(), 10, "nine until Ruling HV's `coast`");
     assert!(!ExportContent::OVERLAY_KEYS.contains(&"colour_paint"));
     assert!(!c.set_overlay("colour_paint", false), "it is not a boolean overlay flag");
     c.colour_paint = false;

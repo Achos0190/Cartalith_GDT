@@ -778,6 +778,9 @@ func setup(bridge: EngineBridge) -> void:
 	## beside the map texture, so the base map's shoreline follows it here.
 	if bridge.has_signal("color_texture_rebuilt"):
 		bridge.color_texture_rebuilt.connect(_apply_shore_field)
+		## Ruling HV: the coastline is contoured from the same shore field, so it goes stale with the same signal (its own
+		## connection: `_apply_shore_field` is also reached from the river-fit path, which does not change the field).
+		bridge.color_texture_rebuilt.connect(_refresh_coast_lines)
 
 ## **The base map's smooth shoreline** (RV-4, and "Coastlines and lake shores
 ## are pixel-stepped", 2026-09-27). `map_view` draws the map NEAREST, so its
@@ -794,6 +797,20 @@ func setup(bridge: EngineBridge) -> void:
 ## look, which builds none) turns it off, and the shader itself ignores a
 ## field whose size is not the texture's.
 const MAP_SHORE := preload("res://shell/map_shore.gdshader")
+## Ruling HV: the overlay's coastline source: the bridge's trace, or `null` while the engine cannot be read (a generation
+## holds `WorldGen`, so a read from a draw or a click then would panic); the overlay keeps the trace stale and asks again.
+func _fetch_coast():
+	if not _engine_readable():
+		return null
+	return _bridge.coast_lines()
+
+## Ruling HV: tells the overlay its coastline is out of date and where to fetch it again (the bridge's `coast_lines`),
+## from the shore field the map was last drawn from. Called with every repaint and after the border lines (`refresh`),
+## since the trace leaves out runs that follow one. The trace itself runs only when the Coast layer or an export wants it.
+func _refresh_coast_lines() -> void:
+	if overlay != null and _bridge != null and overlay.has_method("set_coast_source"):
+		overlay.set_coast_source(_fetch_coast)
+
 ## Install or refresh the smooth-shoreline material on `map_view` from the bridge's shore field
 ## (RV-4); turns it off when the bridge has none. See the block above for the reasoning.
 func _apply_shore_field() -> void:
@@ -3316,6 +3333,8 @@ func refresh() -> void:
 	## Ruling HR: the province line, with the provinces layer.
 	if overlay.has_method("set_province_lines"):
 		overlay.set_province_lines(_bridge.province_lines(), province_view.texture == null)
+	## Ruling HV: the coastline, after the borders it must not double.
+	_refresh_coast_lines()
 	refresh_urban_boxes()
 	## A new river network makes a traced branch or a catchment from the old
 	## one describe rivers that are no longer there. The rivers themselves are
@@ -3637,8 +3656,8 @@ func zoom() -> float:
 func label_px_per_cell() -> float:
 	return overlay.label_px_per_cell()
 
-## The single write path for the eight Layers ids (`territory`, `provinces`, `settlements`,
-## `roads`, `sea_routes`, `landmarks`, `landmark_rejects`, urban layouts), reaching either a node's
+## The single write path for the Layers ids (`territory`, `provinces`, `coast`, `settlements`,
+## `roads`, `sea_routes`, `landmarks`, `landmark_rejects`, urban layouts, `conflict`), reaching either a node's
 ## own `.visible` or one of the overlay's setters, then emitting `layer_visibility_changed`. Arms
 ## that call newer overlay methods are guarded so a stale overlay cannot break the others; an
 ## unknown id is ignored.
@@ -3654,6 +3673,10 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 			## Ruling HR: the province line is part of the provinces layer.
 			if overlay.has_method("set_show_province_lines"):
 				overlay.set_show_province_lines(shown)
+		## Ruling HV: the coastline, its own layer.
+		"coast":
+			if overlay.has_method("set_show_coast_lines"):
+				overlay.set_show_coast_lines(shown)
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)

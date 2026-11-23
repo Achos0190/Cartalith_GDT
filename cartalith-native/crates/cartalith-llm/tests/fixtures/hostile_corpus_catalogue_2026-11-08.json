@@ -43,7 +43,7 @@
       "expect": {"new_ids": ["menu:zebra_four"], "pack_lacks": ["<context kind=\"actions\"> menu:save"]}},
     {"id": "H13", "family": "oversized-request",
       "request_repeat": {"unit": "layer rivers sea level ", "times": 4000},
-      "expect": {"pack_has": ["view.layer.conflict"]}},
+      "expect": {"pack_has": ["view.layer.sea_routes"]}},
     {"id": "H14", "family": "request-of-stop-words-and-symbols",
       "request": "the a an of to <><><> !!! ;;; ... ​​",
       "expect": {"pack_has": ["timeline.set_year"]}},

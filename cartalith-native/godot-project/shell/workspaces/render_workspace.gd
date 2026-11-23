@@ -417,7 +417,7 @@ const STYLE_PRESETS := [
 ## (`MapOverlay.set_labels`), so they stay; the settlement names go with the
 ## `settlements` layer.
 const PRESET_LAYERS_OFF := {
-	"Satellite relief": ["territory", "provinces", "settlements", "roads", "sea_routes", "landmarks"],
+	"Satellite relief": ["territory", "provinces", "coast", "settlements", "roads", "sea_routes", "landmarks"],
 }
 
 ## What `_hide_preset_layers` turned off, layer id -> its visibility before. Empty
@@ -477,7 +477,9 @@ const STYLE_TIPS := {
 ## inks were swapped -- Cel / Toon already ships the heaviest ink and a white halo):
 ## `road_under`, `road_over` + `road_over_mix`, `road_w`, `road_alpha`;
 ## `sea_under`, `sea_dash`, `sea_w`, `sea_alpha`;
-## `label_ink`, `label_halo`, `label_mix`, `label_halo_k`; `border_ink`, `border_alpha`.
+## `label_ink`, `label_halo`, `label_mix`, `label_halo_k`; `border_ink`, `border_alpha`;
+## Ruling HV: `coast_ink`, `coast_alpha` (the coastline's own ink: the border ink mixed 45 % toward a dark sea navy, or toward pale cyan for the
+## light-ink styles; a labelled judgement, read with `border_ink` by `map_overlay.gd`).
 ##
 ## **Every value is a labelled judgement, not a measurement** -- tuned to sit
 ## with each preset's own ground and its river ink (`STYLE_PRESETS`' `entry[3]`),
@@ -524,7 +526,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.15, 0.20, 0.27), "sea_dash": Color(0.30, 0.38, 0.47), "sea_w": 0.9,
 		"label_ink": Color(0.17, 0.11, 0.06), "label_halo": Color(0.93, 0.86, 0.70, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
-		"border_ink": Color(0.30, 0.19, 0.10), "border_alpha": 0.85,
+		"border_ink": Color(0.30, 0.19, 0.10), "border_alpha": 0.85, "coast_ink": Color(0.21, 0.18, 0.19), "coast_alpha": 0.85,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.30, 0.19, 0.10), "icon_mix": 0.55, "icon_outline": Color(0.93, 0.86, 0.70), "icon_plate": Color(0.93, 0.86, 0.70),
 		"journey_ink": Color(0.17, 0.11, 0.06), "journey_halo": Color(0.93, 0.86, 0.70, 0.95), "journey_fill": Color(0.62, 0.16, 0.10), "journey_ring": Color(0.93, 0.86, 0.70, 0.95),
@@ -536,7 +538,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.10, 0.14, 0.22), "sea_dash": Color(0.16, 0.22, 0.34), "sea_w": 0.85,
 		"label_ink": Color(0.10, 0.12, 0.18), "label_halo": Color(0.97, 0.95, 0.90, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
-		"border_ink": Color(0.13, 0.16, 0.23), "border_alpha": 1.0,
+		"border_ink": Color(0.13, 0.16, 0.23), "border_alpha": 1.0, "coast_ink": Color(0.12, 0.16, 0.26), "coast_alpha": 1.0,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.13, 0.16, 0.23), "icon_mix": 0.70, "icon_outline": Color(0.97, 0.95, 0.90), "icon_plate": Color(0.97, 0.95, 0.90),
 		"journey_ink": Color(0.10, 0.12, 0.18), "journey_halo": Color(0.97, 0.95, 0.90, 0.95), "journey_fill": Color(0.55, 0.10, 0.10), "journey_ring": Color(0.97, 0.95, 0.90, 0.95),
@@ -548,7 +550,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.20, 0.32, 0.45), "sea_dash": Color(0.33, 0.50, 0.68), "sea_alpha": 0.85,
 		"label_ink": Color(0.18, 0.16, 0.20), "label_halo": Color(0.97, 0.94, 0.88, 0.95),
 		"label_mix": 0.70, "label_halo_k": 1.5,
-		"border_ink": Color(0.35, 0.28, 0.30), "border_alpha": 0.7,
+		"border_ink": Color(0.35, 0.28, 0.30), "border_alpha": 0.7, "coast_ink": Color(0.24, 0.23, 0.30), "coast_alpha": 0.7,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.35, 0.28, 0.30), "icon_mix": 0.45, "icon_outline": Color(0.97, 0.94, 0.88), "icon_plate": Color(0.97, 0.94, 0.88),
 		"journey_ink": Color(0.18, 0.16, 0.20), "journey_halo": Color(0.97, 0.94, 0.88, 0.95), "journey_fill": Color(0.80, 0.25, 0.30), "journey_ring": Color(0.97, 0.94, 0.88, 0.95),
@@ -560,7 +562,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.08, 0.10, 0.30), "sea_dash": Color(0.20, 0.28, 0.62),
 		"label_ink": Color(0.12, 0.15, 0.40), "label_halo": Color(0.98, 0.94, 0.84, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
-		"border_ink": Color(0.16, 0.22, 0.55), "border_alpha": 0.9,
+		"border_ink": Color(0.16, 0.22, 0.55), "border_alpha": 0.9, "coast_ink": Color(0.13, 0.20, 0.44), "coast_alpha": 0.9,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.16, 0.22, 0.55), "icon_mix": 0.60, "icon_outline": Color(0.98, 0.94, 0.84), "icon_plate": Color(0.98, 0.94, 0.84),
 		"journey_ink": Color(0.12, 0.15, 0.40), "journey_halo": Color(0.98, 0.94, 0.84, 0.95), "journey_fill": Color(0.80, 0.20, 0.15), "journey_ring": Color(0.98, 0.94, 0.84, 0.95),
@@ -571,7 +573,7 @@ const OVERLAY_TREATMENTS := {
 		"road_over_mix": 0.4, "road_w": 1.15,
 		"label_ink": Color(0.14, 0.10, 0.06), "label_halo": Color(0.98, 0.95, 0.86, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
-		"border_ink": Color(0.30, 0.18, 0.10), "border_alpha": 0.9,
+		"border_ink": Color(0.30, 0.18, 0.10), "border_alpha": 0.9, "coast_ink": Color(0.21, 0.18, 0.19), "coast_alpha": 0.9,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.30, 0.18, 0.10), "icon_mix": 0.50, "icon_outline": Color(0.98, 0.95, 0.86), "icon_plate": Color(0.98, 0.95, 0.86),
 		"journey_ink": Color(0.14, 0.10, 0.06), "journey_halo": Color(0.98, 0.95, 0.86, 0.95), "journey_fill": Color(0.70, 0.30, 0.10), "journey_ring": Color(0.98, 0.95, 0.86, 0.95),
@@ -583,7 +585,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.05, 0.16, 0.35), "sea_dash": Color(0.15, 0.40, 0.70),
 		"label_ink": Color(0.12, 0.10, 0.09), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
-		"border_ink": Color(0.45, 0.15, 0.35), "border_alpha": 0.9,
+		"border_ink": Color(0.45, 0.15, 0.35), "border_alpha": 0.9, "coast_ink": Color(0.29, 0.16, 0.33), "coast_alpha": 0.9,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.45, 0.15, 0.35), "icon_mix": 0.45, "icon_outline": Color(1.00, 1.00, 1.00), "icon_plate": Color(1.00, 1.00, 1.00),
 		"journey_ink": Color(0.12, 0.10, 0.09), "journey_halo": Color(1.00, 1.00, 1.00, 0.95), "journey_fill": Color(0.62, 0.20, 0.14), "journey_ring": Color(1.00, 1.00, 1.00, 0.95),
@@ -595,7 +597,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.12, 0.18, 0.28), "sea_dash": Color(0.25, 0.38, 0.55), "sea_w": 0.9,
 		"label_ink": Color(0.15, 0.14, 0.14), "label_halo": Color(0.95, 0.93, 0.88, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
-		"border_ink": Color(0.30, 0.22, 0.20), "border_alpha": 0.75,
+		"border_ink": Color(0.30, 0.22, 0.20), "border_alpha": 0.75, "coast_ink": Color(0.21, 0.20, 0.25), "coast_alpha": 0.75,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.30, 0.22, 0.20), "icon_mix": 0.50, "icon_outline": Color(0.95, 0.93, 0.88), "icon_plate": Color(0.95, 0.93, 0.88),
 		"journey_ink": Color(0.15, 0.14, 0.14), "journey_halo": Color(0.95, 0.93, 0.88, 0.95), "journey_fill": Color(0.60, 0.25, 0.15), "journey_ring": Color(0.95, 0.93, 0.88, 0.95),
@@ -607,7 +609,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.03, 0.10, 0.22), "sea_dash": Color(0.75, 0.88, 1.0), "sea_w": 0.9,
 		"label_ink": Color(0.92, 0.96, 1.0), "label_halo": Color(0.02, 0.08, 0.20, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
-		"border_ink": Color(0.90, 0.95, 1.0), "border_alpha": 0.9,
+		"border_ink": Color(0.90, 0.95, 1.0), "border_alpha": 0.9, "coast_ink": Color(0.81, 0.92, 1.00), "coast_alpha": 0.9,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.90, 0.95, 1.00), "icon_mix": 0.80, "icon_outline": Color(0.02, 0.08, 0.20), "icon_plate": Color(0.02, 0.08, 0.20),
 		"journey_ink": Color(0.92, 0.96, 1.00), "journey_halo": Color(0.02, 0.08, 0.20, 0.95), "journey_fill": Color(1.00, 1.00, 1.00), "journey_ring": Color(0.02, 0.08, 0.20, 0.95),
@@ -619,7 +621,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.12, 0.13, 0.16), "sea_dash": Color(0.30, 0.32, 0.38),
 		"label_ink": Color(0.12, 0.12, 0.12), "label_halo": Color(0.96, 0.95, 0.92, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
-		"border_ink": Color(0.20, 0.20, 0.20), "border_alpha": 0.8,
+		"border_ink": Color(0.20, 0.20, 0.20), "border_alpha": 0.8, "coast_ink": Color(0.16, 0.19, 0.25), "coast_alpha": 0.8,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.20, 0.20, 0.20), "icon_mix": 0.65, "icon_outline": Color(0.96, 0.95, 0.92), "icon_plate": Color(0.96, 0.95, 0.92),
 		"journey_ink": Color(0.12, 0.12, 0.12), "journey_halo": Color(0.96, 0.95, 0.92, 0.95), "journey_fill": Color(0.15, 0.15, 0.15), "journey_ring": Color(0.96, 0.95, 0.92, 0.95),
@@ -631,7 +633,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.10, 0.09, 0.08), "sea_dash": Color(0.15, 0.13, 0.12), "sea_w": 1.15,
 		"label_ink": Color(0.10, 0.07, 0.04), "label_halo": Color(0.93, 0.87, 0.72, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
-		"border_ink": Color(0.10, 0.08, 0.06), "border_alpha": 1.0,
+		"border_ink": Color(0.10, 0.08, 0.06), "border_alpha": 1.0, "coast_ink": Color(0.10, 0.12, 0.17), "coast_alpha": 1.0,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.10, 0.08, 0.06), "icon_mix": 0.80, "icon_outline": Color(0.93, 0.87, 0.72), "icon_plate": Color(0.93, 0.87, 0.72),
 		"journey_ink": Color(0.10, 0.07, 0.04), "journey_halo": Color(0.93, 0.87, 0.72, 0.95), "journey_fill": Color(0.10, 0.08, 0.06), "journey_ring": Color(0.93, 0.87, 0.72, 0.95),
@@ -643,7 +645,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.16, 0.22, 0.28), "sea_dash": Color(0.25, 0.33, 0.40),
 		"label_ink": Color(0.20, 0.14, 0.09), "label_halo": Color(0.93, 0.87, 0.73, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
-		"border_ink": Color(0.40, 0.22, 0.16), "border_alpha": 0.85,
+		"border_ink": Color(0.40, 0.22, 0.16), "border_alpha": 0.85, "coast_ink": Color(0.27, 0.20, 0.22), "coast_alpha": 0.85,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.40, 0.22, 0.16), "icon_mix": 0.50, "icon_outline": Color(0.93, 0.87, 0.73), "icon_plate": Color(0.93, 0.87, 0.73),
 		"journey_ink": Color(0.20, 0.14, 0.09), "journey_halo": Color(0.93, 0.87, 0.73, 0.95), "journey_fill": Color(0.60, 0.20, 0.12), "journey_ring": Color(0.93, 0.87, 0.73, 0.95),
@@ -655,7 +657,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.30, 0.05, 0.22), "sea_dash": Color(0.72, 0.12, 0.50),
 		"label_ink": Color(0.08, 0.08, 0.12), "label_halo": Color(0.95, 0.93, 0.85, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
-		"border_ink": Color(0.50, 0.10, 0.40), "border_alpha": 0.85,
+		"border_ink": Color(0.50, 0.10, 0.40), "border_alpha": 0.85, "coast_ink": Color(0.32, 0.13, 0.36), "coast_alpha": 0.85,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.50, 0.10, 0.40), "icon_mix": 0.45, "icon_outline": Color(0.95, 0.93, 0.85), "icon_plate": Color(0.95, 0.93, 0.85),
 		"journey_ink": Color(0.08, 0.08, 0.12), "journey_halo": Color(0.95, 0.93, 0.85, 0.95), "journey_fill": Color(0.72, 0.12, 0.50), "journey_ring": Color(0.95, 0.93, 0.85, 0.95),
@@ -667,7 +669,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.02, 0.04, 0.12), "sea_dash": Color(0.55, 0.75, 1.0),
 		"label_ink": Color(0.93, 0.93, 0.98), "label_halo": Color(0.02, 0.02, 0.05, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
-		"border_ink": Color(0.85, 0.75, 0.55), "border_alpha": 0.8,
+		"border_ink": Color(0.85, 0.75, 0.55), "border_alpha": 0.8, "coast_ink": Color(0.78, 0.81, 0.75), "coast_alpha": 0.8,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.85, 0.75, 0.55), "icon_mix": 0.60, "icon_outline": Color(0.02, 0.02, 0.05), "icon_plate": Color(0.02, 0.02, 0.05),
 		"journey_ink": Color(0.93, 0.93, 0.98), "journey_halo": Color(0.02, 0.02, 0.05, 0.95), "journey_fill": Color(0.95, 0.80, 0.45), "journey_ring": Color(0.02, 0.02, 0.05, 0.95),
@@ -679,7 +681,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.03, 0.10, 0.28), "sea_dash": Color(0.10, 0.35, 0.75), "sea_w": 1.2,
 		"label_ink": Color(0.08, 0.06, 0.05), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
 		"label_mix": 1.00,
-		"border_ink": Color(0.10, 0.08, 0.08), "border_alpha": 1.0,
+		"border_ink": Color(0.10, 0.08, 0.08), "border_alpha": 1.0, "coast_ink": Color(0.10, 0.12, 0.18), "coast_alpha": 1.0,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.10, 0.08, 0.08), "icon_mix": 0.50, "icon_outline": Color(1.00, 1.00, 1.00), "icon_plate": Color(1.00, 1.00, 1.00),
 		"journey_ink": Color(0.08, 0.06, 0.05), "journey_halo": Color(1.00, 1.00, 1.00, 0.95), "journey_fill": Color(0.95, 0.60, 0.10), "journey_ring": Color(0.08, 0.06, 0.05, 0.95),
@@ -695,7 +697,7 @@ const OVERLAY_TREATMENTS := {
 		"sea_under": Color(0.14, 0.20, 0.30), "sea_dash": Color(0.30, 0.40, 0.55), "sea_w": 0.85,
 		"label_ink": Color(0.12, 0.13, 0.16), "label_halo": Color(0.97, 0.95, 0.91, 0.95),
 		"label_mix": 0.85, "label_halo_k": 1.5,
-		"border_ink": Color(0.28, 0.29, 0.34), "border_alpha": 0.8,
+		"border_ink": Color(0.28, 0.29, 0.34), "border_alpha": 0.8, "coast_ink": Color(0.20, 0.24, 0.32), "coast_alpha": 0.8,
 		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
 		"icon_ink": Color(0.28, 0.29, 0.34), "icon_mix": 0.50, "icon_outline": Color(0.97, 0.95, 0.91), "icon_plate": Color(0.97, 0.95, 0.91),
 		"journey_ink": Color(0.12, 0.13, 0.16), "journey_halo": Color(0.97, 0.95, 0.91, 0.95), "journey_fill": Color(0.55, 0.20, 0.20), "journey_ring": Color(0.97, 0.95, 0.91, 0.95),

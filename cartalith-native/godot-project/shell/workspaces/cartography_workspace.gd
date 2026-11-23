@@ -126,6 +126,8 @@ const LIVE_LAYERS: Array = [
 	{"id": "conflict", "label": "Conflict", "on": true},
 	## **Rivers have no row any more** (owner finding F23, 2026-11-21): they always draw, solid, so there is nothing to
 	## switch. `viewport_host.gd::set_layer_visible("rivers")` still answers and ignores an off.
+	## Ruling HV: the coastline, traced from the drawn water edge. Off by default like the Political rows; it is not one.
+	{"id": "coast", "label": "Coastline", "on": false},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]

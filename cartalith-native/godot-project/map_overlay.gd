@@ -2519,35 +2519,170 @@ func set_show_border_lines(shown: bool) -> void:
 	_show_border_lines = shown
 	queue_redraw()
 
-## Draws `_border_lines` into the current layer item, under the sea lanes and
+## Ruling HV: the coastline as polylines (`WorldGen.civ_coast_lines`), traced from
+## the map's drawn water edge, not from territory or province cells. Drawn with
+## the borders, under the sea lanes and roads, when the Coast layer is on.
+var _coast_lines: Array = []
+## The runs of the coast a border follows, `{mask, points}` (`WorldGen.civ_coast_lines`' `hidden`): left out of
+## `_coast_lines` so the shore is not stroked beside a border line, and drawn only when none of the lines they follow
+## (`mask` bit 0 the national line, bit 1 the province line) is drawn, so a border layer that is off leaves no hole, or
+## from `COAST_HIDE_BELOW_PX` screen pixels per cell up, where the two lines are plainly apart.
+var _coast_hidden: Array = []
+## `_coast_lines` thinned to every 4th, 8th and 16th vertex (`COAST_STRIDES` in `border_terrain.rs`), drawn while a cell is
+## under `COAST_COARSE_BELOW_PX`, `COAST_COARSER_BELOW_PX` and `COAST_COARSEST_BELOW_PX` screen pixels, where the full line's
+## vertices are sub-pixel apart and only cost draw time.
+var _coast_coarse: Array = []
+## Screen pixels per cell below which each thinned copy is drawn. Labelled judgement: a vertex is half a cell apart, so the
+## strides are chords of 2, 4 and 8 cells, which at these scales are 3, 4 and 4 pixels, sagging from the contour by under a
+## pixel on a bend three cells wide (computed, not measured: at fit on a 2048 world 139 of 151 sampled vertices still have ink
+## under them); the frame-cost bar (2 ms at fit) needed the cuts, measured in
+## `docs/evidence/coast-line-2026-11-23/`. A world whose cell is 1.5 px or more on screen (every 1024 grid from the fit view
+## up, a 2048 grid from about x2) draws every vertex.
+const COAST_COARSE_BELOW_PX := 1.5
+const COAST_COARSER_BELOW_PX := 1.0
+const COAST_COARSEST_BELOW_PX := 0.5
+## Screen pixels per cell from which a coast run that follows a border is drawn anyway: the border's seam lies up to
+## 1.25 cells from the shore (`COAST_BORDER_NEAR`), which is under about five pixels below this and two separate lines above
+## it, so hiding the run there would read as a hole in the coast beside a line that is plainly not on it. Labelled judgement.
+const COAST_HIDE_BELOW_PX := 4.0
+## True until the trace has been fetched for the current world. The trace costs a pass over every cell and two border
+## traces, so it is paid when the Coast layer or an export first needs it, not at every repaint (`_coast_ensure`).
+var _coast_stale := true
+## `() -> {kept, hidden}`, set by `ViewportHost` (the bridge's `coast_lines`). Copied into an export copy with the rest of
+## the state, so the copy can fetch what the live overlay has not.
+var _coast_fetch: Callable = Callable()
+## How many times the coast stroke has been drawn. A control for the frame-cost probe: a forced redraw that does not
+## move this measured nothing.
+var _coast_draws := 0
+## The Coast layer's switch, pushed by `viewport_host.gd::set_layer_visible`. Off
+## by default like the Political layers: a stroke along every shore is something
+## the user asks for (labelled judgement, Ruling HV).
+var _show_coast_lines := false
+## The coast's ink with no preset: a dark sea-blue, so it reads against both the
+## green shallows and the brown borders. Every preset names its own
+## (`render_workspace.gd`'s `OVERLAY_TREATMENTS` `coast_ink`/`coast_alpha`).
+## Labelled judgement.
+const COAST_LINE_INK := Color8(22, 44, 74, 220)
+## The coast's width in screen pixels: a little heavier than the national line
+## (`BORDER_LINE_PX`), since it is the figure's outline. Labelled judgement.
+const COAST_LINE_PX := 1.8
+
+## Where the trace comes from (see `_coast_fetch`). Drops what is held: it belongs to the last source's world.
+func set_coast_source(fetch: Callable) -> void:
+	_coast_fetch = fetch
+	mark_coast_stale()
+
+## The held trace is out of date (a new world, a repaint, new border lines): drop it. It is fetched again by the next draw
+## with the layer on (once, however many marks came first), or when the layer is next switched on or exported.
+func mark_coast_stale() -> void:
+	_coast_stale = true
+	_coast_lines = []
+	_coast_coarse = []
+	_coast_hidden = []
+	queue_redraw()
+
+## Fetches the trace if it is stale. Called whenever the line is about to be shown or exported. The source answers `null`
+## while the engine cannot be read (a generation holds it, `ViewportHost._engine_readable`): the trace then stays stale and is
+## asked for again by a later draw, never read from here during a generation (a read then is a Rust panic).
+func _coast_ensure() -> void:
+	if not _coast_stale or not _coast_fetch.is_valid():
+		return
+	var d = _coast_fetch.call()
+	if not (d is Dictionary):
+		return
+	_coast_stale = false
+	_coast_lines = d.get("kept", [])
+	_coast_coarse = d.get("coarse", [])
+	_coast_hidden = d.get("hidden", [])
+
+## Fetches the trace now if it is stale (a public `_coast_ensure`): the export calls it on the live overlay before the
+## export session opens, so the export never depends on a read made while the session is.
+func ensure_coast_lines() -> void:
+	_coast_ensure()
+
+## Shows or hides the coastline with the Coast layer.
+func set_show_coast_lines(shown: bool) -> void:
+	_show_coast_lines = shown
+	if shown:
+		_coast_ensure()
+	queue_redraw()
+
+## The ink a border-kind line (`base`: the national or province line's own
+## default) is drawn in under the live preset: the treatment's `border_ink`
+## colour with `base`'s alpha times its `border_alpha` -- the same two keys the
+## raster province line used (`viewport_host.gd::_apply_border_style`) -- then
+## the overlay stack (ET-C3). `base` itself when the preset names neither key,
+## so Default is the shipped ink.
+func _border_line_ink(base: Color) -> Color:
+	if not (_style_treatment.get("border_ink") is Color or _style_treatment.has("border_alpha")):
+		return base
+	var rgb: Color = _style_treatment["border_ink"] if _style_treatment.get("border_ink") is Color else base
+	rgb = _OA.color(rgb)
+	return Color(rgb.r, rgb.g, rgb.b, base.a * float(_style_treatment.get("border_alpha", 1.0)))
+
+## The coast's ink under the live preset: `coast_ink` at `coast_alpha` times
+## [`COAST_LINE_INK`]'s alpha, through the overlay stack; the default ink with no
+## `coast_ink`.
+func _coast_line_ink() -> Color:
+	if not (_style_treatment.get("coast_ink") is Color):
+		return COAST_LINE_INK
+	var rgb: Color = _OA.color(_style_treatment["coast_ink"])
+	return Color(rgb.r, rgb.g, rgb.b, COAST_LINE_INK.a * float(_style_treatment.get("coast_alpha", 1.0)))
+
+## Draws the province, national and coast lines into the current layer item, under the sea lanes and
 ## roads. Width is `BORDER_LINE_PX` screen pixels at any zoom (and the export's
 ## symbol gain on an export copy).
 ## Ruling HR: the province lines first, so a national line lies over them.
 ## With the Provinces layer on and Territory off, the national lines are drawn
 ## too, in the province ink: a province's outer edge is its nation's border,
 ## and the raster province line this replaces outlined whole provinces.
+## Ruling HV: the coast last of the three; the engine has already left out the
+## runs that follow a border, so a shore border is never stroked twice. Each
+## kind reads its preset's ink (`_border_line_ink`, `_coast_line_ink`).
 func _draw_border_lines(rect: Rect2) -> void:
 	if _gw <= 0:
 		return
 	var gain := _pin_line_floor() * (_sym_gain if _export_mode else 1.0)
 	if _show_province_lines:
-		_draw_polylines(_province_lines, rect, PROVINCE_LINE_INK, PROVINCE_LINE_PX * gain)
+		_draw_polylines(_province_lines, rect, _border_line_ink(PROVINCE_LINE_INK), PROVINCE_LINE_PX * gain)
 	if _show_border_lines:
-		_draw_polylines(_border_lines, rect, BORDER_LINE_INK, BORDER_LINE_PX * gain)
+		_draw_polylines(_border_lines, rect, _border_line_ink(BORDER_LINE_INK), BORDER_LINE_PX * gain)
 	elif _show_province_lines and _provinces_as_lines:
-		_draw_polylines(_border_lines, rect, PROVINCE_LINE_INK, PROVINCE_LINE_PX * gain)
+		_draw_polylines(_border_lines, rect, _border_line_ink(PROVINCE_LINE_INK), PROVINCE_LINE_PX * gain)
+	if _show_coast_lines:
+		_coast_ensure()
+		_coast_draws += 1
+		var ink := _coast_line_ink()
+		## Screen pixels per cell: the export copy has no camera (zoom 1) and its rect is the export's own size.
+		var ppc := rect.size.x / float(_gw) * _camera_zoom
+		var level := -1
+		if ppc < COAST_COARSEST_BELOW_PX:
+			level = 2
+		elif ppc < COAST_COARSER_BELOW_PX:
+			level = 1
+		elif ppc < COAST_COARSE_BELOW_PX:
+			level = 0
+		_draw_polylines(_coast_coarse[level] if (level >= 0 and _coast_coarse.size() == 3) else _coast_lines, rect, ink, COAST_LINE_PX * gain)
+		## The runs a border follows, where that border is not drawn.
+		var drawn := (1 if (_show_border_lines or (_show_province_lines and _provinces_as_lines)) else 0) | (2 if _show_province_lines else 0)
+		var open: Array = []
+		for h in _coast_hidden:
+			if (int(h["mask"]) & drawn) == 0 or ppc >= COAST_HIDE_BELOW_PX:
+				open.append(h["points"])
+		_draw_polylines(open, rect, ink, COAST_LINE_PX * gain)
 
-## Draws grid-space polylines `lines` in `ink` at local width `w`.
+## Draws grid-space polylines `lines` in `ink` at local width `w`. One affine
+## (`_point_to_screen`'s) applied to each whole array natively rather than a GDScript loop per point: a coastline is some
+## 14 000 vertices on a 1024 grid and 30 000 on a 2048 one (not timed against the loop it replaced).
 func _draw_polylines(lines: Array, rect: Rect2, ink: Color, w: float) -> void:
+	if _gw <= 0 or _gh <= 0:
+		return
+	var xf := Transform2D(Vector2(rect.size.x / _gw, 0.0), Vector2(0.0, rect.size.y / _gh), rect.position)
 	for line in lines:
 		var pts: PackedVector2Array = line
 		if pts.size() < 2:
 			continue
-		var out := PackedVector2Array()
-		out.resize(pts.size())
-		for k in pts.size():
-			out[k] = _point_to_screen(pts[k], rect)
-		_cv.draw_polyline(out, ink, w, true)
+		_cv.draw_polyline(xf * pts, ink, w, true)
 
 
 func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
@@ -3258,6 +3393,7 @@ func layer_visible(layer: String) -> bool:
 		"landmark_rejects": return _landmark_rejects_visible
 		"urban_layouts": return _show_urban_layouts
 		"conflict": return _show_conflict
+		"coast": return _show_coast_lines
 		_:
 			push_error("MapOverlay: unknown layer '%s'" % layer)
 			return true
@@ -3344,9 +3480,9 @@ func way_opacity() -> float:
 ##   that carries no colour of its own (see `label_inks()`).
 ## * `label_halo_k` -- halo width multiplier (1..3, see `_label_halo_k()`).
 ##
-## The border ink and alpha (`border_ink`, `border_alpha`) are read by
-## `ViewportHost`, not here: the province lines are a baked texture on its own
-## `TextureRect`, not something this node draws.
+## The border ink and alpha (`border_ink`, `border_alpha`) colour the drawn province and
+## national lines (`_border_line_ink`, Ruling HV) and the raster province line
+## (`ViewportHost`); `coast_ink` and `coast_alpha` colour the coastline (`_coast_line_ink`).
 ##
 ## Ruling BX item 2 (2026-10-10) added three more families, each optional:
 ## * icons -- `icon_ink`, `icon_mix`, `icon_outline`, `icon_plate`
@@ -10290,7 +10426,8 @@ func copy_state_from(live: Control) -> void:
 ## `settlement_tier` (`"metropolis"` .. `"hamlet"`, `"all"`; absent or `""` =
 ## no settlements), and the booleans `ways` (land ways and sea lanes), `routes`
 ## (the Route tool's routes), `labels` and `icons` (hand-placed and generated
-## marks, with the landmark rings and AP-5's scattered feature icons). A
+## marks, with the landmark rings and AP-5's scattered feature icons), `territory`
+## (the national and province lines) and `coast` (Ruling HV's coastline). A
 ## missing key is `false`.
 ##
 ## Always cleared, whatever `content` says, because none of it is the map: the
@@ -10348,6 +10485,11 @@ func prepare_export(gain: float, content: Dictionary) -> void:
 	_show_border_lines = bool(content.get("territory", false))
 	## Ruling HR: the province line goes with it, as the raster province line did.
 	_show_province_lines = _show_border_lines
+	## Ruling HV: the coastline is its own content key.
+	## The trace itself was fetched from the live overlay before the export session opened (`ensure_coast_lines`, called
+	## by `ExportOverlay.run`); this copy never fetches, so a draw in it reads no engine.
+	_show_coast_lines = bool(content.get("coast", false))
+	_coast_fetch = Callable()
 	if not bool(content.get("routes", false)):
 		_manual_routes = []
 	if not bool(content.get("labels", false)):
