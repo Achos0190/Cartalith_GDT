@@ -1260,6 +1260,8 @@ var _stroke_pen_seen := false
 ## Drawn radius, physical px (this control carries no content scale, the same
 ## reason `_TOUCH_SLOP` above is a bare literal).
 const _SAMPLE_PIN_RADIUS := 9.0
+## The sample pin's base size in `_pin_head_r`'s tier units: a hamlet's (4), whose floor is the old 9 px head.
+const SAMPLE_PIN_SIZE_UNITS := 4.0
 ## The touch HIT radius is bigger than the drawn mark: a fingertip is wider
 ## than what it is trying to grab, the same reason `HOVER_RADIUS_PAD` pads
 ## every other pick in `hits_at()`.
@@ -4455,11 +4457,22 @@ func _settle_display_kind(s: Dictionary) -> String:
 ## readable floor (`PIN_HEAD_MIN_PX` screen px per UI unit, grown by `SETTLE_PIN_RANK_GROW` per tier), whichever is larger. An
 ## export has no camera and takes the tier size. The ONE definition the plan, the declutter walk and every hit test share.
 func _settlement_head_r(kind: String, rect: Rect2) -> float:
-	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
 	var rank := float((SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"]) as Dictionary)["rank"])
-	var r := (4.0 + rank) * sc
-	if _export_mode:
+	return _pin_head_r(4.0 + rank, rect)
+
+## **The ONE pin-size law** (owner 2026-11-23: *"the size for landmarks doesn't scale the same as for settlements"*), shared by
+## settlement pins, landmark and POI pins, the long-press sample pin and (without the floor) placed icons. `size_units` is the
+## pin's base size in the reference's tier units (a settlement is `4 + rank`; a landmark its class radius by importance), `rect`
+## the displayed map rect. Result in local px: the tier size `size_units * sc` (`sc` per `PIN_SCALE_REF_PX`, divided by the zoom, so
+## it is the same SCREEN size at every zoom) or, when `floored`, the readable floor `PIN_HEAD_MIN_PX` screen px per UI unit grown
+## by `SETTLE_PIN_RANK_GROW` per tier above 4 (capped at the metropolis tier), whichever is larger. An export has no camera and takes
+## the tier size. Never reads generation data.
+func _pin_head_r(size_units: float, rect: Rect2, floored: bool = true) -> float:
+	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	var r := size_units * sc
+	if _export_mode or not floored:
 		return r
+	var rank := clampf(size_units - 4.0, 0.0, 5.0)
 	return maxf(r, PIN_HEAD_MIN_PX * _pin_unit() * (1.0 + SETTLE_PIN_RANK_GROW * rank) / maxf(_camera_zoom, 0.001))
 
 ## The tilt (radians about the tip) of settlement pin `i`; 0 for a lone pin and in the Circles style.
@@ -4693,7 +4706,7 @@ func _seed_label_boxes(rect: Rect2) -> Array[Rect2]:
 		if _icon_layer_hidden(ic):
 			continue
 		var pos2 := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
-		var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
+		var r: float = _icon_radius(ic)
 		boxes.append(Rect2(pos2 - Vector2(r, r), Vector2(r, r) * 2.0))
 	return boxes
 
@@ -6261,8 +6274,7 @@ func _sample_pin_k() -> float:
 
 ## The drawn head radius of the sample pin in SCREEN px at the current zoom (also what a probe reads).
 func sample_pin_screen_radius() -> float:
-	var z := maxf(_camera_zoom, 0.001)
-	return maxf(_SAMPLE_PIN_RADIUS * _landmark_zoom_k() * z, PIN_HEAD_MIN_PX * _pin_unit())
+	return _pin_head_r(SAMPLE_PIN_SIZE_UNITS, _displayed_rect()) * maxf(_camera_zoom, 0.001)
 
 
 ## The sample pin's touch hit radius in local px: the 44 dp target (22 dp radius times the form's UI unit, screen px) kept
@@ -6746,7 +6758,9 @@ func _icon_glyph_extent(ic: Dictionary) -> float:
 ## rings, so the click target is exactly the glyph on screen.
 ## `_sym_gain` is E4's uniform magnification (`prepare_export`); `1.0` live.
 func _icon_radius(ic: Dictionary) -> float:
-	return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0))) * _sym_gain
+	if _export_mode:
+		return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0))) * _sym_gain
+	return _pin_head_r(ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0))), _displayed_rect(), false)
 
 
 ## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes, drawn since CL-2 (`CITY_MAP_LOOK_SCOPE.md`
@@ -6842,10 +6856,17 @@ static func landmark_display_kind(lm: Dictionary) -> String:
 ## and takes the unfloored radius, which already carries `_sym_gain`. The ONE definition `_draw_landmark_pin` and the
 ## three hit tests share, so the picked footprint is the drawn one.
 func _landmark_pin_r(lm: Dictionary) -> float:
-	var r := _landmark_radius(lm)
 	if _export_mode:
-		return r
-	return maxf(r, PIN_HEAD_MIN_PX * _pin_unit() / maxf(_camera_zoom, 0.001))
+		return _landmark_radius(lm)
+	return _pin_head_r(_landmark_size_units(lm), _displayed_rect())
+
+
+## A landmark's base size in the settlement tiers' units (`_pin_head_r`): the class radius by importance (bounded +/-25 %, as
+## `_landmark_radius`), so continental reads like a metropolis and local like a town, and the same law sizes both.
+func _landmark_size_units(lm: Dictionary) -> float:
+	var cls := String(lm.get("class", "local")).to_lower()
+	var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
+	return base * (0.75 + 0.5 * clampf(float(lm.get("importance", 0.5)), 0.0, 1.0))
 
 
 ## The stroke floor, in this control's local units, that a landmark or placed-POI pin passes to `PinMarker` (`min_line`): one

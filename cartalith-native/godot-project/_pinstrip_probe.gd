@@ -165,7 +165,9 @@ func _ready() -> void:
 	## Item 3: a pin is the same physical size on every form. Measured 2026-11-15 (desktop 14.28 / 9.53, tablet 13.75 / 9.08, phone
 	## 15.02 / 9.92 dp, landmark head / POI head); a double scale on the phone would read about 2.6x, so the band is +-20 percent
 	## of 14.0 and 9.5, the head floor (`PIN_HEAD_MIN_PX` 9 dp) plus the class radius, not a tight pin.
-	_ok("landmark pin head %.2f dp is within 11.2..16.8 (the same on every form)" % lm_dp, lm_dp >= 11.2 and lm_dp <= 16.8)
+	## 2026-11-23 (`_lmsize_probe.gd`): landmark heads now follow the settlement pins' law (`_pin_head_r`), so the band is the floor
+	## (9 dp, a local landmark) to the metropolis-tier floor (14.4 dp) plus the continental class's larger size, 9..18 dp.
+	_ok("landmark pin head %.2f dp is within 9.0..18.0 (the same on every form)" % lm_dp, lm_dp >= 8.9 and lm_dp <= 18.1)
 	_ok("POI pin head %.2f dp is within 7.6..11.4 (the same on every form)" % poi_dp, poi_dp >= 7.6 and poi_dp <= 11.4)
 	if _form == "phone":
 		app.set_phone_detent("peek")
