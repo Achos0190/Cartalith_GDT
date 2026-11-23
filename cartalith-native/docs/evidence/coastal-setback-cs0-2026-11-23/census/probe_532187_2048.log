@@ -1,0 +1,4 @@
+CS0 params from C:/cw/owner_repro/seed532187_params.txt: 155 keys set; engine answered { "rejected": [], "clamped": [] }
+CS0 seed 532187 at 2048x1311: 42 settlements, generated in 9.9 s, civ.bank_sites true
+CS0 census rows 42 in 16.8 s
+CS0 dumped 42 settlements (42 laid) in 12.7 s to C:/cw/cs0_scratch/dumps/w532187_2048.jsonl

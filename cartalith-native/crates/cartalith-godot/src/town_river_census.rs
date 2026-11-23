@@ -3185,3 +3185,516 @@ fn river_smooth_audit() {
     println!("RR-T1: towns whose market changed side of its river: {bank_swaps}; towns with wet buildings with the switch on: {wet_towns}");
     assert!(towns > 0, "no river town measured: a silently empty audit");
 }
+
+// ---------------------------------------------------------------------------
+// CS-0 (`COASTAL_SETBACK_RESEARCH.md`, owner Ruling HQ, 2026-11-23)
+// ---------------------------------------------------------------------------
+
+/// Exact 1-D squared distance transform (Felzenszwalb and Huttenlocher, *Distance Transforms of Sampled Functions*,
+/// 2012): `f` holds 0 at a seed and `INF` elsewhere; the answer is each sample's squared distance to the nearest seed,
+/// in samples. Used twice (rows, then columns) by [`cs0_edt`]. Must never be handed an empty slice.
+fn cs0_dt1(f: &[f64]) -> Vec<f64> {
+    let n = f.len();
+    let (mut v, mut z) = (vec![0usize; n], vec![0f64; n + 1]);
+    let mut k = 0usize;
+    z[0] = f64::NEG_INFINITY;
+    z[1] = f64::INFINITY;
+    for q in 1..n {
+        loop {
+            let p = v[k];
+            let s = ((f[q] + (q * q) as f64) - (f[p] + (p * p) as f64)) / (2.0 * q as f64 - 2.0 * p as f64);
+            if s <= z[k] && k > 0 {
+                k -= 1;
+                continue;
+            }
+            if s <= z[k] {
+                // k == 0 and the new parabola wins everywhere: replace.
+                v[0] = q;
+                z[0] = f64::NEG_INFINITY;
+                z[1] = f64::INFINITY;
+                break;
+            }
+            k += 1;
+            v[k] = q;
+            z[k] = s;
+            z[k + 1] = f64::INFINITY;
+            break;
+        }
+    }
+    let mut d = vec![0f64; n];
+    k = 0;
+    for (q, dq) in d.iter_mut().enumerate() {
+        while z[k + 1] < q as f64 {
+            k += 1;
+        }
+        let p = v[k];
+        *dq = (q as f64 - p as f64).powi(2) + f[p];
+    }
+    d
+}
+
+/// The Euclidean distance, in lattice steps, from every sample of a `w` x `h` lattice to the nearest sample where
+/// `seed` is true; `INFINITY` everywhere when no sample is a seed (a town box with none of that water: "no value",
+/// never a plausible distance). [`cs0_dt1`] over rows then columns.
+fn cs0_edt(seed: &[bool], w: usize, h: usize) -> Vec<f64> {
+    const INF: f64 = 1e20;
+    if !seed.iter().any(|&s| s) || w == 0 || h == 0 {
+        return vec![f64::INFINITY; w * h];
+    }
+    let mut g: Vec<f64> = seed.iter().map(|&s| if s { 0.0 } else { INF }).collect();
+    for y in 0..h {
+        let r = cs0_dt1(&g[y * w..(y + 1) * w]);
+        g[y * w..(y + 1) * w].copy_from_slice(&r);
+    }
+    let mut col = vec![0f64; h];
+    for x in 0..w {
+        for y in 0..h {
+            col[y] = g[y * w + x];
+        }
+        let r = cs0_dt1(&col);
+        for y in 0..h {
+            g[y * w + x] = r[y].sqrt();
+        }
+    }
+    g
+}
+
+/// The median of `v` and its min..max as text (CS-0's tables), or `n 0` for an empty list.
+fn cs0_spread(v: &mut [f64]) -> String {
+    if v.is_empty() {
+        return "n 0".into();
+    }
+    v.sort_by(f64::total_cmp);
+    let q = |f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+    format!("n {} min {:.0} p10 {:.0} median {:.0} p90 {:.0} max {:.0}", v.len(), v[0], q(0.1), q(0.5), q(0.9), v[v.len() - 1])
+}
+
+/// **CS-0 constants**, each the research's own proposal (`COASTAL_SETBACK_RESEARCH.md` sections 3.2 and 3.4) or a
+/// labelled judgement of this census. Read by [`cs0_hazard_census`] only; nothing in generation reads them.
+mod cs0 {
+    /// "On the water", coast: the engine's own market-to-harbour distance (`HARBOUR_FRONT_M`, 100 m, the reference
+    /// `placeAnchors`' figure). A market farther than this from the drawn sea is "set back".
+    pub const ON_WATER_COAST_M: f64 = 100.0;
+    /// "On the water", river: `HARBOUR_FRONT_RIVER_M` (120 m), the same rule's river figure.
+    pub const ON_WATER_RIVER_M: f64 = 120.0;
+    /// `D_SURGE`: the ICZM Article 8 setback, 100 m (research 3.2).
+    pub const D_SURGE_M: f64 = 100.0;
+    /// `H_SURGE` sweep: the research's start (4 m on an exposed shore, half that sheltered) and the values either side.
+    pub const H_SURGE_SWEEP: [f64; 3] = [2.0, 4.0, 8.0];
+    /// `E_EXPOSED`: `river_delta::EXPOSURE_SHELTERED` (0.55), as research 3.2 proposes.
+    pub const E_EXPOSED: f32 = 0.55;
+    /// The exposure half-disc's radius, metres: **a labelled judgement of this census**. The research says "reuse
+    /// `river_delta`'s radius", which is each mouth's own setback (`u_eff`), not a fixed figure; 5 km is a short
+    /// fetch, about the width of a bay, and spans 2.4 cells at 384 and 12.8 at 2 048.
+    pub const R_EXP_M: f64 = 5_000.0;
+    /// `D_CLIFF`, `H_CLIFF` (research 3.2): a cliff top is a land point within one 22 m raster cell of the water
+    /// standing 15 m or more above the sea (or a landform class 1 cell there), and a point within 50 m of one has the
+    /// cliff reason.
+    pub const D_CLIFF_M: f64 = 50.0;
+    pub const H_CLIFF_M: f64 = 15.0;
+    pub const RASTER_M: f64 = 22.0;
+    /// `SETTLE_FLOOD_SAFE` (0.55), the reference's flood line (research 2.1).
+    pub const FLOOD_SAFE: f32 = 0.55;
+    /// Landform classes (`cartalith_terrain::landform`): 1 cliff, 6 floodplain.
+    pub const LF_CLIFF: u8 = 1;
+    pub const LF_FLOODPLAIN: u8 = 6;
+    /// `H_FLOOD` sweep: the research's floor (2 m) and two larger values.
+    pub const H_FLOOD_SWEEP: [f64; 3] = [2.0, 4.0, 8.0];
+    /// The caps: `D_CAP_BOX` (600 m, coast) and `D_CAP_RIVER` (500 m, river), research 3.2 and 3.4.
+    pub const CAP_COAST_M: f64 = 600.0;
+    pub const CAP_RIVER_M: f64 = 500.0;
+    /// `HARBOUR_REACH_M` (23 m): FK's one-street bar (research 2.3).
+    pub const REACH_M: f64 = 23.0;
+}
+
+/// **CS-0, the terrain side** (`COASTAL_SETBACK_RESEARCH.md` section 4, owner Ruling HQ 2026-11-23: *"Check the
+/// current placing first ... and see if the current results align with the text"*). Measures today's engine against
+/// the research's hazard reasons; changes nothing.
+///
+/// Reads one world's dump from `docs/evidence/coastal-setback-cs0-2026-11-23/cs0_probe.gd` (`CS0_DUMP`): every
+/// settlement laid out by a live `WorldGen` exactly as the app lays it out (the HM/HN origin, the drawn river, the
+/// map's drawn lake and sea), with the map's drawn water on an `step`-metre lattice over each town's box. It then
+/// regenerates the same terrain here (`params::defaults`, the owner's `CS0_PARAMS` list applied the probe's way,
+/// `resolve_peak`, `generate_terrain`: `WorldGen::generate_sized`'s own steps) and **refuses to join** unless every
+/// settlement cell's height matches the probe's `sample_cell` exactly, and the probe's sea lattice matches
+/// `town_water::DrawnWater` built here (the box-to-grid transform is checked by the same comparison).
+///
+/// For each town whose box holds the map's drawn sea (coast) or whose layout has a river with the drawn stroke in
+/// its box (river), it prints:
+///
+/// - today's distances: market to the drawn water; quay (`quay` streets, sampled every 4 m) or, with no quay, the
+///   nearest building or street to it (the landing);
+/// - the research's reasons at the waterfront point nearest the market and at the market: surge (height above sea
+///   under `H_SURGE`, halved where the shore's exposure is under `E_EXPOSED`, within `D_SURGE` of the sea), cliff
+///   (a cliff top within `D_CLIFF`), marsh or flood (`build_wetland_mask` or `build_flood_field` over
+///   `SETTLE_FLOOD_SAFE` in the point's cell); for rivers, floodplain (landform 6 or flood over the line in the cell,
+///   **and** under `H_FLOOD` above the channel by the in-box heights) or wetland;
+/// - whether the in-box heights resolve the height reason (it is true at some land points within the cap and false at
+///   others) and whether the per-cell fields vary over the box;
+/// - the class: (a) set back, reason at the front; (b) on the water, no reason at the market; (c) on the water with
+///   a reason at the market; (d) set back, no reason at the front.
+///
+/// `CS0_OUT=<dir>` writes one TSV row per town. `CS0_TIME=1` times the three field builders alone (median of 5).
+/// `#[ignore]`d: a measurement, not a gate. Run alone, release, one thread.
+#[test]
+#[ignore = "measurement; COASTAL_SETBACK_RESEARCH.md CS-0"]
+fn cs0_hazard_census() {
+    use crate::town_water::{DrawnWater, SEA};
+    let dump = std::env::var("CS0_DUMP").expect("CS0_DUMP: the probe's JSON lines");
+    let text = std::fs::read_to_string(&dump).expect("read CS0_DUMP");
+    let mut lines = text.lines();
+    let head: serde_json::Value = serde_json::from_str(lines.next().expect("header line")).expect("header json");
+    let seed = head["seed"].as_i64().expect("seed") as i32;
+    let (gw, gh) = (head["gw"].as_u64().expect("gw") as usize, head["gh"].as_u64().expect("gh") as usize);
+    let step = head["step"].as_f64().expect("step");
+    // `WorldGen::generate_sized`: the instance's params (`params::defaults` for a new `WorldGen`), the owner's list
+    // applied the way `cs0_probe.gd` applies it (a key the engine knows; `true`/`false` a switch, else a number), the
+    // call's arguments, then `resolve_peak`.
+    let mut p = crate::params::defaults();
+    if let Ok(f) = std::env::var("CS0_PARAMS") {
+        let (mut set, mut refused) = (0, Vec::new());
+        for line in std::fs::read_to_string(&f).expect("read CS0_PARAMS").lines() {
+            let Some((k, v)) = line.split_once(": ") else { continue };
+            if crate::params::spec(k).is_none() {
+                continue;
+            }
+            let v = v.trim();
+            let val = match v {
+                "true" => crate::params::Value::Bool(true),
+                "false" => crate::params::Value::Bool(false),
+                _ => match v.parse::<f64>() {
+                    Ok(n) => crate::params::Value::Num(n),
+                    Err(_) => {
+                        refused.push(k.to_string());
+                        continue;
+                    }
+                },
+            };
+            if crate::params::set(&mut p, k, val) == crate::params::Outcome::Rejected {
+                refused.push(k.to_string());
+            } else {
+                set += 1;
+            }
+        }
+        println!("CS0 params from {f}: {set} set, refused {refused:?}");
+    }
+    // A dump whose header carries the instance's `get_params()` (the probe's `--app` world and later runs): every
+    // key applied, so the world here is the one the probe made whatever setters it called.
+    if let Some(all) = head.get("all_params").and_then(|v| v.as_object()) {
+        let mut set = 0;
+        for (k, v) in all {
+            let val = match v {
+                serde_json::Value::Bool(b) => crate::params::Value::Bool(*b),
+                serde_json::Value::Number(n) => crate::params::Value::Num(n.as_f64().unwrap_or(f64::NAN)),
+                _ => continue,
+            };
+            set += usize::from(crate::params::set(&mut p, k, val) != crate::params::Outcome::Rejected);
+        }
+        println!("CS0 params from the dump's header: {set} of {} set", all.len());
+    }
+    let mut p = crate::with_call_args(p, seed, 800.0, gw, gh);
+    cartalith_engine::resolve_peak(&mut p);
+    let ws = cartalith_engine::generate_terrain(&p);
+    let field: &[f32] = &ws.field;
+    let sea = ws.sea_level;
+    let mpu = p.peak_m / (1.0 - sea).max(1e-6);
+    let mpc = p.map_width_km * 1000.0 / gw as f64;
+
+    // The identity check: every settlement cell's height, the probe's against this world's.
+    let rows: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).expect("row json")).collect();
+    let mut elev_bad = 0usize;
+    for r in &rows {
+        let (x, y) = (r["x"].as_f64().unwrap() as usize, r["y"].as_f64().unwrap() as usize);
+        if (f64::from(field[y * gw + x]) - r["elev"].as_f64().unwrap_or(-9.0)).abs() > 1e-6 {
+            elev_bad += 1;
+        }
+    }
+    println!("CS0 seed {seed} at {gw}x{gh}: {} settlements; cell heights differing from the probe's: {elev_bad}; sea {sea:.4}, peak {:.0} m, {mpc:.1} m a cell, lattice {step} m", rows.len(), p.peak_m);
+    assert_eq!(elev_bad, 0, "not the probe's world: refusing to join");
+
+    // The hazard fields, as the civ pass and the Sample panel build them.
+    let raw_slope = cartalith_civ::build_raw_slope_field(field, gw, gh, p.world);
+    let flood = cartalith_civ::build_flood_field(field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
+    let flow_hi = cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km);
+    let landform = cartalith_terrain::landform::build_landform_field(field, Some(&ws.temperature), Some(&ws.rainfall), Some(&ws.flow_discharge), gw, gh, sea, flow_hi);
+    let balance = crate::render::LakeBalanceInputs::when(p.lake_balance, Some(&ws.flow_discharge), &ws.temperature);
+    let b = crate::sea_live_bridge::water_bodies_at(field, &ws.rainfall, gw, gh, sea, p.world, None, ws.volcanoes.as_deref().map(|v| v.as_slice()), balance);
+    let soil_slope = cartalith_civ::build_slope_field(field, gw, gh, p.world);
+    let wetland = cartalith_civ::build_wetland_mask(&b.classification, field, &ws.rainfall, &soil_slope, sea);
+    let shore = crate::render::shore_field_forced_with(field, &b.classification, &b.fill_level, &ws.rainfall, crate::render::lakes_rain_gated(balance), None, gw, gh, sea, p.world);
+    let dw = DrawnWater::new(std::sync::Arc::from(b.classification.clone()), shore, gw, gh, sea).expect("drawn water");
+    if std::env::var("CS0_TIME").is_ok_and(|v| v == "1") {
+        let time = |what: &str, f: &dyn Fn() -> usize| {
+            let mut ms: Vec<f64> = (0..5)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    std::hint::black_box(f());
+                    t.elapsed().as_secs_f64() * 1000.0
+                })
+                .collect();
+            ms.sort_by(f64::total_cmp);
+            println!("CS0 TIME {what} at {gw}x{gh}: median {:.1} ms (min {:.1} .. max {:.1}), 5 runs", ms[2], ms[0], ms[4]);
+        };
+        time("flood (raw slope + build_flood_field)", &|| {
+            let rs = cartalith_civ::build_raw_slope_field(field, gw, gh, p.world);
+            cartalith_civ::build_flood_field(field, &ws.flow_discharge, &rs, gw, gh, sea).len()
+        });
+        time("wetland (slope + build_wetland_mask, water bodies given)", &|| {
+            let ss = cartalith_civ::build_slope_field(field, gw, gh, p.world);
+            cartalith_civ::build_wetland_mask(&b.classification, field, &ws.rainfall, &ss, sea).len()
+        });
+        time("landform (build_landform_field)", &|| cartalith_terrain::landform::build_landform_field(field, Some(&ws.temperature), Some(&ws.rainfall), Some(&ws.flow_discharge), gw, gh, sea, flow_hi).len());
+        println!("CS0 BYTES at {gw}x{gh}: flood f32 {} B, wetland u8 {} B, landform u8 {} B", gw * gh * 4, gw * gh, gw * gh);
+    }
+
+    let h_at = |gx: f64, gy: f64| -> f64 {
+        // The traced frame (cell centre at `c + 0.5`) to the samples' frame, then the bilinear the layout's
+        // `TerrainCtx` takes from the grid.
+        let (fx, fy) = ((gx - 0.5).clamp(0.0, gw as f64 - 1.001), (gy - 0.5).clamp(0.0, gh as f64 - 1.001));
+        let (x0, y0) = (fx as usize, fy as usize);
+        let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
+        let v = |x: usize, y: usize| f64::from(field[y * gw + x]);
+        let h = v(x0, y0) * (1.0 - tx) * (1.0 - ty) + v(x0 + 1, y0) * tx * (1.0 - ty) + v(x0, y0 + 1) * (1.0 - tx) * ty + v(x0 + 1, y0 + 1) * tx * ty;
+        (h - sea) * mpu
+    };
+    let cell_of = |gx: f64, gy: f64| -> usize { (gy.floor().clamp(0.0, gh as f64 - 1.0) as usize) * gw + gx.floor().clamp(0.0, gw as f64 - 1.0) as usize };
+    let ocean_cell = |i: i64, j: i64| i >= 0 && j >= 0 && (i as usize) < gw && (j as usize) < gh && b.classification[j as usize * gw + i as usize] == 1;
+
+    let out_dir = std::env::var("CS0_OUT").ok();
+    let mut tsv = String::from("seed\tgw\ti\tx\ty\tkind\tpop\tbadge\twater\tclass\tmarket_m\tquay_m\tlanding_m\tfront_reasons\tmarket_reasons\tsafe_in_cap\texposure\trelief_m\th_resolves\tcell_varies\tfront_h_m\tmarket_h_m\trule_core_m\tquay_any_water_m\tmkt_flood\tmkt_landform\tmkt_wetland\thome_flood\thome_landform\torigin_m\n");
+    // Per water kind (0 coast, 1 river): class counts at the main H, per H of the sweep, reasons, resolves.
+    let mut cls = [[0usize; 4]; 2];
+    let mut sweep = [[[0usize; 4]; 3]; 2];
+    let mut with_reason = [0usize; 2];
+    let mut reason_kind = [[0usize; 3]; 2];
+    let mut resolves = [0usize; 2];
+    let mut cell_var = [0usize; 2];
+    let mut n_kind = [0usize; 2];
+    let mut safe_c = [0usize; 2];
+    let mut moves = [0usize; 2];
+    let (mut map_err, mut lat_bad, mut lat_n) = (0f64, 0usize, 0usize);
+    let (mut mkt_m, mut quay_m, mut relief): ([Vec<f64>; 2], Vec<f64>, [Vec<f64>; 2]) = (Default::default(), Vec::new(), Default::default());
+    let (mut quay_over, mut quay_n, mut landing_over, mut landing_n) = (0usize, 0usize, 0usize, 0usize);
+    for r in &rows {
+        let Some(d) = r.get("d") else { continue };
+        let c = &r["c"];
+        let (sx, sy) = (r["x"].as_f64().unwrap(), r["y"].as_f64().unwrap());
+        let i = r["i"].as_f64().unwrap() as i64;
+        // The lattice's size comes back from JSON as a float (`(wm / step).ceil()`).
+        let (lw, lh) = (d["gw"].as_f64().unwrap_or(0.0) as usize, d["gh"].as_f64().unwrap_or(0.0) as usize);
+        let grid: Vec<u8> = d["grid"].as_str().unwrap_or("").bytes().collect();
+        if lw == 0 || grid.len() != lw * lh {
+            continue;
+        }
+        let pt = |v: &serde_json::Value| (v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0));
+        let (pin, market) = (pt(&d["pin"]), pt(&d["market"]));
+        // `town_grid` with orient 0 (a real-water site is never rotated); checked against the census's `mx`, `my`
+        // and against the drawn water below.
+        let to_g = |bx: f64, by: f64| (sx + 0.5 + (bx - pin.0) / mpc, sy + 0.5 + (by - pin.1) / mpc);
+        let gm = to_g(market.0, market.1);
+        if let (Some(mx), Some(my)) = (c["mx"].as_f64(), c["my"].as_f64()) {
+            map_err = map_err.max(((gm.0 - sx - 0.5 - mx).hypot(gm.1 - sy - 0.5 - my)) * mpc);
+        }
+        let lat = |k: usize| ((k % lw) as f64 + 0.5) * step;
+        let lat_y = |k: usize| ((k / lw) as f64 + 0.5) * step;
+        // The lattice's sea against `DrawnWater` built here: the world and the transform at once.
+        for k in (0..grid.len()).step_by(7) {
+            if grid[k] == b'3' {
+                continue;
+            }
+            let g = to_g(lat(k), lat_y(k));
+            let here = dw.class_at(field, g.0 - 0.5, g.1 - 0.5) == SEA;
+            lat_n += 1;
+            lat_bad += usize::from(here != (grid[k] == b'1'));
+        }
+        let land: Vec<bool> = grid.iter().map(|&ch| ch == b'0' || ch == b'4').collect();
+        let dsea = cs0_edt(&grid.iter().map(|&ch| ch == b'1').collect::<Vec<_>>(), lw, lh);
+        let dany = cs0_edt(&grid.iter().map(|&ch| ch == b'1' || ch == b'2' || ch == b'3').collect::<Vec<_>>(), lw, lh);
+        let driv = cs0_edt(&grid.iter().map(|&ch| ch == b'3').collect::<Vec<_>>(), lw, lh);
+        // Distance to the water's edge, metres: to the nearest water sample's centre less half a step.
+        let edge = |dl: f64| (dl * step - step / 2.0).max(0.0);
+        let k_of = |bx: f64, by: f64| -> usize { ((by / step).floor().clamp(0.0, lh as f64 - 1.0) as usize) * lw + (bx / step).floor().clamp(0.0, lw as f64 - 1.0) as usize };
+        let hm: Vec<f64> = (0..grid.len()).map(|k| { let g = to_g(lat(k), lat_y(k)); h_at(g.0, g.1) }).collect();
+        let cells: Vec<usize> = (0..grid.len()).map(|k| { let g = to_g(lat(k), lat_y(k)); cell_of(g.0, g.1) }).collect();
+        let edges: Vec<(f64, f64, f64, f64, String)> = d["edges"].as_array().map_or(Vec::new(), |a| a.iter().map(|e| (e[0].as_f64().unwrap_or(0.0), e[1].as_f64().unwrap_or(0.0), e[2].as_f64().unwrap_or(0.0), e[3].as_f64().unwrap_or(0.0), e[4].as_str().unwrap_or("").to_string())).collect());
+        let bverts: Vec<(f64, f64)> = d["buildings"].as_array().map_or(Vec::new(), |a| a.iter().flat_map(|b| b.as_array().cloned().unwrap_or_default()).map(|v| pt(&v)).collect());
+        // Samples every 4 m along a line (MISTAKES: sample the lines, not the vertices).
+        let samples = |e: &(f64, f64, f64, f64, String)| -> Vec<(f64, f64)> {
+            let n = (((e.2 - e.0).hypot(e.3 - e.1)) / 4.0).ceil().max(1.0) as usize;
+            (0..=n).map(|t| { let f = t as f64 / n as f64; (e.0 + (e.2 - e.0) * f, e.1 + (e.3 - e.1) * f) }).collect()
+        };
+        let kind_word = r["kind"].as_str().unwrap_or("?").to_string();
+        let home = sy as usize * gw + sx as usize;
+        for wk in 0..2usize {
+            let dist = if wk == 0 { &dsea } else { &driv };
+            let has = dist.iter().any(|v| v.is_finite());
+            if !has || (wk == 1 && !c["river"].as_bool().unwrap_or(false)) {
+                continue;
+            }
+            n_kind[wk] += 1;
+            let dm: Vec<f64> = dist.iter().map(|&v| edge(v)).collect();
+            let mk = k_of(market.0, market.1);
+            let d0 = dm[mk];
+            // The quay (coast) and the landing: the nearest street or building to this water.
+            let quay: Option<f64> = (wk == 0).then(|| edges.iter().filter(|e| e.4 == "quay").flat_map(&samples).map(|q| dm[k_of(q.0, q.1)]).fold(f64::INFINITY, f64::min)).filter(|v| v.is_finite());
+            let quay_any: Option<f64> = (wk == 0).then(|| edges.iter().filter(|e| e.4 == "quay").flat_map(&samples).map(|q| edge(dany[k_of(q.0, q.1)])).fold(f64::INFINITY, f64::min)).filter(|v| v.is_finite());
+            let landing = edges.iter().flat_map(&samples).chain(bverts.iter().copied()).map(|q| dm[k_of(q.0, q.1)]).fold(f64::INFINITY, f64::min);
+            // The waterfront point: the land sample at the water's edge (within a step) nearest the market.
+            let front = (0..grid.len()).filter(|&k| land[k] && dist[k] <= 1.5).min_by(|&a, &b2| {
+                let da = (lat(a) - market.0).hypot(lat_y(a) - market.1);
+                let db = (lat(b2) - market.0).hypot(lat_y(b2) - market.1);
+                da.total_cmp(&db)
+            });
+            let Some(front) = front else { n_kind[wk] -= 1; continue };
+            // Exposure (coast): the half-disc in front of the front point's nearest sea, facing away from the market.
+            let exposure: Option<f32> = (wk == 0).then(|| {
+                let gf = to_g(lat(front), lat_y(front));
+                let dir = (gf.0 - gm.0, gf.1 - gm.1);
+                let l = dir.0.hypot(dir.1);
+                let dir = if l > 1e-9 { (dir.0 / l, dir.1 / l) } else { (1.0, 0.0) };
+                crate::river_delta::exposure((gf.0 as f32, gf.1 as f32), (dir.0 as f32, dir.1 as f32), (cs0::R_EXP_M / mpc) as f32, &ocean_cell)
+            }).flatten();
+            let exposed = exposure.is_some_and(|e| e >= cs0::E_EXPOSED);
+            // River: the channel's height, at the river sample nearest the market (in-box heights).
+            let chan_h = if wk == 1 {
+                (0..grid.len()).filter(|&k| grid[k] == b'3').min_by(|&a, &b2| ((lat(a) - market.0).hypot(lat_y(a) - market.1)).total_cmp(&(lat(b2) - market.0).hypot(lat_y(b2) - market.1))).map_or(0.0, |k| hm[k])
+            } else {
+                0.0
+            };
+            // Cliff tops: land within one raster cell of this water, 15 m up, or a cliff-class cell there.
+            let cliff_top: Vec<bool> = (0..grid.len()).map(|k| land[k] && dm[k] <= cs0::RASTER_M && (hm[k] >= cs0::H_CLIFF_M || landform[cells[k]] == cs0::LF_CLIFF)).collect();
+            let near_cliff = cs0_edt(&cliff_top, lw, lh);
+            let cell_reason = |k: usize| -> bool {
+                if wk == 0 { wetland[cells[k]] != 0 || flood[cells[k]] > cs0::FLOOD_SAFE } else { landform[cells[k]] == cs0::LF_FLOODPLAIN || flood[cells[k]] > cs0::FLOOD_SAFE }
+            };
+            // The height reason alone, at height threshold `h`.
+            let h_reason = |k: usize, h: f64| -> bool {
+                if wk == 0 { dm[k] <= cs0::D_SURGE_M && hm[k] < if exposed { h } else { h / 2.0 } } else { hm[k] - chan_h < h }
+            };
+            // Every reason at sample `k`, at height `h`: [surge or floodplain, cliff, marsh/flood/wetland].
+            let reasons = |k: usize, h: f64| -> [bool; 3] {
+                if wk == 0 {
+                    [h_reason(k, h), near_cliff[k] * step <= cs0::D_CLIFF_M, cell_reason(k)]
+                } else {
+                    [cell_reason(k) && h_reason(k, h), false, wetland[cells[k]] != 0]
+                }
+            };
+            let on_t = if wk == 0 { cs0::ON_WATER_COAST_M } else { cs0::ON_WATER_RIVER_M };
+            let cap = if wk == 0 { cs0::CAP_COAST_M } else { cs0::CAP_RIVER_M };
+            // The land the research's rule chooses among: within the cap of the market.
+            let in_cap: Vec<usize> = (0..grid.len()).filter(|&k| land[k] && (lat(k) - market.0).hypot(lat_y(k) - market.1) <= cap).collect();
+            // The research's core (section 3.2's formula, its distance to this water): the nearest reason-free land
+            // in the cap; `INFINITY` when none is ("no safe ground in reach"; never a plausible distance).
+            let d_rule = |h: f64| -> f64 { in_cap.iter().filter(|&&k| !reasons(k, h).iter().any(|&x| x)).map(|&k| dm[k]).fold(f64::INFINITY, f64::min) };
+            // (a) set back, and the rule would set it back too (no reason-free ground within `on_t` of the water in
+            // the cap); (b) on the water, no reason at the market; (c) on the water with a reason at the market;
+            // (d) set back although reason-free ground stands within `on_t` of the water.
+            let class_at = |h: f64| -> usize {
+                let on = d0 <= on_t;
+                match (on, reasons(mk, h).iter().any(|&x| x)) {
+                    (true, false) => 1,
+                    (true, true) => 2,
+                    (false, _) if d_rule(h) > on_t => 0,
+                    (false, _) => 3,
+                }
+            };
+            let h_main = if wk == 0 { cs0::H_SURGE_SWEEP[1] } else { cs0::H_FLOOD_SWEEP[0] };
+            let hs = if wk == 0 { cs0::H_SURGE_SWEEP } else { cs0::H_FLOOD_SWEEP };
+            for (si, &h) in hs.iter().enumerate() {
+                sweep[wk][si][class_at(h)] += 1;
+            }
+            let cl = class_at(h_main);
+            cls[wk][cl] += 1;
+            let rf = reasons(front, h_main);
+            let rm = reasons(mk, h_main);
+            let dr = d_rule(h_main);
+            // "Has a reason" (the go/no-go's numerator): the rule would move its core (a reason at the market), or it
+            // would hold the core back from the water (no reason-free ground within `on_t` of it).
+            if rm.iter().any(|&x| x) || dr > on_t {
+                with_reason[wk] += 1;
+            }
+            moves[wk] += usize::from(rm.iter().any(|&x| x));
+            // Each reason, counted where it acts: at the market, or over the whole waterfront band (the land in the cap
+            // within `on_t` of the water). The front point alone is no test: it stands at the waterline, where a
+            // bilinear height is about 0 m, so its surge reason is always true.
+            let band: Vec<usize> = in_cap.iter().copied().filter(|&k| dm[k] <= on_t).collect();
+            for q in 0..3 {
+                let all_band = !band.is_empty() && band.iter().all(|&k| reasons(k, h_main)[q]);
+                reason_kind[wk][q] += usize::from(rm[q] || all_band);
+            }
+            // Within the cap of the market (and, on the coast, within twice `D_SURGE` of the sea, where the surge test
+            // can be true): does the height reason split the land, and do the cell fields vary?
+            let near: Vec<usize> = in_cap.iter().copied().filter(|&k| wk == 1 || dm[k] <= cs0::D_SURGE_M * 2.0).collect();
+            let hr: Vec<bool> = near.iter().map(|&k| h_reason(k, h_main)).collect();
+            let res = hr.iter().any(|&x| x) && hr.iter().any(|&x| !x);
+            resolves[wk] += usize::from(res);
+            let cr: Vec<bool> = near.iter().map(|&k| cell_reason(k) || wetland[cells[k]] != 0).collect();
+            let cv = cr.iter().any(|&x| x) && cr.iter().any(|&x| !x);
+            cell_var[wk] += usize::from(cv);
+            let safe = in_cap.iter().any(|&k| !reasons(k, h_main).iter().any(|&x| x));
+            safe_c[wk] += usize::from(cl == 2 && safe);
+            let land_h: Vec<f64> = (0..grid.len()).filter(|&k| land[k]).map(|k| hm[k]).collect();
+            let rel = land_h.iter().copied().fold(f64::NEG_INFINITY, f64::max) - land_h.iter().copied().fold(f64::INFINITY, f64::min);
+            relief[wk].push(rel);
+            mkt_m[wk].push(d0);
+            if let Some(q) = quay {
+                quay_n += 1;
+                quay_m.push(q);
+                quay_over += usize::from(q > cs0::REACH_M);
+            }
+            if wk == 0 && r["coastal"].as_bool().unwrap_or(false) {
+                landing_n += 1;
+                landing_over += usize::from(landing > cs0::REACH_M);
+            }
+            let word = |v: [bool; 3]| -> String {
+                let names = if wk == 0 { ["surge", "cliff", "marsh"] } else { ["floodplain", "-", "wetland"] };
+                let s: Vec<&str> = (0..3).filter(|&q| v[q]).map(|q| names[q]).collect();
+                if s.is_empty() { "none".into() } else { s.join("+") }
+            };
+            tsv += &format!(
+                "{seed}\t{gw}\t{i}\t{sx}\t{sy}\t{kind_word}\t{}\t{}\t{}\t{}\t{d0:.0}\t{}\t{landing:.0}\t{}\t{}\t{}\t{}\t{rel:.1}\t{res}\t{cv}\t{:.1}\t{:.1}\t{}\t{}\t{:.2}\t{}\t{}\t{:.2}\t{}\t{}\n",
+                r["pop"].as_f64().unwrap_or(0.0),
+                r["coastal"].as_bool().unwrap_or(false),
+                if wk == 0 { "coast" } else { "river" },
+                ["a", "b", "c", "d"][cl],
+                quay.map_or("none".to_string(), |q| format!("{q:.0}")),
+                word(rf),
+                word(rm),
+                if cl == 2 { safe.to_string() } else { "-".into() },
+                exposure.map_or("-".to_string(), |e| format!("{e:.2}")),
+                hm[front] - chan_h,
+                hm[mk] - chan_h,
+                if dr.is_finite() { format!("{dr:.0}") } else { "none".into() },
+                quay_any.map_or("none".to_string(), |q| format!("{q:.0}")),
+                // The market's cell and the settlement's own cell (`SETTLE_FLOOD_SAFE` was tested there when the town
+                // was sited), and how far Ruling HM's origin moved the town from that cell (absent: laid round it).
+                flood[cells[mk]],
+                landform[cells[mk]],
+                wetland[cells[mk]],
+                flood[home],
+                landform[home],
+                c["origin_m"].as_f64().map_or("-".to_string(), |o| format!("{o:.0}")),
+            );
+        }
+    }
+    println!("CS0 checks: box-to-grid transform vs the census's market offset, worst {map_err:.2} m; lattice sea vs DrawnWater here: {lat_bad} of {lat_n} samples differ");
+    assert!(lat_n > 0 && (lat_bad as f64) < 0.01 * lat_n as f64, "the probe's drawn sea is not this world's: {lat_bad} of {lat_n}");
+    for wk in 0..2 {
+        let name = ["coast", "river"][wk];
+        let hs = if wk == 0 { cs0::H_SURGE_SWEEP } else { cs0::H_FLOOD_SWEEP };
+        println!(
+            "CS0 {name} seed {seed} at {gw}: towns {}; classes a {} b {} c {} d {} (c with safe ground in the cap: {}); with a reason (the rule moves the core, or holds it back) {}, of them the rule moves the core {}; reasons [{}] {:?}; height reason splits the land within the cap {}; cell fields vary within the cap {}",
+            n_kind[wk], cls[wk][0], cls[wk][1], cls[wk][2], cls[wk][3], safe_c[wk], with_reason[wk], moves[wk],
+            if wk == 0 { "surge, cliff, marsh/flood" } else { "floodplain, -, wetland" }, reason_kind[wk], resolves[wk], cell_var[wk]
+        );
+        for (si, h) in hs.iter().enumerate() {
+            println!("CS0 {name} sweep H {h} m: a {} b {} c {} d {}", sweep[wk][si][0], sweep[wk][si][1], sweep[wk][si][2], sweep[wk][si][3]);
+        }
+        println!("CS0 {name} market to the water, m: {}; in-box relief, m: {}", cs0_spread(&mut mkt_m[wk]), cs0_spread(&mut relief[wk]));
+    }
+    println!("CS0 quays: {quay_n}, over {} m from the drawn sea {quay_over}; quay gap, m: {}; badged harbours with sea in the box: {landing_n}, nearest street or building over {} m {landing_over}", cs0::REACH_M, cs0_spread(&mut quay_m), cs0::REACH_M);
+    if let Some(dir) = out_dir {
+        let _ = std::fs::write(format!("{dir}/rows_{seed}_{gw}.tsv"), tsv);
+    }
+    assert!(n_kind[0] + n_kind[1] > 0, "no coastal or river town measured: a silently empty census");
+}

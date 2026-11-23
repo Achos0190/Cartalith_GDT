@@ -1,0 +1,16 @@
+CS0 TIME flood (raw slope + build_flood_field) at 384x288: median 0.5 ms (min 0.4 .. max 0.6), 5 runs
+CS0 TIME wetland (slope + build_wetland_mask, water bodies given) at 384x288: median 0.4 ms (min 0.2 .. max 0.6), 5 runs
+CS0 TIME landform (build_landform_field) at 384x288: median 2.7 ms (min 2.6 .. max 3.0), 5 runs
+CS0 BYTES at 384x288: flood f32 442368 B, wetland u8 110592 B, landform u8 110592 B
+CS0 TIME flood (raw slope + build_flood_field) at 2048x1311: median 4.9 ms (min 4.9 .. max 5.4), 5 runs
+CS0 TIME wetland (slope + build_wetland_mask, water bodies given) at 2048x1311: median 2.7 ms (min 2.5 .. max 2.8), 5 runs
+CS0 TIME landform (build_landform_field) at 2048x1311: median 57.7 ms (min 53.1 .. max 59.2), 5 runs
+CS0 BYTES at 2048x1311: flood f32 10739712 B, wetland u8 2684928 B, landform u8 2684928 B
+CS0 TIME flood (raw slope + build_flood_field) at 384x288: median 0.3 ms (min 0.3 .. max 0.5), 5 runs
+CS0 TIME wetland (slope + build_wetland_mask, water bodies given) at 384x288: median 0.2 ms (min 0.2 .. max 0.2), 5 runs
+CS0 TIME landform (build_landform_field) at 384x288: median 2.6 ms (min 2.6 .. max 2.7), 5 runs
+CS0 BYTES at 384x288: flood f32 442368 B, wetland u8 110592 B, landform u8 110592 B
+CS0 TIME flood (raw slope + build_flood_field) at 2048x1311: median 5.0 ms (min 4.8 .. max 5.1), 5 runs
+CS0 TIME wetland (slope + build_wetland_mask, water bodies given) at 2048x1311: median 2.7 ms (min 2.6 .. max 2.9), 5 runs
+CS0 TIME landform (build_landform_field) at 2048x1311: median 50.3 ms (min 48.9 .. max 54.1), 5 runs
+CS0 BYTES at 2048x1311: flood f32 10739712 B, wetland u8 2684928 B, landform u8 2684928 B

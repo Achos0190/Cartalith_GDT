@@ -1,0 +1,14 @@
+test town_river_census::cs0_hazard_census ... CS0 params from C:/cw/owner_repro/seed532187_params.txt: 155 set, refused []
+CS0 seed 532187 at 2048x1311: 42 settlements; cell heights differing from the probe's: 0; sea 0.4200, peak 5556 m, 390.6 m a cell, lattice 8 m
+CS0 checks: box-to-grid transform vs the census's market offset, worst 0.00 m; lattice sea vs DrawnWater here: 0 of 233601 samples differ
+CS0 coast seed 532187 at 2048: towns 3; classes a 0 b 1 c 1 d 1 (c with safe ground in the cap: 1); with a reason (the rule moves the core, or holds it back) 2, of them the rule moves the core 2; reasons [surge, cliff, marsh/flood] [1, 0, 1]; height reason splits the land within the cap 3; cell fields vary within the cap 2
+CS0 coast sweep H 2 m: a 0 b 1 c 1 d 1
+CS0 coast sweep H 4 m: a 0 b 1 c 1 d 1
+CS0 coast sweep H 8 m: a 0 b 1 c 1 d 1
+CS0 coast market to the water, m: n 3 min 20 p10 20 median 92 p90 405 max 405; in-box relief, m: n 3 min 119 p10 119 median 418 p90 1675 max 1675
+CS0 river seed 532187 at 2048: towns 39; classes a 0 b 26 c 11 d 2 (c with safe ground in the cap: 11); with a reason (the rule moves the core, or holds it back) 11, of them the rule moves the core 11; reasons [floodplain, -, wetland] [11, 0, 1]; height reason splits the land within the cap 33; cell fields vary within the cap 26
+CS0 river sweep H 2 m: a 0 b 26 c 11 d 2
+CS0 river sweep H 4 m: a 0 b 24 c 13 d 2
+CS0 river sweep H 8 m: a 0 b 23 c 14 d 2
+CS0 river market to the water, m: n 39 min 20 p10 28 median 36 p90 84 max 314; in-box relief, m: n 39 min 2 p10 11 median 122 p90 616 max 1212
+CS0 quays: 1, over 23 m from the drawn sea 1; quay gap, m: n 1 min 404 p10 404 median 404 p90 404 max 404; badged harbours with sea in the box: 3, nearest street or building over 23 m 2

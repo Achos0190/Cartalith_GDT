@@ -1,0 +1,41 @@
+
+running 1 test
+test town_river_census::harbour_front_audit ...   #  1 ( 337, 234) town    riverthrough pop_target 20000 buildings 4401 harbour: nearest building 2 m from its water (town body 2 m), housed 19994 of 20000 wall/hull 1.032
+  #  4 ( 380, 209) town    riverthrough pop_target 400 buildings 153 harbour: nearest building 78 m from its water (town body 94 m), housed 400 of 400 river-mouth: end 0 m from open water
+  #  7 ( 360, 194) town    riverthrough pop_target 554 buildings 176 market moved 730 m harbour: nearest building 6 m from its water (town body 6 m), housed 556 of 554 river-mouth: end 0 m from open water
+  # 21 ( 268, 237) town    coast pop_target 400 buildings 128 market moved 480 m harbour: nearest building 9 m from its water (town body 9 m), housed 400 of 400
+  # 26 ( 314, 199) town    coast pop_target 1881 buildings 472 market moved 518 m harbour: nearest building 15 m from its water (town body 15 m), housed 2319 of 1881 wall/hull 1.037
+  # 31 ( 346, 177) town    riverthrough pop_target 400 buildings 182 harbour: nearest building 487 m from its water (town body 487 m), housed 400 of 400 river-mouth: end 0 m from open water
+  # 32 ( 346, 267) town    coast pop_target 400 buildings 173 harbour: nearest building 3 m from its water (town body 3 m), housed 400 of 400
+  #109 ( 329, 220) village riverthrough pop_target 400 buildings 141 market moved 720 m river-mouth: end 0 m from open water
+  #124 ( 342, 169) village riverthrough pop_target 400 buildings 123 market moved 199 m river-mouth: end 0 m from open water
+  #129 ( 265, 263) village riverthrough pop_target 400 buildings 145 market moved 610 m river-mouth: end 0 m from open water
+  #157 ( 321,   3) village riverthrough pop_target 400 buildings 178 river-mouth: end 0 m from open water
+seed 483920 at 384x288, urban_harbour_front true, civ.port_reach true: ports 7, sea lanes 5; harbours over 23 m from their water 2 of 7; river-mouth towns 7, river not reaching the water 0 (+0 at a junction); river towns off their river 4 of 227; buildings in water 0; walled 14, square outside 0, wall in water 0; markets moved 59
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 2 of 7
+  # 19 ( 228, 124) town    riverthrough pop_target 20000 buildings 4967 harbour: nearest building 5 m from its water (town body 5 m), housed 22313 of 20000 river-mouth: end 0 m from open water wall/hull 1.023
+  # 27 ( 152, 172) town    riverthrough pop_target 1867 buildings 1089 harbour: nearest building 45 m from its water (town body 45 m), housed 4737 of 1867 river-mouth: end 179 m from open water (FAILS) wall/hull 1.039
+  # 29 ( 344, 144) town    riverthrough pop_target 18666 buildings 4393 harbour: nearest building 7 m from its water (town body 7 m), housed 19859 of 18666 river-mouth: end 0 m from open water wall/hull 1.045
+  # 32 ( 144, 154) town    coast pop_target 400 buildings 85 market moved 436 m harbour: nearest building 10 m from its water (town body 10 m), housed 400 of 400
+  #113 ( 209, 106) village riverthrough pop_target 400 buildings 150 market moved 416 m river-mouth: end 0 m from open water
+  #154 ( 299, 272) village riverthrough pop_target 400 buildings 164 market moved 160 m river-mouth: end 0 m from open water
+  #182 ( 161,  52) village riverthrough pop_target 400 buildings 118 market moved 350 m river-mouth: end 0 m from open water
+seed 912345 at 384x288, urban_harbour_front true, civ.port_reach true: ports 4, sea lanes 2; harbours over 23 m from their water 1 of 4; river-mouth towns 6, river not reaching the water 1 (+0 at a junction); river towns off their river 1 of 230; buildings in water 0; walled 11, square outside 0, wall in water 0; markets moved 69
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 1 of 4
+  #  4 (  88,  99) town    coast pop_target 20000 buildings 3044 harbour: nearest building 4 m from its water (town body 4 m), housed 14352 of 20000 wall/hull 1.131
+  #  7 ( 157, 127) town    coast pop_target 20000 buildings 3981 harbour: nearest building 6 m from its water (town body 6 m), housed 18751 of 20000 wall/hull 1.099
+  # 15 ( 313,  96) town    riverthrough pop_target 400 buildings 141 market moved 394 m harbour: nearest building 6 m from its water (town body 6 m), housed 395 of 400 river-mouth: end 0 m from open water
+  # 30 ( 306, 142) town    riverthrough pop_target 400 buildings 139 market moved 564 m harbour: nearest building 2 m from its water (town body 2 m), housed 395 of 400 river-mouth: end 0 m from open water
+  # 32 (  66, 286) town    riverthrough pop_target 400 buildings 150 harbour: nearest building 1 m from its water (town body 2 m), housed 400 of 400 river-mouth: end 0 m from open water
+  #180 (  67, 211) village riverthrough pop_target 400 buildings 157 market moved 352 m river-mouth: end 0 m from open water
+seed 246371 at 384x288, urban_harbour_front true, civ.port_reach true: ports 5, sea lanes 2; harbours over 23 m from their water 0 of 5; river-mouth towns 4, river not reaching the water 0 (+0 at a junction); river towns off their river 3 of 234; buildings in water 0; walled 14, square outside 0, wall in water 0; markets moved 57
+  harbours whose town body (buildings within max_rf of the market) stands over 23 m from its water: 0 of 5
+all seeds at 384, (urban_harbour_front, civ.port_reach) Some((true, true)): ports 16, sea lanes 9; harbours over 23 m from their water 3 of 16; river-mouth towns 17, river not reaching the water 1 (+0 at a junction); river towns off their river 8 of 691; buildings in water 0; walled 39, square outside 0, wall in water 0; markets moved 185
+  harbour gap to its water, m: n 16 min 1 p10 2 median 6 p90 78 max 487
+  harbours whose town body stands over 23 m from its water: 3 of 16; body gap, m: n 16 min 2 p10 2 median 6 p90 94 max 487
+  wall/hull, walled towns of PLAZA_MARKET_POP and up: n 38 min 1.00 p10 1.01 median 1.04 p90 1.10 max 1.17; of them with sea in the box: n 7 min 1.02 p10 1.03 median 1.04 p90 1.10 max 1.13
+  market moved, m: n 185 min 30 p10 30 median 60 p90 160 max 730
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1517 filtered out; finished in 212.72s
+

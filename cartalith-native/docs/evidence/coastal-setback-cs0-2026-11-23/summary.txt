@@ -1,0 +1,55 @@
+== Bar baselines from the app path (cs0_probe.gd: town_bank_census and town_debug_json, civ.bank_sites on) ==
+483920 at 384: settlements 234, laid 234; ports (badge) 7; housed p10 91.0 %, under 80 % 11; buildings in the town's own water 0; over a drawn river b/w/s 0/0/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+912345 at 384: settlements 236, laid 235; ports (badge) 5; housed p10 85.8 %, under 80 % 18; buildings in the town's own water 0; over a drawn river b/w/s 0/0/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+246371 at 384: settlements 239, laid 239; ports (badge) 4; housed p10 89.8 %, under 80 % 13; buildings in the town's own water 0; over a drawn river b/w/s 0/2/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+83744 at 384: settlements 239, laid 239; ports (badge) 3; housed p10 91.0 %, under 80 % 16; buildings in the town's own water 0; over a drawn river b/w/s 0/0/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+483920 at 2048: settlements 245, laid 245; ports (badge) 9; housed p10 97.5 %, under 80 % 6; buildings in the town's own water 0; over a drawn river b/w/s 0/3/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+532187 at 2048: settlements 42, laid 42; ports (badge) 3; housed p10 98.8 %, under 80 % 1; buildings in the town's own water 0; over a drawn river b/w/s 0/0/0; over drawn sea b/w/s 0/0/0; over drawn lake b/w/s 0/0/0; markers across a drawn river from their market (any zoom) 0
+
+== Per-world classes (cs0_hazard_census rows) ==
+483920 at 384, coast: 14 towns; a 12, b 1, c 1, d 0
+483920 at 384, river: 215 towns; a 5, b 148, c 59, d 3
+912345 at 384, coast: 15 towns; a 13, b 0, c 2, d 0
+912345 at 384, river: 217 towns; a 4, b 137, c 71, d 5
+246371 at 384, coast: 9 towns; a 6, b 0, c 1, d 2
+246371 at 384, river: 226 towns; a 3, b 153, c 63, d 7
+83744 at 384, coast: 16 towns; a 15, b 0, c 1, d 0
+83744 at 384, river: 214 towns; a 6, b 141, c 66, d 1
+483920 at 2048, coast: 33 towns; a 2, b 2, c 5, d 24
+483920 at 2048, river: 217 towns; a 1, b 171, c 41, d 4
+532187 at 2048, coast: 3 towns; a 0, b 1, c 1, d 1
+532187 at 2048, river: 39 towns; a 0, b 26, c 11, d 2
+ALL 384 coast: 54 towns; a 46 (85 %), b 1 (2 %), c 5 (9 %), d 2 (4 %); market to water p90 988 m, max 2005 m
+ALL 384 river: 872 towns; a 18 (2 %), b 579 (66 %), c 259 (30 %), d 16 (2 %); market to water p90 68 m, max 1221 m
+ALL 2048 coast: 36 towns; a 2 (6 %), b 3 (8 %), c 6 (17 %), d 25 (69 %); market to water p90 384 m, max 1030 m
+ALL 2048 river: 256 towns; a 1 (0 %), b 197 (77 %), c 52 (20 %), d 6 (2 %); market to water p90 58 m, max 629 m
+
+== B-FK baselines (badged harbours with the drawn sea in the box) ==
+384: harbours 19; B-FK1 (quay over 23 m from any drawn water, else nearest street or building over 23 m from the drawn sea) 8 [('483920', '18', '360:194', 313), ('483920', '28', '346:267', 28), ('483920', '29', '346:177', 60), ('912345', '25', '152:172', 36), ('912345', '29', '344:144', 485), ('246371', '14', '313:96', 1016), ('246371', '28', '306:142', 1954), ('83744', '5', '340:40', 28)]; B-FK3 (nearest street or building over 23 m, no reason: class b or d) 0 []
+2048: harbours 12; B-FK1 (quay over 23 m from any drawn water, else nearest street or building over 23 m from the drawn sea) 6 [('483920', '7', '1323:81', 44), ('483920', '25', '521:214', 25), ('483920', '38', '863:215', 32), ('483920', '39', '1772:853', 29), ('532187', '20', '580:256', 365), ('532187', '33', '843:527', 70)]; B-FK3 (nearest street or building over 23 m, no reason: class b or d) 6 [('483920', '7', '1323:81', '204'), ('483920', '25', '521:214', '25'), ('483920', '38', '863:215', '32'), ('483920', '39', '1772:853', '29'), ('532187', '20', '580:256', '365'), ('532187', '33', '843:527', '70')]
+
+== What 'set back' is made of (the market over the line, but the houses?) ==
+384 coast class a: 46; of them the nearest street or building within 23 m of the water 16; market within 1.5x the line (150 m) 18
+384 coast class d: 2; of them the nearest street or building within 23 m of the water 1; market within 1.5x the line (150 m) 1
+384 river class a: 18; of them the nearest street or building within 23 m of the water 3; market within 1.5x the line (180 m) 2
+384 river class d: 16; of them the nearest street or building within 23 m of the water 3; market within 1.5x the line (180 m) 6
+2048 coast class a: 2; of them the nearest street or building within 23 m of the water 0; market within 1.5x the line (150 m) 0
+2048 coast class d: 25; of them the nearest street or building within 23 m of the water 8; market within 1.5x the line (150 m) 20
+2048 river class a: 1; of them the nearest street or building within 23 m of the water 0; market within 1.5x the line (180 m) 0
+2048 river class d: 6; of them the nearest street or building within 23 m of the water 3; market within 1.5x the line (180 m) 0
+
+== River class (c): where the floodplain reason comes from ==
+384: 259 river towns in class c; market cell floodplain (landform 6) 174, flood over 0.55 123; settlement's own cell clear of both 20; laid round an HM origin off the cell 181 (of them with a clear own cell 16); reason-free ground within the 500 m cap 84
+2048: 52 river towns in class c; market cell floodplain (landform 6) 18, flood over 0.55 38; settlement's own cell clear of both 5; laid round an HM origin off the cell 34 (of them with a clear own cell 2); reason-free ground within the 500 m cap 51
+
+== Go/no-go inputs (coast at 2048) ==
+coastal towns at 2048: 36; with a reason (the rule moves or holds back the core) 11 (31 %); the height reason splits the land in the cap 34; the cell fields vary 27
+384 coast: height reason splits 44 of 54; cell fields vary 1 of 54
+384 river: height reason splits 444 of 872; cell fields vary 40 of 872
+2048 coast: height reason splits 34 of 36; cell fields vary 27 of 36
+2048 river: height reason splits 227 of 256; cell fields vary 129 of 256
+
+== The FK row's towns on the app path ==
+483920 384 #5 ('380', '209') hamlet coast class a market 116 quay 12 nearest street/building 12 reasons front/market surge+marsh / marsh rule core none exposure 0.60
+483920 2048 #7 ('1323', '81') hamlet coast class d market 272 quay 275 nearest street/building 204 reasons front/market surge / none rule core 36 exposure 0.26
+483920 2048 #7 ('1323', '81') hamlet river class b market 68 quay none nearest street/building 36 reasons front/market none / none rule core 4 exposure -
