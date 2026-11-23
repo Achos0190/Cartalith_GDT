@@ -78,6 +78,7 @@ GUI, then engine, then the LLM interface).
 - Raisz pictograms, mappa-mundi icons, Ordnance Survey symbology (Ruling BI): each needs a scope first.
 
 ### Civilisation, routes, planner and military
+- **(running, Opus) Owner report 2026-11-23: sea-lane threading on the Pad** (v.26.11.23-001, seed 51203, a long narrow strait, two dashed lanes side by side): fork or duplicate, the cause, a fix holding GU; plus a regression sweep between the two latest APKs on the sea-lane and town-on-bank censuses.
 - R8: seed 707's ~0.1-day sea route, not reproduced in Rust; print `route_get(i).points` in the shell. `journey_planner_view.gd`.
 - Military: on industrial rows a high-state-capacity standing army above its band (Ruling DL Q2, measure first). `manpower.rs`; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.7.
 - Military: DL Q8, the `improvedAgrarian` levy below its band (measure first). `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.8.
