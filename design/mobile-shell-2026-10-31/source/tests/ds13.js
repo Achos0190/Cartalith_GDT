@@ -8,7 +8,7 @@
 // Ruling EB (2026-11-01) adds, on fresh pages: the rocker and the desktop pointer column step by exactly 1.35 (item 2);
 // a double-tap zooms ×1.7 at the finger; a double-tap held and slid zooms continuously, down in and up out, about the
 // finger (item 3); a double-tap's held press opens no card; with a drawing tool armed neither changes the zoom and the
-// map says "pending DS13-Q1"; and the long-press, the two-finger-tap undo and the pinch still act.
+// map says "Ruling EC item 4"; and the long-press, the two-finger-tap undo and the pinch still act.
 const { chromium } = require('playwright');
 // SHOT_DIR redirects the captures; set it for a mutation run, or the mutant's frames overwrite the evidence.
 const OUT = process.env.SHOT_DIR || '/home/user/Cartalith_GDT/cartalith-native/docs/evidence/mobile-shell-2026-10-31/';
@@ -216,12 +216,12 @@ const box = async (loc) => ((await loc.count()) && (await loc.first().isVisible(
     await touchSeq(p, [{ t: 'pointerdown', x: P.x, y: P.y }, { wait: 700 }, { t: 'pointerup', x: P.x, y: P.y }]); await p.waitForTimeout(400);
     check((await p.getByText(/^SAMPLE ·/).count()) > 0, tag + ': a long-press still opens the card');
     await touchSeq(p, tapSteps(P)); await p.waitForTimeout(500);
-    // A drawing tool armed (Region select): thumb zoom is off, labelled pending DS13-Q1, and neither gesture zooms.
+    // A drawing tool armed (Region select): thumb zoom is off, labelled Ruling EC item 4, and neither gesture zooms.
     if (phone) await cell('dom');
     await p.getByRole('button', { name: 'Region (R)' }).first().click(); await p.waitForTimeout(500);
     if (phone && (await p.getByRole('dialog', { name: /^(MAP|WORLD|CIVIL|CARTO|STORY|MENU)\b/ }).filter({ visible: true }).count())) await cell('dom');
     const vr = await viewAt(p);
-    check(!!vr && /pending DS13-Q1/.test(vr.aria), tag + ': with Region select armed the map says thumb zoom is off, pending DS13-Q1');
+    check(!!vr && /Ruling EC item 4/.test(vr.aria), tag + ': with Region select armed the map says thumb zoom is off, Ruling EC item 4');
     v0 = await viewAt(p, P); await touchSeq(p, dblSteps(P)); await p.waitForTimeout(600); v1 = await viewAt(p, P);
     check(near(ratio(v0, v1), 1, 1e-9), tag + ': with Region select armed a double-tap does not zoom (' + say(v0, v1) + ')');
     v0 = await viewAt(p, P); await touchSeq(p, holdSlideSteps(P, 120)); await p.waitForTimeout(400); v1 = await viewAt(p, P);
@@ -233,9 +233,9 @@ const box = async (loc) => ((await loc.count()) && (await loc.first().isVisible(
       await p.waitForTimeout(2600);
       await cell('menu'); await p.getByText('Preferences', { exact: true }).first().click(); await p.waitForTimeout(350);
       await p.getByText('Touch & gestures…', { exact: true }).first().click(); await p.waitForTimeout(500);
-      const row = p.getByText('double-tap and thumb zoom off · pending DS13-Q1', { exact: true }).filter({ visible: true });
+      const row = p.getByText('double-tap and thumb zoom off · Ruling EC item 4: on only while ✋ is on (not drawn here)', { exact: true }).filter({ visible: true });
       if (await row.count()) await row.first().scrollIntoViewIfNeeded();
-      check((await row.count()) > 0 && (await p.getByText('Double-tap, hold, slide', { exact: true }).filter({ visible: true }).count()) > 0, tag + ': Touch & gestures lists thumb zoom and marks it pending DS13-Q1 with a drawing tool');
+      check((await row.count()) > 0 && (await p.getByText('Double-tap, hold, slide', { exact: true }).filter({ visible: true }).count()) > 0, tag + ': Touch & gestures lists thumb zoom and marks it Ruling EC item 4 with a drawing tool');
       await p.waitForTimeout(250); await p.screenshot({ path: OUT + 'ds13-touch-gestures.png' });
     }
     await p.close();

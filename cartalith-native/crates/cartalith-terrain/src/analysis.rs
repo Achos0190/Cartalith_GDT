@@ -391,10 +391,15 @@ pub fn local_relief(field: &[f32], gw: usize, gh: usize, radius: i64, world: boo
 /// eight neighbours, resolution-scaled.
 ///
 /// Riley's TRI uses a root-mean-square of the same differences; the mean
-/// absolute form is used here because it is what separates "rough" from
-/// "steep": a uniform 30° slope has a large slope and a *small* ruggedness,
-/// and RMS versus mean-absolute does not change that ordering while mean-abs is
-/// cheaper and less sensitive to one outlying neighbour.
+/// absolute form is used here because it is cheaper and less sensitive to one
+/// outlying neighbour.
+///
+/// **This does not separate "rough" from "steep".** On a uniform plane of
+/// per-cell slope `s` the mean absolute difference to the eight neighbours is
+/// `0.75 s` along an axis, `0.707 s` along a diagonal and `0.789 s` at 22.5 degrees
+/// (computed from the eight offsets by hand), so a uniform slope reads about
+/// 0.71 to 0.79 times its slope, not "small". A consumer that needs roughness
+/// apart from steepness must subtract the slope term itself.
 pub fn ruggedness(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
     let mut out = vec![0f32; field.len()];
     if gw == 0 || gh == 0 {

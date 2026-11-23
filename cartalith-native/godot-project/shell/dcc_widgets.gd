@@ -3276,7 +3276,8 @@ class TouchScroll extends RefCounted:
 static func touch_passive(c: Control) -> bool:
 	if c == null or c.mouse_filter != Control.MOUSE_FILTER_STOP:
 		return false
-	if not (c is PanelContainer or c is Panel or c is ColorRect or c is TextureRect 			or c is NinePatchRect or c is Label or c is RichTextLabel or c.get_class() == "Control"):
+	## A `ProgressBar` is a display (12 of them sit STOP inside the tablet's docks and windows, measured 2026-11-23).
+	if not (c is PanelContainer or c is Panel or c is ColorRect or c is TextureRect 			or c is NinePatchRect or c is Label or c is RichTextLabel or c is ProgressBar or c.get_class() == "Control"):
 		return false
 	## A `RichTextLabel` that sizes itself to its text (`fit_content`) never has a scroll of its
 	## own to give; one that scrolls (`scroll_active` on, fixed height) keeps the event.

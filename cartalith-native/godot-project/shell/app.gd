@@ -7427,13 +7427,15 @@ func _browse_root(key: String, readout: Label) -> void:
 ## undo square both read (`menus.gd`, `dcc_shell.gd::_refresh_menu_squares`), so
 ## the two cannot drift. Which history `undo_last()` then consumes is
 ## `undo_target_label()`'s question.
+## A grouped step (an Apply card's undo group) counts: it can be the only step, with the look and height stacks
+## empty, and the phone chip and the toolbar squares would otherwise hide a step Edit > Undo takes (2026-11-23).
 func can_undo_any() -> bool:
-	return look_history.can_undo() or bridge.can_undo() or _planner_stops("stops_can_undo") or year_history.can_undo()
+	return look_history.can_undo() or bridge.can_undo() or undo_groups.wants_undo() or _planner_stops("stops_can_undo") or year_history.can_undo()
 
 ## The Redo mirror of `can_undo_any()`. `bridge.redo_available()` already answers
 ## false on a cdylib without the binding.
 func can_redo_any() -> bool:
-	return look_history.can_redo() or bridge.redo_available() or _planner_stops("stops_can_redo") or year_history.can_redo()
+	return look_history.can_redo() or bridge.redo_available() or undo_groups.wants_redo() or _planner_stops("stops_can_redo") or year_history.can_redo()
 
 ## PC-8: asks the planner's stop history (`journey_planner_view.gd`, Start here / Add as stop / End here,
 ## one undo step each) `method`, false when the planner is not built yet. The one way the undo routing

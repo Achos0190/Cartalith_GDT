@@ -86,9 +86,9 @@ function buildVals(c) {
     densVars: c._ptr() ? '--c44:30px;--c48:32px;--c52:34px;--c40:28px;--c56:34px;--i32:24px;--rowpad:3px;--r22:15px;--r24:16px;--r20:14px;' : '', ptr: c._ptr(),
     mapCursor: s.tool === 'inspect' ? 'grab' : 'crosshair', noCtx: (e) => e.preventDefault(),
     // The map's accessible name lists its gestures, and says when thumb zoom (Ruling EB item 3) is off: while a drawing
-    // tool is armed, pending DS13-Q1 (c._thumbZoomOn). Every form keeps the "map: drag to pan" opening the tests find
+    // tool is armed, Ruling EC item 4 (c._thumbZoomOn). Every form keeps the "map: drag to pan" opening the tests find
     // it by. The desktop with a mouse keeps its own wording: it has no touch gestures.
-    mapAria: c._ptr() ? 'map: drag to pan, pinch to zoom, long-press to sample' : (c._thumbZoomOn() ? 'map: drag to pan, pinch to zoom, double-tap to zoom in, double-tap and hold then slide down to zoom in or up to zoom out, long-press to sample' : 'map: drag to pan with two fingers or with ✋ on (one finger draws with this tool), pinch to zoom, long-press to sample; double-tap and thumb zoom are off while a drawing tool is armed, pending DS13-Q1'),
+    mapAria: c._ptr() ? 'map: drag to pan, pinch to zoom, long-press to sample' : (c._thumbZoomOn() ? 'map: drag to pan, pinch to zoom, double-tap to zoom in, double-tap and hold then slide down to zoom in or up to zoom out, long-press to sample' : 'map: drag to pan with two fingers or with ✋ on (one finger draws with this tool), pinch to zoom, long-press to sample; double-tap and thumb zoom are off while a drawing tool is armed (Ruling EC item 4: on only while the pan latch is on; not drawn in this mock)'),
     press: s.press ? { show: true, x: s.press.x, y: s.press.y } : { show: false, x: 0, y: 0 },
     world: { name: s.worldName, seed: s.seed, saved: 'autosaved ' + s.savedAt, sub: s.seed + ' · ' + (s.running ? 'generating…' : (s.stale ? 'stale from ' + String(s.stale).padStart(2, '0') : 'resolved')) + ' · ' + domainDef(s.dom).label.toLowerCase() },
     undoLabel: s.undo.length ? s.undo[s.undo.length - 1] : 'nothing', undoCol: s.undo.length ? 'var(--acc)' : 'var(--dim)', undoN: String(s.undo.length), undoDot: s.undo.length ? 'block' : 'none',

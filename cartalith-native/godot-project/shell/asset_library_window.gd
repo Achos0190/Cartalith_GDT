@@ -495,6 +495,29 @@ class CollectionRow extends Button:
 		if owner_window != null:
 			owner_window._on_drop_uids_on_collection(coll_name, data.get("uids", []))
 
+## Phone only: the Collections rail lives in the FAMILIES pane, so a tile lifted in SLOTS had nowhere to land
+## (OUTSTANDING_WORK "lifted Asset library tiles have no drop target in their own pane", 2026-11-23). This strip sits
+## under the grid, hidden, and shows one `CollectionRow` per collection for exactly as long as an `asset_uids` drag is
+## in flight. It polls the viewport per frame instead of listening for `NOTIFICATION_DRAG_BEGIN`: the long-press lift
+## starts its drag through `Control.force_drag()`, which (measured 2026-11-23 on 4.7.2) sends no such notification.
+## It must never take layout space outside a drag, and never offer a drop for any other payload (`CollectionRow.
+## _can_drop_data` still filters).
+class PhoneDropStrip extends HFlowContainer:
+	var owner_window: AssetLibraryWindow
+	var _shown := false
+
+	func _process(_delta: float) -> void:
+		var vp := get_viewport()
+		var d: Variant = vp.gui_get_drag_data() if vp != null and vp.gui_is_dragging() else null
+		var want: bool = typeof(d) == TYPE_DICTIONARY and String((d as Dictionary).get("type", "")) == "asset_uids"
+		if want and not _shown:
+			_shown = true
+			owner_window._fill_phone_drop_strip(self)
+			visible = get_child_count() > 0
+		elif not want and _shown:
+			_shown = false
+			visible = false
+
 ## The slicer modal's sheet preview -- a real loaded `Image` plus the real cell
 ## rectangles the engine will cut, and (AS-17) real canvas interaction on top:
 ## wheel-zoom, middle-drag pan, click-to-select a cell, and a draggable handle
@@ -1141,6 +1164,8 @@ var _slice_overwrite := false
 # handed more minimum than it has does not clip, it **overlaps**
 # (`open_project_dialog.gd`'s own finding). Phone splits it into a full-width
 # search row over an `HFlowContainer` of chips, which wraps instead.
+## Phone: the drop strip under the SLOTS grid (`PhoneDropStrip`); null on a pointer composition.
+var _phone_drop_strip: Control
 var _phone := false
 var _phone_pane := ""                  ## "families" | "slots" | "slot"
 ## Segmented-switcher buttons keyed by pane (`families` / `slots` / `slot`); phone only.
@@ -2734,7 +2759,29 @@ func _build_slot_grid() -> Control:
 	zoom.value_changed.connect(func(v: float): _cell_px = v; _refresh_grid())
 	foot.add_child(zoom)
 
+	if _phone:
+		_phone_drop_strip = PhoneDropStrip.new()
+		_phone_drop_strip.owner_window = self
+		_phone_drop_strip.visible = false
+		col.add_child(_phone_drop_strip)
+
 	return wrap
+
+## Rebuilds `strip` with one drop row per collection, as `_refresh_collections_rail` names them. Called at drag start,
+## so a collection made a moment ago is offered.
+func _fill_phone_drop_strip(strip: Control) -> void:
+	for c in strip.get_children():
+		strip.remove_child(c)
+		c.queue_free()
+	var colls: Array = _bridge.world_gen.as_collections() 		if _bridge.world_gen != null and _bridge.world_gen.has_method("as_collections") else []
+	for c in colls:
+		var btn := CollectionRow.new()
+		btn.owner_window = self
+		btn.coll_name = String(c["name"])
+		btn.text = "+ %s" % btn.coll_name
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.custom_minimum_size = Vector2(0, 44)
+		strip.add_child(btn)
 
 ## The bottom band: library sync state and pack summary, plus an Esc hint on desktop. Two stacked clipped lines on a phone, where side by side they overflow.
 func _build_status_line() -> Control:

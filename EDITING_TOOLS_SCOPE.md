@@ -139,7 +139,8 @@ knowledge only.
 - `PaintEditor::stroke_at(gx, gy)` pushes **one** `PaintStamp` per call. It
   calls `PaintStamp::new`/`ungated` and then
   `.with_falloff(hardness, softness)`.
-- There is no begin/end pair, no spacing, no pressure and no stroke state.
+- **As filed (2026-10-11):** there was no begin/end pair, no spacing, no pressure and no stroke state. ET-D1/D2 then
+  added the stroke engine and `map_stroke_sample` (§ET-D2); this list is the state before them, kept as the reason they exist.
 
 `PaintStamp` (`crates/cartalith-spatial/src/paint.rs`):
 - It is a categorical disc. `with_falloff` widens a **probabilistic edge band**
@@ -197,14 +198,17 @@ knowledge only.
 - The module doc's section "No freehand way mode" records why the DCC spec's
   "freehand / snap / least-cost" dropdown has only one real algorithm.
 
-**Where pointer pressure is lost:** `map_overlay.gd::_gui_input` reads an
-`InputEventMouseMotion` and emits `map_dragged.emit(p["gx"], p["gy"])`, which
-`viewport_host.gd` relays.
+**Where pointer pressure was lost (as filed, 2026-10-11; no longer true):** `map_overlay.gd::_gui_input` read an
+`InputEventMouseMotion` and emitted `map_dragged.emit(p["gx"], p["gy"])`, which
+`viewport_host.gd` relayed.
 - `mm.pressure`, `mm.tilt` and `mm.pen_inverted` exist on the event (Godot 4.7
-  class reference) but are never read.
+  class reference) and were then never read.
 - Grepping `shell/` for `pressure` found only `menus.gd`'s note that the canvas's
   *Stylus pressure* and *Palm rejection* rows *"have no counterpart anywhere in
-  this shell"* (`TABLET_UI_SPEC.md` §2.1 records the same).
+  this shell"* (`TABLET_UI_SPEC.md` §2.1 recorded the same).
+- **Now:** `map_overlay.gd::_emit_stroke_sample` reads all three and emits `map_stroke_sample` (ET-D2, below);
+  the sculpt and paint tools consume it (ET-D3, ET-D5), and `Preferences ▸ Stylus` (`menus.gd::_build_stylus_submenu`,
+  Ruling EE) holds the pressure curve, the comfortable maximum, palm rejection (`stylus_input.gd::PALM_MS`) and the tester.
 
 **The design that exists:** `design/Cartalith Paint Toolbar.dc.html` draws the
 tool options bar with `spacing 18 %`, `max Δ ±420 m`, `pressure on`,

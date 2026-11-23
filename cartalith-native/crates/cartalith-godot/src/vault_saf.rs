@@ -6,8 +6,11 @@
 //!
 //! ## Why this is a delegate, not an implementation
 //!
-//! **Rust cannot call Android's Java APIs directly.** There is no JNI
-//! binding anywhere in this workspace, and reaching a `content://` tree URI
+//! **Rust has no ready way to call Android's Java APIs.** This provider has no
+//! JNI binding of its own. (The workspace does hold one JNI user,
+//! `llm_keystore_android.rs`, which reaches a dozen Keystore calls through raw
+//! `jni-sys`; the Storage Access Framework surface below is much wider, and this
+//! provider was not written that way.) Reaching a `content://` tree URI
 //! — opening it, listing its children, streaming bytes in and out of it —
 //! is a Java-framework surface (`DocumentFile`/`DocumentsContract`,
 //! `ContentResolver`) with no `std::fs` equivalent. `gdext` gives this crate

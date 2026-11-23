@@ -336,8 +336,8 @@ command off the menu bar").
 | | `Landmark types ▸` (family rows, `armed · placed`) | one `Landmark types…` row that opens a list window with the same rows and counts (Ruling EH item 2, 2026-11-08; it was a submenu) |
 | | `Toggle theme` | a flat toggle on tablet; the three-way choice stays at ☰ ▸ Preferences ▸ Theme |
 | | `Units — kilometres/miles` | the Units submenu (km / mi / nmi, `dcc_units.gd`) |
-| | `Stylus pressure — on/off` | **no counterpart** anywhere in the shell; omitted |
-| | `Palm rejection — on` | **no counterpart**; the canvas's own row is a toast, not a setting; omitted |
+| | `Stylus pressure — on/off` | `Preferences ▸ Stylus`: the pressure curve and comfortable maximum (`menus.gd::_build_stylus_submenu`, Ruling EE); it was omitted when this table was written (2026-09-07) |
+| | `Palm rejection — on` | `Preferences ▸ Stylus ▸ Pen draws, finger pans`, whose palm window is `stylus_input.gd::PALM_MS`; the canvas's own row is a toast, not a setting |
 | | `Shortcuts…` | Help ▸ `Keyboard shortcuts…` |
 | | `About Cartalith` | `About` |
 
@@ -645,13 +645,13 @@ widths and haptics. Adopting those is layout and style work over existing code.
 | **Landscape docks at 320** | held at 400 until the dock content reflows to fit (§0.3) | the content first, then `ROLE`'s `w_left_dock` / `w_right_dock` together |
 | **Portrait field layout** | the canvas's two-line slider cells and pill grid (§2.4a), at 232 px | `world_workspace.gd` and `DccWidgets`' row factories; the layout must be re-chosen on rotation, not only at build |
 | **`scrPlanner` as a top-level screen** | `DccShell` has no state above the domain layer | `dcc_shell.gd`, `app.gd::_on_workspace_changed`, `journey_planner_view.gd`'s show/hide |
-| **`scrPicker` as a screen** | the launcher is a `Window` | `open_project_dialog.gd`, `app.gd::open_welcome()` |
+| **`scrPicker` as a screen** | the launcher is a `Window` (a modal welcome card, then the gallery). The newer canvas draws a full-screen grid (2 columns under 1100 dp, 3 above). Re-checked 2026-11-23, frame `docs/evidence/shell-batch-b-2026-11-23/after/tablet_welcome.png`: unchanged, and no ruling decides it | `open_project_dialog.gd`, `app.gd::open_welcome()`; owner call first (`OUTSTANDING_WORK.md`) |
 | **`LIVE` / `DRAFT` / `ARCHIVE` per world** | no project-state field exists on disk | `open_project_dialog.gd` plus the save format |
 | **The tablet palette** | 12 dark and 15 light tokens differ, three structurally (opaque hairlines) | `dcc_theme.gd::DARK` + `LIGHT`, `rebuild_theme()`'s two-way remap, every contrast pair (§0.1) |
-| **`--rPan:16`** | no panel-radius role (`--rCtl` is `ROLE["btn_radius"]`) | `dcc_theme.gd`, the `StyleBoxFlat` factories in `dcc_widgets.gd` |
+| **`--rPan:16`** | checked 2026-11-23: `--rCtl` 12 is `ROLE["btn_radius"]` (tablet 12, measured); panels and menu popups are square. `--rPan` exists only in this superseded canvas: the newer `Shell.dc.html` draws docks square and uses 16 on popovers only (the phone's undo history does) | not built; no role needed |
 | **Per-stage `Run stage NN`** | the engine has no partial recompute | Ruling D: draw it, run the whole pipeline, say so in the tooltip |
 | **The canvas's stage names** | not `progress.rs::STAGE_NAMES` | Ruling E: not adopted |
-| **Stylus pressure / palm rejection rows** | nothing in the shell reads pen pressure; the canvas reads `e.pressure` into `sc.brush` | `tool_bar.gd`, input handling |
+| **Stylus pressure / palm rejection rows** | built (Ruling EE): `map_overlay.gd::_emit_stroke_sample` passes pressure and tilt to the sculpt and paint tools, and `Preferences ▸ Stylus` holds the rows. As first written (2026-09-07) nothing in the shell read pen pressure | `menus.gd::_build_stylus_submenu`, `stylus_input.gd` |
 | **Centred armed-tool chip over the map** | the armed state lives in the tool bar | `viewport_host.gd` |
 | **Undo / redo in the rail** | they are menu-bar squares | `tool_bar.gd` or the rail; two buttons over commands that exist |
 | **Cross-section profile in the right dock** | it is drawn in the strip under the map | `right_dock.gd` and `section_strip.gd` together |

@@ -81,7 +81,7 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   in MAP ▸ View now. The touch tablet has the same row, without 3D.
 - **The double-tap and thumb zoom** (Ruling EB item 3). Double-tap the map to zoom in ×1.7 at the finger. Double-tap,
   keep the finger down and slide: down zooms in, up zooms out, about the finger. With a drawing tool armed both are
-  off, labelled "pending DS13-Q1" (MENU ▸ Preferences ▸ Touch & gestures), because that case waits on the owner.
+  off, labelled "Ruling EC item 4" (MENU ▸ Preferences ▸ Touch & gestures): the owner ruled it works only while ✋ is on, which this mock does not draw.
 - **A journey saved before a regenerate** (Ruling EA 10): MENU ▸ Story ▸ Saved journeys…, the third journey. The
   planner opens with a notice naming the leg change it dropped, with Show stage 3 and Dismiss.
 - **3D height** (Ruling EA 14; Ruling EB items 5 and 6): MAP ▸ View ▸ 3D, then the *Height exaggeration (3D)* row,

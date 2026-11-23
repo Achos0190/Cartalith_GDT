@@ -3551,6 +3551,20 @@ func clear_generated_labels() -> void:
 	_refresh_label_gen_cue()
 	app.viewport.refresh_annotations()
 
+## The map area, in px, whose fit of the world the label cull assumes. A labelled judgement, not a measurement of any one
+## device: about the map area the desktop and tablet shells give a world with both docks open (996 px wide at 1700x1000
+## tablet, measured 2026-11-23); the height only matters for a grid taller than 0.6 of its width.
+const LABEL_CULL_REF_PX := Vector2(1000.0, 600.0)
+
+## Pixels per grid cell of the world fitted into `LABEL_CULL_REF_PX` -- `map_overlay.gd::_displayed_rect()`'s own rule
+## (`min(width / gw, height / gh)`) on a fixed frame instead of the live control. `0.0` with no world, which the caller
+## sends as "no estimate" (the engine then keeps its last value).
+func _label_cull_ppc() -> float:
+	var g: Vector2i = bridge.grid_size()
+	if g.x <= 0 or g.y <= 0:
+		return 0.0
+	return minf(LABEL_CULL_REF_PX.x / float(g.x), LABEL_CULL_REF_PX.y / float(g.y))
+
 func _regenerate_labels() -> void:
 	var typography := {}
 	for entry in _label_class_specs:
@@ -3568,15 +3582,14 @@ func _regenerate_labels() -> void:
 	## `_label_advance_ratio()` was written, documented three lines above as
 	## "sent with every run", and called from nowhere. Both fixed here, in the
 	## one call that was always meant to carry them.
-	## `px_per_cell` is the drawn font's own input: `map_overlay.gd::_label_font_px`
-	## clamps the nominal size to `[LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX]`, so at a
-	## small fit (0.464 px/cell on a 2048 grid) the drawn text is far larger than
-	## `size * ppc / base` and unclamped cull boxes let labels collide on screen.
-	## The engine now boxes the clamped font from this number. Omitted when the
-	## overlay cannot answer (`0.0` = no viewport yet): the engine then keeps the
-	## last value, or the legacy unclamped boxes, rather than a made-up fit.
+	## `px_per_cell` sizes the cull boxes (the engine boxes `map_overlay.gd::_label_font_px`'s clamped font from it). It was the
+	## live map area's fit, so the same seed gave a different label list in a window of another size, or with the docks in
+	## another state (measured 2026-11-23, tablet 1700x1000: map area 996 px -> 659 px moved 27 labels to 29, 3 of the 27 gone,
+	## 5 new; the OUTSTANDING row "two Creates of one seed differ"). A seed must name one world, so it is the fit of a FIXED
+	## reference frame now (`_label_cull_ppc()`), the same on every form. The on-screen hit-test and handles still read the
+	## live fit (`label_px_per_cell()`): they size boxes for what is drawn, not for what is generated.
 	var cull := {"on": _label_cull, "advance_ratio": _label_advance_ratio()}
-	var ppc: float = app.viewport.label_px_per_cell() if app.viewport != null else 0.0
+	var ppc := _label_cull_ppc()
 	if ppc > 0.0:
 		cull["px_per_cell"] = ppc
 	var res: Dictionary = bridge.labels_generate({

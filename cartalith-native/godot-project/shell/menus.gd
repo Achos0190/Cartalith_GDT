@@ -8610,10 +8610,10 @@ func _on_help(id: int) -> void:
 #   - ☰ holds the canvas's remaining overflow rows, moved (not copied) from
 #     Edit/Assets/Preferences/Help, then Edit/Assets/Preferences/Window/Help's
 #     own remaining rows as submenus named for their shipped menu. Two canvas
-#     overflow rows -- Stylus pressure, Palm rejection -- have no counterpart
-#     anywhere in this shell (`TABLET_UI_SPEC.md` §2.1 records the same
-#     absence: "no counterpart" for both) and are omitted rather than
-#     fabricated, the same treatment World gives Plate settings.
+#     overflow rows -- Stylus pressure, Palm rejection -- had no counterpart
+#     in this shell when this menu was written (2026-09) and were omitted rather than
+#     fabricated, the same treatment World gives Plate settings. They have one now:
+#     `_build_stylus_submenu` (Preferences > Stylus, Ruling EE) holds the pressure curve and the palm rule.
 #
 # **No manual `command_index.gd` / `shortcuts_dialog.gd` update is needed for
 # any of this.** Both already walk the live menu bar recursively

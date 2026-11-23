@@ -64,7 +64,8 @@ static func open_app_settings() -> String:
 		last_call = {"action": ACTION, "data": "package:" + pkg}
 		return OPENED if bool(fake_opener.call(ACTION, "package:" + pkg)) else UNAVAILABLE
 	## Real path: the AndroidRuntime singleton and JavaClassWrapper (Godot 4.4+; the Vault SAF picker uses
-	## the engine's own dialog, so there is no in-repo JNI precedent to copy). A constructor is a method named
+	## the engine's own dialog, and the one Rust JNI user, `llm_keystore_android.rs`, is not callable from here, so there is no in-repo
+	## `JavaClassWrapper` precedent to copy). A constructor is a method named
 	## like the class; a static method is called on the wrapper; both per the JavaClassWrapper class reference.
 	if not Engine.has_singleton("AndroidRuntime"):
 		return UNAVAILABLE

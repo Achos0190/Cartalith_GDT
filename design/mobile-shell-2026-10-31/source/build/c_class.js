@@ -275,10 +275,10 @@ class Component extends DCLogic {
     this._tapT = setTimeout(() => { this._tapT = null; this._lastTap = null; this._tap(p.x, p.y); }, TAP_RESOLVE_MS);
   }
   /* Whether thumb zoom (the double-tap and its hold-slide, Ruling EB item 3) is on: yes unless a drawing tool is armed.
-     With a drawing tool, how it behaves waits on the owner's answer to DS13-Q1 (Ruling EB items 1 and 3). Until then the
-     mock keeps it off and labels it "pending DS13-Q1" (the map's accessible name; Touch & gestures), so a double-tap is
-     two dabs and nothing collides with a stroke. MAP_INTERACTION_RESEARCH.md §6 sets out the options for the owner;
-     this placeholder decides none of them. */
+     With a drawing or placing tool the owner ruled (Ruling EC item 4, DS13-Q1: "Off unless ✋ is on"): a tap acts at once and
+     thumb zoom works only while ✋ is on. This mock keeps it off in every such case and labels it "Ruling EC item 4" (the
+     map's accessible name; Touch & gestures), so a double-tap is two dabs and nothing collides with a stroke. The ✋
+     exception is built in the Godot shell, not drawn here. */
   _thumbZoomOn() { return !this._strokeTool(); }
   _longPress(x, y, mouse, ringOnly) {
     if (this.g && this.g.mode === 'one') { if (this.g.moved) return; this.g.long = true; }

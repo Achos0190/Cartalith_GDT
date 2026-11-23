@@ -1,0 +1,19 @@
+completed 
+form: phone canvas (450.0, 975.0)
+CENSUS state world: 1 visible STOP controls inside a live vertical scroller, 1 groups
+CENSUS state civilization: 1 visible STOP controls inside a live vertical scroller, 1 groups
+CENSUS state cartography: 14 visible STOP controls inside a live vertical scroller, 3 groups
+CENSUS state assets: 25 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS state vault: 16 visible STOP controls inside a live vertical scroller, 3 groups
+CENSUS state data manager: 14 visible STOP controls inside a live vertical scroller, 3 groups
+CENSUS state travel library: 14 visible STOP controls inside a live vertical scroller, 3 groups
+CENSUS state new world: 25 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS group Control|                                     x10   tested 2, scrolled 2, blocked 0, value edited 0  => passes  
+CENSUS group HSlider|                                     x74   tested 0, scrolled 0, blocked 0, value edited 0  => not on screen to measure  
+CENSUS group LineEdit|                                    x7    tested 1, scrolled 1, blocked 0, value edited 0  => passes  
+CENSUS group SpinBox|                                     x8    tested 0, scrolled 0, blocked 0, value edited 0  => not on screen to measure  
+CENSUS group VScrollBar|-                                 x11   tested 0, scrolled 0, blocked 0, value edited 0  => owns the drag (scrollbar)  
+ok    control: a stock ProgressBar is STOP
+ok    P1 touch_passive() turns a ProgressBar PASS  -- changed true filter 1
+ok    P1 no STOP ProgressBar is left in any state the census visited  -- 0
+shell batch B census drive: 0 failure(s)

@@ -2720,6 +2720,11 @@ func _wire_menu_squares() -> void:
 			if lh != null and lh.has_signal("changed"):
 				lh.changed.connect(_refresh_menu_squares)
 				_menu_squares_links.append([lh, "changed", Callable(self, "_refresh_menu_squares")])
+			for hn in ["undo_groups", "year_history"]:
+				var h = get(hn)
+				if h != null and h.has_signal("changed"):
+					h.changed.connect(_refresh_menu_squares)
+					_menu_squares_links.append([h, "changed", Callable(self, "_refresh_menu_squares")])
 		_refresh_menu_squares()
 	).call_deferred()
 
@@ -3989,6 +3994,14 @@ func _touch_scroll_arbitrate(ctl: Control, unit: float) -> void:
 			var lift_ts = ctl.get_meta("_touch_scroll")
 			if lift_ts is DccWidgets.TouchScroll:
 				(lift_ts as DccWidgets.TouchScroll).on_lift = func() -> void: _haptic("tool_arm")
+	## A `SpinBox` in a TABLET window (New World, the Data manager, the editors): its text field and its arrow strip take the
+	## press, so a swipe that began on one scrolled nothing and, on the strip, silently stepped the number (measured
+	## 2026-11-23, `shell_batch_b_census_drive.gd`, tablet New World: scroll 0 px). The phone reaches the same two calls
+	## through `phone_fit()`; the tablet's windows never did. Tablet only: the phone's vault editor broke when the whole
+	## `_touch_arbitrate()` was applied by this hook (see its header), and no measurement licenses the phone here.
+	if ctl is SpinBox and DccTheme.is_tablet():
+		DccWidgets.touch_focus_field((ctl as SpinBox).get_line_edit(), 8.0 * unit)
+		DccWidgets.touch_spinbox(ctl as SpinBox, 8.0 * unit)
 	if ctl is OptionButton:
 		DccWidgets.touch_popup((ctl as OptionButton).get_popup(), 8.0 * unit)
 	elif ctl is MenuButton:
@@ -11341,6 +11354,12 @@ func _wire_phone_undo_chip() -> void:
 			if lh != null and lh.has_signal("changed"):
 				lh.changed.connect(_refresh_phone_undo_chip)
 				_phone_undo_links.append([lh, "changed", Callable(self, "_refresh_phone_undo_chip")])
+			## A grouped step and a recorded year are undo steps with no look or height commit behind them.
+			for hn in ["undo_groups", "year_history"]:
+				var h = get(hn)
+				if h != null and h.has_signal("changed"):
+					h.changed.connect(_refresh_phone_undo_chip)
+					_phone_undo_links.append([h, "changed", Callable(self, "_refresh_phone_undo_chip")])
 		_refresh_phone_undo_chip()
 	).call_deferred()
 

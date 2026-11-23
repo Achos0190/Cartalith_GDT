@@ -89,23 +89,19 @@ GUI, then engine, then the LLM interface).
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 
 ### Desktop, tablet and phone shell
-- Generated label list differs between two Creates of one seed on tablet (view-dependent `cull.px_per_cell`; not reproduced). `_regenerate_labels`, `label_px_per_cell()`.
-- Phone: lifted Asset library tiles have no drop target in their own pane.
-- Phone: the undo chip answers only `bridge.can_undo()` (look edits undo elsewhere); CARTO's own phone sheet (MS-3) likely settles the route question (verify). `phone_menu.gd`, `dcc_shell.gd`.
+- Tablet first screen: the shell opens a modal welcome card (and the gallery dialog); the newer canvas (`design/mobile-shell-2026-10-31/Shell.dc.html`, `picker`) draws a full-screen "worlds on this device" grid, 2 columns under 1100 dp and 3 above, with a dashed "+ NEW WORLD" and an "OPEN PROJECT .ZIP" tile. No ruling decides it; needs an owner call before building (shell batch B re-check of `TABLET_UI_SPEC.md`'s `scrPicker`; button radius 12 = `--rCtl` is verified, and `--rPan` 16 belongs to the superseded 2026-09-07 canvas). `open_project_dialog.gd`.
+- Phone: the undo chip (bottom-left of `_phone_content_gap`) overlaps the tool strip's tool chip at 450x975 whenever any step exists (frame `docs/evidence/shell-batch-b-2026-11-23/after/undo_chip_year.png`: it covers the "IN" of INSPECT); it also does not refresh on a planner stop press (`stops_*` has no change signal). `dcc_shell.gd::_build_phone_undo_chip`, `tool_strip.gd`.
+- Touch scroll, still blocking after shell batch B (measured, `tools/shell_batch_b_census_drive.gd`, tablet 1700x1000): a plain `LineEdit` in the Vault window (a drag that starts on it scrolls nothing); `ramp_bar.gd` (owns the drag on purpose); `HSlider`s and the phone's window `SpinBox`es were not on screen to measure in any state visited. Not measured at all: any window the census did not open.
+- Same request, different world by form: `EngineBridge.generate({seed 4242, 256x160, ...}, true)` gave 28 generated labels on the desktop and 27 on the phone and tablet (settlements and 0.02-cell positions differ), identical between phone and tablet. Cause not examined (suspicion: a compute-path default that differs between pointer and touch forms). `tools/shell_batch_b_labels_drive.gd` prints the digests.
 - Phone: `+`/`-` fine-adjust on sliders and the Splat/Biomes probes (Ruling EH item 1 follow-ups; owner decision pending).
 - Phone 2026-10-26 finding, device only: SwiftKey IME duplication when editing the Save-as name with `adb` key events (unverified with a human typist). `dcc_shell.gd`.
-- Tablet canvas: the one remaining difference after the 2026-11-15 re-read; radii and `scrPicker` not re-checked (verify). `TABLET_UI_SPEC.md`.
-- `MOUSE_FILTER_STOP` controls over scrollers: triage which matter (verify; largely answered by the touch-scroll fix). `ANDROID_UI_SPEC.md`.
 - GUI replacement stages 3, 5, 6 and 7: re-open each spec against the shell and close or narrow (verify; RP-S6 superseded). `design/dcc-environment-2026-08-31/spec/`.
 - BUILD_ANSWERS §3: Data manager screenshots for the owner's approval. `data_manager_window.gd`.
 - BUILD_ANSWERS §4: content descriptions, dynamic type, the 48 dp sweep, screenshots.
 - `DCC_SHELL_SPEC.md` §11: the 51 stale citations (as parity rows).
-- Mockup follow-up: `ds13.js` still labels thumb zoom "pending DS13-Q1"; bring to Ruling EC item 4.
 - Map context: F5 ring slot replacement (later). `MAP_CONTEXT_SCOPE.md`.
-- PC shell: PC-7's remaining note items (verify). `PC_SHELL_PROPOSAL.md` §6.
 - Point Godot's remote debugger at the Android build to read the node tree off the device (owner suggestion). `ANDROID_BUILD_SCOPE.md`.
 - UI copy pass, remaining surfaces: listed at the end of `cartalith-native/docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
-- Stale pen prose: `TABLET_UI_SPEC.md` §4.2, `EDITING_TOOLS_SCOPE.md` §3.2, `analysis.rs::ruggedness`, `llm_net_hint.gd`, `vault_saf.rs` (Ruling BK).
 
 ### Vault and save format
 - Vault window editor toolbar "clipped at the right edge at 1600x900" (found 2026-11-22): NOT reproduced on 2026-11-22d. `tools/vault_toolbar_drive.gd` (desktop, tablet; the phone toolbar rides on the keyboard) finds every button inside the editor on the vault window (it wraps: an `HFlowContainer`) and docked in the Note tab; frames in `docs/evidence/small-fixes-2026-11-22d/`. Re-open if the clip is seen again, with the state (note, mode, window size).

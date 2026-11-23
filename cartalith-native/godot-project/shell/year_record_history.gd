@@ -14,6 +14,10 @@ extends RefCounted
 ## (the check after the engine call is the truth); keep steps across a world (`reset()` on a new world).
 ## No `class_name` (preloaded by `app.gd`), so no `--import` pass.
 
+## Emitted after every change to `hist`/`cursor`, so the phone undo chip and the toolbar squares re-read
+## `DccApp.can_undo_any()` (a recorded year used to leave them stale).
+signal changed
+
 ## The app (`DccApp`): bridge, the other histories and the CIVIL workspace's repaint.
 var app = null
 ## Applied steps, oldest first: `{year, sig, label}`. `cursor` of them are applied; the rest are redoable.
@@ -70,6 +74,7 @@ func note_recorded(year: int, label: String) -> void:
 	if hist.size() > MAX_STEPS:
 		hist.pop_front()
 	cursor = hist.size()
+	changed.emit()
 
 ## Undoes the newest applied step: removes its year. Returns `{ok, text}`; a year that is no longer recorded drops
 ## the step with a reason (nothing was undone).
@@ -86,6 +91,7 @@ func undo() -> Dictionary:
 	cursor -= 1
 	_redo_sig = _sig()
 	app.civ_year_records_changed()
+	changed.emit()
 	return {"ok": true, "text": String(e["label"])}
 
 ## The mirror: records the year again.
@@ -96,6 +102,7 @@ func redo() -> Dictionary:
 	app.bridge.civ_add_year(int(e["year"]))
 	cursor += 1
 	app.civ_year_records_changed()
+	changed.emit()
 	return {"ok": true, "text": String(e["label"])}
 
 ## A new world drops the steps: a year of the old world is not a year of this one.
@@ -103,3 +110,4 @@ func reset() -> void:
 	hist.clear()
 	cursor = 0
 	_redo_sig = ""
+	changed.emit()

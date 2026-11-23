@@ -1,0 +1,23 @@
+completed 
+form: tablet canvas (1684.0, 1000.0)
+CENSUS state world: 2 visible STOP controls inside a live vertical scroller, 1 groups
+CENSUS state civilization: 2 visible STOP controls inside a live vertical scroller, 1 groups
+CENSUS state cartography: 16 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS state assets: 16 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS state vault: 18 visible STOP controls inside a live vertical scroller, 5 groups
+CENSUS state data manager: 16 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS state travel library: 16 visible STOP controls inside a live vertical scroller, 4 groups
+CENSUS state new world: 26 visible STOP controls inside a live vertical scroller, 5 groups
+CENSUS group Control|ramp_bar.gd                          x6    tested 0, scrolled 0, blocked 0, value edited 0  => not on screen to measure  
+CENSUS group HSlider|                                     x74   tested 0, scrolled 0, blocked 0, value edited 0  => not on screen to measure  
+CENSUS group LineEdit|                                    x6    tested 0, scrolled 0, blocked 0, value edited 0  => not on screen to measure  
+CENSUS group LineEdit|-                                   x1    tested 1, scrolled 0, blocked 1, value edited 0  => BLOCKS  /root/App/@AcceptDialog@1539/@VBoxContainer@1541/@ScrollContainer@1544/@MarginContainer@1545/@VBoxContainer@1546/@MarginContainer@13670/@VBoxContainer@13669/@HBoxContainer@13672/@LineEdit@13673 (0) in vault
+CENSUS group SpinBox|                                     x7    tested 1, scrolled 1, blocked 0, value edited 0  => passes  
+CENSUS group VScrollBar|-                                 x18   tested 0, scrolled 0, blocked 0, value edited 0  => owns the drag (scrollbar)  
+ok    control: a stock ProgressBar is STOP
+ok    P1 touch_passive() turns a ProgressBar PASS  -- changed true filter 1
+ok    P1 no STOP ProgressBar is left in any state the census visited  -- 0
+ok    control: a SpinBox was measured (tablet)  -- 1
+ok    T1 a drag that starts on a tablet window's SpinBox scrolls the window  -- tested 1 blocked 0
+ok    T1 ... and does not change the number  -- edited 0
+shell batch B census drive: 0 failure(s)
