@@ -620,6 +620,9 @@ static func stack_slider_row(made: Dictionary) -> Dictionary:
 	line1.add_child(readout)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.custom_minimum_size.x = 0
+	## Fill the 44 px line, not shrink to the slider's own 14 px: a finger's target is the slider's rect, so the line was 44 px
+	## tall and the thing in it 14 (owner report 2026-11-23, label forms on touch; the 44 dp floor).
+	slider.size_flags_vertical = Control.SIZE_FILL
 	line2.add_child(slider)
 	spacer.queue_free()
 	var idx := wide.get_index()

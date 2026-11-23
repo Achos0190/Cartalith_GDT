@@ -1,0 +1,35 @@
+completed 
+form tablet canvas (1684.0, 1000.0) touch=true
+ok    setup: world generated, CARTO workspace built
+ok    the Label tool is armed after CARTO > Labels  -- label
+   sheet detent after CARTO > Labels: n/a tab=domain
+== hand-placed label ==
+ok    setup: the spot is on the plate  -- (64.67815, 41.6)
+ok    H1 a tap on the label selects it  -- 0
+FAIL  H2 the label's form (its text field) is on screen after the tap
+FAIL  H4 a drag on the selected label moves it  -- 64.678146 -> 64.678146
+FAIL  H4b ... and the map did not pan  -- (60.0, 25.0)
+ok    H5 the selected label has a resize handle
+   H5 handle radius 19.9 px, finger pad 22.0 px (zoom 0.40)
+ok    H5a set-up: the drawn handle is smaller than the finger pad (so the pad is what is grabbed)  -- 19.9 vs 22.0
+ok    H5a2 set-up: the press point is free map  -- (919.1988, 594.6988)
+FAIL  H5b dragging the handle resizes the label  -- 16.000000 -> 16.000000
+FAIL  H5c ... and the map did not pan
+ok    H6 the label list shows a delete button on screen
+ok    H6b ... at least 44 dp across  -- (44.0, 44.0)
+ok    H6c tapping it deletes the label  -- 1 -> 0
+== generated label ==
+ok    setup: a generated label is centred in the view  -- 28
+ok    G1 a tap on a generated label selects it  -- settlement|Karskvikulveskerport|164.66|98.55
+FAIL  G2 its form (the text field) is on screen after the tap
+FAIL  G4 a drag on the selected generated label moves it (override stored)  -- 164.659203476848
+FAIL  G4b ... and the map did not pan  -- (60.0, 25.0)
+ok    G5 the form has a size slider
+ok    G5a the slider is on screen
+FAIL  G5b ... and at least 44 dp tall to grab  -- (279.0, 14.0)
+ok    G5c dragging the slider resizes the generated label  -- 13.000000 -> 40.000000
+FAIL  G6 the Hide button is on screen
+FAIL  G7 the changed-labels list offers a restore
+ok    positive control: the name read back is the generator's again
+labels touch drive (tablet): 11 failure(s)
+done

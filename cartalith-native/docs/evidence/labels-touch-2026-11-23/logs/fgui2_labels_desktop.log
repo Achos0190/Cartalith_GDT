@@ -1,0 +1,67 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 43a161bd4855
+ERROR: Couldn't open directory at path "C:/cw/lbl_scratch2/appdata/Godot/app_userdata/cartalith_lbl_probe_scratch/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:882)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:912)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:980)
+       [3] _refresh (res://shell/open_project_dialog.gd:939)
+       [4] open_welcome (res://shell/open_project_dialog.gd:318)
+       [5] open_welcome (res://shell/app.gd:5366)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2837)
+FG2 FORM desktop at (1600, 900) touch=false
+== user label drag (F4) ==
+FG2 ok    F4: opening the Labels category arms the Label tool  -- label
+FG2 ok    F4: a hand-placed label moves under a real mouse drag  -- 249.107594936709
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+== generated label (F3, F4) ==
+FG2 ok    a generated label is reachable on screen  -- 71
+FG2 picked water|Lake Impvalcastra|379.52|166.79 at 379.519129287599,166.786279683377
+FG2 shot auto_before.png
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+FG2 ok    F4: a generated label moves under a real mouse drag  -- 417.825026371308
+FG2 ok    F3: no second label: render list and hand-placed list unchanged in size  -- 71/71 0/0
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+FG2 shot auto_moved.png
+FG2 ok    F3: the form for the selected generated label is open
+FG2 ok    F3: typing renames the generated label  -- Zork
+FG2 ok    F3: the renamed label is what the map draws
+ERROR: Must be an ancestor of the control.
+   at: ensure_control_visible (scene/gui/scroll_container.cpp:366)
+ERROR: Must be an ancestor of the control.
+   at: ensure_control_visible (scene/gui/scroll_container.cpp:366)
+FG2 ok    F3: undo reverts the rename
+FG2 ok    F3: the Hide button is on screen
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+FG2 ok    F3: a hidden generated label is not drawn
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+FG2 shot auto_hidden.png
+FG2 ok    the world saves
+FG2 ok    reset-all clears the override
+FG2 ok    the world reloads
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+ERROR: Lambda capture at index 0 was freed. Passed "null" instead.
+   at: call (modules/gdscript/gdscript_lambda_callable.cpp:110)
+FG2 ok    F3: a hidden, moved generated label survives save and reload  -- { "x": 417.825026371308, "y": 186.189247099156, "text": "Lake Impvalcastra", "angle": 0.0, "arc": 0.0, "size": 15.0, "size_mode": "zoom", "font": "Georgia, serif", "color": "#6f9fb5", "weight": 0.0, "key": "water|Lake Impvalcastra|379.52|166.79", "class": "water", "hidden": true, "edited": true }
+FG2 ok    F3: the changed-labels list offers a restore for the hidden label
+FG2 ok    F3: restore returns the generator's own label
+FG2 shot auto_restored.png
+FG2 ---- 17 checks, PASS ----
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+rc=0
+done

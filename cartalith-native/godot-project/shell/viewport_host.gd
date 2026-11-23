@@ -372,6 +372,9 @@ const _TP_HELD := 7
 const _TP_FINGERNAV := 8
 
 var _tool_kind := TOOL_NONE
+## A placing tool's "this press lands on what I hold" test: `Callable(screen_pos: Vector2) -> bool`, or invalid. Set by the
+## tool's owner (`CartographyWorkspace` for Label); consulted only for a one-finger press with a `TOOL_PLACING` tool armed.
+var touch_grab_cb: Callable = Callable()
 var _tp := _TP_IDLE
 var _tp_origin := Vector2.ZERO
 var _tp_last := Vector2.ZERO
@@ -1784,6 +1787,12 @@ func _touch_press(mb: InputEventMouseButton) -> bool:
 	_last_tap = {}
 	if _pan_mode:
 		_tp = _TP_PANLATCH
+	elif _tool_kind == TOOL_PLACING and touch_grab_cb.is_valid() and bool(touch_grab_cb.call(mb.position)):
+		## Labels on touch (owner report 2026-11-23, "impossible to modify existing labels"): a placing tool's drag
+		## pans, so a selected label could never be moved or resized by finger. The armed tool says this press
+		## lands on something it already holds (the selected label's body or a handle); the finger is then the
+		## tool's, exactly as with a drawing tool, and the overlay still withholds the press so a tap is a tap.
+		_tp = _TP_DRAW
 	elif _tool_kind == TOOL_DRAWING:
 		## SH-3: a finger confined to navigation does not own a drawing tool's stroke; the pen (device >= 0) does.
 		_tp = _TP_FINGERNAV if StylusInput.is_finger(mb.device) and _finger_navigates() else _TP_DRAW

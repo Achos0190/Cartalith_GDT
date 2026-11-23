@@ -1,0 +1,46 @@
+completed 
+form phone canvas (450.0, 975.0) touch=true
+ok    setup: world generated, CARTO workspace built
+ok    phone: the domain tab is on screen
+ok    phone: swiping the domain tab reaches CARTO
+ok    phone: CARTO's sheet offers the Label tool
+ok    the Label tool is armed after CARTO > Labels  -- label
+   sheet detent after CARTO > Labels: half tab=domain
+== hand-placed label ==
+ok    setup: the spot is on the plate  -- (105.8461, 41.6)
+ok    H1 a tap on the label selects it  -- 0
+ok    H2 the label's form (its text field) is on screen after the tap
+ok    H3a tapping the text field focuses it
+ok    H3 typing renames the hand-placed label  -- Zorp
+ok    H4 a drag on the selected label moves it  -- 105.846146 -> 116.192292
+ok    H4b ... and the map did not pan  -- (0.0, 0.0)
+ok    H5 the selected label has a resize handle
+   H5 handle radius 14.0 px, finger pad 24.0 px (zoom 1.25)
+ok    H5a set-up: the drawn handle is smaller than the finger pad (so the pad is what is grabbed)  -- 14.0 vs 24.0
+ok    H5a2 set-up: the press point is free map  -- (265.246, 527.746)
+ok    H5b dragging the handle resizes the label  -- 16.000000 -> 35.561603
+ok    H5c ... and the map did not pan
+ok    H6 the label list shows a delete button on screen
+ok    H6b ... at least 44 dp across  -- (48.0, 48.0)
+ok    H6c tapping it deletes the label  -- 1 -> 0
+== generated label ==
+ok    setup: a generated label is centred in the view  -- 28
+ok    G1 a tap on a generated label selects it  -- settlement|Karskvikulveskerport|164.66|98.55
+ok    G2 its form (the text field) is on screen after the tap
+ok    G3a tapping the text field focuses it
+ok    G3 typing renames the generated label  -- Zork
+ok    G4 a drag on the selected generated label moves it (override stored)  -- 192.509652777778
+ok    G4b ... and the map did not pan  -- (0.0, 0.0)
+ok    G5 the form has a size slider
+ok    G5a the slider is on screen
+ok    G5b ... and at least 44 dp tall to grab  -- (85.0, 48.0)
+ok    G5c dragging the slider resizes the generated label  -- 13.000000 -> 45.000000
+ok    G6 the Hide button is on screen
+ok    G6b ... at least 44 dp across  -- (416.0, 52.0)
+ok    G6c tapping Hide hides the generated label
+ok    G7 the changed-labels list offers a restore
+ok    G7b ... at least 44 dp across  -- (48.0, 48.0)
+ok    G7c tapping it restores the generator's own label
+ok    positive control: the name read back is the generator's again
+labels touch drive (phone): 0 failure(s)
+done

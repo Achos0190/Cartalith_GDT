@@ -1280,6 +1280,8 @@ func _register_tools() -> void:
 	app.register_tool_click_handler("label", _on_label_click)
 	app.register_tool_drag_handler("label", _on_label_drag)
 	app.register_tool_release_handler("label", _on_label_release)
+	## Owner report 2026-11-23: on touch a drag with the Label tool panned the map, so no label could be moved or resized.
+	app.viewport.touch_grab_cb = _label_touch_grab
 
 	## Neither tool needs its own Escape handler: `DCC_SHELL_SPEC.md` §4.5.6's
 	## "otherwise disarms back to Inspect" is exactly `app.gd`'s own default
@@ -1908,6 +1910,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 			app.viewport.tool_overlay.set_handles([])
 			app.set_tool_options(_build_label_tool_options_row)
 			_rebuild_label_panel()
+			_reveal_label_form(gx, gy)
 			return
 	if hit >= 0:
 		_auto_sel = ""
@@ -1919,6 +1922,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 		_label_drag_index = hit if sel_mode == EngineBridge.SEL_REPLACE else -1
 		app.set_tool_options(_build_label_tool_options_row)
 		_rebuild_label_panel()
+		_reveal_label_form(gx, gy)
 	else:
 		_label_drag_mode = DragMode.NONE
 		_label_drag_index = -1
@@ -1929,6 +1933,35 @@ func _on_label_click(gx: float, gy: float) -> void:
 		## against falling through to place).
 		if sel_mode == EngineBridge.SEL_REPLACE:
 			_prompt_label_name(gx, gy)
+
+
+## Touch (owner report 2026-11-23, "impossible to modify existing labels"): a tap that selects a label shows its form. On the
+## phone the form lives in the sheet, which sits at peek (a title) once the Label tool is armed from the map, so the selecting
+## tap raises it to half; and if the label would then lie under the sheet the view is centred on it, so the label being edited is
+## still on screen to drag. Does nothing on a mouse form (the dock is already beside the map); on every touch form it opens
+## the Labels category so the form exists to be seen; the sheet is only raised from peek.
+func _reveal_label_form(gx: float, gy: float) -> void:
+	if not DccTheme.is_touch():
+		return
+	## The form is the Labels category's, and the Label tool can be armed from the tool row without opening it, which left a
+	## selected label with no form anywhere. Opening an open category is a no-op.
+	open_category("Labels")
+	if not DccTheme.is_phone() or app.phone_detent() != "peek":
+		return
+	app.set_phone_detent("half")
+	get_tree().create_timer(0.4).timeout.connect(func() -> void:   # after the sheet's rise animation has settled
+		if app.armed_tool != "label":
+			return
+		var top_y: float = app._phone_sheet_col.get_global_rect().position.y
+		var at: Vector2 = app.viewport.global_position + app.viewport.grid_to_view(gx, gy)
+		if at.y < top_y - 60.0:
+			return
+		## `move_view_to` centres a cell on the whole view, which is under the sheet; centre the cell that puts this label
+		## half way up the part of the map the sheet leaves clear.
+		var shown: Rect2 = app.viewport.overlay.displayed_rect()
+		var px_per_cell: float = app.viewport.overlay.get_global_transform_with_canvas().get_scale().x * shown.size.x / maxf(float(bridge.grid_size().x), 1.0)
+		var lift: float = (app.viewport.get_global_rect().get_center().y - top_y * 0.5) / maxf(px_per_cell, 0.0001)
+		app.viewport.move_view_to(gx, gy + lift))
 
 
 ## Grid-space hit test against the currently-selected label's own three
@@ -1943,13 +1976,53 @@ func _handle_hit(index: int, gx: float, gy: float) -> int:
 	var h := bridge.label_handles(index, app.viewport.zoom(), app.viewport.label_px_per_cell())
 	if h.is_empty():
 		return DragMode.NONE
+	var pad := _touch_pad_cells()
 	for pair in [["resize", DragMode.RESIZE], ["rotate", DragMode.ROTATE], ["arc", DragMode.ARC]]:
 		var hd: Dictionary = h.get(pair[0], {})
 		if hd.is_empty():
 			continue
-		if Vector2(gx, gy).distance_to(Vector2(hd["x"], hd["y"])) <= float(hd["r"]):
+		if Vector2(gx, gy).distance_to(Vector2(hd["x"], hd["y"])) <= maxf(float(hd["r"]), pad):
 			return pair[1]
 	return DragMode.NONE
+
+
+## A 44 dp touch target, as a radius in grid cells: 22 dp times the form's px-per-dp, over the map's screen px per cell.
+## 0.0 on a mouse form, so a desktop hit is exactly the handle's drawn circle. The handles are drawn small (a few px at
+## far zoom); a fingertip cannot land on that (`MOBILE_SHELL_PROPOSAL.md` section 2.5, the 44 dp floor).
+func _touch_pad_cells() -> float:
+	if not DccTheme.is_touch():
+		return 0.0
+	var ov: Control = app.viewport.overlay
+	var gw := float(bridge.grid_size().x)
+	var shown: Rect2 = ov.displayed_rect()
+	var px_per_cell: float = ov.get_global_transform_with_canvas().get_scale().x * shown.size.x / maxf(gw, 1.0)
+	return 22.0 * (DccTheme.phone_scale() if DccTheme.is_phone() else 1.0) / maxf(px_per_cell, 0.0001)
+
+
+## `ViewportHost.touch_grab_cb`: does a finger pressed at screen point `at` land on what the Label tool already holds, so the
+## drag that follows moves or resizes it instead of panning the map? True on the selected hand-placed label's body or any of
+## its three handles (finger-sized, `_handle_hit`), or on the selected generated label's body. Read-only: it selects nothing
+## (`request_at` and `auto_label_hit` are the engine's pure picks), so a press on an unselected label still pans, and a tap
+## on it still selects it through the ordinary click path.
+func _label_touch_grab(at: Vector2) -> bool:
+	if app.armed_tool != "label" or bridge.generating:
+		return false
+	var ov: Control = app.viewport.overlay
+	var req: Dictionary = ov.request_at(ov.get_global_transform_with_canvas().affine_inverse() * at, "touch")
+	if req.is_empty():
+		return false
+	var gx := float(req["gx"])
+	var gy := float(req["gy"])
+	var sel := bridge.label_get_selected()
+	if sel >= 0 and bridge.label_get_selection().size() == 1:
+		if _handle_hit(sel, gx, gy) != DragMode.NONE:
+			return true
+		for h in req["hits"]:
+			if String(h["kind"]) == "label" and int(h["id"]) == sel:
+				return true
+	if _auto_sel != "" and bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom()) == _auto_sel:
+		return true
+	return false
 
 
 ## Captures the drag's fixed reference values -- `label_resize_size`/
@@ -4166,6 +4239,11 @@ func _build_auto_edit_form(key: String) -> void:
 	if scroll != null:
 		(scroll as ScrollContainer).ensure_control_visible.call_deferred(reset_btn)
 		(scroll as ScrollContainer).ensure_control_visible.call_deferred(text_row)
+		## Again once the phone sheet has finished rising (see the hand-placed form): a scroll against its old height leaves
+		## the form out of view.
+		get_tree().create_timer(0.4).timeout.connect(func() -> void:
+			if is_instance_valid(text_row) and is_instance_valid(scroll):
+				(scroll as ScrollContainer).ensure_control_visible(text_row))
 
 
 ## One field of generated label `key` through its override, inside the same idle-merged undo stream a hand-placed
@@ -4214,6 +4292,18 @@ func _rebuild_label_edit_form() -> void:
 	text_edit.focus_exited.connect(_rebuild_label_panel)
 	text_row.add_child(text_edit)
 	_label_edit_body.add_child(text_row)
+	## The form sits under the list, at the foot of a long dock: bring it on screen, as a tap on the map asked for it (the
+	## generated label's form does the same). Deferred: the rows above are laid out a frame later.
+	var form_scroll := text_row.get_parent()
+	while form_scroll != null and not form_scroll is ScrollContainer:
+		form_scroll = form_scroll.get_parent()
+	if form_scroll != null:
+		(form_scroll as ScrollContainer).ensure_control_visible.call_deferred(text_row)
+		## And once more after the phone sheet has finished rising (its height animates, and a scroll computed against the
+		## old height leaves the form out of view).
+		get_tree().create_timer(0.4).timeout.connect(func() -> void:
+			if is_instance_valid(text_row) and is_instance_valid(form_scroll):
+				(form_scroll as ScrollContainer).ensure_control_visible(text_row))
 
 	## Step 1 of the Labels ruling, reachable: which typographic class this
 	## hand-placed label belongs to. It sets the halo and tracking it draws with
