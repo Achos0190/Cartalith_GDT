@@ -37,7 +37,7 @@ GUI, then engine, then the LLM interface).
 ### Towns and urban layout
 - Ruling GB leftovers: 483920 #8 (59 %), #11 (65 %), 912345 #0 (68 %) at 2 048 under 70 % housed; 246371 #0 thins
   east; #11's unbuilt wedge; over-housing (912345 #30, census #2); wall/hull max 1.25; the 1.6 cap binding on 246371 #0. `urban_growth_water_widen`, `urban_town_bridge_search`.
-- Ruling FK leftovers: harbours still over 23 m from water (483920 #5 at 384, #10 at 2 048); hamlet 154:136 about 400 m inland. `urban_harbour_front`, `civ.port_reach`.
+- Ruling FK leftovers (harbours set back from their water; 483920 #5 at 384, #10 at 2 048, 154:136): the owner says a setback is not necessarily wrong (2026-11-23); routed to `COASTAL_SETBACK_RESEARCH.md` (CS-0 measures first; owner questions Q1-Q10). `urban_harbour_front`, `civ.port_reach`.
 - Settlement #6 with `urban_riverbank` on: growth gathers at the box edge (river port far from the town). `grow`'s `d_m`.
 - City Viewer: a bay town's smoothed shore has no shallow band of its own. `urban_shore.gd`.
 - Ruling EX: `um_site_profile`'s half-cell river distance (golden-pinned; needs a re-baseline ruling); the Map view's suitability layer shows the frontage term off. `sample_bridge.rs`.
