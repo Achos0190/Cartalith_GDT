@@ -4118,3 +4118,7 @@ After `165da718`/`4221aba1`/`df926fc1` (towns on the bank, river at the map's wi
 ## Ruling HO: the tablet opens on a full-screen worlds grid (owner, 2026-11-23)
 
 `TABLET_UI_SPEC.md`'s `scrPicker` (found as the one remaining tablet-canvas difference by shell batch B, `4fcf0d94`): **the tablet starts on a full-screen worlds grid** -- the user's worlds as tiles filling the screen, with New world and Open as tiles -- instead of the modal welcome card. Desktop and phone keep their own start screens.
+
+## Ruling HP: CPU by default on every device (owner, 2026-11-23)
+
+`de3bb411` found that the same seed gave a different world on the PC (GPU path by default, Ruling EY) than on touch devices (CPU path); with the same stored choice every device is byte-identical. Owner: **the compute path defaults to CPU everywhere**, so one seed gives one world on every device; GPU stays a per-device choice the user can turn on (it changes plate placement, so it is a different world, `DECISIONS.md` §7a). Supersedes Ruling EY's per-form default; a choice already stored on a device is kept.
