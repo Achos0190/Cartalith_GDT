@@ -11,10 +11,12 @@ GPU; `EngineBridge.default_gpu_on`), and the GPU path makes a different world fr
 explicit choice (`[gpu] enabled`, what Preferences > GPU acceleration writes) the same on every form, the worlds must
 be byte-identical; at the default they must differ in `use_gpu` alone, true on the desktop and false on touch.
 
-  python -I form_determinism.py run TAG GPU FORM [--root DIR]  GPU is 0, 1 or "-" (the default); FORM desktop|tablet|phone
+  GODOT_EXE=<console exe> [CARTALITH_DLL=<dll>] [FORMDET_ROOT=<scratch>] python -I form_determinism.py <command>:
+  python -I form_determinism.py run TAG GPU FORM [OUT]         GPU is 0, 1 or "-" (the default); FORM desktop|tablet|phone
   python -I form_determinism.py check DIR equal|ruled_default    exit 0 when the dumps in DIR meet the expectation
   python -I form_determinism.py all OUT                         default, CPU-pinned and GPU-pinned on all three forms
   python -I form_determinism.py mutant OUT                      the boot ignores the stored choice: CPU-pinned must FAIL
+                                                                (exit 0 killed, 1 survived, 2 broken: a run that did not dump)
 
 Window lock (MISTAKES.md): C:/cw/.win_lock is taken with mkdir and an owner file written at once; it is removed only
 when this process made it, and held only while Godot runs. Never `--headless` (the shell needs a window).
@@ -24,7 +26,7 @@ import json, os, pathlib, shutil, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fennara_drive as fd  # noqa: E402  (the launcher this repository already has)
 
-GODOT = os.environ.get("GODOT_EXE", r"C:\Users\Vincent\AppData\Local\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe")
+GODOT = os.environ.get("GODOT_EXE", "")   # the Godot 4.7.2 console exe; required (`run` refuses without it)
 NATIVE = pathlib.Path(__file__).resolve().parents[1]
 DLL = os.environ.get("CARTALITH_DLL", str(NATIVE / "target" / "debug" / "cartalith_godot.dll"))
 ROOT = pathlib.Path(os.environ.get("FORMDET_ROOT", "C:/cw/formdet_scratch"))
@@ -36,6 +38,11 @@ MUTANT_NEW = 'param_set("use_gpu", default_gpu_on())'
 
 
 def run(tag, gpu, form, out):
+    """One form's run. True only when the run completed, no check failed, and it wrote a fresh dump."""
+    if not GODOT:
+        sys.exit("set GODOT_EXE to the Godot 4.7.2 console exe")
+    dump = pathlib.Path(out) / tag / f"{form}.json"
+    dump.unlink(missing_ok=True)   # a stale dump from an earlier run must never be read as this one's
     proj = fd.scratch_shell(DLL, ROOT)
     app, loc = ROOT / f"appdata_{tag}_{form}", ROOT / f"localappdata_{tag}_{form}"
     cfg = app / "cartalith_settings.cfg"
@@ -64,7 +71,7 @@ def run(tag, gpu, form, out):
         lock.rmdir()
     print(f"== {tag} {form}: {st.get('status')}")
     print("\n".join(lines))
-    return st.get("status") == "completed" and not any(l.startswith("FAIL") for l in lines)
+    return st.get("status") == "completed" and not any(l.startswith("FAIL") for l in lines) and dump.exists()
 
 
 def check(d, expect):
@@ -113,9 +120,10 @@ def main(a):
         return 0 if check(a[1], a[2]) else 1
     if a[0] == "all":
         out = a[1]
-        for tag, gpu in (("default", "-"), ("cpu", "0"), ("gpu", "1")):
-            for f in FORMS:
-                run(tag, gpu, f, out)
+        ran = [run(tag, gpu, f, out) for tag, gpu in (("default", "-"), ("cpu", "0"), ("gpu", "1")) for f in FORMS]
+        if not all(ran):
+            print("FAIL a run did not complete or dump")
+            return 1
         r = [check(f"{out}/default", "ruled_default"), check(f"{out}/cpu", "equal"), check(f"{out}/gpu", "equal")]
         return 0 if all(r) else 1
     if a[0] == "mutant":
@@ -125,12 +133,19 @@ def main(a):
         assert src.count(MUTANT_OLD) == 1, "mutant literal not found exactly once"
         try:
             p.write_text(src.replace(MUTANT_OLD, MUTANT_NEW), encoding="utf-8", newline="\n")
-            for f in FORMS:
-                run("mutant_cpu", "0", f, out)
+            ran = [run("mutant_cpu", "0", f, out) for f in FORMS]
         finally:
             p.write_text(src, encoding="utf-8", newline="\n")
         assert p.read_text(encoding="utf-8") == src
+        if not all(ran):
+            print("MUTANT BROKEN: a run did not complete or dump (neither killed nor survived)")
+            return 2
         survived = check(f"{out}/mutant_cpu", "equal")
+        ## Killed for the right reason only: the CPU-stored desktop booted on the GPU.
+        gpu_desktop = json.load(open(f"{out}/mutant_cpu/desktop.json"))["params_boot"].get("use_gpu") is True
+        if not survived and not gpu_desktop:
+            print("MUTANT BROKEN: the check went red, but not because the desktop ignored its stored CPU choice")
+            return 2
         print("MUTANT SURVIVED" if survived else "MUTANT KILLED")
         return 1 if survived else 0
     print(__doc__)

@@ -1,0 +1,42 @@
+form canvas (1600.0, 900.0), seed 4242, grid 256x160
+ok    setup: the CARTO workspace is built
+   create 1: 27 generated labels, settled px/cell 3.7109
+   create 2: 27 generated labels, settled px/cell 3.7109
+ok    control: the world is not empty of labels  -- 27
+ok    L1 two Creates of one seed give the same generated labels  -- only in first 0 (e.g. []), only in second 0 (e.g. [])
+ok    L2 re-running the labelling pass on the settled layout changes nothing (after Create 2)  -- only in first 0 (e.g. []), only in second 0 (e.g. [])
+ok    L2 ... nor after Create 1's list  -- only in first 0 (e.g. []), only in second 0 (e.g. [])
+ok    L3 the settled fit is positive and the same for both Creates  -- 3.710938 vs 3.710938
+ok    L4 Create at another grid then back at the first gives the first list  -- only in first 0 (e.g. []), only in second 0 (e.g. [])
+ok    control: the window change moved the live fit (so L5 is a real change of view)  -- 3.710938 vs 2.460938
+ok    L5 the same seed in a narrower window gives the same generated labels  -- map width 950 -> 630 px, 27 -> 27 labels, only in first 0 (e.g. []), only in second 0 (e.g. [])
+LBL continental|Orentamwash|181.22|79.12
+LBL continental|Sevmarcvaldomcastra|23.32|23.02
+LBL continental|The Irssahkadbahroasis Reach|41.56|132.27
+LBL region|Arcnovimpica Province|32.50|42.50
+LBL region|Florbrynflorulavale Province|184.23|157.56
+LBL region|Skerskervikbrenfjord Province|177.50|59.50
+LBL settlement|Anwedellorilawick|147.50|107.50
+LBL settlement|Auraurforum|40.50|1.50
+LBL settlement|Bahrnashyusspan|35.27|158.70
+LBL settlement|Baldcrunbaldstone|218.50|109.50
+LBL settlement|Brenbjormornport|175.51|36.52
+LBL settlement|Crungarnridge|248.32|133.18
+LBL settlement|Dahnghalomarir|4.56|96.50
+LBL settlement|Duncrunvragkruntor|229.32|124.56
+LBL settlement|Ennethala'elbough|234.51|4.52
+LBL settlement|Farsahspan|79.50|119.50
+LBL settlement|Grimdagrstokpeak|241.50|96.50
+LBL settlement|Haskforngarnhaskhold|236.50|142.50
+LBL settlement|Ithitha'elfaeshade|199.50|21.50
+LBL settlement|Ithvelwynwynshade|105.50|4.50
+LBL settlement|Kadqirirswahoasis|30.27|148.45
+LBL settlement|Karskvikulveskerport|164.50|98.50
+LBL settlement|Sahmirashrest|62.50|108.50
+LBL settlement|Skervannfjalyistbay|224.50|49.50
+LBL settlement|Tazghalwell|15.50|114.50
+LBL settlement|Ushnashabad|91.49|147.60
+LBL settlement|Ylielbloom|171.51|11.84
+   advance ratio 0.5451, cull on true
+   list digest (compare across forms): 27 labels, hash 2798146760
+shell batch B labels drive: 0 failure(s)

@@ -7,6 +7,7 @@ extends RefCounted
 ## `<form>.json`, which that tool diffs across forms (the check is the cross-form diff, not anything inside one run).
 ## `FORMDET_SEED` (default 4242), `FORMDET_GRID` ("256x160").
 ## F1  the Create ran and made a world with settlements and labels (a control: an empty world diffs equal everywhere).
+## The request is checked against the seed and grid written (an aspect lock or clamp must not change them).
 
 var _fails := 0
 
@@ -85,6 +86,10 @@ func run(ctx) -> void:
 	dlg.grid_w_input.value = int(grid[0])
 	dlg.grid_h_input.value = int(grid[1])
 	var request: Dictionary = dlg.generate_request()
+	ctx.log("request %s" % JSON.stringify(request))
+	_check(ctx, "setup: the request carries the seed and grid set", int(request.get("seed", -1)) == seed_v
+		and int(request.get("grid_w", -1)) == int(grid[0]) and int(request.get("grid_h", -1)) == int(grid[1]),
+		"%s %sx%s" % [str(request.get("seed")), str(request.get("grid_w")), str(request.get("grid_h"))])
 	var plan: Array = dlg.auto_populate_plan()
 	## Desktop and tablet: the dialog's footer button. Phone: §6.7's CREATE WORLD (the footer is hidden there).
 	var ok_btn: Button = dlg.get_ok_button() if dlg.get_ok_button().is_visible_in_tree() else dlg._phone_create
