@@ -133,8 +133,6 @@ GUI, then engine, then the LLM interface).
 - Search field lag of 10-40 s on the 6T (not reproduced on desktop): time a keystroke on the device.
 
 ### Discipline, tests and documents
-- **(running, Sonnet) Red baselines on origin/main (found by HR, 2026-11-23):** the ignored `fh_r2_m1_moves_zero_bytes_against_m0`, `g1_0_baseline_columns` and `ea0_ecological_ordering_diagnostic` fail with HR bypassed, so an earlier commit moved them unattributed. Find the commit, attribute by switch and re-record (or fix).
-- (running, with the baselines) `_claimsabsent_probe.gd`: 29 of 54 checks red before HR (same with the pre-ruling DLL); triage.
 - Ruling BK: annotate existing code for a human auditor (large; batch log in the archive). `find_gaps.py`.
 - Defects found while annotating: `LoadError::OutOfRange`'s literal newline and the rest. `STATUS.md` "Rust annotation pass".
 - `site::tests::golden_build_site` fails in release (a NaN's sign bit). `crates/cartalith-urban/src/site/tests.rs`.

@@ -46,24 +46,59 @@ func _check(what: String, cond: bool, detail: String = "") -> void:
 		_fails += 1
 
 ## Copy `src` to `dst` without every entry whose name starts with `prefix`;
-## returns how many entries were dropped.
+## returns how many entries were dropped (-1 if the archive cannot be parsed).
+## Copies each kept entry's bytes RAW, local header and data untouched: a format-3
+## project stores its rasters as Zstandard (method 93), which Godot's `ZIPReader`
+## cannot decode (`SAVEFILE_COMPAT.md` section 3.3), so the earlier read-and-repack
+## wrote every other raster back as nothing and no stripped project could open
+## (29 of 54 checks, 2026-11-23). No ZIP64, no data descriptors: the app writes neither.
 func _strip(src: String, dst: String, prefix: String) -> int:
-	var reader := ZIPReader.new()
-	if reader.open(src) != OK:
+	var b := FileAccess.get_file_as_bytes(src)
+	var n := b.size()
+	var eocd := -1
+	for i in range(n - 22, maxi(n - 70000, -1), -1):
+		if b.decode_u32(i) == 0x06054b50:
+			eocd = i
+			break
+	if eocd < 0:
 		return -1
-	var packer := ZIPPacker.new()
-	if packer.open(dst) != OK:
-		return -1
+	var count := b.decode_u16(eocd + 10)
+	var pos := b.decode_u32(eocd + 16)
+	var body := PackedByteArray()
+	var cd := PackedByteArray()
+	var kept := 0
 	var dropped := 0
-	for name in reader.get_files():
+	for _e in count:
+		if b.decode_u32(pos) != 0x02014b50:
+			return -1
+		var nlen := b.decode_u16(pos + 28)
+		var rec := 46 + nlen + b.decode_u16(pos + 30) + b.decode_u16(pos + 32)
+		var name := b.slice(pos + 46, pos + 46 + nlen).get_string_from_utf8()
 		if name.begins_with(prefix):
 			dropped += 1
-			continue
-		packer.start_file(name)
-		packer.write_file(reader.read_file(name))
-		packer.close_file()
-	packer.close()
-	reader.close()
+		else:
+			var off := b.decode_u32(pos + 42)
+			var lh := 30 + b.decode_u16(off + 26) + b.decode_u16(off + 28)
+			var entry := b.slice(pos, pos + rec)
+			entry.encode_u32(42, body.size())
+			cd.append_array(entry)
+			body.append_array(b.slice(off, off + lh + b.decode_u32(pos + 20)))
+			kept += 1
+		pos += rec
+	var end := PackedByteArray()
+	end.resize(22)
+	end.encode_u32(0, 0x06054b50)
+	end.encode_u16(8, kept)
+	end.encode_u16(10, kept)
+	end.encode_u32(12, cd.size())
+	end.encode_u32(16, body.size())
+	var f := FileAccess.open(dst, FileAccess.WRITE)
+	if f == null:
+		return -1
+	f.store_buffer(body)
+	f.store_buffer(cd)
+	f.store_buffer(end)
+	f.close()
 	return dropped
 
 func _texts(node: Node, out: PackedStringArray) -> void:
