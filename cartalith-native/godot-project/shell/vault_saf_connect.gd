@@ -47,6 +47,13 @@ static func connect_android(bridge, tree_uri: String, display_name: String = "")
 	var r := connect_with_driver(bridge, tree_uri, display_name, driver)
 	if bool(r.get("ok", false)) and not bool(kept.get("ok", false)):
 		r["warning"] = "Android may forget this folder when the app closes: %s" % String(kept.get("error", "the grant was not persisted"))
+	## One logcat line per attempt (tag `godot`), so the next device failure names its step: the 2026-11-23 failure
+	## left no line at all, and the refusal went only to the status line. The engine's error text is not printed,
+	## because it quotes the folder address; `diagnose()` names the step instead.
+	if bool(r.get("ok", false)):
+		print("[vault-saf] connect ok%s" % (" (grant not persisted)" if r.has("warning") else ""))
+	else:
+		print("[vault-saf] connect refused: %s" % driver.diagnose())
 	return r
 
 

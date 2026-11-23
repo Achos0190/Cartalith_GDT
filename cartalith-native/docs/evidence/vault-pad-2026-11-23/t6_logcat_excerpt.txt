@@ -1,0 +1,15 @@
+# 6T (9608b26b, Android 15, v.26.11.23-001), app pid 17460, the scratch-folder attempt of 2026-11-23 23:05 (folder created in the picker: CartalithScratchVault).
+# Captured live during the attempt (`adb logcat --pid=17460`, plus the DocumentsUI line from the full buffer); the
+# buffer had rotated by the time this file was written, so these lines are copied from that capture verbatim.
+11-23 23:04:15.715 17460 17460 V Godot   : OnResume: GodotFragment{921c416} (4b55ab5e-0794-465c-81d3-2f1c1bfd44f0 id=0x7f07002c)
+11-23 23:05:02.476 17460 17505 D FilePicker: Error cannot set initial directory
+11-23 23:05:02.497 17460 17460 V Godot   : OnPause: GodotFragment{921c416} (4b55ab5e-0794-465c-81d3-2f1c1bfd44f0 id=0x7f07002c)
+11-23 23:05:03.109 17460 17460 V Godot   : OnStop: GodotFragment{921c416} (4b55ab5e-0794-465c-81d3-2f1c1bfd44f0 id=0x7f07002c)
+11-23 23:05:41.916 19103 19103 D PickerActionHandler: onFinished() [content://com.android.externalstorage.documents/tree/primary%3ACartalithScratchVault]
+11-23 23:05:41.939 17460 17460 V Godot   : OnStart: GodotFragment{921c416} (4b55ab5e-0794-465c-81d3-2f1c1bfd44f0 id=0x7f07002c)
+11-23 23:05:41.942 17460 17460 V Godot   : OnResume: GodotFragment{921c416} (4b55ab5e-0794-465c-81d3-2f1c1bfd44f0 id=0x7f07002c)
+# (nothing further from pid 17460: no godot error, no exception; the vault window still read "No Markdown vault connected")
+# dumpsys activity permissions afterwards (the app's own takePersistableUriPermission ran; Godot 4.7.2's FilePicker does not call it):
+    UriPermission{a65f7a6 content://com.android.externalstorage.documents/tree/primary%3ACartalithScratchVault [user 0] [prefix]}
+      targetUserId=0 sourcePkg=com.android.externalstorage targetPkg=org.cartalith.walkingskeleton
+      mode=0x3 owned=0x3 global=0x0 persistable=0x3 persisted=0x3 persistedCreate=1795471542004

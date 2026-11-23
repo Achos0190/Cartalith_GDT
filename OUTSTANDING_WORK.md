@@ -105,6 +105,8 @@ GUI, then engine, then the LLM interface).
 ### Vault and save format
 - Vault window editor toolbar "clipped at the right edge at 1600x900" (found 2026-11-22): NOT reproduced on 2026-11-22d. `tools/vault_toolbar_drive.gd` (desktop, tablet; the phone toolbar rides on the keyboard) finds every button inside the editor on the vault window (it wraps: an `HFlowContainer`) and docked in the Note tab; frames in `docs/evidence/small-fixes-2026-11-22d/`. Re-open if the clip is seen again, with the state (note, mode, window size).
 - Ruling GZ's device leg (TL-5), **ran 2026-11-23 on the 6T: 33 of 34 unchanged, 1 drawn differently, 0 "within rounding"** (seed 483920 world frozen on x86-64, 34 towns; opened on the 6T from `/sdcard/Download`, Records ▸ Check frozen towns; the same file reopened on x86 gives 34 of 34 unchanged, so it is the architecture, not the reopen path). The bar (64 of 64 equal or "within rounding") is **not met**: the town is "Dagrhurnridge" in that world and the cause is not yet found (a `within_rounding` limit too tight, or a real arm64 float divergence in the town layout, `JS_SEMANTICS_AUDIT.md`). Open: dump the frozen and the arm64 layout of that town and diff; the seed 912345 world (36 towns, frozen file kept in the evidence folder's script, regenerate with it) was not run on the device. `TOWN_LAYOUT_SAVE_SCOPE.md` §8.
+- **Android vault connect, device check owed** (owner report 2026-11-23, fixed off-device: STATUS "Connecting a vault on Android"). On the next APK, run the four checks in `cartalith-native/docs/evidence/vault-pad-2026-11-23/README.md` on the Pad, then the 6T (`adb logcat | grep vault-saf`). `vault_saf_android.gd::_query`, `grant_is_held`.
+- A refused vault connect is reported only on the status line: not drawn over the open vault window on the phone (6T), and cut off at the bar's edge on the Pad, where the owner saw only `Vault: "content://…` (2026-11-23). Show the reason in the window, without the folder address. `vault_window.gd::_browse_vault`.
 - VE-4 SAF side: write atomicity and read-only behaviour; an outside-change check on focus. `vault_saf.rs`.
 - Ruling FH: the save prompt for refined levels and the disk-cap setting (parked with world-scale terrain, since ZR is a no-go).
 
@@ -143,7 +145,7 @@ GUI, then engine, then the LLM interface).
 
 ### Device passes (owner-run)
 - MS-10 on the 6T, a tablet and a 4K window; MS-1 B7, B9 export half, B10. `MOBILE_SHELL_PROPOSAL.md`.
-- VE-0, VE-4 (SAF), VE-8 (toolbar over the real keyboard, both orientations), VE-7's Android picture read; Vault milestone 4 (`vault_saf_android.gd` never run).
+- VE-0, VE-4 (SAF), VE-8 (toolbar over the real keyboard, both orientations), VE-7's Android picture read; Vault milestone 4 (`vault_saf_android.gd` first run 2026-11-23, failed, fixed off-device: see Vault and save format).
 - CQ-5 on the Pad; CQ-6 6T bars; CQ-8's Android share sheet and picker; CM-4 pen barrel and haptics; F5b edge sliders on the Pad.
 - Pen: SP-0, SP-2 to SP-7 and the Tool fan target (`STYLO2_PEN_PROPOSAL.md` §11); the Stylo 2's pressure, tilt, hover and palm through the Stylus tester; SH-2's `disable_scroll_deadzone` (measure first); ET-D5 brush controls on real pen and touch.
 - The VIBRATE permission on the 6T (`adb logcat | grep -i "VIBRATE permission"`); the rest of SH-0 (`wm density`, `getevent -lt`, `dumpsys input`).

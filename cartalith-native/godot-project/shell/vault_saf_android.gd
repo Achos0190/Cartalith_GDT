@@ -8,8 +8,11 @@ extends RefCounted
 ## The driver contract is documented on the handler. Ids are SAF document ids; a document's `Uri` is
 ## rebuilt from the id with `buildDocumentUriUsingTree` each time, so nothing here holds a stale uri.
 ##
-## A Java exception inside a wrapped call prints an engine error and returns `null`, so every call's
-## result is tested for `null` and becomes `{ok: false, error}` rather than being assumed.
+## A failed wrapped call is **silent** and answers `null` (Godot 4.7.2 `java_class_wrapper.cpp`): a Java exception
+## is stored for `JavaClassWrapper.get_exception()` and not printed, and a call no overload accepts returns
+## nothing, which a release build does not report either. So every call's result is tested for `null` and becomes
+## `{ok: false, error}` rather than being assumed, and no call may pass `null` where Java takes a `String`: the
+## wrapper accepts `null` only for an object parameter (see `_query`).
 
 const MIME_DIR := "vnd.android.document/directory"
 ## `application/octet-stream` so a provider does not append an extension derived from the mime type to the
@@ -67,20 +70,57 @@ func persist_grant() -> Dictionary:
 ## True when Android still lists this tree among the grants the app was given. A revoked folder answers
 ## `false`, so a reconnect on launch can say "the folder is no longer shared" instead of failing later.
 func grant_is_held() -> bool:
-	if not bool(prepare().get("ok", false)):
+	if _tree == null and not bool(prepare().get("ok", false)):
 		return false
 	var perms = _resolver.getPersistedUriPermissions()
 	if perms == null:
 		return false
-	for i in perms.size():
-		var p = perms.get(i)
+	## Walked with `iterator()`, never `perms.get(i)`: a `JavaObject` answers Godot's own methods first, `Object.get`
+	## is one, and a release build does not check its argument type, so `get(i)` reads a Godot property named "0"
+	## and answers null without reaching Java (2026-11-23, read at Godot 4.7.2's `JavaObject::callp`).
+	var it = perms.iterator()
+	while it != null and bool(it.hasNext()):
+		var p = it.next()
 		if p != null and String(p.getUri().toString()) == _tree_uri_text and bool(p.isReadPermission()):
 			return true
 	return false
 
 
+## Which step of `available()` fails, for one logcat line when a connect is refused: `available()` folds every
+## failure into `false`, which named nothing on 2026-11-23. Step names and the Java exception's class only; no
+## folder address and no exception message (both can carry the owner's folder name).
+func diagnose() -> String:
+	var r := root_id()
+	if not bool(r.get("ok", false)):
+		return "root_id failed (%s)%s" % [String(r.get("error", "")), _exception_class()]
+	var id := String(r["id"])
+	if not bool(stat(id).get("ok", false)):
+		return "stat(root) failed%s" % _exception_class()
+	if not bool(children(id).get("ok", false)):
+		return "children(root) failed%s" % _exception_class()
+	return "root_id, stat and children all answered"
+
+
+static func _exception_class() -> String:
+	var ex = JavaClassWrapper.get_exception()
+	if ex == null:
+		return ""
+	return " java exception %s" % String(ex.getClass().getName())
+
+
 static func _fail(msg: String) -> Dictionary:
 	return {"ok": false, "error": msg}
+
+
+## `ContentResolver.query` through its 4-argument overload `(Uri, String[], Bundle, CancellationSignal)` (API 26).
+## Never the 5-argument `(Uri, String[], String, String[], String)` with `null`s: Godot's wrapper refuses `null`
+## for a `String` or `String[]` parameter, so that call matched no overload and returned `null` with no log line.
+## This is the cause found for connecting a vault failing on the Pad and the 6T (2026-11-23,
+## `cartalith-native/docs/evidence/vault-pad-2026-11-23/`), read at the wrapper's source and the devices' logs;
+## a connect on a device after this change is the proof still owed. `Bundle` and `CancellationSignal` are objects, which
+## the wrapper passes as Java `null`.
+func _query(uri, cols: PackedStringArray):
+	return _resolver.query(uri, cols, null, null)
 
 
 func _doc_uri(id: String):
@@ -133,7 +173,7 @@ func children(id: String) -> Dictionary:
 		return _fail("the Android folder is not reachable")
 	var uri = _dc.buildChildDocumentsUriUsingTree(_tree, id)
 	var cols := PackedStringArray(["document_id", "_display_name", "mime_type", "flags"])
-	var cur = _resolver.query(uri, cols, null, null, null)
+	var cur = _query(uri, cols)
 	if cur == null:
 		return _fail("the folder could not be listed")
 	var items: Array = []
@@ -150,7 +190,7 @@ func children(id: String) -> Dictionary:
 
 func stat(id: String) -> Dictionary:
 	var cols := PackedStringArray(["last_modified", "_size", "flags"])
-	var cur = _resolver.query(_doc_uri(id), cols, null, null, null)
+	var cur = _query(_doc_uri(id), cols)
 	if cur == null:
 		return _fail("the document could not be read")
 	var out := _fail("the document is gone")
@@ -201,7 +241,7 @@ func create(parent_id: String, name: String, is_dir: bool) -> Dictionary:
 	if uri == null:
 		return _fail("could not create %s" % name)
 	var cols := PackedStringArray(["_display_name"])
-	var cur = _resolver.query(uri, cols, null, null, null)
+	var cur = _query(uri, cols)
 	var got := ""
 	if cur != null:
 		if cur.moveToFirst():

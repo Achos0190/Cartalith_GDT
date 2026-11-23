@@ -1,0 +1,44 @@
+# Pad (192.168.1.22:43905, Android 16, v.26.11.23-001), app pid 21765, the owner's own attempts in the log buffer.
+# Filtered to tags Godot/godot/FilePicker; no other line from the pid mentions the vault, SAF, an exception or an error.
+11-23 22:29:23.637 21765 21765 V GodotActivity: Creating new Godot fragment instance.
+11-23 22:29:23.641 21765 21765 I GodotPluginRegistry: Completed initialization for Godot plugin CartalithPen
+11-23 22:29:23.641 21765 21765 V Godot   : InitEngine with params: [--xr_mode_regular, --xr-mode, off, --fullscreen, --background_color, #000000]
+11-23 22:29:23.648 21765 21765 V Godot   : Setting up native layer with params: [--xr-mode, off, --fullscreen]
+11-23 22:29:23.675 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:29:23.676 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:29:23.741 21765 22323 I godot   : Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+11-23 22:29:23.772 21765 22323 I godot   : OpenGL API OpenGL ES 3.2 V@0800.77 (GIT@b8f3a6b392, Ic221864829, 1781166738) (Date:06/11/26) - Compatibility - Using Device: Qualcomm - Adreno (TM) 830
+11-23 22:29:23.788 21765 22323 I godot   : 
+11-23 22:29:25.379 21765 22323 V Godot   : OnGodotSetupCompleted
+11-23 22:29:25.399 21765 22323 I godot   : Cartalith shell build b81e10fde3fe
+11-23 22:29:26.681 21765 22323 V Godot   : OnGodotMainLoopStarted
+11-23 22:44:02.487 21765 22323 D FilePicker: Error cannot set initial directory
+11-23 22:44:02.509 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:03.250 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:22.168 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:22.170 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:32.232 21765 22323 D FilePicker: Error cannot set initial directory
+11-23 22:44:32.241 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:32.923 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:35.614 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:35.615 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:45.646 21765 22323 D FilePicker: Error cannot set initial directory
+11-23 22:44:45.657 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:46.353 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:54.146 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:44:54.147 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:46:16.865 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:46:16.879 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:46:35.006 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:46:35.011 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:10.487 21765 22323 D FilePicker: Error cannot set initial directory
+11-23 22:47:10.498 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:11.205 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:21.583 21765 21765 V Godot   : OnStart: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:21.584 21765 21765 V Godot   : OnResume: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:46.414 21765 21765 V Godot   : OnPause: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+11-23 22:47:47.026 21765 21765 V Godot   : OnStop: GodotFragment{290eff1} (5c44c513-d036-4400-93d9-da1f2dc0e34b id=0x7f07002c)
+# dumpsys activity permissions on the Pad afterwards, folder redacted: the app's own takePersistableUriPermission ran (persistedCreate 1795470441614 ms = 2026-11-23 22:47:21, the last attempt's return).
+    UriPermission{4a32560 content://com.android.externalstorage.documents/tree/<redacted> [user 0] [prefix]}
+      targetUserId=0 sourcePkg=com.android.externalstorage targetPkg=org.cartalith.walkingskeleton
+      mode=0x3 owned=0x3 global=0x0 persistable=0x3 persisted=0x3 persistedCreate=1795470441614
