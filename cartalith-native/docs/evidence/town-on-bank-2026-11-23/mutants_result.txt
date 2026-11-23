@@ -1,0 +1,34 @@
+Ruling HM mutants (2026-11-23). mutants.py: exact literal, occurs once, cargo test on the unit tests named in it, restored in finally.
+
+RUST, first run (the first sixteen; the harness then stopped on a literal of its own that did not match CRLF, fixed):
+C1 the box grows by once the distance, not twice -> KILLED by town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned, urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin, urban_adapter::tests::a_bank_town_box_grows_by_twice_its_distance_from_the_river
+C2 ROAD_BANK_CLEAR_CELLS 2.0 -> 0.0 -> SURVIVED
+C3 the pin moved the wrong way -> KILLED by town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned, urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+C4 the drawn width not taken -> KILLED by town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned, urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin, urban_adapter::tests::a_road_over_the_wide_river_is_pressed_to_the_markets_bank
+C5 other drawn rivers not stamped -> KILLED by urban_adapter::tests::another_drawn_river_in_the_box_is_open_water_to_the_town
+C6 a far-bank road point is left -> KILLED by urban_adapter::tests::a_road_over_the_wide_river_is_pressed_to_the_markets_bank
+C7 the water read round the cell, not the origin -> KILLED by town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned, urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+C8 URBAN_RULES_VERSION 2 -> 1 -> KILLED by town_freeze::tests::the_rules_version_and_fixture_hashes_are_pinned
+C9 the origin left out of the switch record -> KILLED by town_freeze::tests::switch_record_and_absent_as_off
+C10 a label anchored at the cell whatever it is given -> KILLED by labels::tests::a_settlement_label_is_anchored_where_the_settlement_stands
+C11 every drawn run counts as carrying a width -> KILLED by urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+C12 the pin taken from the generator's, not the box centre -> SURVIVED
+G1 ORIGIN_MIN_CLEAR_M 60 -> 6 -> KILLED by bank_site::tests::a_town_stands_thirty_metres_off_the_drawn_edge_and_never_under_ninety_from_the_line
+G2 ORIGIN_BANK_GAP_M 30 -> 0 -> KILLED by bank_site::tests::a_town_stands_thirty_metres_off_the_drawn_edge_and_never_under_ninety_from_the_line
+G3 the ground minimum ignored -> KILLED by bank_site::tests::on_the_ground_the_edge_is_the_width_with_a_minimum_and_no_pixel_floor
+
+Two survived the first run and their tests were tightened: C2 (the pressed road's distance from the water is now read off the town's own distance raster) and C12 (a town left round its cell in the middle of the river: the pin is the box centre, not the moved market).
+RUST, second run (the two survivors again and the rest):
+C2 ROAD_BANK_CLEAR_CELLS 2.0 -> 0.0 -> KILLED by urban_adapter::tests::a_road_over_the_wide_river_is_pressed_to_the_markets_bank
+C12 the pin taken from the generator's, not the box centre -> KILLED by urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin
+G4 the market's bank ignored -> KILLED by bank_site::tests::the_marker_takes_its_markets_bank
+G5 a clear centre across from its market stays -> KILLED by bank_site::tests::the_marker_takes_its_markets_bank
+G6 the same-bank rule dropped -> KILLED by bank_site::tests::a_marker_is_never_handed_across_a_drawn_river_from_its_market
+G7 the roads' bank reversed -> KILLED by bank_site::tests::the_roads_bank_is_where_most_of_the_road_is
+G8 a hidden river still has banks -> KILLED by bank_site::tests::a_marker_is_never_handed_across_a_drawn_river_from_its_market
+G9 the reach widths not read for the town -> KILLED by bank_site::tests::a_town_stands_thirty_metres_off_the_drawn_edge_and_never_under_ninety_from_the_line
+G10 the look reaches the ground width -> SURVIVED
+G11 the reach by half its length -> KILLED by bank_site::tests::the_towns_edge_is_the_widest_the_river_is_drawn_within_its_reach
+G12 the last fallback (any clear bank) removed -> KILLED by bank_site::tests::a_marker_is_never_handed_across_a_drawn_river_from_its_market
+
+G10 SURVIVED and is left: widest_ground_half only bounds how many cells the covering search looks at (ceil(reach) + 1 each way), and the spare cell absorbs a halved bound at every width a world draws (the widest river is one cell). No output differs, so no test can see it.

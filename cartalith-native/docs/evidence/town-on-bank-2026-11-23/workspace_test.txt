@@ -1,0 +1,9 @@
+cargo test --workspace --no-fail-fast on the rebased tree (onto 90636392), CARGO_TARGET_DIR this lane's own:
+289 result lines, 9030 passed, 0 failed, 204 ignored.
+
+The run before the rebase: 289 result lines, 9026 passed, 4 failed, all four fixed before this one:
+  urban_adapter::tests::a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin (its literal predated the box growth of an unmoved town)
+  param_catalogue: every_description_states_both_directions, a_broken_catalogue_is_reported, the_generated_schema_is_valid_and_small (the new civ.bank_sites description was 205 characters; the limit is 160)
+
+After the rebase the dll was rebuilt and one desktop drive run again (drive_final_quick.log): 15 ok, RESULT PASS.
+Ruling HG's own pixel probe on the new marker rule (_bankframes_probe.tscn --quick, bankframes_quick.log): 15 checks, RESULT PASS.

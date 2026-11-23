@@ -1,0 +1,19 @@
+  MAP VIEW 950 x 734 px (the census's --view), fit 2.474 px per cell
+  PASS  civ.bank_sites is a registered parameter
+  PASS  civ.bank_sites is ON in the app's parameters (a new world)
+  PASS  with the switch on the engine answers an offset per settlement, 163 of 239 non-zero at x4
+  PASS  with the switch off the engine answers none (every marker at its cell centre)
+== 2-3. the census against the raster ==
+  engine census in this view: 239 settlements, inside a drawn stroke x1 110, x4 121; still inside at their bank point 0
+  PASS  the census has settlements inside a drawn river (x1 110, x4 121): not an empty measurement
+  PASS  the engine's bank point leaves none inside (0)
+  PASS  5 settlements inside the stroke at both zooms to frame (5)
+  PASS  control: the Rivers switch moved pixels in every crop (3 of 3): the water test can see a river
+  PASS  control: with the switch off the map's river water is under the marker point (x1 0, x4 0 of 3 each): the census and the raster agree
+  PASS  ON THE BANK: with the switch on no marker point is in the river's water (x1 0, x4 0, x16 0)
+  PASS  ONE POINT: a press at the drawn point finds the settlement (3 of 3)
+  PASS  THE ZOOM STEP: asked at or below the drawn density and within one step of it (13.4543 against 13.4892)
+  PASS  control: this zoom is between two steps (the bound above is not met by equality)
+  PASS  control: with nothing changed the overlay asks the engine once, not per marker (1, then 1)
+  PASS  THE RIVER CHANGED: after the shell hands the map its river again the overlay asks again (2 asks)
+RESULT: PASS (0 failed) checks=15

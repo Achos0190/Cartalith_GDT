@@ -1,0 +1,218 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+
+TOWN seed 483920 at 2048x1536, view 1150x800: 242 settlements
+TOWN   bank_sites off: 242 rows in 24.8 s
+TOWN   bank_sites on: 242 rows in 25.6 s
+TOWN     off #0 capital (1136,1436) pop 0: OVER b 8889 w 20 | box 1700x1250 river_w 38 market-river 30 origin - river_m - over b 8889/22375 w 20 s 1600 wet 0 fronted 97/144 housed 103%
+TOWN     off #1 city (841,1410) pop 0: OVER b 2232 w 119 | box 1700x1250 river_w 38 market-river 41 origin - river_m - over b 2232/9330 w 119 s 579 wet 0 fronted 36/112 housed 98%
+TOWN     off #2 town (1238,1424) pop 0: OVER b 282 w 5 | box 1700x1250 river_w 38 market-river 222 origin - river_m - over b 282/4360 w 5 s 175 wet 0 fronted 41/48 housed 146%
+TOWN     off #3 city (1393,1351) pop 0: OVER b 4351 w 12 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 4351/8255 w 12 s 831 wet 0 fronted 2/17 housed 106%
+TOWN     off #4 capital (875,106) pop 0: OVER b 646 w 2 | box 1700x1250 river_w 31 market-river 41 origin - river_m - over b 646/12295 w 2 s 106 wet 0 fronted 157/207 housed 59%
+TOWN     off #5 city (112,172) pop 0: OVER b 3386 w 10 | box 1700x1250 river_w 38 market-river 391 origin - river_m - over b 3386/15510 w 10 s 603 wet 0 fronted 2/19 housed 153%
+TOWN     off #6 town (336,248) pop 0: OVER b 1399 w 18 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 38 market-river 30 origin - river_m - over b 1399/4295 w 18 s 353 wet 0 fronted 19/82 housed 149%
+TOWN     off #7 hamlet (49,288) pop 0: OVER b 348 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 348/665 w 0 s 49 wet 0 fronted 19/29 housed 100%
+TOWN     off #8 capital (517,884) pop 0: OVER b 2968 w 199 | box 2428x2768 river_w 38 market-river 121 origin - river_m - over b 2968/20460 w 199 s 933 wet 0 fronted 194/346 housed 93%
+TOWN     off #9 hamlet (801,995) pop 0: OVER b 534 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 534/675 w 0 s 117 wet 0 fronted 36/68 housed 100%
+TOWN     off #10 town (356,342) pop 0: OVER b 712 w 10 | box 1700x1250 river_w 38 market-river 102 origin - river_m - over b 712/2605 w 10 s 155 wet 0 fronted 19/57 housed 103%
+TOWN     off #11 village (853,1508) pop 0: OVER b 514 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 514/940 w 0 s 40 wet 0 fronted 14/29 housed 100%
+TOWN     off #12 hamlet (74,592) pop 0: OVER b 870 w 0 | box 1700x1250 river_w 38 market-river 30 origin - river_m - over b 870/870 w 0 s 41 wet 0 fronted 10/24 housed 100%
+TOWN     off #13 village (295,105) pop 0: OVER b 887 w 0 | box 1700x1250 river_w 38 market-river 19 origin - river_m - over b 887/1135 w 0 s 48 wet 0 fronted 9/18 housed 100%
+TOWN     off #14 city (515,568) pop 0: OVER b 472 w 8 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 472/9075 w 8 s 136 wet 0 fronted 0/35 housed 103%
+TOWN     off #15 hamlet (1037,1455) pop 0: OVER b 72 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 72/740 w 0 s 38 wet 0 fronted 33/44 housed 100%
+TOWN     off #16 hamlet (663,940) pop 0: OVER b 603 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 603/620 w 0 s 124 wet 0 fronted 38/72 housed 100%
+TOWN     off #17 hamlet (1133,1339) pop 0: OVER b 466 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 466/530 w 0 s 105 wet 0 fronted 31/41 housed 100%
+TOWN     off #18 village (341,504) pop 0: OVER b 190 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 190/930 w 0 s 44 wet 0 fronted 33/70 housed 101%
+TOWN     off #19 city (785,1087) pop 0: OVER b 4676 w 31 | box 2493x2869 river_w 38 market-river 96 origin - river_m - over b 4676/13860 w 31 s 814 wet 0 fronted 194/274 housed 138%
+TOWN     off #20 town (1714,1008) pop 0: OVER b 50 w 10 | box 1700x1250 river_w 24 market-river 333 origin - river_m - over b 50/3170 w 10 s 46 wet 0 fronted 51/84 housed 111%
+TOWN     off #21 hamlet (1252,167) pop 0: OVER b 344 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 344/705 w 0 s 62 wet 0 fronted 24/39 housed 100%
+TOWN     off #22 hamlet (137,386) pop 0: OVER b 142 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 142/495 w 0 s 45 wet 0 fronted 11/19 housed 100%
+TOWN     off #23 village (464,166) pop 0: OVER b 40 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 31 market-river 23 origin - river_m - over b 40/1050 w 0 s 38 wet 0 fronted 33/40 housed 100%
+TOWN     off #24 hamlet (222,666) pop 0: OVER b 314 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 314/815 w 0 s 89 wet 0 fronted 55/86 housed 100%
+TOWN     off #25 town (794,1259) pop 0: OVER b 285 w 6 | box 1700x1250 river_w 38 market-river 158 origin - river_m - over b 285/2345 w 6 s 52 wet 0 fronted 14/27 housed 103%
+TOWN     off #26 hamlet (859,244) pop 0: OVER b 1 w 0 | box 1700x1250 river_w 5 market-river 88 origin - river_m - over b 1/865 w 0 s 0 wet 0 fronted 0/17 housed 100%
+TOWN     off #27 hamlet (242,1) pop 0: OVER b 450 w 0 | box 1700x1250 river_w 38 market-river 23 origin - river_m - over b 450/645 w 0 s 52 wet 0 fronted 17/39 housed 87%
+TOWN     off #28 hamlet (583,229) pop 0: OVER b 13 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 13/805 w 0 s 2 wet 0 fronted 2/50 housed 100%
+TOWN     off #29 hamlet (839,469) pop 0: OVER b 105 w 0 | box 1700x1250 river_w 5 market-river 15 origin - river_m - over b 105/865 w 0 s 7 wet 0 fronted 15/54 housed 100%
+TOWN     off #30 hamlet (1317,88) pop 0: OVER b 99 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 99/840 w 0 s 16 wet 0 fronted 21/31 housed 100%
+TOWN     off #31 hamlet (216,444) pop 0: OVER b 4 w 0 | box 1700x1250 river_w 31 market-river 24 origin - river_m - over b 4/780 w 0 s 2 wet 0 fronted 44/83 housed 98%
+TOWN     off #33 hamlet (127,685) pop 0: OVER b 349 w 0 | box 1700x1250 river_w 31 market-river 30 origin - river_m - over b 349/865 w 0 s 35 wet 0 fronted 9/21 housed 100%
+TOWN     off #34 hamlet (812,664) pop 0: OVER b 33 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 33/755 w 0 s 12 wet 0 fronted 16/30 housed 100%
+TOWN     off #35 hamlet (1797,38) pop 0: MARKET IN RIVER (1 m of 12) | box 1700x1250 river_w 12 market-river 1 origin - river_m - over b 0/750 w 0 s 0 wet 0 fronted 10/33 housed 100%
+TOWN     off #37 hamlet (598,740) pop 0: OVER b 47 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 13 origin - river_m - over b 47/685 w 0 s 22 wet 0 fronted 17/23 housed 87%
+TOWN     off #38 hamlet (1433,1084) pop 0: MARKET IN RIVER (3 m of 12) | box 1700x1250 river_w 12 market-river 3 origin - river_m - over b 0/535 w 0 s 0 wet 0 fronted 21/34 housed 69%
+TOWN     off #39 hamlet (1538,1006) pop 0: OVER b 82 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 82/860 w 0 s 9 wet 0 fronted 0/20 housed 100%
+TOWN     off #42 hamlet (1173,1403) pop 0: OVER b 850 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 850/850 w 0 s 30 wet 0 fronted 0/9 housed 100%
+TOWN     off #43 hamlet (813,1470) pop 0: OVER b 655 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 655/655 w 0 s 90 wet 0 fronted 43/99 housed 99%
+TOWN     off #44 hamlet (1274,1402) pop 0: OVER b 493 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 493/750 w 0 s 31 wet 0 fronted 0/7 housed 100%
+TOWN     off #45 hamlet (816,1388) pop 0: OVER b 845 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 845/845 w 0 s 25 wet 0 fronted 0/6 housed 100%
+TOWN     off #46 hamlet (43,180) pop 0: OVER b 726 w 0 | box 1700x1250 river_w 31 market-river 30 origin - river_m - over b 726/845 w 0 s 18 wet 0 fronted 3/12 housed 100%
+TOWN     off #47 hamlet (342,167) pop 0: OVER b 770 w 0 | box 1700x1250 river_w 5 market-river 8 origin - river_m - over b 770/770 w 0 s 45 wet 0 fronted 2/16 housed 98%
+TOWN     off #48 hamlet (752,975) pop 0: OVER b 243 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 38 market-river 26 origin - river_m - over b 243/740 w 0 s 47 wet 0 fronted 20/32 housed 100%
+TOWN     off #49 hamlet (1201,1415) pop 0: OVER b 507 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 507/710 w 0 s 95 wet 0 fronted 21/48 housed 100%
+TOWN     off #50 hamlet (367,295) pop 0: OVER b 538 w 0 | box 1700x1250 river_w 38 market-river 29 origin - river_m - over b 538/740 w 0 s 79 wet 0 fronted 46/51 housed 100%
+TOWN     off #51 hamlet (132,285) pop 0: OVER b 67 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 67/750 w 0 s 12 wet 0 fronted 14/25 housed 94%
+TOWN     off #52 hamlet (797,1338) pop 0: OVER b 531 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 531/540 w 0 s 80 wet 0 fronted 44/56 housed 85%
+TOWN     off #53 hamlet (1130,1366) pop 0: OVER b 517 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 517/675 w 0 s 61 wet 0 fronted 27/35 housed 100%
+TOWN     off #54 hamlet (876,1524) pop 0: OVER b 75 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 75/75 w 0 s 15 wet 0 fronted 0/11 housed 9%
+TOWN     off #55 hamlet (1122,1471) pop 0: OVER b 182 w 0 | box 1700x1250 river_w 31 market-river 17 origin - river_m - over b 182/805 w 0 s 30 wet 0 fronted 23/49 housed 100%
+TOWN     off #56 hamlet (42,222) pop 0: OVER b 227 w 0 | box 1700x1250 river_w 31 market-river 43 origin - river_m - over b 227/690 w 0 s 38 wet 0 fronted 26/50 housed 100%
+TOWN     off #57 hamlet (717,925) pop 0: OVER b 734 w 0 | box 1700x1250 river_w 38 market-river 30 origin - river_m - over b 734/815 w 0 s 38 wet 0 fronted 6/12 housed 100%
+TOWN     off #58 hamlet (342,281) pop 0: OVER b 250 w 0 | box 1700x1250 river_w 38 market-river 39 origin - river_m - over b 250/695 w 0 s 42 wet 0 fronted 17/26 housed 83%
+TOWN     off #59 hamlet (45,549) pop 0: OVER b 234 w 0 | box 1700x1250 river_w 38 market-river 21 origin - river_m - over b 234/790 w 0 s 61 wet 0 fronted 10/14 housed 100%
+TOWN     off #60 hamlet (313,139) pop 0: OVER b 487 w 0 | box 1700x1250 river_w 38 market-river 30 origin - river_m - over b 487/645 w 0 s 94 wet 0 fronted 33/37 housed 100%
+TOWN     off #61 hamlet (118,629) pop 0: OVER b 450 w 0 | box 1700x1250 river_w 38 market-river 24 origin - river_m - over b 450/810 w 0 s 43 wet 0 fronted 10/19 housed 100%
+TOWN     off #62 hamlet (361,209) pop 0: OVER b 541 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 541/735 w 0 s 105 wet 0 fronted 26/58 housed 100%
+TOWN     off #63 hamlet (98,206) pop 0: OVER b 293 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 293/590 w 0 s 47 wet 0 fronted 20/28 housed 100%
+TOWN     off #64 hamlet (726,967) pop 0: OVER b 158 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 158/525 w 0 s 59 wet 0 fronted 7/22 housed 100%
+TOWN     off #65 hamlet (808,1363) pop 0: OVER b 205 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 205/745 w 0 s 40 wet 0 fronted 13/27 housed 100%
+TOWN     off #66 hamlet (774,989) pop 0: OVER b 425 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 425/620 w 0 s 76 wet 0 fronted 33/38 housed 100%
+TOWN     off #67 hamlet (1075,1452) pop 0: OVER b 186 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 186/545 w 0 s 45 wet 0 fronted 37/48 housed 100%
+TOWN     off #68 hamlet (108,305) pop 0: OVER b 255 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 255/570 w 0 s 73 wet 0 fronted 38/72 housed 100%
+TOWN     off #69 hamlet (284,73) pop 0: OVER b 602 w 0 | box 1700x1250 river_w 38 market-river 25 origin - river_m - over b 602/795 w 0 s 51 wet 0 fronted 24/30 housed 100%
+TOWN     off #70 hamlet (80,225) pop 0: OVER b 344 w 0 | box 1700x1250 river_w 38 market-river 32 origin - river_m - over b 344/790 w 0 s 37 wet 0 fronted 18/31 housed 100%
+TOWN     off #71 hamlet (1108,1443) pop 0: OVER b 187 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 187/785 w 0 s 78 wet 0 fronted 45/105 housed 100%
+TOWN     off #72 hamlet (43,598) pop 0: OVER b 613 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 613/745 w 0 s 99 wet 0 fronted 18/37 housed 100%
+TOWN     off #73 hamlet (82,301) pop 0: OVER b 408 w 0 | box 1700x1250 river_w 38 market-river 19 origin - river_m - over b 408/435 w 0 s 56 wet 0 fronted 26/35 housed 78%
+TOWN     off #74 hamlet (1306,1386) pop 0: OVER b 578 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 38 market-river 25 origin - river_m - over b 578/655 w 0 s 112 wet 0 fronted 35/50 housed 100%
+TOWN     off #75 hamlet (105,388) pop 0: OVER b 306 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 306/755 w 0 s 50 wet 0 fronted 27/52 housed 100%
+TOWN     off #76 hamlet (1124,1406) pop 0: OVER b 467 w 0 | box 1700x1250 river_w 31 market-river 28 origin - river_m - over b 467/795 w 0 s 40 wet 0 fronted 18/23 housed 100%
+TOWN     off #77 hamlet (108,140) pop 0: OVER b 120 w 0 | box 1700x1250 river_w 5 market-river 28 origin - river_m - over b 120/740 w 0 s 26 wet 0 fronted 3/25 housed 100%
+TOWN     off #78 hamlet (1332,1364) pop 0: OVER b 559 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 559/680 w 0 s 118 wet 0 fronted 42/66 housed 100%
+TOWN     off #79 hamlet (251,628) pop 0: OVER b 263 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 263/535 w 0 s 56 wet 0 fronted 31/45 housed 100%
+TOWN     off #80 hamlet (91,355) pop 0: OVER b 258 w 0 | box 1700x1250 river_w 31 market-river 20 origin - river_m - over b 258/685 w 0 s 31 wet 0 fronted 13/20 housed 83%
+TOWN     off #81 hamlet (474,887) pop 0: OVER b 323 w 0 | box 1700x1250 river_w 31 market-river 27 origin - river_m - over b 323/630 w 0 s 106 wet 0 fronted 31/44 housed 100%
+TOWN     off #82 hamlet (608,923) pop 0: OVER b 640 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 640/725 w 0 s 100 wet 0 fronted 45/80 housed 100%
+TOWN     off #83 hamlet (630,937) pop 0: OVER b 125 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 38 market-river 23 origin - river_m - over b 125/820 w 0 s 40 wet 0 fronted 19/27 housed 100%
+TOWN     off #84 hamlet (1131,1313) pop 0: OVER b 442 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 442/480 w 0 s 98 wet 0 fronted 31/59 housed 125%
+TOWN     off #85 hamlet (797,1048) pop 0: OVER b 565 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 565/645 w 0 s 109 wet 0 fronted 39/61 housed 100%
+TOWN     off #87 hamlet (496,963) pop 0: OVER b 264 w 0 | box 1700x1250 river_w 31 market-river 25 origin - river_m - over b 264/815 w 0 s 35 wet 0 fronted 29/51 housed 100%
+TOWN     off #88 hamlet (495,152) pop 0: OVER b 68 w 0 | box 1700x1250 river_w 5 market-river 6 origin - river_m - over b 68/790 w 0 s 9 wet 0 fronted 11/57 housed 100%
+TOWN     off #89 hamlet (438,193) pop 0: OVER b 340 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 340/850 w 0 s 25 wet 0 fronted 4/69 housed 100%
+TOWN     off #90 hamlet (9,293) pop 0: OVER b 452 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 45 market-river 26 origin - river_m - over b 452/820 w 0 s 55 wet 0 fronted 22/31 housed 100%
+TOWN     off #91 hamlet (505,934) pop 0: OVER b 533 w 0 | box 1700x1250 river_w 31 market-river 30 origin - river_m - over b 533/745 w 0 s 97 wet 0 fronted 20/36 housed 100%
+TOWN     off #92 hamlet (1365,1351) pop 0: OVER b 585 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 585/635 w 0 s 84 wet 0 fronted 29/34 housed 100%
+TOWN     off #93 hamlet (193,677) pop 0: OVER b 347 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 347/470 w 0 s 115 wet 0 fronted 36/51 housed 100%
+TOWN     off #94 hamlet (152,411) pop 0: OVER b 222 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 222/775 w 0 s 72 wet 0 fronted 28/41 housed 100%
+TOWN     off #95 hamlet (867,326) pop 0: OVER b 1 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 1/795 w 0 s 1 wet 0 fronted 0/19 housed 90%
+TOWN     off #96 hamlet (803,1022) pop 0: OVER b 418 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 418/460 w 0 s 94 wet 0 fronted 23/50 housed 85%
+TOWN     off #97 hamlet (90,614) pop 0: OVER b 204 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 204/655 w 0 s 46 wet 0 fronted 14/24 housed 82%
+TOWN     off #98 hamlet (1912,1267) pop 0: OVER b 25 w 0 | box 1700x1250 river_w 5 market-river 17 origin - river_m - over b 25/795 w 0 s 6 wet 0 fronted 6/30 housed 100%
+TOWN     off #99 hamlet (1836,1186) pop 0: OVER b 6 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 6/865 w 0 s 6 wet 0 fronted 4/39 housed 100%
+TOWN     off #100 hamlet (144,650) pop 0: OVER b 348 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 348/530 w 0 s 139 wet 0 fronted 33/50 housed 100%
+TOWN     off #101 hamlet (1067,1487) pop 0: OVER b 54 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 54/840 w 0 s 13 wet 0 fronted 18/57 housed 100%
+TOWN     off #102 hamlet (91,545) pop 0: OVER b 200 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 31 market-river 24 origin - river_m - over b 200/720 w 0 s 31 wet 0 fronted 22/31 housed 100%
+TOWN     off #103 hamlet (116,81) pop 0: OVER b 70 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 70/815 w 0 s 17 wet 0 fronted 14/26 housed 100%
+TOWN     off #104 hamlet (405,201) pop 0: OVER b 225 w 0 | box 1700x1250 river_w 31 market-river 48 origin - river_m - over b 225/590 w 0 s 59 wet 0 fronted 32/49 housed 91%
+TOWN     off #105 hamlet (838,627) pop 0: OVER b 17 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 17/205 w 0 s 24 wet 0 fronted 15/31 housed 24%
+TOWN     off #106 hamlet (171,433) pop 0: OVER b 316 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 316/490 w 0 s 89 wet 0 fronted 40/60 housed 100%
+TOWN     off #107 hamlet (1110,1292) pop 0: OVER b 46 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 46/735 w 0 s 12 wet 0 fronted 16/26 housed 100%
+TOWN     off #110 hamlet (948,261) pop 0: OVER b 9 w 0 | box 1700x1250 river_w 24 market-river 21 origin - river_m - over b 9/785 w 0 s 14 wet 0 fronted 16/25 housed 100%
+TOWN     off #111 hamlet (1808,965) pop 0: OVER b 1 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 1/805 w 0 s 1 wet 0 fronted 0/22 housed 100%
+TOWN     off #114 hamlet (43,374) pop 0: OVER b 163 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 163/700 w 0 s 40 wet 0 fronted 16/39 housed 100%
+TOWN     off #116 hamlet (365,966) pop 0: OVER b 102 w 0 | box 1700x1250 river_w 24 market-river 23 origin - river_m - over b 102/850 w 0 s 21 wet 0 fronted 14/51 housed 100%
+TOWN     off #119 hamlet (512,341) pop 0: OVER b 27 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 14 origin - river_m - over b 27/850 w 0 s 20 wet 0 fronted 18/30 housed 100%
+TOWN     off #120 hamlet (1356,402) pop 0: OVER b 171 w 0 | box 1700x1250 river_w 5 market-river 15 origin - river_m - over b 171/685 w 0 s 22 wet 0 fronted 0/19 housed 77%
+TOWN     off #121 hamlet (248,115) pop 0: OVER b 79 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 31 market-river 28 origin - river_m - over b 79/810 w 0 s 28 wet 0 fronted 8/21 housed 99%
+TOWN     off #124 hamlet (815,400) pop 0: OVER b 8 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 8/870 w 0 s 1 wet 0 fronted 0/15 housed 100%
+TOWN     off #125 hamlet (379,356) pop 0: OVER b 94 w 0 | box 1700x1250 river_w 24 market-river 21 origin - river_m - over b 94/710 w 0 s 34 wet 0 fronted 28/80 housed 94%
+TOWN     off #126 hamlet (511,508) pop 0: OVER b 37 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 37/740 w 0 s 12 wet 0 fronted 14/24 housed 100%
+TOWN     off #129 hamlet (44,431) pop 0: OVER b 29 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 15 origin - river_m - over b 29/690 w 0 s 19 wet 0 fronted 13/26 housed 100%
+TOWN     off #130 hamlet (1155,1480) pop 0: OVER b 67 w 0 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 14 origin - river_m - over b 67/635 w 0 s 25 wet 0 fronted 22/71 housed 85%
+TOWN     off #131 hamlet (1256,1456) pop 0: OVER b 73 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 73/760 w 0 s 15 wet 0 fronted 18/29 housed 94%
+TOWN     off #132 hamlet (737,1139) pop 0: OVER b 112 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 112/795 w 0 s 28 wet 0 fronted 10/23 housed 100%
+TOWN     off #133 hamlet (19,543) pop 0: OVER b 248 w 0 | box 1700x1250 river_w 38 market-river 51 origin - river_m - over b 248/855 w 0 s 26 wet 0 fronted 23/40 housed 100%
+TOWN     off #135 hamlet (582,824) pop 0: OVER b 44 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 44/735 w 0 s 6 wet 0 fronted 9/41 housed 98%
+TOWN     off #136 hamlet (88,1284) pop 0: OVER b 139 w 0 | box 1700x1250 river_w 5 market-river 27 origin - river_m - over b 139/840 w 0 s 17 wet 0 fronted 5/12 housed 100%
+TOWN     off #138 hamlet (1095,1474) pop 0: OVER b 52 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 52/785 w 0 s 21 wet 0 fronted 14/24 housed 100%
+TOWN     off #139 hamlet (16,339) pop 0: OVER b 44 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 44/810 w 0 s 2 wet 0 fronted 11/75 housed 100%
+TOWN     off #140 hamlet (1827,146) pop 0: OVER b 33 w 0 | box 1700x1250 river_w 5 market-river 53 origin - river_m - over b 33/820 w 0 s 3 wet 0 fronted 0/41 housed 100%
+TOWN     off #141 hamlet (47,132) pop 0: OVER b 43 w 0 | box 1700x1250 river_w 24 market-river 31 origin - river_m - over b 43/800 w 0 s 16 wet 0 fronted 14/24 housed 100%
+TOWN     off #142 hamlet (494,908) pop 0: OVER b 189 w 0 | box 1700x1250 river_w 31 market-river 47 origin - river_m - over b 189/595 w 0 s 47 wet 0 fronted 16/27 housed 100%
+TOWN     off #147 hamlet (64,351) pop 0: OVER b 217 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 15 origin - river_m - over b 217/635 w 0 s 40 wet 0 fronted 29/37 housed 100%
+TOWN     off #149 hamlet (9,453) pop 0: OVER b 2 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 2/825 w 0 s 1 wet 0 fronted 2/12 housed 100%
+TOWN     off #150 hamlet (1969,1247) pop 0: OVER b 80 w 0 | box 1700x1250 river_w 5 market-river 7 origin - river_m - over b 80/850 w 0 s 6 wet 0 fronted 7/33 housed 100%
+TOWN     off #153 hamlet (1690,54) pop 0: OVER b 6 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 6/815 w 0 s 0 wet 0 fronted 8/63 housed 95%
+TOWN     off #156 hamlet (68,155) pop 0: OVER b 175 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 175/580 w 0 s 33 wet 0 fronted 31/40 housed 99%
+TOWN     off #157 hamlet (87,428) pop 0: OVER b 10 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 10/870 w 0 s 1 wet 0 fronted 0/23 housed 100%
+TOWN     off #159 hamlet (2019,1490) pop 0: OVER b 10 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 10/835 w 0 s 1 wet 0 fronted 0/20 housed 100%
+TOWN     off #161 hamlet (1650,946) pop 0: MARKET IN RIVER (6 m of 12) | box 1700x1250 river_w 12 market-river 6 origin - river_m - over b 0/495 w 0 s 0 wet 0 fronted 553/894 housed 125%
+TOWN     off #163 hamlet (1135,1263) pop 0: OVER b 1 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 1/810 w 0 s 8 wet 0 fronted 0/16 housed 100%
+TOWN     off #164 hamlet (427,259) pop 0: OVER b 100 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 100/870 w 0 s 3 wet 0 fronted 12/63 housed 99%
+TOWN     off #165 hamlet (576,754) pop 0: OVER b 52 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 52/845 w 0 s 10 wet 0 fronted 18/48 housed 100%
+TOWN     off #166 hamlet (246,559) pop 0: OVER b 504 w 0 | box 1700x1250 river_w 24 market-river 40 origin - river_m - over b 504/775 w 0 s 26 wet 0 fronted 30/71 housed 100%
+TOWN     off #167 hamlet (315,431) pop 0: OVER b 2 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 2/865 w 0 s 3 wet 0 fronted 2/53 housed 100%
+TOWN     off #168 hamlet (1639,48) pop 0: OVER b 36 w 0 | box 1700x1250 river_w 5 market-river 13 origin - river_m - over b 36/655 w 0 s 12 wet 0 fronted 1/16 housed 85%
+TOWN     off #170 hamlet (37,515) pop 0: OVER b 73 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 73/565 w 0 s 32 wet 0 fronted 35/69 housed 100%
+TOWN     off #172 hamlet (274,555) pop 0: OVER b 327 w 0 | box 1700x1250 river_w 24 market-river 17 origin - river_m - over b 327/535 w 0 s 104 wet 0 fronted 23/45 housed 100%
+TOWN     off #173 hamlet (17,604) pop 0: OVER b 551 w 0 | box 1700x1250 river_w 38 market-river 21 origin - river_m - over b 551/810 w 0 s 106 wet 0 fronted 69/95 housed 100%
+TOWN     off #174 hamlet (1109,1383) pop 0: OVER b 20 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 20/815 w 0 s 26 wet 0 fronted 25/39 housed 100%
+TOWN     off #175 hamlet (859,176) pop 0: OVER b 8 w 0 | box 1700x1250 river_w 17 market-river 781 origin - river_m - over b 8/865 w 0 s 25 wet 0 fronted 0/0 housed 100%
+TOWN     off #176 hamlet (931,1214) pop 0: OVER b 61 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 61/795 w 0 s 7 wet 0 fronted 27/71 housed 99%
+TOWN     off #178 hamlet (1792,166) pop 0: MARKET IN RIVER (3 m of 12) | box 1700x1250 river_w 12 market-river 3 origin - river_m - over b 0/665 w 0 s 0 wet 0 fronted 23/38 housed 96%
+TOWN     off #180 hamlet (129,452) pop 0: OVER b 21 w 0 OTHER BANK x4 | box 1700x1250 river_w 5 market-river 25 origin - river_m - over b 21/915 w 0 s 8 wet 0 fronted 2/30 housed 100%
+TOWN     off #181 hamlet (19,122) pop 0: OVER b 79 w 0 | box 1700x1250 river_w 5 market-river 30 origin - river_m - over b 79/840 w 0 s 4 wet 0 fronted 0/3 housed 100%
+TOWN     off #182 hamlet (2009,1444) pop 0: OVER b 84 w 0 | box 1700x1250 river_w 5 market-river 8 origin - river_m - over b 84/880 w 0 s 13 wet 0 fronted 23/89 housed 100%
+TOWN     off #183 hamlet (850,1216) pop 0: OVER b 41 w 0 | box 1700x1250 river_w 24 market-river 40 origin - river_m - over b 41/840 w 0 s 8 wet 0 fronted 20/57 housed 100%
+TOWN     off #184 hamlet (96,487) pop 0: OVER b 9 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 9/825 w 0 s 2 wet 0 fronted 1/40 housed 100%
+TOWN     off #186 hamlet (1748,940) pop 0: OVER b 26 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 26/810 w 0 s 6 wet 0 fronted 9/43 housed 100%
+TOWN     off #187 hamlet (73,464) pop 0: OVER b 5 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 5/845 w 0 s 1 wet 0 fronted 2/13 housed 99%
+TOWN     off #188 hamlet (28,488) pop 0: OVER b 4 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 4/845 w 0 s 1 wet 0 fronted 2/13 housed 100%
+TOWN     off #189 hamlet (74,694) pop 0: OVER b 153 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 153/725 w 0 s 31 wet 0 fronted 18/35 housed 100%
+TOWN     off #191 hamlet (1396,522) pop 0: OVER b 14 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 14/780 w 0 s 1 wet 0 fronted 0/21 housed 94%
+TOWN     off #193 hamlet (77,387) pop 0: OVER b 12 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 12/820 w 0 s 1 wet 0 fronted 2/12 housed 100%
+TOWN     off #194 hamlet (1606,13) pop 0: OVER b 3 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 3/940 w 0 s 4 wet 0 fronted 3/45 housed 100%
+TOWN     off #195 hamlet (150,599) pop 0: OVER b 78 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 78/860 w 0 s 16 wet 0 fronted 22/45 housed 100%
+TOWN     off #196 hamlet (1024,1432) pop 0: OVER b 25 w 0 OTHER BANK x4 | box 1700x1250 river_w 17 market-river 26 origin - river_m - over b 25/800 w 0 s 37 wet 0 fronted 28/42 housed 100%
+TOWN     off #198 hamlet (209,324) pop 0: OVER b 51 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 51/725 w 0 s 9 wet 0 fronted 13/28 housed 96%
+TOWN     off #199 hamlet (1324,506) pop 0: OVER b 52 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 52/850 w 0 s 2 wet 0 fronted 16/76 housed 100%
+TOWN     off #200 hamlet (1467,466) pop 0: OVER b 12 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 12/845 w 0 s 9 wet 0 fronted 8/23 housed 100%
+TOWN     off #201 hamlet (401,263) pop 0: OVER b 124 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 124/810 w 0 s 33 wet 0 fronted 31/70 housed 100%
+TOWN     off #202 hamlet (25,262) pop 0: OVER b 86 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 86/885 w 0 s 19 wet 0 fronted 28/53 housed 100%
+TOWN     off #203 hamlet (1425,494) pop 0: OVER b 89 w 0 | box 1700x1250 river_w 17 market-river 40 origin - river_m - over b 89/445 w 0 s 24 wet 0 fronted 35/113 housed 65%
+TOWN     off #204 hamlet (176,206) pop 0: OVER b 73 w 0 OTHER BANK x4 | box 1700x1250 river_w 5 market-river 5 origin - river_m - over b 73/750 w 0 s 8 wet 0 fronted 14/55 housed 100%
+TOWN     off #206 hamlet (121,350) pop 0: OVER b 21 w 0 | box 1700x1250 river_w 5 market-river 11 origin - river_m - over b 21/825 w 0 s 21 wet 0 fronted 10/68 housed 100%
+TOWN     off #207 hamlet (1286,515) pop 0: OVER b 83 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 83/820 w 0 s 21 wet 0 fronted 21/49 housed 100%
+TOWN     off #208 hamlet (1766,633) pop 0: OVER b 156 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 156/320 w 0 s 27 wet 0 fronted 19/32 housed 59%
+TOWN     off #209 hamlet (1492,1007) pop 0: OVER b 4 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 4/865 w 0 s 1 wet 0 fronted 2/13 housed 100%
+TOWN     off #210 hamlet (249,668) pop 0: OVER b 64 w 0 | box 1700x1250 river_w 24 market-river 24 origin - river_m - over b 64/645 w 0 s 19 wet 0 fronted 14/28 housed 83%
+TOWN     off #215 hamlet (68,520) pop 0: OVER b 237 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 237/645 w 0 s 35 wet 0 fronted 32/67 housed 100%
+TOWN     off #216 hamlet (16,231) pop 0: OVER b 24 w 0 OTHER BANK x1 OTHER BANK x4 | box 1700x1250 river_w 24 market-river 16 origin - river_m - over b 24/820 w 0 s 15 wet 0 fronted 16/26 housed 100%
+TOWN     off #218 hamlet (1068,1368) pop 0: OVER b 13 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 13/845 w 0 s 2 wet 0 fronted 0/21 housed 100%
+TOWN     off #220 hamlet (134,197) pop 0: OVER b 33 w 0 | box 1700x1250 river_w 24 market-river 37 origin - river_m - over b 33/760 w 0 s 12 wet 0 fronted 9/25 housed 100%
+TOWN     off #221 hamlet (172,523) pop 0: OVER b 123 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 123/815 w 0 s 28 wet 0 fronted 13/33 housed 100%
+TOWN     off #223 hamlet (383,410) pop 0: OVER b 8 w 0 | box 1700x1250 river_w 17 market-river 41 origin - river_m - over b 8/85 w 0 s 16 wet 0 fronted 18/23 housed 8%
+TOWN     off #224 hamlet (307,560) pop 0: OVER b 71 w 0 | box 1700x1250 river_w 24 market-river 15 origin - river_m - over b 71/760 w 0 s 20 wet 0 fronted 34/75 housed 100%
+TOWN     off #225 hamlet (94,649) pop 0: OVER b 78 w 0 | box 1700x1250 river_w 24 market-river 43 origin - river_m - over b 78/695 w 0 s 11 wet 0 fronted 16/31 housed 100%
+TOWN     off #226 hamlet (128,553) pop 0: OVER b 12 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 12/830 w 0 s 2 wet 0 fronted 0/17 housed 99%
+TOWN     off #227 hamlet (446,63) pop 0: OVER b 75 w 0 | box 1700x1250 river_w 17 market-river 41 origin - river_m - over b 75/635 w 0 s 15 wet 0 fronted 20/44 housed 100%
+TOWN     off #228 hamlet (0,715) pop 0: OVER b 139 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 139/820 w 0 s 10 wet 0 fronted 3/16 housed 100%
+TOWN     off #229 hamlet (1386,487) pop 0: OVER b 14 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 14/880 w 0 s 2 wet 0 fronted 1/36 housed 100%
+TOWN     off #230 hamlet (1214,1167) pop 0: OVER b 21 w 0 | box 1700x1250 river_w 5 market-river 34 origin - river_m - over b 21/855 w 0 s 2 wet 0 fronted 0/20 housed 100%
+TOWN     off #231 hamlet (83,131) pop 0: OVER b 3 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 3/855 w 0 s 9 wet 0 fronted 11/34 housed 100%
+TOWN     off #235 hamlet (577,202) pop 0: OVER b 168 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 168/800 w 0 s 25 wet 0 fronted 19/47 housed 100%
+TOWN     off #239 hamlet (1588,405) pop 0: OVER b 148 w 0 | box 1700x1250 river_w 5 market-river 25 origin - river_m - over b 148/800 w 0 s 12 wet 0 fronted 0/11 housed 100%
+TOWN     off #240 hamlet (371,265) pop 0: OVER b 40 w 0 | box 1700x1250 river_w 24 market-river 44 origin - river_m - over b 40/800 w 0 s 8 wet 0 fronted 6/16 housed 95%
+TOWN     off #241 hamlet (2017,1306) pop 0: OVER b 133 w 0 | box 1700x1250 river_w 5 market-river 35 origin - river_m - over b 133/930 w 0 s 1 wet 0 fronted 29/74 housed 100%
+TOWN   off: river towns 241 | lost river 0 | market in its river 4 | buildings in water 0 | fronted 6282/12299 (51.1 %) | housed p10 91 % (all towns 91 %) | over drawn river: buildings 66548 of 297955, wall 450 of 1180, streets 12460 of 37758 | other bank x1 13/203 x4 17/203 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2
+TOWN     on  #0 capital (1136,1436) pop 0: OVER b 0 w 3 HOUSED 57% from 103% | box 2116x1666 river_w 273 market-river 208 origin 208 river_m 208 over b 0/11700 w 3 s 0 wet 0 fronted 0/0 housed 57%
+TOWN     on  #2 town (1238,1424) pop 0: OVER b 0 w 2 | box 1991x1541 river_w 291 market-river 222 origin - river_m - over b 0/5410 w 2 s 0 wet 0 fronted 51/87 housed 188%
+TOWN     on  #4 capital (875,106) pop 0: OVER b 0 w 6 | box 1880x1430 river_w 60 market-river 52 origin 90 river_m 90 over b 0/12485 w 6 s 4 wet 0 fronted 102/167 housed 58%
+TOWN     on  #6 town (336,248) pop 0: HOUSED 93% from 149% | box 2023x1573 river_w 244 market-river 161 origin 154 river_m 161 over b 0/2450 w 0 s 1 wet 0 fronted 74/150 housed 93%
+TOWN     on  #8 capital (517,884) pop 0: OVER b 0 w 13 | box 1852x1402 river_w 152 market-river 121 origin - river_m - over b 0/19715 w 13 s 1 wet 0 fronted 149/241 housed 98%
+TOWN     on  #19 city (785,1087) pop 0: HOUSED 103% from 138% | box 1970x1520 river_w 210 market-river 135 origin 231 river_m 135 over b 0/10405 w 0 s 0 wet 0 fronted 62/176 housed 103%
+TOWN     on  #35 hamlet (1797,38) pop 0: MARKET IN RIVER (1 m of 12) | box 1700x1250 river_w 12 market-river 1 origin - river_m - over b 0/750 w 0 s 0 wet 0 fronted 10/33 housed 100%
+TOWN     on  #38 hamlet (1433,1084) pop 0: MARKET IN RIVER (3 m of 12) | box 1700x1250 river_w 12 market-river 3 origin - river_m - over b 0/775 w 0 s 0 wet 0 fronted 43/132 housed 96%
+TOWN     on  #60 hamlet (313,139) pop 0: OVER b 1 w 0 | box 1987x1537 river_w 85 market-river 60 origin 190 river_m 144 over b 1/670 w 0 s 0 wet 0 fronted 19/83 housed 94%
+TOWN     on  #84 hamlet (1131,1313) pop 0: HOUSED 95% from 125% | box 1885x1435 river_w 185 market-river 124 origin - river_m - over b 0/475 w 0 s 0 wet 0 fronted 28/47 housed 95%
+TOWN     on  #122 hamlet (1797,1122) pop 0: OVER b 106 w 0 | box 1700x1250 river_w 31 market-river 251 origin - river_m - over b 106/755 w 0 s 14 wet 0 fronted 0/0 housed 100%
+TOWN     on  #130 hamlet (1155,1480) pop 0: HOUSED 64% from 85% | box 1770x1320 river_w 70 market-river 67 origin - river_m - over b 0/335 w 0 s 0 wet 0 fronted 50/59 housed 64%
+TOWN     on  #142 hamlet (494,908) pop 0: OTHER BANK x1 | box 1805x1355 river_w 105 market-river 85 origin - river_m - over b 0/710 w 0 s 0 wet 0 fronted 11/28 housed 100%
+TOWN     on  #150 hamlet (1969,1247) pop 0: HOUSED 43% from 100% | box 1880x1430 river_w 27 market-river 45 origin 90 river_m 90 over b 0/255 w 0 s 0 wet 0 fronted 18/36 housed 43%
+TOWN     on  #161 hamlet (1650,946) pop 0: MARKET IN RIVER (6 m of 12) | box 1700x1250 river_w 12 market-river 6 origin - river_m - over b 0/495 w 0 s 0 wet 0 fronted 553/894 housed 125%
+TOWN     on  #178 hamlet (1792,166) pop 0: MARKET IN RIVER (3 m of 12) | box 1700x1250 river_w 12 market-river 3 origin - river_m - over b 0/665 w 0 s 0 wet 0 fronted 23/38 housed 96%
+TOWN     on  #216 hamlet (16,231) pop 0: HOUSED 46% from 100% | box 1758x1308 river_w 58 market-river 61 origin - river_m - over b 0/380 w 0 s 0 wet 0 fronted 27/39 housed 46%
+TOWN     on  #228 hamlet (0,715) pop 0: OTHER BANK x4 | box 1766x1316 river_w 66 market-river 65 origin - river_m - over b 0/720 w 0 s 3 wet 0 fronted 25/60 housed 100%
+TOWN   on : river towns 241 | lost river 0 | market in its river 4 | buildings in water 0 | fronted 6607/12123 (54.5 %) | housed p10 94 % (all towns 94 %) | over drawn river: buildings 107 of 280880, wall 24 of 547, streets 80 of 39975 | other bank x1 1/203 x4 1/203 | moved 105 (median 113 m, max 297 m), past the 625 m reach 0, box grown 163
+TOWN FAIL: a bar is missed with the switch on (lost 0, market in river 4 against 4 off, wet 0, buildings over 107, other bank x1 1 x4 1)

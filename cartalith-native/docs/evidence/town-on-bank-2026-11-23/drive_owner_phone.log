@@ -1,0 +1,19 @@
+completed 
+form phone, window (450.0, 975.0)
+params from C:/cw/owner_repro/seed532187_params.txt: 155 keys
+ok    a world exists
+ok    the towns to frame exist  -- [1]
+ok    a press at #1's drawn point finds it (at one of the zooms framed)
+ok    each write of civ.bank_sites made the shell forget the towns it drew (urban_params_changed)  -- 2
+ok    with the switch off no framed town is laid off its cell  -- 0
+ok    with the switch on at least one framed town is laid round the drawn edge or has its river at the map's width (the positive control)  -- 1 of 1 reached, 0 moved
+ok    #1: the marker and the market are on one bank at x1 and x4
+ok    #1: no building over a river the map draws  -- 0 of 20305
+ok    #1: the town has its river and its market is out of it
+ok    the export copy builds
+ok    the export copy asks at its own density (2.00 px per cell against the screen's 0.71)
+ok    the export copy's markers stand at the engine's bank points for that density  -- 38 of 42 moved
+ok    #1 froze with the switch off
+ok    #1 is served unchanged with the switch on (pin, market and every building)
+ok    #1's check says what changed ("civ bank origin is now on", or for a town not moved that the ground under it changed)  -- ["the ground or roads under this town changed since it was drawn"]
+RESULT PASS (0 failed)

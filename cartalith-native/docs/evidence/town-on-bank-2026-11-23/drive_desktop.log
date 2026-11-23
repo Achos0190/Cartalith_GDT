@@ -1,0 +1,38 @@
+completed 
+form desktop, window (1600.0, 900.0)
+ok    a world exists
+ok    the towns to frame exist  -- [209, 3, 4, 5, 6, 16]
+ok    a press at #209's drawn point finds it (at one of the zooms framed)
+ok    a press at #3's drawn point finds it (at one of the zooms framed)
+ok    a press at #4's drawn point finds it (at one of the zooms framed)
+ok    a press at #5's drawn point finds it (at one of the zooms framed)
+ok    a press at #6's drawn point finds it (at one of the zooms framed)
+ok    a press at #16's drawn point finds it (at one of the zooms framed)
+ok    each write of civ.bank_sites made the shell forget the towns it drew (urban_params_changed)  -- 2
+ok    with the switch off no framed town is laid off its cell  -- 0
+ok    with the switch on at least one framed town is laid round the drawn edge (the positive control)  -- 6 of 6
+ok    #209: the marker and the market are on one bank at x1 and x4
+ok    #209: no building over a river the map draws  -- 0 of 765
+ok    #209: the town has its river and its market is out of it
+ok    #3: the marker and the market are on one bank at x1 and x4
+ok    #3: no building over a river the map draws  -- 0 of 18165
+ok    #3: the town has its river and its market is out of it
+ok    #4: the marker and the market are on one bank at x1 and x4
+ok    #4: no building over a river the map draws  -- 0 of 16050
+ok    #4: the town has its river and its market is out of it
+ok    #5: the marker and the market are on one bank at x1 and x4
+ok    #5: no building over a river the map draws  -- 0 of 10505
+ok    #5: the town has its river and its market is out of it
+ok    #6: the marker and the market are on one bank at x1 and x4
+ok    #6: no building over a river the map draws  -- 0 of 17915
+ok    #6: the town has its river and its market is out of it
+ok    #16: the marker and the market are on one bank at x1 and x4
+ok    #16: no building over a river the map draws  -- 0 of 12355
+ok    #16: the town has its river and its market is out of it
+ok    the export copy builds
+ok    the export copy asks at its own density (10.37 px per cell against the screen's 2.38)
+ok    the export copy's markers stand at the engine's bank points for that density  -- 162 of 239 moved
+ok    #16 froze with the switch off
+ok    #16 is served unchanged with the switch on (pin, market and every building)
+ok    #16's check names the change ("civ bank origin is now on" among its reasons)  -- ["civ bank origin is now on", "the ground or roads under this town changed since it was drawn"]
+RESULT PASS (0 failed)
