@@ -23,9 +23,16 @@ extends SceneTree
 ## that is no bridge over a drawn river; any of the three over the map's drawn lake or sea; a marker across a drawn
 ## river from its market at x1, x4, x16 or x64; housed p10 under the switch-off p10; a town whose target moved; a
 ## walled town with no street within 150 m of its market that had one with the switch off (Ruling HQ); no town moved at
-## all; a bridge longer than 400 m with its approaches, or a ferry shorter than half its town's river (Ruling HU). Positive controls (also exit 1): no river town; no building over a drawn river with the switch
+## all; a bridge longer than 400 m with its approaches, a ferry shorter than half its town's river, or a ferry landing
+## more than 25 m inside the map's drawn river or in its lake or sea (Ruling HU). Positive controls (also exit 1): no river town; no building over a drawn river with the switch
 ## off; no bridge counted with it on. The run's last line gives the bridge edges, the gated wall runs and the
 ## footprint over the map's lake or sea with the switch off (that measure's control).
+
+## Ruling HU: how far a ferry landing may stand inside the map's drawn river, metres. A labelled judgement: the town's
+## river is the drawn river at its ground width, sampled every 4 m (`cleanup::WET_STREET_STEP_M`), and the landing is
+## the last dry sample, so it can sit a step and a stroke's rounding inside; 25 m is several of those, still well
+## under the narrowest river a ferry crosses (over 400 m with its approaches).
+const FERRY_LANDING_WET_M := 25.0
 
 func _p10(v: Array) -> float:
 	if v.is_empty():
@@ -249,6 +256,7 @@ func _init() -> void:
 			var ferry_towns := 0
 			var ferry_m := 0.0
 			var short_ferries := 0
+			var wet_landings := 0
 			var mkt_lost := 0
 			var over_housed := 0
 			## Ruling HQ (HN's survivor U16): river towns housing under a quarter of what they housed with the switch off
@@ -320,6 +328,12 @@ func _init() -> void:
 							if on and r.has("ferry_min_m") and float(r["ferry_min_m"]) < 0.5 * float(r["river_w"]):
 								short_ferries += 1
 								note += " SHORT FERRY (%.0f m of %.0f)" % [r["ferry_min_m"], r["river_w"]]
+							## Ruling HU: a landing is the bank's: how deep the deepest stands in the map's drawn river, and how many
+							## stand in its drawn lake or sea (`bank_site::town_bank_census`' `ferry_wet_m`, `ferry_open`).
+							note += " landing %.0f m in the drawn river" % float(r.get("ferry_wet_m", 0.0))
+							if on and (float(r.get("ferry_wet_m", 0.0)) > FERRY_LANDING_WET_M or int(r.get("ferry_open", 0)) > 0):
+								wet_landings += 1
+								note += " LANDING IN THE WATER (%d in lake or sea)" % int(r.get("ferry_open", 0))
 						if not on:
 							off_mkt[k] = int(r.get("mkt_s", 0))
 						## Walled towns only: the miss this gate guards is the rampart sweep's (HN's U18), which acts on a wall's
@@ -401,6 +415,9 @@ func _init() -> void:
 					bad = true
 				if short_ferries > 0:
 					print("TOWN FAIL: %d towns with a ferry shorter than half their river (Ruling HU)" % short_ferries)
+					bad = true
+				if wet_landings > 0:
+					print("TOWN FAIL: %d towns with a ferry landing in the map's drawn water (Ruling HU)" % wet_landings)
 					bad = true
 				## Positive controls: the exemptions are not vacuous (a bridge exists), and the water measures can see water
 				## (with the switch off the towns stand over the drawn river).

@@ -921,8 +921,9 @@ impl WorldGen {
     }
 
     /// **Ruling HU: the markers' table for the map's markers, never built on the calling thread.** The table for the
-    /// world as it stands when it is ready ([`Self::market_points`]'s cache); else the job building it is started or
-    /// left running ([`MarketJob`], one at a time, for the newest key) and the last table is answered meanwhile, so
+    /// world as it stands when it is ready ([`Self::market_points`]'s cache); else the job building it is started, or
+    /// left running ([`MarketJob`], one at a time: a key that moves while it runs is taken up when it lands, so a
+    /// sea-level drag never stacks threads), and the last table is answered meanwhile, so
     /// a marker stays where it was drawn until the new table lands ([`Self::market_points_poll`], which the shell
     /// calls until it does, and then re-asks). A last table for another roster (a different count) is not answered:
     /// every marker then stands at its cell's bank point until the job lands. Before Ruling HU a live sea-level move,
@@ -937,7 +938,9 @@ impl WorldGen {
         {
             return v.clone();
         }
-        if self.market_job.borrow().as_ref().is_none_or(|j| j.key != key) {
+        // One job at a time: a key that moves while one runs (a sea-level drag) is taken up when it lands
+        // (`market_points_poll` starts the next for the world as it then stands).
+        if self.market_job.borrow().is_none() {
             self.market_job_start(key);
         }
         match self.market_cache.borrow().as_ref() {
@@ -947,8 +950,9 @@ impl WorldGen {
     }
 
     /// **Ruling HU: the map's markers read their table without building it on the calling thread**
-    /// ([`Self::market_points_marker`]). The shell turns it on once (`EngineBridge`); off (the default) every caller,
-    /// a probe's census among them, gets the exact table for the world as it stands, built in place if need be.
+    /// ([`Self::market_points_marker`]). `EngineBridge.settlement_bank_offsets` sets it on every call: on for the live
+    /// map's markers, off for every other caller (an export copy, a probe), which gets the exact table for the world
+    /// as it stands, built in place if need be. Off by default, so a `WorldGen` no shell drives is always exact.
     #[func]
     fn set_markers_async(&self, on: bool) {
         self.markers_async.set(on);
@@ -969,6 +973,7 @@ impl WorldGen {
             (table, t0.elapsed().as_secs_f64() * 1000.0)
         });
         *self.market_job.borrow_mut() = Some(MarketJob { key, handle });
+        self.market_jobs.set(self.market_jobs.get() + 1);
     }
 
     /// **Ruling HU: lands the markers' job when it has finished.** `1` when a table landed for the world as it stands
@@ -987,15 +992,15 @@ impl WorldGen {
         let Some(job) = self.market_job.borrow_mut().take() else { return 2 };
         let Ok((table, ms)) = job.handle.join() else { return 2 };
         let key = self.market_key();
+        // A table already built in place for the world as it stands (the warm-up, a label, an exact caller) stands.
+        if self.market_cache.borrow().as_ref().is_some_and(|(k, _)| *k == key) {
+            return 2;
+        }
         if job.key == key {
             self.market_landed(job.key, table, ms, false);
             return 1;
         }
-        // The world moved on while it ran: a table already built for it (the generation worker's warm-up) stands,
-        // else the job starts again for it.
-        if self.market_cache.borrow().as_ref().is_some_and(|(k, _)| *k == key) {
-            return 2;
-        }
+        // The world moved on while it ran: the job starts again for it.
         self.market_job_start(key);
         0
     }
@@ -1053,13 +1058,13 @@ impl WorldGen {
     }
 
     /// **Ruling HQ: where the markers' table was built** (`market_points`, the 0.75 s of Ruling HN's leftover
-    /// (f)): `{main, worker, last_ms}`, the builds on the main thread and off it since this object was made, and
-    /// the last one's milliseconds. Diagnostic for a probe (`_towncensus_probe.gd --time`); nothing in the shell
+    /// (f)): `{main, worker, last_ms, jobs}`, the builds on the main thread and off it (a job's table counts when it
+    /// lands) since this object was made, the last one's milliseconds, and the markers' jobs started (Ruling HU). Diagnostic for a probe (`_towncensus_probe.gd --time`); nothing in the shell
     /// reads it.
     #[func]
     fn market_points_stats(&self) -> VarDictionary {
         let (main, off, ms) = self.market_builds.get();
-        vdict! { "main" => main as i64, "worker" => off as i64, "last_ms" => ms }
+        vdict! { "main" => main as i64, "worker" => off as i64, "last_ms" => ms, "jobs" => i64::from(self.market_jobs.get()) }
     }
 
     /// One hash of everything [`Self::market_points`] reads, listed from what
@@ -1221,6 +1226,17 @@ impl WorldGen {
             // Ruling HU: and the shortest, for the census's gate that a ferry spans at least half its river.
             if !ferries.is_empty() {
                 d.set("ferry_min_m", ferries.iter().copied().fold(f64::INFINITY, f64::min));
+            }
+            // Ruling HU: how far the deepest ferry landing stands inside the map's drawn river, metres (0 on its bank),
+            // and how many landings stand in the drawn lake or sea: a landing is the bank's, never the water's.
+            let landings: Vec<(f64, f64)> = l.details.iter().filter(|d| d.kind == "ferry").filter_map(|d| match d.geom {
+                cartalith_civ::urban_adapter::DetailGeom::Seg(a, b) => Some([(a.x, a.y), (b.x, b.y)]),
+                _ => None,
+            }).flatten().collect();
+            if !landings.is_empty() {
+                let deep = landings.iter().filter_map(|&p| strokes.covering(grid(p)).map(|(hit, half)| (half - hit.d) * mpc)).fold(0.0, f64::max);
+                d.set("ferry_wet_m", deep);
+                d.set("ferry_open", landings.iter().filter(|&&p| class(p) != crate::town_water::LAND).count() as i64);
             }
             // Ruling HQ (HN's survivor U18): live streets with a point within `MARKET_STREET_NEAR_M` of the market.
             d.set("mkt_s", crate::town_measures::streets_near(&l, l.market, crate::town_measures::MARKET_STREET_NEAR_M) as i64);

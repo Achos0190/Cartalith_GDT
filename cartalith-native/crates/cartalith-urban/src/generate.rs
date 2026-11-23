@@ -1850,8 +1850,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     let mut wet_swept = 0usize;
     if riverbank {
         // Ruling HN added a house with a corner off the box here (`Site::off_box`); Ruling HU removed it: it swept
-        // no house on the six census worlds (HN's survivor U19), because the street sweep already takes every
-        // street off the box and no lot is platted on a street it kills (`cleanup::sweep_wet_streets`).
+        // no house on the six census worlds (HN's survivor U19, counted). Why, not measured: likely because the
+        // street sweep already takes every street off the box and no lot is platted on a street it kills
+        // (`cleanup::sweep_wet_streets`).
         let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly)).collect();
         for i in wet {
             if let Some(k) = lots.iter().position(|l| l.par.id == buildings[i].parcel) {

@@ -12,7 +12,9 @@ extends RefCounted
 ##   2. a table landed from the job (the worker count rose) within 20 s;
 ##   3. once landed, the shell's markers are the exact ones (`set_markers_async(false)`, the table built in place);
 ##   4. the change moved the table's key at all (the control: the job ran because the world changed);
-##   5. the map's markers stand where the landed table puts them (the overlay re-asked when it landed).
+##   5. the map's markers stand where the landed table puts them (the overlay re-asked when it landed);
+## then 6. a ten-step sea-level drag runs one job at a time and settles on the exact markers, and 7. an export copy made
+## right after a change, before the job lands, bakes the exact markers (the last table differing is its control).
 ## Against a build without the job (no `market_points_poll`: the state before this ruling) checks 1 to 3 FAIL, which
 ## is the drive's mutant; that run is the BEFORE timing.
 
@@ -63,7 +65,7 @@ func _case(ctx, app, bridge, name: String, change: Callable) -> void:
 	await change.call()
 	## What the shell does next: the map asks for its markers (`MapOverlay.bank_stale`, as a repaint or a zoom does).
 	var tq := Time.get_ticks_usec()
-	bridge.settlement_bank_offsets(2.4, -1.0)
+	bridge.settlement_bank_offsets(2.4, -1.0, false)
 	var q_ms := (Time.get_ticks_usec() - tq) / 1000.0
 	app.viewport.overlay.bank_stale()
 	var worst := await _longest_frame(ctx, 4.0)
@@ -75,7 +77,7 @@ func _case(ctx, app, bridge, name: String, change: Callable) -> void:
 	ctx.log("%s: main-thread builds %d -> %d, job tables %d -> %d (last %.0f ms); the shell's marker call %.1f ms; longest frame in 4 s %.0f ms" % [name, int(s0["main"]), int(s1["main"]), int(s0["worker"]), int(s1["worker"]), float(s1["last_ms"]), q_ms, worst])
 	_check(ctx, name + ": no table built on the main thread", int(s1["main"]) == int(s0["main"]), str(s1))
 	_check(ctx, name + ": a table landed from the job", int(s1["worker"]) > int(s0["worker"]), str(s1))
-	var got: PackedVector2Array = bridge.settlement_bank_offsets(2.4, -1.0)
+	var got: PackedVector2Array = bridge.settlement_bank_offsets(2.4, -1.0, false)
 	if has_job:
 		wg.set_markers_async(false)
 	var exact: PackedVector2Array = wg.settlement_bank_offsets(2.4, -1.0)
@@ -93,8 +95,67 @@ func _case(ctx, app, bridge, name: String, change: Callable) -> void:
 		if not (b is Vector2) or (b as Vector2).distance_to(at_ppc[i]) > 1e-4:
 			off += 1
 	_check(ctx, name + ": the map's markers stand where the landed table puts them", ppc > 0.0 and at_ppc.size() > 0 and off == 0, "%d of %d markers elsewhere at ppc %.3f" % [off, at_ppc.size(), ppc])
-	if has_job:
-		wg.set_markers_async(true)
+
+
+## 6. A sea-level drag (ten steps 100 ms apart, the map asking after each) starts one job at a time, not one per step,
+## builds nothing on the main thread, and once it settles the markers are the exact ones.
+func _drag(ctx, bridge) -> void:
+	var wg = bridge.world_gen
+	var s0: Dictionary = wg.market_points_stats()
+	var worst := 0.0
+	for k in 10:
+		bridge.sea_level_live(0.52 + 0.002 * k)
+		var tq := Time.get_ticks_usec()
+		bridge.settlement_bank_offsets(2.4, -1.0, false)
+		worst = maxf(worst, (Time.get_ticks_usec() - tq) / 1000.0)
+		await ctx.wait(0.1)
+	await ctx.wait(8.0)
+	var s1: Dictionary = wg.market_points_stats()
+	var landed := int(s1["worker"]) - int(s0["worker"])
+	var jobs := int(s1.get("jobs", 0)) - int(s0.get("jobs", 0))
+	ctx.log("SEA LEVEL DRAG, 10 steps: main-thread builds %d -> %d, jobs started %d, tables landed %d; the slowest marker call %.1f ms" % [int(s0["main"]), int(s1["main"]), jobs, landed, worst])
+	_check(ctx, "DRAG: no table built on the main thread", int(s1["main"]) == int(s0["main"]), str(s1))
+	## A job takes about 0.8 s and the drag 1 s, so one at a time starts 2 or 3; one per step would start 10.
+	_check(ctx, "DRAG: one job at a time (1 to 4 started for 10 steps) and a table landed", jobs >= 1 and jobs <= 4 and landed >= 1, "%d started, %d landed" % [jobs, landed])
+	var got: PackedVector2Array = bridge.settlement_bank_offsets(2.4, -1.0, false)
+	var exact: PackedVector2Array = bridge.settlement_bank_offsets(2.4, -1.0)
+	_check(ctx, "DRAG: once settled the markers are the exact ones", got.size() > 0 and got == exact, "%d markers" % got.size())
+
+
+## 7. An export copy made right after a change, before the job lands, bakes the exact markers, not the last table.
+func _export(ctx, app, bridge) -> void:
+	var ov = app.viewport.overlay
+	var opts := {"settlements": true, "settlement_tier": "all"}
+	var eo = load("res://shell/export_overlay.gd").new()
+	app.add_child(eo)
+	var err: String = eo.setup(ov, 4096, 3072, opts)
+	if err != "":
+		_check(ctx, "EXPORT: the export copy builds", false, err)
+		return
+	eo.overlay._settle_pos(eo.overlay._settlements[0], eo.overlay.displayed_rect())
+	var xppc: float = eo.overlay._bank_ppc
+	eo.queue_free()
+	await ctx.wait(0.2)
+	bridge.sea_level_live(0.6)
+	var stale: PackedVector2Array = bridge.settlement_bank_offsets(xppc, -1.0, false)
+	var eo2 = load("res://shell/export_overlay.gd").new()
+	app.add_child(eo2)
+	err = eo2.setup(ov, 4096, 3072, opts)
+	_check(ctx, "EXPORT: the export copy builds", err == "", err)
+	if err != "":
+		return
+	var xo = eo2.overlay
+	xo._settle_pos(xo._settlements[0], xo.displayed_rect())
+	var exact: PackedVector2Array = bridge.settlement_bank_offsets(xo._bank_ppc, -1.0)
+	var off := 0
+	var moved := 0
+	for i in mini(xo._settlements.size(), exact.size()):
+		off += int(((xo._settlements[i] as Dictionary).get("bank", Vector2.ZERO) as Vector2).distance_to(exact[i]) > 1e-4)
+		moved += int(i < stale.size() and stale[i].distance_to(exact[i]) > 1e-4)
+	ctx.log("EXPORT right after sea level 0.60: ppc %.2f, %d of %d markers differ between the last table and the exact one; %d of the copy's stand elsewhere than the exact" % [xo._bank_ppc, moved, exact.size(), off])
+	_check(ctx, "EXPORT: the last table differs from the exact one (the control)", moved > 0, "%d" % moved)
+	_check(ctx, "EXPORT: the copy's markers are the exact ones", exact.size() > 0 and off == 0 and is_equal_approx(xo._bank_ppc, xppc), "%d elsewhere" % off)
+	eo2.queue_free()
 
 
 func run(ctx) -> void:
@@ -130,4 +191,6 @@ func run(ctx) -> void:
 	var hug: bool = bool(bridge.world_gen.get_params().get("urban_wall_hug", false))
 	await _case(ctx, app, bridge, "PARAMETER WRITE urban_wall_hug", func() -> void:
 		bridge.param_write("urban_wall_hug", not hug))
+	await _drag(ctx, bridge)
+	await _export(ctx, app, bridge)
 	ctx.log("RESULT %s" % ("PASS" if _fails == 0 else "FAIL (%d)" % _fails))

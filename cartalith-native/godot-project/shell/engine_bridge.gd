@@ -1694,18 +1694,20 @@ func river_paint_params() -> Dictionary:
 ## (`WorldGen::settlement_bank_offsets`). Empty while generating, against a binary without it, and when the world's
 ## `civ.bank_sites` switch is off: the caller then draws every marker at its cell centre.
 ##
-## Ruling HU (owner, 2026-11-23): the markers' table (each town's market on the map) is never rebuilt here on the main
-## thread. After a sea-level move, a sculpt, an open or a parameter write the engine answers the last table (the
-## markers stay where they were drawn) and builds the new one on a thread of its own (`set_markers_async`);
-## `_market_poll` lands it and re-asks through `bank_params_changed`.
-func settlement_bank_offsets(ppc: float, gap_px: float) -> PackedVector2Array:
+## Ruling HU (owner, 2026-11-23): with `wait` false (the live map's markers, `MapOverlay._bank_sync`) the markers'
+## table (each town's market on the map) is never rebuilt here on the main thread: after a sea-level move, a sculpt,
+## an open or a parameter write the engine answers the last table (the markers stay where they were drawn) and builds
+## the new one on a thread of its own (`set_markers_async`); `_market_poll` lands it and re-asks through
+## `bank_params_changed`. With `wait` true (the default: an export copy, which must not bake a table still being
+## built, and every probe) the answer is the exact one for the world as it stands.
+func settlement_bank_offsets(ppc: float, gap_px: float, wait := true) -> PackedVector2Array:
 	if generating or not _has("settlement_bank_offsets"):
 		return PackedVector2Array()
 	var poll := _has("market_points_poll")
 	if poll:
-		world_gen.set_markers_async(true)
+		world_gen.set_markers_async(not wait)
 	var r: PackedVector2Array = world_gen.settlement_bank_offsets(ppc, gap_px)
-	if poll:
+	if poll and not wait:
 		_market_poll()
 	return r
 

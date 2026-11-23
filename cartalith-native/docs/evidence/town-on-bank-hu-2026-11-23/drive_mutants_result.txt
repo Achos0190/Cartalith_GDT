@@ -1,14 +1,18 @@
 W1 the markers read the table in place (the job never used)    KILLED
-   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 1198.6779 }
-   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 1198.6779 }
-   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 1450.5246 }
-   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 1450.5246 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 742.3677, "jobs": 0 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 742.3677, "jobs": 0 }
+   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 726.4913, "jobs": 0 }
+   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 726.4913, "jobs": 0 }
 W2 the shell never turns the job on                            KILLED
-   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 743.1071 }
-   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 743.1071 }
-   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 875.192 }
-   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 875.192 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 740.1441, "jobs": 0 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 740.1441, "jobs": 0 }
+   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 733.1321, "jobs": 0 }
+   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 733.1321, "jobs": 0 }
 W3 a landed table is never re-asked for                        KILLED
    FAIL  SEA LEVEL 0.50 -> 0.51: the map's markers stand where the landed table puts them  -- 2 of 236 markers elsewhere at ppc 2.378
    FAIL  SCULPT a stroke, committed: the map's markers stand where the landed table puts them  -- 5 of 236 markers elsewhere at ppc 2.378
    FAIL  OPEN the save made before the sea-level move: the map's markers stand where the landed table puts them  -- 14 of 236 markers elsewhere at ppc 2.378
+W4 a drag starts a job per step                                KILLED
+   FAIL  DRAG: one job at a time (1 to 4 started for 10 steps) and a table landed  -- 10 started, 1 landed
+W5 an export copy reads the last table                         KILLED
+   FAIL  EXPORT: the copy's markers are the exact ones  -- 2 elsewhere

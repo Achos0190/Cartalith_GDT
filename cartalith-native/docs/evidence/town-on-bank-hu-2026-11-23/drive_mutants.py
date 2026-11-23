@@ -17,9 +17,13 @@ M = [
     ("W1 the markers read the table in place (the job never used)", ROOT / "crates/cartalith-godot/src/bank_site.rs",
      "let markets = if self.markers_async.get() { self.market_points_marker() } else { self.market_points() };", "let markets = self.market_points();", True),
     ("W2 the shell never turns the job on", DEV / "godot-project/shell/engine_bridge.gd",
-     "\t\tworld_gen.set_markers_async(true)\n", "\t\tworld_gen.set_markers_async(false)\n", False),
+     "world_gen.set_markers_async(not wait)", "world_gen.set_markers_async(false)", False),
     ("W3 a landed table is never re-asked for", DEV / "godot-project/shell/engine_bridge.gd",
      "\tif state == 1:\n\t\tbank_params_changed.emit()\n", "\tif state == 1:\n\t\tpass\n", False),
+    ("W4 a drag starts a job per step", ROOT / "crates/cartalith-godot/src/bank_site.rs",
+     "        if self.market_job.borrow().is_none() {", "        if self.market_job.borrow().as_ref().is_none_or(|j| j.key != key) {", True),
+    ("W5 an export copy reads the last table", DEV / "godot-project/map_overlay.gd",
+     "_bank_cb.call(ppc, -1.0, _export_mode)", "_bank_cb.call(ppc, -1.0, false)", False),
 ]
 
 def build():

@@ -22,6 +22,7 @@ WET = "        let len: f64 = chain.iter().map(|&e| { let (a, b) = (g.nodes[g.ed
 M = [
     ("C1 the span over the water alone (Ruling HQ's measure), on the owner's world", U + "cleanup.rs", [(WHOLE, WET)], OWNER),
     ("C2 the square crossing lands before the centreline (unit survivor H8)", U + "cleanup.rs", [(".skip_while(|&x| x.dist(from) < d.len())", "")], W246),
+    ("C3 each ferry landing a quarter of the way into the water (the landing gate's positive control)", U + "cleanup.rs", [("            g.ferries.push((a, b));", "            g.ferries.push((a.lerp(b, 0.25), b.lerp(a, 0.25)));")], OWNER),
 ]
 
 def build():

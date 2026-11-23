@@ -1,28 +1,36 @@
 completed 
 ok    the switch is on and the world has settlements (the control)  -- 236 settlements
-SEA LEVEL 0.50 -> 0.51: main-thread builds 0 -> 0, job tables 1 -> 2 (last 899 ms); the shell's marker call 75.1 ms; longest frame in 4 s 38 ms
-ok    SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 0, "worker": 2, "last_ms": 898.826 }
-ok    SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 0, "worker": 2, "last_ms": 898.826 }
+SEA LEVEL 0.50 -> 0.51: main-thread builds 0 -> 0, job tables 1 -> 2 (last 734 ms); the shell's marker call 64.0 ms; longest frame in 4 s 34 ms
+ok    SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 0, "worker": 2, "last_ms": 733.5334, "jobs": 1 }
+ok    SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 0, "worker": 2, "last_ms": 733.5334, "jobs": 1 }
 ok    SEA LEVEL 0.50 -> 0.51: the markers are the exact ones once landed  -- 236 markers
-ok    SEA LEVEL 0.50 -> 0.51: the change moved the table (the control)  -- { "main": 0, "worker": 2, "last_ms": 898.826 }
+ok    SEA LEVEL 0.50 -> 0.51: the change moved the table (the control)  -- { "main": 0, "worker": 2, "last_ms": 733.5334, "jobs": 1 }
 ok    SEA LEVEL 0.50 -> 0.51: the map's markers stand where the landed table puts them  -- 0 of 236 markers elsewhere at ppc 2.378
-SCULPT a stroke, committed: main-thread builds 0 -> 0, job tables 2 -> 3 (last 857 ms); the shell's marker call 97.0 ms; longest frame in 4 s 43 ms
-ok    SCULPT a stroke, committed: no table built on the main thread  -- { "main": 0, "worker": 3, "last_ms": 856.7333 }
-ok    SCULPT a stroke, committed: a table landed from the job  -- { "main": 0, "worker": 3, "last_ms": 856.7333 }
+SCULPT a stroke, committed: main-thread builds 0 -> 0, job tables 2 -> 3 (last 723 ms); the shell's marker call 74.5 ms; longest frame in 4 s 34 ms
+ok    SCULPT a stroke, committed: no table built on the main thread  -- { "main": 0, "worker": 3, "last_ms": 722.8762, "jobs": 2 }
+ok    SCULPT a stroke, committed: a table landed from the job  -- { "main": 0, "worker": 3, "last_ms": 722.8762, "jobs": 2 }
 ok    SCULPT a stroke, committed: the markers are the exact ones once landed  -- 236 markers
-ok    SCULPT a stroke, committed: the change moved the table (the control)  -- { "main": 0, "worker": 3, "last_ms": 856.7333 }
+ok    SCULPT a stroke, committed: the change moved the table (the control)  -- { "main": 0, "worker": 3, "last_ms": 722.8762, "jobs": 2 }
 ok    SCULPT a stroke, committed: the map's markers stand where the landed table puts them  -- 0 of 236 markers elsewhere at ppc 2.378
-OPEN the save made before the sea-level move: main-thread builds 0 -> 0, job tables 3 -> 4 (last 835 ms); the shell's marker call 22.0 ms; longest frame in 4 s 152 ms
-ok    OPEN the save made before the sea-level move: no table built on the main thread  -- { "main": 0, "worker": 4, "last_ms": 835.0457 }
-ok    OPEN the save made before the sea-level move: a table landed from the job  -- { "main": 0, "worker": 4, "last_ms": 835.0457 }
+OPEN the save made before the sea-level move: main-thread builds 0 -> 0, job tables 3 -> 4 (last 786 ms); the shell's marker call 17.9 ms; longest frame in 4 s 133 ms
+ok    OPEN the save made before the sea-level move: no table built on the main thread  -- { "main": 0, "worker": 4, "last_ms": 785.9972, "jobs": 3 }
+ok    OPEN the save made before the sea-level move: a table landed from the job  -- { "main": 0, "worker": 4, "last_ms": 785.9972, "jobs": 3 }
 ok    OPEN the save made before the sea-level move: the markers are the exact ones once landed  -- 236 markers
-ok    OPEN the save made before the sea-level move: the change moved the table (the control)  -- { "main": 0, "worker": 4, "last_ms": 835.0457 }
+ok    OPEN the save made before the sea-level move: the change moved the table (the control)  -- { "main": 0, "worker": 4, "last_ms": 785.9972, "jobs": 3 }
 ok    OPEN the save made before the sea-level move: the map's markers stand where the landed table puts them  -- 0 of 236 markers elsewhere at ppc 2.378
-PARAMETER WRITE urban_wall_hug: main-thread builds 0 -> 0, job tables 4 -> 5 (last 794 ms); the shell's marker call 17.2 ms; longest frame in 4 s 34 ms
-ok    PARAMETER WRITE urban_wall_hug: no table built on the main thread  -- { "main": 0, "worker": 5, "last_ms": 794.1088 }
-ok    PARAMETER WRITE urban_wall_hug: a table landed from the job  -- { "main": 0, "worker": 5, "last_ms": 794.1088 }
+PARAMETER WRITE urban_wall_hug: main-thread builds 0 -> 0, job tables 4 -> 5 (last 786 ms); the shell's marker call 17.3 ms; longest frame in 4 s 33 ms
+ok    PARAMETER WRITE urban_wall_hug: no table built on the main thread  -- { "main": 0, "worker": 5, "last_ms": 786.3978, "jobs": 4 }
+ok    PARAMETER WRITE urban_wall_hug: a table landed from the job  -- { "main": 0, "worker": 5, "last_ms": 786.3978, "jobs": 4 }
 ok    PARAMETER WRITE urban_wall_hug: the markers are the exact ones once landed  -- 236 markers
-ok    PARAMETER WRITE urban_wall_hug: the change moved the table (the control)  -- { "main": 0, "worker": 5, "last_ms": 794.1088 }
+ok    PARAMETER WRITE urban_wall_hug: the change moved the table (the control)  -- { "main": 0, "worker": 5, "last_ms": 786.3978, "jobs": 4 }
 ok    PARAMETER WRITE urban_wall_hug: the map's markers stand where the landed table puts them  -- 0 of 236 markers elsewhere at ppc 2.378
+SEA LEVEL DRAG, 10 steps: main-thread builds 0 -> 0, jobs started 3, tables landed 1; the slowest marker call 63.6 ms
+ok    DRAG: no table built on the main thread  -- { "main": 0, "worker": 6, "last_ms": 699.893, "jobs": 7 }
+ok    DRAG: one job at a time (1 to 4 started for 10 steps) and a table landed  -- 3 started, 1 landed
+ok    DRAG: once settled the markers are the exact ones  -- 236 markers
+ok    EXPORT: the export copy builds
+EXPORT right after sea level 0.60: ppc 10.37, 2 of 236 markers differ between the last table and the exact one; 0 of the copy's stand elsewhere than the exact
+ok    EXPORT: the last table differs from the exact one (the control)  -- 2
+ok    EXPORT: the copy's markers are the exact ones  -- 0 elsewhere
 RESULT PASS
 exit 0

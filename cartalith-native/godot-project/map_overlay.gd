@@ -4355,7 +4355,10 @@ func _bank_sync() -> void:
 	if is_equal_approx(ppc, _bank_ppc):
 		return
 	_bank_ppc = ppc
-	var off: PackedVector2Array = _bank_cb.call(ppc, -1.0)
+	## Ruling HU: the live map does not wait for the markers' table to be rebuilt (`EngineBridge.settlement_bank_offsets`'
+	## `wait`, the third argument, for a resolver that takes one); an export copy waits, so it never bakes a table
+	## still being built.
+	var off: PackedVector2Array = _bank_cb.call(ppc, -1.0, _export_mode) if _bank_cb.get_argument_count() >= 3 else _bank_cb.call(ppc, -1.0)
 	for i in _settlements.size():
 		(_settlements[i] as Dictionary)["bank"] = off[i] if i < off.size() else Vector2.ZERO
 
