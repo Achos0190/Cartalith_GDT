@@ -79,6 +79,7 @@ GUI, then engine, then the LLM interface).
 - Raisz pictograms, mappa-mundi icons, Ordnance Survey symbology (Ruling BI): each needs a scope first.
 
 ### Civilisation, routes, planner and military
+- **Ruling HR (running):** provinces follow the nations' border logic (Ruling GO: friction cost-distance, seams snapped to rivers/crests/canyons, a drawn line); today `civ_generate_provinces` is a nearest-seed Voronoi inside each faction.
 - F1: Measure > export to Journey turned 897 km into 206 km; not reproduced, needs the owner's Measure mode and points. `right_dock.gd::_on_plan_journey`, `WorldGen::measure_result`.
 - R8: seed 707's ~0.1-day sea route, not reproduced in Rust; print `route_get(i).points` in the shell. `journey_planner_view.gd`.
 - Military: on industrial rows a high-state-capacity standing army above its band (Ruling DL Q2, measure first). `manpower.rs`; `ECOLOGICAL_ARMY_TERM_SCOPE.md` §10.7.
