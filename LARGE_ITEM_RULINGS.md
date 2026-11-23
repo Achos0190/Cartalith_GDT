@@ -4138,3 +4138,7 @@ After CS-0 (`8391599f`, `e62a5095`; `COASTAL_SETBACK_RESEARCH.md` §7): **build 
 ## Ruling HT: PS-5 reuses the deep-plots code (owner, 2026-11-23)
 
 PS-5 (platting by quarter, rear households, the back-street tier of Ruling GY, the water gate of Ruling HD) is not built. Owner: **reuse `cartalith_urban::burgage`** (the deep-plots code behind `urban_burgage`: `DEPTH_M` 42 m beyond and `DEPTH_CORE_M` near the market) for PS-5's plot depths by tier, rather than a second platting implementation. This answers the open owner question on deep plots (`TOWN_GENERATOR_JUDGEMENT.md` Q5-Q8, default "drop"): the code is kept and folded into PS-5 under `urban_parallel_streets`; whether `urban_burgage` stays as its own switch is PS-5's call, stated in its report. PS-5 starts after Ruling HQ lands (same town code).
+
+## Ruling HU: HQ's answers (owner, 2026-11-23)
+
+After `62a9443e`/`f296e24e`: **the 400 m span counts the whole bridge, approaches included** (so the owner's 532187 town, 404 m with approaches, crosses by ferry); **every remaining main-thread marker rebuild** (live sea-level move, sculpt, opening a save, a parameter write; about 0.8 s at 236 settlements) **moves to a background job**; **trace now** the two ferry hamlets that lost housing (83744 #85 95 -> 76 %, 246371 #205 11 -> 0 %) and the 8 towns that lost their crossing for want of a landing pair, before PS-5 and the setback rule build on them.
