@@ -61,6 +61,9 @@ mod wall_gap_census;
 // against the map; an ignored measurement over real generated worlds.
 #[cfg(test)]
 mod town_river_census;
+// The town measures the censuses share (buildings in water, the fronted bank): out of the test-only
+// module so Ruling HM's live census (`bank_site::town_bank_census`) reads the same ones.
+mod town_measures;
 #[cfg(test)]
 mod sea_site_census;
 // Owner Ruling GO (2026-11-22): the border straightness and terrain census of

@@ -4313,7 +4313,9 @@ func _bank_sync() -> void:
 		(_settlements[i] as Dictionary)["bank"] = off[i] if i < off.size() else Vector2.ZERO
 
 ## Where settlement `s`'s marker stands on screen: its cell centre, moved to the river bank where the centre is in a
-## drawn river (Ruling HG, above). Not for what is laid on the cell itself (roads, the town plan).
+## drawn river (Ruling HG, above). Not for what is laid on the cell itself (roads). The town plan is not drawn here
+## either: since Ruling HM its layout carries the cell's place in its own box (`pin`), which `_draw_urban_layouts`
+## anchors on the cell centre, so the plan stands on the bank without reading this point.
 func _settle_pos(s: Dictionary, rect: Rect2) -> Vector2:
 	if _bank_dirty:
 		_bank_sync()

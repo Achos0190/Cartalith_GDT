@@ -1104,8 +1104,14 @@ pub struct CivParams {
     /// river bank, not in the river.** Read by the shell's marker drawing through
     /// `cartalith_godot::bank_site` (`WorldGen::settlement_bank_offsets`): a marker whose cell centre
     /// lies inside a drawn river stroke is drawn at the nearest dry point just outside the stroke's
-    /// edge. **It changes no generated output**: every settlement keeps its cell, and nothing in the
-    /// engine reads this field. It is a world parameter so the choice is saved with the world.
+    /// edge. Every settlement keeps its cell, and nothing in the engine reads this field. It is a
+    /// world parameter so the choice is saved with the world.
+    ///
+    /// **Since Ruling HM (owner, 2026-11-23) it also moves town layouts**, which the host generates
+    /// on demand (no pipeline stage, no golden): with it on a river town is laid round the drawn
+    /// river's edge, its river is as wide as the map draws it, every other drawn river in its box
+    /// is water to it and its roads keep to its bank (`cartalith_godot::bank_site::town_origin`,
+    /// `cartalith_civ::urban_adapter::BankOrigin`). Off, every layout is as before the ruling.
     ///
     /// **`false` here, `true` in the shipped app**, the same section 7p split. A save without the
     /// key loads it off.

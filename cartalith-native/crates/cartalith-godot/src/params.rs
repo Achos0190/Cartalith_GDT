@@ -1228,7 +1228,9 @@ pub const PARAMS: &[ParamSpec] = &[
         get_fn: |p| Value::Bool(p.civ.junction_settlements), set_fn: |p, v| p.civ.junction_settlements = v != 0.0 },
     // Owner Ruling HG (2026-11-22): settlement markers stand on the river bank. ON at the app
     // boundary, OFF in `WorldParams::defaults`; no reference control. A save without the key loads
-    // OFF. Read by `WorldGen::settlement_bank_offsets` only: it changes no generated output.
+    // OFF. Read by `WorldGen::settlement_bank_offsets` (the marker) and, since Ruling HM (2026-11-23),
+    // by the town layout: with it on a river town is laid round the drawn river's edge with a river
+    // as wide as the map draws it (`bank_site::town_origin`, `urban_bridge`), which moves layouts.
     ParamSpec { key: "civ.bank_sites", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Settlements stand on the river bank", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.bank_sites), set_fn: |p, v| p.civ.bank_sites = v != 0.0 },

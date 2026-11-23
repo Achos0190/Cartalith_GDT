@@ -70,6 +70,8 @@ pub const ON_LINE_EPS: f64 = 1e-6;
 pub struct StrokeIndex {
     /// Cell -> `(run, first point of the segment)`.
     cells: HashMap<(i32, i32), Vec<(u32, u32)>>,
+    /// [`Self::reach_widths`], built on first use.
+    reach: std::sync::OnceLock<Vec<Vec<f32>>>,
 }
 
 impl StrokeIndex {
@@ -91,7 +93,7 @@ impl StrokeIndex {
                 }
             }
         }
-        StrokeIndex { cells }
+        StrokeIndex { cells, reach: std::sync::OnceLock::new() }
     }
 
     /// The drawn point of `geom` nearest `p` (grid cells, the traced frame)
@@ -115,6 +117,56 @@ impl StrokeIndex {
             }
         }
         best
+    }
+
+    /// **Ruling HM: each run's widest width within `reach` cells of run
+    /// length either way of every point**, cells (`geom`'s `widths`, dilated
+    /// along the run; by length, since a run's points can be many to a cell). A
+    /// town lays its river at one width, the widest the map draws it inside
+    /// the town's box (`urban_adapter::um_water_ctx_box_smooth`), so the edge
+    /// its origin must clear is that width's, not the width at the nearest
+    /// point: with the local width a town a little upstream of a confluence
+    /// had its box centre in its own channel and the layout moved its market
+    /// to whichever bank came first. Built once (the first `reach` asked for
+    /// is kept: a world has one), from the geometry the index was built from.
+    pub fn reach_widths(&self, geom: &RiverGeometry, reach: f64) -> &[Vec<f32>] {
+        self.reach.get_or_init(|| {
+            geom.runs
+                .iter()
+                .map(|r| {
+                    // Run length to each point, cells.
+                    let mut at = vec![0.0f64; r.pts.len()];
+                    for i in 1..r.pts.len() {
+                        at[i] = at[i - 1] + f64::from(r.pts[i].0 - r.pts[i - 1].0).hypot(f64::from(r.pts[i].1 - r.pts[i - 1].1));
+                    }
+                    (0..r.widths.len().min(at.len()))
+                        .map(|i| {
+                            let lo = at.partition_point(|&d| d < at[i] - reach);
+                            let hi = at.partition_point(|&d| d <= at[i] + reach).min(r.widths.len());
+                            r.widths[lo..hi].iter().copied().fold(0.0f32, f32::max)
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+    }
+
+    /// Whether the straight line from `a` to `b` (traced frame, cells)
+    /// crosses a drawn centreline of `geom`: the two points stand on
+    /// opposite banks of some drawn river. A proper crossing only (a point
+    /// exactly on a centreline is on neither bank and crosses nothing).
+    /// `drawn` says whether the river at a point counts (a river the zoom
+    /// hides has no banks on screen).
+    pub fn crosses(&self, geom: &RiverGeometry, a: (f64, f64), b: (f64, f64), drawn: &dyn Fn(RiverPoint) -> bool) -> bool {
+        let cross = |o: (f64, f64), p: (f64, f64), q: (f64, f64)| (p.0 - o.0) * (q.1 - o.1) - (p.1 - o.1) * (q.0 - o.0);
+        let (x0, x1) = (a.0.min(b.0).floor() as i32 - 1, a.0.max(b.0).floor() as i32 + 1);
+        let (y0, y1) = (a.1.min(b.1).floor() as i32 - 1, a.1.max(b.1).floor() as i32 + 1);
+        (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter_map(|c| self.cells.get(&c)).flatten().any(|&(ri, i)| {
+            let run = &geom.runs[ri as usize];
+            let (p, q) = (run.pts[i as usize], run.pts[i as usize + 1]);
+            let (p, q) = ((f64::from(p.0), f64::from(p.1)), (f64::from(q.0), f64::from(q.1)));
+            cross(a, b, p) * cross(a, b, q) < 0.0 && cross(p, q, a) * cross(p, q, b) < 0.0 && drawn(segment_hit(geom, ri, i, a).point)
+        })
     }
 }
 
@@ -201,14 +253,39 @@ pub struct BankQuery<'a> {
     /// from its centreline before the one-pixel floor, so the search for a
     /// covering stroke looks far enough and no further.
     pub wide: f64,
+    /// **Ruling HM, the town's own edge**: `Some(min)` measures every stroke
+    /// at its width on the ground and not as one view draws it: half of
+    /// `width_cells`, never under `min` cells, with no pixel floor, no look
+    /// and no zoom law (`ppc` and `a` are then not read). A town's layout is
+    /// generated once and may be frozen in a save, so its origin cannot
+    /// follow the zoom, a marker size or the CARTO river-width slider; this
+    /// is the edge every view's stroke converges on as the zoom deepens
+    /// under the default look. `None`: the stroke as drawn at `ppc`.
+    pub ground: Option<f64>,
+    /// With [`Self::ground`]: the width to measure each run's points at
+    /// ([`StrokeIndex::reach_widths`]) in place of the run's own; `None`
+    /// reads the run's own width at the point.
+    pub reach_widths: Option<&'a [Vec<f32>]>,
+    /// **Ruling HM, the marker and its market on one bank.** With a market
+    /// given to [`bank_point`], accept only a point with no drawn centreline
+    /// between it and the market ([`StrokeIndex::crosses`]), so the ring
+    /// search at a confluence cannot hand the marker to another bank. Off
+    /// for [`WorldGen::town_origin`], whose `market` is only the side its
+    /// roads are on, not a place.
+    pub same_bank: bool,
 }
 
 /// Half the widest drawn width in `geom` under look `a`, in cells: the widest
 /// `widths` entry times the look's `river_width`, halved. `0` for an empty
 /// network.
 pub fn widest_half(geom: &RiverGeometry, a: &TerrainAppearance) -> f64 {
-    let w = geom.runs.iter().flat_map(|r| r.widths.iter().copied()).fold(0.0f32, f32::max);
-    f64::from(w) * f64::from(crate::river_stroke::river_width_factor(a)) / 2.0
+    widest_ground_half(geom) * f64::from(crate::river_stroke::river_width_factor(a))
+}
+
+/// Half the widest width on the ground in `geom`, in cells: [`widest_half`]
+/// without a look's multiplier (Ruling HM's [`BankQuery::ground`]).
+pub fn widest_ground_half(geom: &RiverGeometry) -> f64 {
+    f64::from(geom.runs.iter().flat_map(|r| r.widths.iter().copied()).fold(0.0f32, f32::max)) / 2.0
 }
 
 impl BankQuery<'_> {
@@ -220,7 +297,8 @@ impl BankQuery<'_> {
     pub fn covering(&self, p: (f64, f64)) -> Option<(Hit, f64)> {
         // No drawn half-width exceeds the wider of the widest stroke's own and
         // the one-pixel floor's (`river_stroke::MIN_STROKE_PX`, halved).
-        let floor = f64::from(crate::river_stroke::MIN_STROKE_PX) / 2.0 / f64::from(self.ppc.max(1e-6));
+        // On the ground the floor is the town's own minimum clearance.
+        let floor = self.ground.unwrap_or_else(|| f64::from(crate::river_stroke::MIN_STROKE_PX) / 2.0 / f64::from(self.ppc.max(1e-6)));
         let reach = self.gap + self.wide.max(floor);
         let r = reach.ceil() as i32 + 1;
         let (cx, cy) = (p.0.floor() as i32, p.1.floor() as i32);
@@ -230,7 +308,11 @@ impl BankQuery<'_> {
                 let Some(segs) = self.index.cells.get(&(x, y)) else { continue };
                 for &(ri, i) in segs {
                     let hit = segment_hit(self.geom, ri, i, p);
-                    let Some(half) = half_width_cells(hit.point, self.ppc, self.a) else { continue };
+                    let half = match (self.ground, self.reach_widths) {
+                        (Some(min), Some(w)) => Some((f64::from(w[ri as usize][i as usize].max(w[ri as usize][i as usize + 1])) / 2.0).max(min)),
+                        _ => self.half(hit.point),
+                    };
+                    let Some(half) = half else { continue };
                     let depth = half + self.gap - hit.d;
                     if depth > CLEAR_EPS && best.as_ref().is_none_or(|b| depth > b.2) {
                         best = Some((hit, half, depth));
@@ -239,6 +321,16 @@ impl BankQuery<'_> {
             }
         }
         best.map(|(h, half, _)| (h, half))
+    }
+
+    /// Half the width of the stroke at `point` as this query measures it, in
+    /// cells: on the ground ([`Self::ground`]) or as drawn
+    /// ([`half_width_cells`], `None` where the zoom hides the river).
+    pub fn half(&self, point: RiverPoint) -> Option<f64> {
+        match self.ground {
+            Some(min) => Some((f64::from(point.width_cells) / 2.0).max(min)),
+            None => half_width_cells(point, self.ppc, self.a),
+        }
     }
 }
 
@@ -259,9 +351,11 @@ pub const CLEAR_EPS: f64 = 1e-7;
 /// 7 to 4, 14 to 2; `_bankcensus_probe.gd --layouts`). **A weak lean, not a
 /// law**: on seed 83744, which was not used to choose it, the count is 10 to
 /// 8. Which hand of the flow it takes shows no preference (20 right, 21
-/// left). The cause in the layout was not traced, and the layout is not
-/// consulted here: a market the layout puts on the other bank is not
-/// followed (counted in `STATUS.md`).
+/// left). The cause in the layout was not traced. **Since Ruling HM
+/// (2026-11-23) this is only the last tie-break**: a marker follows its
+/// market's bank ([`bank_point`]'s `market`) and a town's origin follows its
+/// roads' bank ([`roads_bank`]); this direction decides for a centre on the
+/// line with neither.
 pub const MARKET_FIRST_BANK: (f64, f64) = (-1.0, -0.13);
 
 /// **Where the settlement whose cell centre is `centre` stands beside the
@@ -287,18 +381,51 @@ pub const MARKET_FIRST_BANK: (f64, f64) = (-1.0, -0.13);
 /// `prefer` (a unit vector) names the bank to try first where the centre is on
 /// the centreline itself and has no bank of its own.
 ///
+/// **Ruling HM: the marker follows the market's bank.** `market` is where the
+/// settlement's town has its market (traced frame, cells; `None`: not known,
+/// the centre's own bank). The point is put on the market's side of the
+/// stroke whichever side the centre is on, so the map and the City Viewer
+/// agree; and a centre that is clear of every stroke but stands **across the
+/// river from its market** (a village whose market went over to its roads'
+/// bank) is moved over to the market's bank too, which is the one case a
+/// clear centre moves.
+///
+/// Where no point on the market's bank is clear (with the gap, then
+/// without), the search is run once more for any clear point: out of the
+/// water on the wrong bank is the older ruling (HG) and still holds.
+///
 /// Must never return a point in open water or inside a drawn stroke.
-pub fn bank_point(q: &BankQuery, centre: (f64, f64), prefer: Option<(f64, f64)>) -> Option<(f64, f64)> {
-    bank_point_at_gap(q, centre, prefer).or_else(|| if q.gap > 0.0 { bank_point_at_gap(&BankQuery { gap: 0.0, ..*q }, centre, prefer) } else { None })
+pub fn bank_point(q: &BankQuery, centre: (f64, f64), market: Option<(f64, f64)>, prefer: Option<(f64, f64)>) -> Option<(f64, f64)> {
+    let two = |q: &BankQuery| bank_point_at_gap(q, centre, market, prefer).or_else(|| if q.gap > 0.0 { bank_point_at_gap(&BankQuery { gap: 0.0, ..*q }, centre, market, prefer) } else { None });
+    two(q).or_else(|| if q.same_bank && market.is_some() { two(&BankQuery { same_bank: false, ..*q }) } else { None })
+}
+
+/// The side of the stroke at `hit` that `p` is on, as `hit.n` or its
+/// opposite; `None` for a point on the line itself (within [`ON_LINE_EPS`]).
+fn side_of(hit: &Hit, p: (f64, f64)) -> Option<(f64, f64)> {
+    let s = (p.0 - hit.foot.0) * hit.n.0 + (p.1 - hit.foot.1) * hit.n.1;
+    (s.abs() > ON_LINE_EPS).then(|| if s < 0.0 { (-hit.n.0, -hit.n.1) } else { hit.n })
 }
 
 /// [`bank_point`] at `q.gap` exactly, with no second try.
-fn bank_point_at_gap(q: &BankQuery, centre: (f64, f64), prefer: Option<(f64, f64)>) -> Option<(f64, f64)> {
-    let (hit, half) = q.covering(centre)?;
-    let clear = |p: (f64, f64)| (q.dry)(p.0, p.1) && q.covering(p).is_none();
+fn bank_point_at_gap(q: &BankQuery, centre: (f64, f64), market: Option<(f64, f64)>, prefer: Option<(f64, f64)>) -> Option<(f64, f64)> {
+    let clear = |p: (f64, f64)| (q.dry)(p.0, p.1) && q.covering(p).is_none() && !(q.same_bank && market.is_some_and(|m| q.index.crosses(q.geom, p, m, &|pt| q.half(pt).is_some())));
+    let Some((hit, half)) = q.covering(centre) else {
+        // Clear of every stroke: it stays, unless its market is across the
+        // nearest drawn river (Ruling HM). The search reaches as far as the
+        // market is, plus the widest stroke.
+        let m = market?;
+        let hit = q.index.nearest(q.geom, centre, (m.0 - centre.0).hypot(m.1 - centre.1) + q.wide)?;
+        let n = side_of(&hit, m).filter(|n| n.0 * hit.n.0 + n.1 * hit.n.1 < 0.0)?;
+        let c = q.half(hit.point)? + q.gap;
+        let p = (hit.foot.0 + n.0 * c, hit.foot.1 + n.1 * c);
+        return clear(p).then_some(p);
+    };
     let c = half + q.gap;
-    let n = match prefer {
-        Some(v) if hit.d <= ON_LINE_EPS => {
+    let n = match (market.and_then(|m| side_of(&hit, m)), prefer) {
+        // Ruling HM: the market's bank, whichever side the centre is on.
+        (Some(n), _) => n,
+        (None, Some(v)) if hit.d <= ON_LINE_EPS => {
             // The preferred bank, as a side of this stroke.
             if v.0 * hit.n.0 + v.1 * hit.n.1 < 0.0 { (-hit.n.0, -hit.n.1) } else { hit.n }
         }
@@ -330,6 +457,81 @@ fn bank_point_at_gap(q: &BankQuery, centre: (f64, f64), prefer: Option<(f64, f64
 /// judgement** (owner Ruling HG asks for "on the bank, not in it"; the frames
 /// in `docs/evidence/settlements-on-bank-2026-11-22/` are what it was judged on).
 pub const MARKER_GAP_PX: f64 = 2.0;
+
+/// **Ruling HM: the least a town's origin stands from its river's centreline,
+/// metres**, whatever the drawn width ([`WorldGen::town_origin`]). On a fine
+/// grid the drawn river is narrower than the channel the town itself lays
+/// (12 to 46 m, `urban_adapter::um_water_ctx_box_smooth`), and a box centre
+/// in that channel is moved by the layout to the first dry ring point,
+/// whichever bank that is. **Source**: `cartalith_urban::routes::place_anchors`'
+/// own nearest market distance from a river (its `d_band` floor, 60 m), which
+/// clears half the widest channel (23 m) and the 30 m flood band beside it.
+pub const ORIGIN_MIN_CLEAR_M: f64 = 60.0;
+
+/// **Ruling HM: how far past the drawn river's edge a town's origin stands,
+/// metres** ([`WorldGen::town_origin`]). The town lays its river as wide as
+/// the map draws it (`urban_adapter::DrawnRiver::widths`), and its market,
+/// which is the origin, must be on dry ground beside it. **Source**:
+/// `cartalith_urban::routes::place_anchors`' flood band, the 30 m beside a
+/// channel it never puts a market in; it also covers the half cell (11 m) by
+/// which the town's 22 m water raster widens a stamped band.
+pub const ORIGIN_BANK_GAP_M: f64 = 30.0;
+
+/// **Ruling HM: the bank a settlement's roads are on**, as a point one cell
+/// out from the stroke at `hit` on that side (a side for [`bank_point`]'s
+/// `market`, not a place), or `None` when the roads favour neither bank.
+///
+/// The roads are the ones the town is laid out with
+/// (`urban_adapter::um_primary_paths`: every way ending at the cell `at`,
+/// sampled every 55 m out to the town box's long side), and each sample
+/// counts one for the side of the stroke it is on. A town is laid out from
+/// its market along these roads, and a market put across a river as wide as
+/// the map draws it from all of them houses almost nobody (measured on seed
+/// 483920 at 384 cells before this rule: hamlets at 1 to 13 % of their
+/// target). **A labelled judgement**: a majority of samples, any margin.
+fn roads_bank(hit: &Hit, centre: (f64, f64), ways: &[cartalith_civ::Way], at: (f64, f64), gw: usize, map_width_km: f64) -> Option<(f64, f64)> {
+    let gpm = gw as f64 / (map_width_km * 1000.0);
+    let paths = cartalith_civ::urban_adapter::um_primary_paths(ways, at.0, at.1, gw, map_width_km, 0.0)?;
+    let sum: f64 = paths
+        .iter()
+        .flatten()
+        .filter_map(|o| side_of(hit, (centre.0 + o.x * gpm, centre.1 + o.y * gpm)))
+        .map(|n| (n.0 * hit.n.0 + n.1 * hit.n.1).signum())
+        .sum();
+    (sum != 0.0).then(|| (hit.foot.0 + hit.n.0 * sum.signum(), hit.foot.1 + hit.n.1 * sum.signum()))
+}
+
+/// [`WorldGen::town_origin`]'s rule, apart from the world it reads: the town
+/// point for a settlement whose cell centre is `c` (traced frame, cells) on a
+/// grid of `cell_m` metres a cell, and its distance from the nearest drawn
+/// centreline in cells. `roads` names the bank the settlement's roads are on,
+/// given the stroke covering `c` ([`roads_bank`]). `None` where `c` is
+/// already clear or no dry clear point is in reach.
+pub fn origin_point(
+    geom: &RiverGeometry,
+    index: &StrokeIndex,
+    dry: &dyn Fn(f64, f64) -> bool,
+    cell_m: f64,
+    c: (f64, f64),
+    roads: &dyn Fn(&Hit) -> Option<(f64, f64)>,
+) -> Option<((f64, f64), f64)> {
+    // `a` and `ppc` are not read on the ground.
+    let a = TerrainAppearance::default();
+    let min = ORIGIN_MIN_CLEAR_M / cell_m;
+    let wide = widest_ground_half(geom);
+    // The widest the river is drawn anywhere the town's box can reach along it: the points within
+    // the adapter's own stem reach (`um_water_ctx_box_smooth`: 1.8 cells, or three quarters of the
+    // box's long side, here the box grown for the widest river), half as far again since the
+    // adapter's reach is straight-line and this one is along the run.
+    let long_m = cartalith_civ::urban_adapter::SITE_WM + 2.0 * (wide * cell_m + ORIGIN_BANK_GAP_M + ORIGIN_MIN_CLEAR_M);
+    let k = (0.75 * long_m / cell_m).max(1.8) * 1.5;
+    let q = BankQuery { geom, index, a: &a, ppc: 1.0, gap: ORIGIN_BANK_GAP_M / cell_m, dry, wide, ground: Some(min), reach_widths: Some(index.reach_widths(geom, k)), same_bank: false };
+    // The bank the settlement's roads are on, else the centre's own.
+    let side = q.covering(c).and_then(|(hit, _)| roads(&hit));
+    let p = bank_point(&q, c, side, Some(MARKET_FIRST_BANK))?;
+    let river = index.nearest(geom, p, (wide.max(min) + q.gap) * (1.0 + SEARCH_REACH) + 1.0)?;
+    Some((p, river.d))
+}
 
 #[godot_api(secondary)]
 impl WorldGen {
@@ -366,8 +568,186 @@ impl WorldGen {
                 f64::from(ws.field[k]) >= self.sea_level && civ.water_bodies.get(k).is_none_or(|&c| c == 0)
             }
         };
-        let q = BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px.max(0.0) / f64::from(ppc), dry: &dry, wide: widest_half(&geom, &a) };
-        Some(civ.settlements.iter().map(|s| bank_point(&q, (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), Some(MARKET_FIRST_BANK))).collect())
+        let q = BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px.max(0.0) / f64::from(ppc), dry: &dry, wide: widest_half(&geom, &a), ground: None, reach_widths: None, same_bank: true };
+        // Ruling HM: each marker on its market's bank (`market_points`).
+        let markets = self.market_points();
+        Some(civ.settlements.iter().zip(markets).map(|(s, m)| bank_point(&q, (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), m, Some(MARKET_FIRST_BANK))).collect())
+    }
+
+    /// **Ruling HM: where settlement `s`'s town is laid out**, when that is
+    /// not its cell: the nearest dry point clear of every drawn river at its
+    /// width on the ground ([`BankQuery::ground`], never nearer the centreline
+    /// than [`ORIGIN_MIN_CLEAR_M`]) by [`ORIGIN_BANK_GAP_M`], on the bank its roads are on
+    /// ([`roads_bank`]), else the bank the cell centre is on ([`MARKET_FIRST_BANK`] for a centre on
+    /// the line). The same rule as the
+    /// marker's ([`bank_point`]) at the one density a generated town can use:
+    /// none. `None` for a settlement already clear (its town stays round its
+    /// cell), with the `civ.bank_sites` switch off, with no drawn network (a
+    /// loaded save), and where no dry clear point is in reach.
+    ///
+    /// Must depend on nothing a view can change (zoom, window, look): a
+    /// layout is cached, hashed and frozen in a save.
+    pub(crate) fn town_origin(&self, s: &cartalith_civ::NamedSettlement) -> Option<cartalith_civ::urban_adapter::BankOrigin> {
+        if !self.params.civ.bank_sites {
+            return None;
+        }
+        let (Some(civ), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return None };
+        let (geom, index) = self.bank_index()?;
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let cell_m = self.map_width_km * 1000.0 / gw.max(1) as f64;
+        if !(cell_m > 0.0) {
+            return None;
+        }
+        let dry = |x: f64, y: f64| {
+            x >= 0.0 && y >= 0.0 && (x as usize) < gw && (y as usize) < gh && {
+                let k = y as usize * gw + x as usize;
+                f64::from(ws.field[k]) >= self.sea_level && civ.water_bodies.get(k).is_none_or(|&c| c == 0)
+            }
+        };
+        let c = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
+        let (p, river_cells) = origin_point(&geom, &index, &dry, cell_m, c, &|hit| roads_bank(hit, c, &civ.ways, (s.placement.x as f64, s.placement.y as f64), gw, self.map_width_km))?;
+        // The adapter's frame puts cell `c` at `c`; the traced frame at `c + 0.5`.
+        Some(cartalith_civ::urban_adapter::BankOrigin { at: (p.0 - 0.5, p.1 - 0.5), river_m: river_cells * cell_m })
+    }
+
+    /// **Ruling HM: where each settlement's market stands on the map**
+    /// (traced frame, cells), in `get_settlements()` order, for the marker to
+    /// follow: a frozen town's own market (its saved layout, which is what
+    /// the City Viewer shows whatever the rules have become), else the point
+    /// its town is laid round ([`Self::town_origin`], or the cell centre for
+    /// a town that stays round its cell: where the layout puts the market
+    /// unless one of its own rules moves it; `town_bank_census` counts the
+    /// towns where one did).
+    fn market_points(&self) -> Vec<Option<(f64, f64)>> {
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        civ.settlements
+            .iter()
+            .map(|s| match self.town_layouts.rows.get(&s.tid).and_then(|r| r.layout.as_ref()) {
+                Some(l) => Some(self.town_grid(l, s.placement.x, s.placement.y, l.market)),
+                None => Some(self.town_origin(s).map_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), |o| (o.at.0 + 0.5, o.at.1 + 0.5))),
+            })
+            .collect()
+    }
+
+    /// **Ruling HM: where each settlement stands on the map for an
+    /// engine-placed label** (`label_bridge`'s generated settlement and region
+    /// labels), as a point per settlement: [`Self::market_points`]. Empty
+    /// with the `civ.bank_sites` switch off, so those labels are anchored at
+    /// the cell centre exactly as before the ruling. A label is placed once
+    /// and stored, so it reads the town's point, which no view changes, not
+    /// the marker's, which moves with the zoom.
+    pub(crate) fn settlement_points(&self) -> Vec<(f64, f64)> {
+        if !self.params.civ.bank_sites {
+            return Vec::new();
+        }
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        self.market_points().into_iter().zip(&civ.settlements).map(|(m, s)| m.unwrap_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5))).collect()
+    }
+
+    /// **The Ruling HM census** (a measurement; `_bankcensus_probe.gd --towns`
+    /// prints it), here because the drawn river and the app's own layout
+    /// context exist only on a live `WorldGen`. One row per settlement of
+    /// `indices`, laid out exactly as `urban_layouts` lays it out under the
+    /// switches in force, measured against the strokes a `view_w` x `view_h`
+    /// map view draws at x1 and x4:
+    ///
+    /// - `i`; `laid` (a layout came back); `origin_m` (how far the box centre
+    ///   is from the cell, metres) and `river_m` ([`Self::town_origin`]; both
+    ///   absent for a town round its cell); `wm`, `hm` (the box);
+    /// - `river` (the layout has a river line of two points or more);
+    ///   `river_w`; `market_river_m`, the market's distance to that line
+    ///   (absent with no river): the market is in the City Viewer's river
+    ///   when it is under half `river_w`;
+    /// - `wet` (`town_measures::wet_buildings`), `fronted`, `reach`
+    ///   (`town_measures::bank_frontage`'s fronted and built-reach samples),
+    ///   `pop`, `pop_target`;
+    /// - `over_b`, `over_w`, `over_s` and `of_b`, `of_w`, `of_s`: of the
+    ///   town's footprint points carried onto the map (every building corner
+    ///   and centre; every wall ring vertex; every street's two ends and
+    ///   middle), how many lie inside a river stroke the map draws at its
+    ///   ground width (the default look's; [`BankQuery::ground`] with no
+    ///   minimum), and how many were tested. A street that bridges the river
+    ///   is over it by design, so the streets are counted apart;
+    /// - `mx`, `my`: the market on the map, cells from the cell centre;
+    /// - `side_x1`, `side_x4`: `1` the marker and the market stand on one
+    ///   bank, `-1` the centreline of a river drawn at that zoom runs
+    ///   between them ([`StrokeIndex::crosses`]); absent with no drawn river
+    ///   within two cells of the cell.
+    #[func]
+    fn town_bank_census(&self, indices: PackedInt32Array, view_w: f64, view_h: f64) -> Array<VarDictionary> {
+        use crate::town_measures::{bank_frontage, laid_ctx, line_dist, wet_buildings};
+        let mut out = Array::new();
+        let Some((geom, index)) = self.bank_index() else { return out };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let fit = crate::river_stroke::fit_ppc_in((view_w as f32, view_h as f32), gw, gh);
+        let marks: Vec<PackedVector2Array> = {
+            let _law = crate::river_stroke::ScaleGuard::hold(Some((fit, crate::river_stroke::start_share(self.map_width_km as f32))));
+            [fit, fit * 4.0].iter().map(|&ppc| self.settlement_bank_offsets(f64::from(ppc), -1.0)).collect()
+        };
+        let idx: Vec<usize> = indices.as_slice().iter().filter_map(|&i| usize::try_from(i).ok()).collect();
+        let mpc = self.map_width_km * 1000.0 / gw.max(1) as f64;
+        // The map's strokes at their ground width, for `over` (the default look's `river_width` is 1).
+        let a = TerrainAppearance::default();
+        let look = self.appearance();
+        let strokes = BankQuery { geom: &geom, index: &index, a: &a, ppc: 1.0, gap: 0.0, dry: &|_, _| true, wide: widest_ground_half(&geom), ground: Some(0.0), reach_widths: None, same_bank: false };
+        for (i, row) in self.town_batch(&idx, |i, s, ctx, rules, o, _| {
+            let mut d = vdict! { "i" => i as i64, "laid" => false };
+            if let Some(b) = o.origin {
+                d.set("origin_m", (b.at.0 - s.placement.x as f64).hypot(b.at.1 - s.placement.y as f64) * mpc);
+                d.set("river_m", b.river_m);
+            }
+            let Some(l) = self.stretch_layout(ctx, rules) else { return d };
+            d.set("laid", true);
+            d.set("wm", l.wm);
+            d.set("hm", l.hm);
+            let rv: Vec<(f64, f64)> = l.river.iter().map(|v| (v.x, v.y)).collect();
+            d.set("river", rv.len() >= 2);
+            d.set("river_w", l.river_w);
+            if let Some(m) = line_dist((l.market.x, l.market.y), &rv) {
+                d.set("market_river_m", m);
+            }
+            let open = laid_ctx(ctx, &l).water.as_ref().and_then(|w| w.ctx.open_water.as_deref().map(|o| (o, w.ctx.mw, w.ctx.mh, w.ctx.cell_m)));
+            d.set("wet", wet_buildings(&l, open) as i64);
+            let (f, _, r) = bank_frontage(&l, &rv);
+            d.set("fronted", f as i64);
+            d.set("reach", r as i64);
+            d.set("pop", l.pop);
+            d.set("pop_target", l.pop_target);
+            use cartalith_civ::urban_adapter::Vec2 as V;
+            let mut kinds: [Vec<V>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+            for b in &l.buildings {
+                let n = b.poly.len().max(1) as f64;
+                kinds[0].extend(b.poly.iter().copied());
+                kinds[0].push(V::new(b.poly.iter().map(|v| v.x).sum::<f64>() / n, b.poly.iter().map(|v| v.y).sum::<f64>() / n));
+            }
+            kinds[1].extend(l.wall.ring.iter().flatten().copied());
+            for e in &l.edges {
+                kinds[2].extend([e.a, e.b, V::new((e.a.x + e.b.x) / 2.0, (e.a.y + e.b.y) / 2.0)]);
+            }
+            for (pts, k) in kinds.iter().zip(["b", "w", "s"]) {
+                let over = pts.iter().filter(|&&v| strokes.covering(self.town_grid(&l, s.placement.x, s.placement.y, v)).is_some()).count();
+                d.set(format!("over_{k}"), over as i64);
+                d.set(format!("of_{k}"), pts.len() as i64);
+            }
+            let c = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
+            let m = self.town_grid(&l, s.placement.x, s.placement.y, l.market);
+            d.set("mx", m.0 - c.0);
+            d.set("my", m.1 - c.1);
+            if index.nearest(&geom, c, 2.0).is_some() {
+                for (k, name) in ["x1", "x4"].iter().enumerate() {
+                    let off = marks[k].get(i).unwrap_or(Vector2::ZERO);
+                    let p = (c.0 + f64::from(off.x), c.1 + f64::from(off.y));
+                    let ppc = fit * [1.0, 4.0][k];
+                    let _law = crate::river_stroke::ScaleGuard::hold(Some((fit, crate::river_stroke::start_share(self.map_width_km as f32))));
+                    d.set(format!("side_{name}"), if index.crosses(&geom, p, m, &|pt| half_width_cells(pt, ppc, &look).is_some()) { -1i64 } else { 1i64 });
+                }
+            }
+            d
+        }) {
+            let _ = i;
+            out.push(&row);
+        }
+        out
     }
 
     /// **Ruling HG: where each settlement's marker stands**, as an offset in
@@ -433,7 +813,7 @@ impl WorldGen {
             }
         };
         let wide = widest_half(&geom, &a);
-        let at = |ppc: f32, gap_px: f64| BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px / f64::from(ppc), dry: &dry, wide };
+        let at = |ppc: f32, gap_px: f64| BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px / f64::from(ppc), dry: &dry, wide, ground: None, reach_widths: None, same_bank: false };
         let zooms = [("x1", fit), ("x4", fit * 4.0)];
         for (i, s) in civ.settlements.iter().enumerate() {
             let c = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
@@ -463,7 +843,7 @@ impl WorldGen {
                     dry(n.0, n.1) && bare.covering(n).is_none() && index.nearest(&geom, n, 2.0).is_some_and(|h| h.d <= on_cells)
                 });
                 d.set(format!("cell_{name}"), cell);
-                if let Some(p) = bank_point(&at(ppc, gap_px), c, Some(MARKET_FIRST_BANK)) {
+                if let Some(p) = bank_point(&at(ppc, gap_px), c, None, Some(MARKET_FIRST_BANK)) {
                     d.set(format!("shift_{name}"), (p.0 - c.0).hypot(p.1 - c.1));
                     d.set(format!("left_{name}"), bare.covering(p).is_some());
                 } else {
@@ -498,7 +878,7 @@ impl WorldGen {
             }
         };
         let wide = widest_half(&geom, &a);
-        let at = |ppc: f32, gap_px: f64| BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px / f64::from(ppc), dry: &dry, wide };
+        let at = |ppc: f32, gap_px: f64| BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px / f64::from(ppc), dry: &dry, wide, ground: None, reach_widths: None, same_bank: false };
         let max_r = cartalith_civ::tools::civ_snap_radius(gw);
         let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km);
         let mut clicks = 0i64;
@@ -519,7 +899,7 @@ impl WorldGen {
                     for (k, ppc) in [fit, fit * 4.0].into_iter().enumerate() {
                         let bare = at(ppc, 0.0);
                         n[k][0] += i64::from(bare.covering(c).is_some());
-                        n[k][1] += i64::from(bare.covering(bank_point(&at(ppc, gap_px), c, Some(MARKET_FIRST_BANK)).unwrap_or(c)).is_some());
+                        n[k][1] += i64::from(bare.covering(bank_point(&at(ppc, gap_px), c, None, Some(MARKET_FIRST_BANK)).unwrap_or(c)).is_some());
                     }
                 }
             }
@@ -568,7 +948,7 @@ mod tests {
         let _law = ScaleGuard::hold(Some((1.0, 1.0)));
         let a = TerrainAppearance::default();
         let index = StrokeIndex::new(geom);
-        bank_point(&BankQuery { geom, index: &index, a: &a, ppc, gap, dry, wide: widest_half(geom, &a) }, c, Some(MARKET_FIRST_BANK))
+        bank_point(&BankQuery { geom, index: &index, a: &a, ppc, gap, dry, wide: widest_half(geom, &a), ground: None, reach_widths: None, same_bank: false }, c, None, Some(MARKET_FIRST_BANK))
     }
 
     /// Protects the rule itself: a centre inside the stroke moves straight out
@@ -662,7 +1042,7 @@ mod tests {
         let _law = ScaleGuard::hold(Some((1.0, 1.0)));
         let a = TerrainAppearance::default();
         let index = StrokeIndex::new(&g);
-        let bare = BankQuery { geom: &g, index: &index, a: &a, ppc: 16.0, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a) };
+        let bare = BankQuery { geom: &g, index: &index, a: &a, ppc: 16.0, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a), ground: None, reach_widths: None, same_bank: false };
         assert!(bare.covering(c).is_some(), "premise: the centre is in the water");
         assert!(bare.covering(p).is_none(), "the point is clear of the trunk and the tributary: {p:?}");
         assert!(p.1 < 10.5 - 0.6 - 0.049, "north of the trunk's edge plus the gap: {p:?}");
@@ -684,7 +1064,7 @@ mod tests {
         let g = RiverGeometry { runs: vec![r] };
         let a = TerrainAppearance::default();
         let index = StrokeIndex::new(&g);
-        let q = |ppc: f32| BankQuery { geom: &g, index: &index, a: &a, ppc, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a) };
+        let q = |ppc: f32| BankQuery { geom: &g, index: &index, a: &a, ppc, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a), ground: None, reach_widths: None, same_bank: false };
         // Fit 1 px per cell, a whole-world start share: rank 1 is hidden at x1 and drawn from x64.
         let _law = ScaleGuard::hold(Some((1.0, 0.044)));
         assert!(q(1.0).covering((8.5, 10.5)).is_none(), "hidden at the opening view");
@@ -700,9 +1080,162 @@ mod tests {
             r.ranks = vec![u; 3];
             let g = RiverGeometry { runs: vec![r] };
             let index = StrokeIndex::new(&g);
-            BankQuery { geom: &g, index: &index, a: &a, ppc: 1.0, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a) }.covering((8.5, 10.5)).is_some()
+            BankQuery { geom: &g, index: &index, a: &a, ppc: 1.0, gap: 0.0, dry: &|_, _| true, wide: widest_half(&g, &a), ground: None, reach_widths: None, same_bank: false }.covering((8.5, 10.5)).is_some()
         };
         assert!(!cover(faint), "rank {faint} is at alpha {} at the opening view: not drawn yet", alpha(faint));
         assert!(cover(solid), "rank {solid} is at alpha {}: drawn", alpha(solid));
     }
+    /// A query over `geom` for Ruling HM's tests: as drawn at `ppc` with `gap`
+    /// cells, or on the ground with minimum `ground`; all ground dry.
+    fn hm<'a>(geom: &'a RiverGeometry, index: &'a StrokeIndex, a: &'a TerrainAppearance, ppc: f32, gap: f64, ground: Option<f64>, same_bank: bool) -> BankQuery<'a> {
+        BankQuery { geom, index, a, ppc, gap, dry: &|_, _| true, wide: widest_half(geom, a), ground, reach_widths: None, same_bank }
+    }
+
+    /// Protects Ruling HM's town edge ([`BankQuery::ground`]): on the ground a
+    /// 0.4-cell river's edge is 0.2 cells from its centreline whatever the
+    /// density (as drawn at one pixel per cell it is the pixel floor's 0.5),
+    /// the gap is added to it, and a minimum wider than the stroke replaces
+    /// it. A centre on the line takes the north bank ([`MARKET_FIRST_BANK`]).
+    #[test]
+    fn on_the_ground_the_edge_is_the_width_with_a_minimum_and_no_pixel_floor() {
+        let _law = ScaleGuard::hold(Some((1.0, 1.0)));
+        let (g, a) = (east_river(), TerrainAppearance::default());
+        let index = StrokeIndex::new(&g);
+        let at = |q: &BankQuery| bank_point(q, (8.5, 10.5), None, Some(MARKET_FIRST_BANK)).expect("moved");
+        let p = at(&hm(&g, &index, &a, 1.0, 0.03, Some(0.05), false));
+        assert!((p.0 - 8.5).abs() < 1e-9 && (p.1 - (10.5 - 0.23)).abs() < 1e-6, "ground: half the width plus the gap, north: {p:?}");
+        let p = at(&hm(&g, &index, &a, 1.0, 0.03, None, false));
+        assert!((p.1 - (10.5 - 0.53)).abs() < 1e-6, "as drawn at 1 px per cell: the pixel floor: {p:?}");
+        let p = at(&hm(&g, &index, &a, 1.0, 0.03, Some(0.6), false));
+        assert!((p.1 - (10.5 - 0.63)).abs() < 1e-6, "the minimum clearance replaces a narrower stroke: {p:?}");
+        // The look does not reach the ground: a doubled river width moves nothing.
+        let wide = TerrainAppearance { river_width: 2.0, ..TerrainAppearance::default() };
+        let p = at(&hm(&g, &index, &wide, 1.0, 0.03, Some(0.05), false));
+        assert!((p.1 - (10.5 - 0.23)).abs() < 1e-6, "the look's river width is not read on the ground: {p:?}");
+    }
+
+    /// Protects Ruling HM's marker rule: the marker stands on its market's
+    /// bank. A centre just south of the line goes south on its own, north
+    /// when its market is north; a centre clear of the stroke stays, unless
+    /// its market is across the river, when it goes to the market's edge;
+    /// and a market on the centre's own side moves a clear centre nowhere.
+    #[test]
+    fn the_marker_takes_its_markets_bank() {
+        let _law = ScaleGuard::hold(Some((1.0, 1.0)));
+        let (g, a) = (east_river(), TerrainAppearance::default());
+        let index = StrokeIndex::new(&g);
+        let q = hm(&g, &index, &a, 16.0, 0.07, None, true);
+        let own = bank_point(&q, (8.5, 10.6), None, None).expect("moved");
+        assert!((own.1 - 10.77).abs() < 1e-6, "its own bank, south: {own:?}");
+        let north = bank_point(&q, (8.5, 10.6), Some((8.7, 9.0)), None).expect("moved");
+        assert!((north.1 - 10.23).abs() < 1e-6 && (north.0 - 8.5).abs() < 1e-9, "the market's bank, north: {north:?}");
+        assert_eq!(bank_point(&q, (8.5, 11.5), None, None), None, "a clear centre stays");
+        assert_eq!(bank_point(&q, (8.5, 11.5), Some((8.5, 12.0)), None), None, "a market on its own bank moves nothing");
+        let over = bank_point(&q, (8.5, 11.5), Some((8.5, 10.0)), None).expect("moved across");
+        assert!((over.1 - 10.23).abs() < 1e-6, "across to the market's edge: {over:?}");
+    }
+
+    /// Protects [`StrokeIndex::crosses`] and the same-bank rule built on it:
+    /// a line over the centreline crosses, one along a bank does not, and a
+    /// river that is not drawn has no banks. Where the market's bank has no
+    /// dry ground at all the marker still leaves the water, on the other
+    /// bank (Ruling HG holds before Ruling HM).
+    #[test]
+    fn a_marker_is_never_handed_across_a_drawn_river_from_its_market() {
+        let _law = ScaleGuard::hold(Some((1.0, 1.0)));
+        let (g, a) = (east_river(), TerrainAppearance::default());
+        let index = StrokeIndex::new(&g);
+        assert!(index.crosses(&g, (8.5, 10.0), (8.7, 11.0), &|_| true));
+        assert!(!index.crosses(&g, (8.5, 10.0), (12.0, 10.3), &|_| true));
+        assert!(!index.crosses(&g, (8.5, 10.0), (8.7, 11.0), &|_| false), "a river not drawn has no banks");
+        // North of the river is all open water: the market's bank cannot be reached.
+        let dry = |_x: f64, y: f64| y > 10.5;
+        let q = BankQuery { dry: &dry, ..hm(&g, &index, &a, 16.0, 0.07, None, true) };
+        let p = bank_point(&q, (8.5, 10.5), Some((8.5, 9.0)), None).expect("out of the water");
+        assert!(p.1 > 10.5 + 0.2, "on the south bank, the only dry one: {p:?}");
+        // With both banks dry the same query never crosses to the south.
+        let q = hm(&g, &index, &a, 16.0, 0.07, None, true);
+        let p = bank_point(&q, (8.5, 10.5), Some((8.5, 9.0)), None).expect("moved");
+        assert!(p.1 < 10.5 && !index.crosses(&g, p, (8.5, 9.0), &|_| true));
+        // The market's bank is dry only east of x = 8.8, which the ring search reaches later than
+        // the south bank: the marker still stays north of the line.
+        let dry = |x: f64, y: f64| y > 10.5 || x > 8.8;
+        let q = BankQuery { dry: &dry, ..hm(&g, &index, &a, 16.0, 0.07, None, true) };
+        let p = bank_point(&q, (8.5, 10.5), Some((8.5, 9.0)), None).expect("moved");
+        assert!(p.1 < 10.5 && p.0 > 8.8, "on the market's bank, further along: {p:?}");
+        let free = BankQuery { same_bank: false, ..q };
+        let p = bank_point(&free, (8.5, 10.5), Some((8.5, 9.0)), None).expect("moved");
+        assert!(p.1 > 10.5, "the control: without the rule the nearer south bank is taken: {p:?}");
+    }
+
+    /// Protects [`roads_bank`]: a settlement on the line whose one road runs
+    /// off to the south is given the south bank, one whose road runs north
+    /// the north bank, and one with a road each way neither.
+    #[test]
+    fn the_roads_bank_is_where_most_of_the_road_is() {
+        let _law = ScaleGuard::hold(Some((1.0, 1.0)));
+        let (g, a) = (east_river(), TerrainAppearance::default());
+        let index = StrokeIndex::new(&g);
+        let q = hm(&g, &index, &a, 16.0, 0.0, Some(0.0), false);
+        let c = (8.5, 10.5);
+        let hit = q.covering(c).expect("on the river").0;
+        // A 64-cell-wide world over 64 km: 1 km cells, so a road of 3 cells is sampled about 30 times in the 1.7 km reach.
+        let way = |to: (f64, f64)| cartalith_civ::Way { tid: 1, pts: vec![(8.0, 10.0), to], brks: Vec::new(), km: 3.0, name: String::new(), way_type: cartalith_civ::WayType::Road, a_idx: 0, b_idx: 1, hidden: false };
+        let side = |ways: &[cartalith_civ::Way]| roads_bank(&hit, c, ways, (8.0, 10.0), 64, 64.0).map(|p| (p.1 - 10.5).signum());
+        assert_eq!(side(&[way((8.0, 13.0))]), Some(1.0), "south");
+        assert_eq!(side(&[way((8.0, 7.0))]), Some(-1.0), "north");
+        assert_eq!(side(&[way((8.0, 13.0)), way((8.0, 7.0))]), None, "a road each way: neither");
+        assert_eq!(side(&[]), None, "no road: neither");
+    }
+
+    /// Protects [`StrokeIndex::reach_widths`] and its use on the ground: a
+    /// run 0.2 cells wide that widens to 0.8 at its fourth point reads 0.8
+    /// from 4.5 cells of run either side of it (its points are 4 apart), and a town two points upstream is
+    /// kept clear of the wide width (0.4 from the line), not the local 0.1.
+    #[test]
+    fn the_towns_edge_is_the_widest_the_river_is_drawn_within_its_reach() {
+        let _law = ScaleGuard::hold(Some((1.0, 1.0)));
+        let mut r = run(&[(2.5, 10.5), (6.5, 10.5), (10.5, 10.5), (14.5, 10.5), (18.5, 10.5)], 0.2);
+        r.widths[3] = 0.8;
+        let g = RiverGeometry { runs: vec![r] };
+        let index = StrokeIndex::new(&g);
+        assert_eq!(index.reach_widths(&g, 4.5), &[vec![0.2, 0.2, 0.8, 0.8, 0.8]]);
+        let a = TerrainAppearance::default();
+        let q = BankQuery { reach_widths: Some(index.reach_widths(&g, 4.5)), ..hm(&g, &index, &a, 1.0, 0.0, Some(0.0), false) };
+        let p = bank_point(&q, (8.5, 10.5), None, Some(MARKET_FIRST_BANK)).expect("moved");
+        assert!((p.1 - 10.1).abs() < 1e-6, "clear of the 0.8-cell width: {p:?}");
+        let local = hm(&g, &index, &a, 1.0, 0.0, Some(0.0), false);
+        let p = bank_point(&local, (8.5, 10.5), None, Some(MARKET_FIRST_BANK)).expect("moved");
+        assert!(p.1 > 10.1 + 0.05, "without it, the interpolated local width: {p:?}");
+    }
+
+    /// Protects [`origin_point`]'s two metre constants as literals, on a
+    /// 100 m grid: a town on the line of a 0.4-cell (40 m) river stands
+    /// [`ORIGIN_MIN_CLEAR_M`] + [`ORIGIN_BANK_GAP_M`] = 90 m off it (the
+    /// minimum, since half the width is 20 m), and on a 4-cell (400 m) river
+    /// 200 + 30 = 230 m; its distance to the river is reported the same; its
+    /// roads' bank is taken over its own; and a centre already 95 m off the
+    /// narrow river is not moved.
+    #[test]
+    fn a_town_stands_thirty_metres_off_the_drawn_edge_and_never_under_ninety_from_the_line() {
+        let narrow = east_river();
+        let index = StrokeIndex::new(&narrow);
+        let (p, d) = origin_point(&narrow, &index, &|_, _| true, 100.0, (8.5, 10.5), &|_| None).expect("moved");
+        assert!((p.1 - (10.5 - 0.9)).abs() < 1e-6 && (d - 0.9).abs() < 1e-6, "90 m, north: {p:?} {d}");
+        let (p, _) = origin_point(&narrow, &index, &|_, _| true, 100.0, (8.5, 10.5), &|h| Some((h.foot.0, h.foot.1 + 1.0))).expect("moved");
+        assert!((p.1 - (10.5 + 0.9)).abs() < 1e-6, "its roads' bank, south: {p:?}");
+        assert_eq!(origin_point(&narrow, &index, &|_, _| true, 100.0, (8.5, 11.45), &|_| None), None, "95 m off: clear");
+        let wide = RiverGeometry { runs: vec![run(&[(2.5, 10.5), (6.5, 10.5), (10.5, 10.5), (14.5, 10.5), (18.5, 10.5)], 4.0)] };
+        let index = StrokeIndex::new(&wide);
+        let (p, d) = origin_point(&wide, &index, &|_, _| true, 100.0, (8.5, 10.5), &|_| None).expect("moved");
+        assert!((p.1 - (10.5 - 2.3)).abs() < 1e-6 && (d - 2.3).abs() < 1e-6, "230 m: {p:?} {d}");
+        // The narrow river widening to 4 cells two points downstream: the town clears the wide width.
+        let mut r = run(&[(2.5, 10.5), (6.5, 10.5), (10.5, 10.5), (14.5, 10.5), (18.5, 10.5)], 0.4);
+        r.widths[3] = 4.0;
+        let widening = RiverGeometry { runs: vec![r] };
+        let index = StrokeIndex::new(&widening);
+        let (p, _) = origin_point(&widening, &index, &|_, _| true, 100.0, (8.5, 10.5), &|_| None).expect("moved");
+        assert!((p.1 - (10.5 - 2.3)).abs() < 1e-6, "the widest width within its reach: {p:?}");
+    }
+
 }

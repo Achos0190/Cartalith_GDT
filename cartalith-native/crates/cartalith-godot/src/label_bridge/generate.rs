@@ -169,12 +169,17 @@ impl WorldGen {
     /// is built fresh and owned by the caller: the lakes are named off what
     /// the map draws, not off `CivData::water_bodies`, which goes stale after
     /// a sculpt (see that helper's doc comment).
-    fn label_world<'a>(&'a self, water: Option<&'a [u8]>, lake_min_cells: usize) -> LabelWorld<'a> {
+    ///
+    /// `at` is where each settlement stands on the map (Ruling HM,
+    /// [`Self::settlement_points`]), owned by the caller for the same reason;
+    /// empty anchors every settlement label at its cell centre.
+    fn label_world<'a>(&'a self, water: Option<&'a [u8]>, lake_min_cells: usize, at: &'a [(f64, f64)]) -> LabelWorld<'a> {
         let civ = self.civ.as_ref();
         LabelWorld {
             continents: civ.map_or(&[][..], |c| c.continents.as_slice()),
             provinces: civ.map_or(&[][..], |c| c.province_list.as_slice()),
             settlements: civ.map_or(&[][..], |c| c.settlements.as_slice()),
+            settlement_at: at,
             landmarks: self.landmark_store.last.as_ref().map_or(&[][..], |r| r.landmarks.as_slice()),
             water,
             gw: self.gw.max(0) as usize,
@@ -324,7 +329,9 @@ impl WorldGen {
         // Assembled before the mutable borrow: `label_world` reads `self.civ`
         // and `self.landmark_store`, and `regenerate` writes `self.labels`.
         let water = if want_water { self.drawn_water_classification() } else { None };
-        let candidates = label_candidates(&self.label_world(water.as_deref(), lake_min_cells));
+        // Ruling HM: a settlement label is anchored on the bank its town stands on.
+        let at = self.settlement_points();
+        let candidates = label_candidates(&self.label_world(water.as_deref(), lake_min_cells, &at));
         let bridge = self.labels.as_mut().expect("checked above");
         let g = bridge.place(&candidates);
         let classes: Array<VarDictionary> = g.counts.iter().map(count_dict).collect();

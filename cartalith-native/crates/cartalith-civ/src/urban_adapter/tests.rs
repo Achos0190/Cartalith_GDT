@@ -2234,7 +2234,7 @@ fn a_town_river_follows_the_drawn_curve_when_given_one() {
     let far: Vec<(f64, f64)> = (0..48).map(|y| (23.5, y as f64 + 0.5)).collect();
     // A second run within bind range but farther than the wavy one: the nearest must win.
     let second: Vec<(f64, f64)> = (0..48).map(|y| (21.1, y as f64 + 0.5)).collect();
-    let dr = |pts: Vec<(f64, f64)>| DrawnRiver { pts, ranks: vec![] };
+    let dr = |pts: Vec<(f64, f64)>| DrawnRiver { pts, ranks: vec![], widths: vec![] };
     let runs = vec![dr(far), dr(second), dr(wavy.clone())];
     let on = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&runs)).expect("water");
     let path = on.ctx.river_path.as_ref().expect("a river path");
@@ -2253,13 +2253,13 @@ fn a_town_river_follows_the_drawn_curve_when_given_one() {
     assert!(path.iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 600.0), "followed the far run three cells away");
     // A run farther than `DRAWN_BIND_CELLS` from the bound vertex is another river: refused, the raw path kept.
     let aside: Vec<(f64, f64)> = (0..=48 * 8).map(|k| (20.5 + 1.2, k as f64 / 8.0 + 0.5)).collect();
-    let refused = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&[DrawnRiver { pts: aside, ranks: vec![] }])).expect("water");
+    let refused = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&[DrawnRiver { pts: aside, ranks: vec![], widths: vec![] }])).expect("water");
     assert!(refused.ctx.river_path.as_ref().expect("a path").iter().all(|p| (p.x - SITE_WM / 2.0).abs() < 1e-6), "a run 1.2 cells away keeps the raw path");
     // RR-T2 (Ruling HE): water the map merged away (no run near) is drawn by its parent, so it keeps the river's width; an unranked drawn run is a river at the order's width.
     assert_eq!(refused.ctx.river_width_m, Some(38.0), "no drawn run near: not a stream");
     assert_eq!(on.ctx.river_width_m, Some(38.0), "an unranked drawn run keeps the order's river width");
     // A ranked run: below the headwater rank is a river, at or above it a stream.
-    let ranked = |u: f32| vec![DrawnRiver { pts: wavy.clone(), ranks: vec![u; wavy.len()] }];
+    let ranked = |u: f32| vec![DrawnRiver { pts: wavy.clone(), ranks: vec![u; wavy.len()], widths: vec![] }];
     let big = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&ranked(0.49))).expect("water");
     let small = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(&ranked(0.5))).expect("water");
     assert_eq!(big.ctx.river_width_m, Some(38.0), "just under the headwater rank is a river");
@@ -2797,4 +2797,126 @@ fn a_town_with_a_grain_is_stretched_where_the_switch_off_town_is() {
     let flat = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, parallel_streets: true, ..Default::default() });
     assert!(flat.river_stretch.is_none(), "premise");
     assert_eq!(run_layout_choosing(&flat, None).map(|x| x.1), Some(None), "unstretched: a layout and no verdict");
+}
+
+/// The drawn river of [`mouth_world`]'s stem for Ruling HM's tests: the traced
+/// column itself as one run, `width` cells wide at every point (200 m cells).
+fn drawn_stem(polys: &[Vec<(f64, f64)>], width: f32) -> Vec<DrawnRiver> {
+    vec![DrawnRiver { pts: polys[0].clone(), ranks: Vec::new(), widths: vec![width; polys[0].len()] }]
+}
+
+/// Protects Ruling HM's box rule ([`um_keep_river_box`]) as literals: no
+/// origin is the reference's box; an origin 500 m from its river grows each
+/// side by 1 000 m (2 700 x 2 250), so the centreline is inside and the bank
+/// keeps the reference's depth of land.
+#[test]
+fn a_bank_town_box_grows_by_twice_its_distance_from_the_river() {
+    assert_eq!(um_keep_river_box(None), None);
+    assert_eq!(um_keep_river_box(Some(BankOrigin { at: (0.0, 0.0), river_m: 500.0 })), Some((2700.0, 2250.0)));
+    assert_eq!(um_keep_river_box(Some(BankOrigin { at: (0.0, 0.0), river_m: 60.0 })), Some((1820.0, 1370.0)));
+}
+
+/// Protects Ruling HM's adapter half (`um_place_context_with`,
+/// `layout_from_town`): a river town on the stem's own cell (20, 20), given
+/// the map's drawn river 1.5 cells (300 m) wide and an origin 180 m east of
+/// the cell, is laid out in a box grown by 360 m, with a river 300 m wide
+/// that is still in the box, its market dry on the east bank, and the cell
+/// reported as the pin 180 m west of the box centre. With no drawn widths the
+/// river is the town's own channel (order 4: 38 m); with no origin and no
+/// widths nothing moves (the pin is the generator's, the box the reference's).
+#[test]
+fn a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 3_000);
+    let wide = drawn_stem(&polys, 1.5);
+    let origin = Some(BankOrigin { at: (20.9, 20.0), river_m: 180.0 });
+    let on = PlaceOverrides { riverbank: true, river_smooth: Some(&wide), origin, ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &on);
+    assert_eq!(ctx.site_box, Some((2060.0, 1610.0)));
+    assert_eq!(ctx.origin_m.map(|m| (m.x.round(), m.y.round())), Some((180.0, 0.0)));
+    let water = &ctx.water.as_ref().expect("the town has water").ctx;
+    assert!(water.has_real_river_path(), "the town kept its river");
+    assert_eq!(water.river_width_m, Some(300.0), "as wide as the map draws it");
+    let l = run_layout(&ctx, None).expect("a layout");
+    assert_eq!((l.pin.x.round(), l.pin.y.round()), (1030.0 - 180.0, 805.0), "the cell, 180 m west of the box centre");
+    assert_eq!(l.river_w, 300.0);
+    // The river runs north to south through the pin's x; the market is east of its east edge.
+    assert!(l.market.x - l.pin.x >= 150.0, "the market is dry on the origin's bank: {:?} against pin {:?}", l.market, l.pin);
+    assert!(!l.buildings.is_empty(), "the town is built");
+    assert!(l.buildings.iter().flat_map(|b| b.poly.iter()).all(|v| (v.x - l.pin.x).abs() >= 150.0), "no building in the 300 m river");
+
+    // A town that stays round its cell, in the middle of the map's 300 m river: the layout moves its market to dry
+    // ground, and the cell is still reported at the box centre (not at the moved market, the generator's own pin),
+    // so the town's river stays on the map's.
+    // Its box grows by the river's 300 m (it has no origin to size it from): 2 000 x 1 550.
+    let mid_ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { origin: None, ..on });
+    assert_eq!(mid_ctx.site_box, Some((2000.0, 1550.0)), "the reference box plus the river's width");
+    let mid = run_layout(&mid_ctx, None).expect("a layout");
+    assert_eq!(mid.pin, Vec2::new(1000.0, 775.0), "the cell is the box centre");
+    assert!(mid.market.dist(mid.pin) >= 150.0, "the market left the river: {:?}", mid.market);
+
+    let narrow = drawn_stem(&polys, 1.5).into_iter().map(|d| DrawnRiver { widths: Vec::new(), ..d }).collect::<Vec<_>>();
+    let ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { river_smooth: Some(&narrow), ..on });
+    assert_eq!(ctx.water.as_ref().expect("water").ctx.river_width_m, Some(38.0), "no drawn width: the town's own channel");
+
+    let off = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_smooth: Some(&narrow), ..Default::default() });
+    assert!(off.site_box.is_none() && off.origin_m.is_none(), "no origin, no widths: the reference's box and frame");
+    let l = run_layout(&off, None).expect("a layout");
+    assert_eq!(l.pin, l.market, "the generator's own pin");
+}
+
+/// Protects Ruling HM's width half for the rivers that are not the town's
+/// own: a second drawn run crossing the box (west to east, 400 m south of the
+/// town, one cell = 200 m wide) is open water in the town's raster, where
+/// without drawn widths the same ground is dry.
+#[test]
+fn another_drawn_river_in_the_box_is_open_water_to_the_town() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 3_000);
+    let wet_at = |runs: &[DrawnRiver]| {
+        let ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_smooth: Some(runs), ..Default::default() });
+        let c = &ctx.water.as_ref().expect("water").ctx;
+        // 500 m east of the box centre, 400 m south: on the second run, clear of the stem.
+        let (i, j) = (((850.0 + 500.0) / c.cell_m) as usize, ((625.0 + 400.0) / c.cell_m) as usize);
+        c.open_water.as_ref().expect("the open-water raster")[j * c.mw + i]
+    };
+    let cross = |widths: Vec<f32>| DrawnRiver { pts: vec![(10.5, 22.5), (30.5, 22.5)], ranks: Vec::new(), widths };
+    let mut runs = drawn_stem(&polys, 0.2);
+    runs.push(cross(vec![1.0, 1.0]));
+    assert_eq!(wet_at(&runs), 1, "the second drawn river is water");
+    runs[1] = cross(Vec::new());
+    assert_eq!(wet_at(&runs), 0, "with no drawn width it is not stamped");
+}
+
+/// Protects [`roads_on_the_bank`]: on the 300 m river of the test above, a
+/// road from the market that runs west across the river has its points in
+/// the water and on the far bank moved to the market's bank (dry cells east
+/// of the river's east edge), and its dry points on the market's bank are
+/// not moved at all.
+#[test]
+fn a_road_over_the_wide_river_is_pressed_to_the_markets_bank() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let wide = drawn_stem(&polys, 1.5);
+    let (wm, hm) = (2060.0, 1610.0);
+    let water = um_water_ctx_box_smooth(&w, 20.9, 20.0, false, wm, hm, Some(&wide)).expect("water").ctx;
+    // Offsets from the box centre; the river's centreline is 180 m west, its east edge 30 m west.
+    let road = vec![Vec2::new(0.0, 0.0), Vec2::new(300.0, 40.0), Vec2::new(-180.0, 0.0), Vec2::new(-600.0, 0.0)];
+    let out = roads_on_the_bank(vec![road.clone()], &water, wm, hm).remove(0);
+    assert_eq!((out[0], out[1]), (road[0], road[1]), "dry points on the market's bank stay");
+    for p in &out[2..] {
+        assert!(p.x > -30.0 + 1.0 * water.cell_m && p.x < -30.0 + 4.0 * water.cell_m, "moved to the east bank, two raster cells off the water: {p:?}");
+        assert!(p.y.abs() <= water.cell_m, "the nearest bank cell, straight across: {p:?}");
+        // Two raster cells off the water (`ROAD_BANK_CLEAR_CELLS`), read off the town's own distance raster.
+        let k = ((hm / 2.0 + p.y) / water.cell_m) as usize * water.mw + ((wm / 2.0 + p.x) / water.cell_m) as usize;
+        assert!(water.dt[k] >= 2.0 && water.dt[k] < 3.0, "the nearest cell two cells from the water, got {}", water.dt[k]);
+    }
 }

@@ -1440,6 +1440,14 @@ pub struct LabelWorld<'a> {
     pub lake_min_cells: usize,
     /// Ruling FZ: the world's default name style, naming the lakes; `None` is the built-in lake names.
     pub lake_style: Option<&'a crate::name_style::NameStyle>,
+    /// Ruling HM (owner, 2026-11-23): where each settlement stands on the
+    /// map, as a **point** (a cell's centre is `x + 0.5`), parallel to
+    /// `settlements`: the bank its town is laid on, for a settlement whose
+    /// cell is in its drawn river. A settlement label and a region's seat
+    /// are anchored there. Empty (the `Default`, and a host with the
+    /// `civ.bank_sites` switch off) anchors every one at its cell centre, as
+    /// before the ruling.
+    pub settlement_at: &'a [(f64, f64)],
 }
 
 /// Half a cell: the offset from a **cell index** -- the frame every feature
@@ -1493,25 +1501,17 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
         });
     }
 
+    // Ruling HM: a settlement's anchor is where it stands (`settlement_at`), else its cell centre.
+    let at = |i: usize, s: &crate::NamedSettlement| world.settlement_at.get(i).copied().unwrap_or((s.placement.x as f64 + CELL_CENTRE, s.placement.y as f64 + CELL_CENTRE));
     for p in world.provinces {
         let Some(seat) = world.settlements.get(p.capital_settlement_index) else { continue };
-        out.push(LabelCandidate {
-            class: LabelClass::Region,
-            name: p.name.clone(),
-            x: seat.placement.x as f64 + CELL_CENTRE,
-            y: seat.placement.y as f64 + CELL_CENTRE,
-            weight: seat.pop as f64,
-        });
+        let (x, y) = at(p.capital_settlement_index, seat);
+        out.push(LabelCandidate { class: LabelClass::Region, name: p.name.clone(), x, y, weight: seat.pop as f64 });
     }
 
-    for s in world.settlements {
-        out.push(LabelCandidate {
-            class: LabelClass::Settlement,
-            name: s.name.clone(),
-            x: s.placement.x as f64 + CELL_CENTRE,
-            y: s.placement.y as f64 + CELL_CENTRE,
-            weight: s.pop as f64,
-        });
+    for (i, s) in world.settlements.iter().enumerate() {
+        let (x, y) = at(i, s);
+        out.push(LabelCandidate { class: LabelClass::Settlement, name: s.name.clone(), x, y, weight: s.pop as f64 });
     }
 
     if let Some(water) = world.water {
@@ -2807,6 +2807,7 @@ mod tests {
             gh: 16,
             lake_min_cells: 0, // -> LAKE_LABEL_MIN_CELLS
             lake_style: None,
+            settlement_at: &[],
         };
         let cands = label_candidates(&world);
         let by_class = |c: LabelClass| cands.iter().filter(|k| k.class == c).count();
@@ -2884,6 +2885,7 @@ mod tests {
             gh: 16,
             lake_min_cells: 0,
             lake_style: None,
+            settlement_at: &[],
         };
         let cands = label_candidates(&world);
         let at = |c: LabelClass| cands.iter().find(|k| k.class == c).map(|k| (k.x, k.y)).expect("one per class");
@@ -2967,4 +2969,20 @@ mod tests {
         let world = LabelWorld { landmarks: &landmarks, ..Default::default() };
         assert!(label_candidates(&world).is_empty());
     }
+    /// Protects Ruling HM's label anchor: with `settlement_at` a settlement's label and its region's seat are
+    /// anchored at the point given (the bank its town is on), and with none at the cell centre (cell + 0.5).
+    #[test]
+    fn a_settlement_label_is_anchored_where_the_settlement_stands() {
+        let s = crate::NamedSettlement {
+            tid: 1,
+            placement: crate::SettlementPlacement { x: 4, y: 7, suit: 0.5, faction: 1, capital: false, kind: crate::SettlementKind::Town, coastal: false },
+            name: "Ford".into(),
+            pop: 900,
+        };
+        let settlements = [s];
+        let at = |w: &LabelWorld| label_candidates(w).iter().find(|c| c.class == LabelClass::Settlement).map(|c| (c.x, c.y));
+        assert_eq!(at(&LabelWorld { settlements: &settlements, ..Default::default() }), Some((4.5, 7.5)));
+        assert_eq!(at(&LabelWorld { settlements: &settlements, settlement_at: &[(4.9, 7.25)], ..Default::default() }), Some((4.9, 7.25)));
+    }
+
 }

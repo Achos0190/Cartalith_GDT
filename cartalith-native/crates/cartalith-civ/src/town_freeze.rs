@@ -48,10 +48,13 @@ use crate::urban_adapter::{
 
 /// The urban rules version (scope §4.1): bumped **by hand** whenever a change moves a generated layout under any
 /// switch setting. A frozen town records the version it was drawn under, so the City Viewer can say "drawn by
-/// rules v1 (current v3)". Guarded by `the_rules_version_and_fixture_hashes_are_pinned` below: the six fixture
+/// rules v1 (current v3)". Guarded by `the_rules_version_and_fixture_hashes_are_pinned` below: the fixture
 /// towns' canonical hashes are committed literals beside this literal, so a behavioural change turns the test red
 /// and the fix is to bump both. Starts at `1`, pinned 2026-11-22 after RR-T1 (`1f041a2e`) and fix E (`2aa402de`).
-pub const URBAN_RULES_VERSION: u32 = 1;
+/// `2` (2026-11-23, Ruling HM): with `civ.bank_sites` on a river town is laid round the drawn river's edge, its
+/// river is as wide as the map draws it and its roads keep to its bank; with it off every layout is v1's (the six
+/// v1 fixture hashes did not move), and a seventh fixture pins the new path.
+pub const URBAN_RULES_VERSION: u32 = 2;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).
@@ -99,6 +102,8 @@ pub fn hex16(h: u64) -> String {
 /// recorded as in effect (`Some`), which is what the layout read: the app passes `None` for the smooth curve on a
 /// world with no drawn network even when the parameter is on. The place-editor fields are recipe members of their
 /// own, not switches. `river_kind_from_map` is [`crate::urban_adapter::UrbanWorld::river_kind_from_map`].
+/// `civ_bank_origin` (Ruling HM) is per town: whether this town was laid round the drawn river's edge
+/// (`PlaceOverrides::origin`), which is `civ.bank_sites` on and its cell inside the drawn river.
 pub fn switch_record(o: &PlaceOverrides, river_kind_from_map: bool) -> BTreeMap<String, bool> {
     let PlaceOverrides {
         specialisation: _,
@@ -121,6 +126,7 @@ pub fn switch_record(o: &PlaceOverrides, river_kind_from_map: bool) -> BTreeMap<
         town_bridge_search,
         parallel_streets,
         river_smooth,
+        origin,
     } = *o;
     [
         ("urban_wall_hug", wall_hug),
@@ -136,6 +142,8 @@ pub fn switch_record(o: &PlaceOverrides, river_kind_from_map: bool) -> BTreeMap<
         ("urban_parallel_streets", parallel_streets),
         ("urban_river_smooth", river_smooth.is_some()),
         ("urban_river_kind_map", river_kind_from_map),
+        // Ruling HM: this town was laid round the drawn river's edge (`civ.bank_sites` on and its cell in the stroke).
+        ("civ_bank_origin", origin.is_some()),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))

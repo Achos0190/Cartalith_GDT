@@ -1794,6 +1794,7 @@ mod cull_vs_drawn_tests {
             continents: civ.continents.as_slice(),
             provinces: civ.province_list.as_slice(),
             settlements: civ.settlements.as_slice(),
+            settlement_at: &[],
             landmarks: &[],
             water: Some(civ.water_bodies.as_slice()),
             gw: p.gw,

@@ -714,11 +714,13 @@ impl WorldGen {
     /// (`river_geometry_any`, the one geometry the strokes, tiles and exports
     /// rasterize), whole runs in grid cells, for [`urban_adapter::PlaceOverrides::river_smooth`].
     /// Empty when the switch is off or there is no drawn network (a loaded save).
+    /// Ruling HM: with `civ.bank_sites` on each run carries the width the map draws it with, so a
+    /// town's river is as wide as the map's (`DrawnRiver::widths`); off, none, the town's own channel.
     fn drawn_river_runs(&self) -> Vec<urban_adapter::DrawnRiver> {
         if !self.params.urban_river_smooth {
             return Vec::new();
         }
-        self.river_geometry_any().map_or_else(Vec::new, |g| g.runs.iter().map(|r| urban_adapter::DrawnRiver { pts: r.pts.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect(), ranks: r.ranks.clone() }).collect())
+        self.river_geometry_any().map_or_else(Vec::new, |g| g.runs.iter().map(|r| urban_adapter::DrawnRiver { pts: r.pts.iter().map(|&(x, y)| (f64::from(x), f64::from(y))).collect(), ranks: r.ranks.clone(), widths: if self.params.civ.bank_sites { r.widths.clone() } else { Vec::new() } }).collect())
     }
 
     /// The [`urban_adapter::PlaceOverrides`] settlement `s` is laid out with
@@ -802,6 +804,9 @@ impl WorldGen {
             // PARALLEL_STREETS_SCOPE.md PS-1: town types, field and ground,
             // off in the app until the owner rules at PS-7. Read live.
             parallel_streets: self.params.urban_parallel_streets,
+            // Ruling HM: a town whose cell centre is inside its drawn river is laid round the
+            // river's edge (`bank_site::town_origin`; `None` with `civ.bank_sites` off). Read live.
+            origin: self.town_origin(s),
         }
     }
 
@@ -1060,8 +1065,11 @@ impl WorldGen {
     /// 384 x 288, measured). A town the plan does not stretch costs no
     /// context (`urban_adapter::um_stretch_gate`).
     ///
+    /// **And the towns Ruling HM lays round the drawn river's edge** (2026-11-23,
+    /// `civ.bank_sites`), whose box is grown by their distance from the river.
+    ///
     /// Empty before the first `generate()`, on a world without its substrate,
-    /// or with `urban_river_stretch` off.
+    /// or with `urban_river_stretch` and `civ.bank_sites` both off.
     #[func]
     fn urban_layout_boxes(&self) -> VarDictionary {
         let mut out = VarDictionary::new();
@@ -1069,7 +1077,18 @@ impl WorldGen {
             return out;
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        if gw == 0 || gh == 0 || civ.settlements.is_empty() || !self.params.urban_river_stretch {
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() || !(self.params.urban_river_stretch || self.params.civ.bank_sites) {
+            return out;
+        }
+        // Ruling HM: a town laid round the drawn river's edge is planned in a box grown by its
+        // distance from the river (`urban_adapter::um_keep_river_box`), known from its origin
+        // alone. A stretched one of them is overwritten below with the box it is drawn in.
+        for s in &civ.settlements {
+            if let Some((bw, bh)) = urban_adapter::um_keep_river_box(self.town_origin(s)) {
+                out.set(s.tid as i64, Vector2::new(bw as f32, bh as f32));
+            }
+        }
+        if !self.params.urban_river_stretch {
             return out;
         }
         let river_polys = traced_river_polys(ws, gw, gh);

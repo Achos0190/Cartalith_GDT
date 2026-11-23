@@ -887,7 +887,9 @@ func param_write(key: String, value) -> Dictionary:
 		mark_dirty()
 		## After the engine took the value (MISTAKES.md: emit after the engine call), so a listener's
 		## re-layout reads the new switch.
-		if key.begins_with("urban_"):
+		## Ruling HM: `civ.bank_sites` also moves where a river town is laid out and how wide its river is, so the
+		## towns drawn must be forgotten like an `urban_*` switch's (the map and the City Viewer re-ask).
+		if key.begins_with("urban_") or key == "civ.bank_sites":
 			urban_params_changed.emit()
 		if key == "civ.bank_sites":
 			bank_params_changed.emit()
@@ -915,7 +917,7 @@ func reset_params(keys: Array = []) -> void:
 		world_gen.set_params(restore)
 	mark_dirty()
 	## A whole-table reset may move any `urban_*` switch; a keyed one only when it names one.
-	if keys.is_empty() or keys.any(func(k) -> bool: return String(k).begins_with("urban_")):
+	if keys.is_empty() or keys.any(func(k) -> bool: return String(k).begins_with("urban_") or String(k) == "civ.bank_sites"):
 		urban_params_changed.emit()
 	if keys.is_empty() or keys.has("civ.bank_sites"):
 		bank_params_changed.emit()

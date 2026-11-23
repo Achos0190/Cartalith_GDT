@@ -486,7 +486,7 @@ impl WorldGen {
     }
 
     /// [`Self::town_local`] inverted: a local point of `l` as a grid point.
-    fn town_grid(&self, l: &UrbanLayout, sx: usize, sy: usize, p: UVec2) -> (f64, f64) {
+    pub(crate) fn town_grid(&self, l: &UrbanLayout, sx: usize, sy: usize, p: UVec2) -> (f64, f64) {
         let mpc = self.town_cell_m().max(1e-9);
         let t = tf::to_town(l, p);
         (sx as f64 + 0.5 + t.x / mpc, sy as f64 + 0.5 + t.y / mpc)

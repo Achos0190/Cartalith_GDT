@@ -82,8 +82,8 @@ fn app_switches<'a>() -> PlaceOverrides<'a> {
     }
 }
 
-/// The six fixture towns of scope §4.1: a hamlet, a walled landlocked town, a fortified city, a coastal town, a
-/// river town and a stretched river town. Each as `(name, layout)`.
+/// The fixture towns of scope §4.1: a hamlet, a walled landlocked town, a fortified city, a coastal town, a
+/// river town and a stretched river town, and since rules v2 (Ruling HM) a river town laid round the drawn edge. Each as `(name, layout)`.
 fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
     let w = World::new();
     let uw = w.world();
@@ -92,13 +92,18 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
     let walled = PlaceOverrides { walls_override: Some(true), ..base };
     let fort = PlaceOverrides { walls_override: Some(true), fortified_trait: true, ..base };
     let stretch = PlaceOverrides { river_stretch: Some(&others), ..base };
-    let cases: [(&str, NamedSettlement, PlaceOverrides); 6] = [
+    // Ruling HM (rules v2): a river town on the river's own cell, given the map's drawn river half a cell
+    // (312 m) wide and laid round its east edge plus 30 m (0.3 cells = 187.5 m from the centreline).
+    let drawn = [crate::urban_adapter::DrawnRiver { pts: w.rivers[0].clone(), ranks: Vec::new(), widths: vec![0.5; w.rivers[0].len()] }];
+    let bank = PlaceOverrides { river_smooth: Some(&drawn), origin: Some(crate::urban_adapter::BankOrigin { at: (20.3, 30.0), river_m: 187.5 }), ..base };
+    let cases: [(&str, NamedSettlement, PlaceOverrides); 7] = [
         ("hamlet", settlement(1, 50, 8, 200), base),
         ("walled town", settlement(2, 45, 12, 4_000), walled),
         ("fortified city", settlement(3, 40, 20, 15_000), fort),
         ("coastal town", settlement(4, 34, 47, 3_000), base),
         ("river town", settlement(5, 21, 30, 5_000), base),
         ("stretched river town", settlement(6, 21, 38, 6_000), stretch),
+        ("bank river town", settlement(7, 20, 30, 5_000), bank),
     ];
     cases
         .into_iter()
@@ -109,15 +114,17 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
         .collect()
 }
 
-/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the six fixture towns' canonical hashes are committed literals.
+/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the seven fixture towns' canonical hashes are committed literals
+/// (six until rules v2, whose change, Ruling HM, moves no town that is not laid round a drawn edge: the first six
+/// hashes are v1's, unchanged; the seventh is the town v2 added).
 /// A behavioural change to the generator or the adapter moves a hash and turns this red; mutating the version alone
 /// turns it red too. The fix for a red here is to bump the version **and** re-pin the hashes in the same change
 /// (scope §4.1, R5).
 #[test]
 fn the_rules_version_and_fixture_hashes_are_pinned() {
     let got: Vec<(&str, String)> = fixtures().iter().map(|(n, l)| (*n, layout_hash(&encode(l)))).collect();
-    let want: (u32, [(&str, &str); 6]) = (
-        1,
+    let want: (u32, [(&str, &str); 7]) = (
+        2,
         [
             ("hamlet", "f73d0b225a9deadc"),
             ("walled town", "e35063368a67a961"),
@@ -125,6 +132,7 @@ fn the_rules_version_and_fixture_hashes_are_pinned() {
             ("coastal town", "dd5837456e1f0bca"),
             ("river town", "e4e55c3ac40ff4e6"),
             ("stretched river town", "cf58aeec8b057fde"),
+            ("bank river town", "5e5170e21a051826"),
         ],
     );
     assert_eq!((URBAN_RULES_VERSION, got.iter().map(|(n, h)| (*n, h.as_str())).collect::<Vec<_>>()), (want.0, want.1.to_vec()));
@@ -261,13 +269,16 @@ fn site_hash_moves_on_each_world_input() {
     assert_ne!(site_hash(&c), h2, "a primary-path point");
 }
 
-/// Protects the switch record: thirteen names, read from the overrides as in effect, and a switch absent from an
+/// Protects the switch record: fourteen names (Ruling HM added `civ_bank_origin`), read from the overrides as in effect, and a switch absent from an
 /// older recipe reads as off (scope §4.1, §7 MUST).
 #[test]
 fn switch_record_and_absent_as_off() {
     let o = app_switches();
     let r = switch_record(&o, true);
-    assert_eq!(r.len(), 13);
+    assert_eq!(r.len(), 14);
+    assert_eq!(r.get("civ_bank_origin"), Some(&false), "Ruling HM: no origin, not laid round the drawn edge");
+    let moved = PlaceOverrides { origin: Some(crate::urban_adapter::BankOrigin { at: (1.0, 1.0), river_m: 90.0 }), ..o };
+    assert_eq!(switch_record(&moved, true).get("civ_bank_origin"), Some(&true));
     assert_eq!(r.get("urban_wall_hug"), Some(&true));
     assert_eq!(r.get("urban_parallel_streets"), Some(&false));
     assert_eq!(r.get("urban_river_stretch"), Some(&false));
