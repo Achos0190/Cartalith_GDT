@@ -4150,3 +4150,7 @@ Ruling HR's province lines replaced the old raster province line, which also out
 ## Ruling HW: stop at PS-2 + fix E (owner, 2026-11-23)
 
 PS-5 measured a no-go (`a15b2d27`, `PARALLEL_STREETS_SCOPE.md` section 18): the full prototype raised deep blocks by area to 27-31 % but dropped housed p10 (96 -> 91 %, 100 -> 87 %), quads by count, and put market squares outside the wall. Owner: **stop at PS-2 + fix E**; no further PS-5 attempt. Next for parallel streets: PS-6 (integration) and PS-7 (the visual gates and the owner's on/off decision for `urban_parallel_streets`). `urban_burgage` keeps its own switch, off, and is scrubbed with the rest if parallel streets ship (Ruling HT's switch question).
+
+## Ruling HX: a city-states section in CIVIL > Factions (owner, 2026-11-24)
+
+Owner: *"A city states section in civil - factions would be good."* CIVIL > Factions gains a **City-states** section beside the faction list: each city-state seat (including Ruling HK's minor seats) with its population, aligned settlements and sphere size; select to show it on the map; "Make this sphere a faction" from the row (the same `civ_promote_sphere`, with undo/redo); and the `civ.city_states` switch state shown, with a short note when it is off (older saves). Desktop, tablet and phone forms. Queued after the current build (budget).
