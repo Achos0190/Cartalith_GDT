@@ -2262,3 +2262,64 @@ fn a_riverbank_town_bank_stays_on_the_market_bank() {
     let flips = town_bank(&plain, &anchors).iter().filter(|p| bank.bank_side(**p) != side).count();
     assert!(flips >= 5, "premise: the reference's offsets alternate banks here ({flips} on the other bank)");
 }
+
+/// Protects Ruling HN's `Site::bank_side` under `Site::bank_ref`: on a river that runs west to east along
+/// `y = 600` and ENDS at `x = 850`, a point beside the river keeps the reference's side whatever the reference
+/// point is, while a point past the end takes the market's side on both sides of the line carried on. With no
+/// reference point (the reference) the carried-on line splits the land past the end, as it always did.
+/// MUTATION: `past_river_end` returning `false` leaves the far point on the other "bank"; reading the wrong end's
+/// segment (`bi == n - 2` dropped) does the same.
+#[test]
+fn ground_past_a_rivers_end_is_the_markets_bank() {
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
+    site.river = vec![Vec2::new(0.0, 600.0), Vec2::new(425.0, 600.0), Vec2::new(850.0, 600.0)];
+    let (north, south) = (Vec2::new(400.0, 500.0), Vec2::new(400.0, 700.0));
+    let (past_n, past_s) = (Vec2::new(1200.0, 500.0), Vec2::new(1200.0, 700.0));
+    assert!(!site.past_river_end(north) && site.past_river_end(past_n) && site.past_river_end(past_s));
+    assert!(site.past_river_end(Vec2::new(-50.0, 610.0)), "and past its first point");
+    // The reference: the line carried on has two sides everywhere.
+    assert_eq!(site.bank_side(north), -site.bank_side(south));
+    assert_eq!(site.bank_side(past_n), site.bank_side(north));
+    assert_eq!(site.bank_side(past_s), site.bank_side(south), "the control: the reference splits the land past the end");
+    // With the market north of the river, all the ground past the end is north-bank ground.
+    site.bank_ref = Some(north);
+    assert_eq!(site.bank_side(past_n), site.bank_side(north));
+    assert_eq!(site.bank_side(past_s), site.bank_side(north), "past the end there is no far bank");
+    assert_eq!(site.bank_side(south), -site.bank_side(north), "beside the river the banks are the river's");
+    // With the market itself past the end, on the south of the carried-on line.
+    site.bank_ref = Some(past_s);
+    assert_eq!(site.bank_side(past_n), site.bank_side(south));
+}
+
+/// Protects Ruling HN's `wallhug::ring_off_water`: a square wall on the north bank with a two-vertex spike run
+/// out into the river loses the spike (the wall runs straight between the dry vertices either side), keeps every
+/// dry vertex in order, keeps the spike when a water gate stands on it, and is left alone (`None`) with no wet
+/// vertex or with every vertex wet. MUTATION: `gated` forced false drops the gated run; `!w[i]` inverted keeps
+/// only the water.
+#[test]
+fn a_walls_vertices_in_the_water_are_taken_out_unless_a_water_gate_stands_there() {
+    use crate::wallhug::ring_off_water;
+    let wet = |p: Vec2| p.y > 600.0;
+    let v = |x: f64, y: f64| Vec2::new(x, y);
+    let ring = vec![v(100.0, 100.0), v(500.0, 100.0), v(500.0, 590.0), v(320.0, 900.0), v(300.0, 1000.0), v(100.0, 590.0)];
+    let dry = ring_off_water(&ring, &[], &wet).expect("moved");
+    assert_eq!(dry, vec![v(100.0, 100.0), v(500.0, 100.0), v(500.0, 590.0), v(100.0, 590.0)]);
+    // A water gate on the spike's first chord, 10 m from it: a gated river wall, kept whole (nothing to do).
+    let gate = v(410.0, 745.0);
+    assert!(crate::geom::dist_pt_seg(gate, ring[2], ring[3]) < 15.0, "the fixture's gate is on the run");
+    assert_eq!(ring_off_water(&ring, &[gate], &wet), None, "a gated run stays, so the ring is as it was");
+    assert_eq!(ring_off_water(&ring, &[v(1500.0, 745.0)], &wet).map(|r| r.len()), Some(4), "a gate elsewhere gates nothing here");
+    assert_eq!(ring_off_water(&dry, &[], &wet), None, "no wet vertex");
+    // Two wet runs, one of which cannot go: with the vertex at (300, 700) gone the wall from (500, 590) to
+    // (100, 590) would cross the dry prong that hangs from the north side down to (300, 595). It stays; the lone
+    // wet vertex at (40, 620) still goes.
+    let two = vec![v(100.0, 100.0), v(290.0, 100.0), v(300.0, 595.0), v(310.0, 100.0), v(500.0, 100.0), v(500.0, 590.0), v(300.0, 700.0), v(100.0, 590.0), v(40.0, 620.0), v(40.0, 300.0)];
+    let fixed = ring_off_water(&two, &[], &wet).expect("one run goes");
+    assert_eq!(fixed.len(), 9, "only the lone wet vertex at (40, 620) goes: {fixed:?}");
+    assert!(!fixed.contains(&v(40.0, 620.0)) && fixed.contains(&v(300.0, 700.0)) && !crate::wallhug::ring_self_crosses(&fixed));
+    // A run of two that cannot go whole (the same prong) loses the vertex that can go alone: (480, 650), not (300, 700).
+    let part = vec![v(100.0, 100.0), v(290.0, 100.0), v(300.0, 595.0), v(310.0, 100.0), v(500.0, 100.0), v(500.0, 590.0), v(480.0, 650.0), v(300.0, 700.0), v(100.0, 590.0)];
+    let fixed = ring_off_water(&part, &[], &wet).expect("one vertex goes");
+    assert!(!fixed.contains(&v(480.0, 650.0)) && fixed.contains(&v(300.0, 700.0)) && fixed.len() == 8, "{fixed:?}");
+    assert_eq!(ring_off_water(&ring, &[], &|_| true), None, "all wet: no dry ground to run between");
+}

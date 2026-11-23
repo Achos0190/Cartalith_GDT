@@ -92,6 +92,7 @@ fn town_layout_census() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: p.urban_river_kind_map,
+            map_water: None,
         };
         let others: Vec<(f64, f64, f64)> = civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
         let over = |s: &cartalith_civ::NamedSettlement, parallel: bool| PlaceOverrides {

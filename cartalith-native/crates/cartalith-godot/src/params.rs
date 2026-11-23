@@ -1951,6 +1951,16 @@ pub fn restore_new_world_rules(p: &mut WorldParams, chosen: &dyn Fn(&str) -> Opt
     changed
 }
 
+/// **Ruling HN: whether a save's `state` was written before parameter `key`
+/// existed**: it carries no value for it in [`NATIVE_PARAMS_KEY`] (or no such
+/// block at all). [`save_state`] writes every key, so absence means an older
+/// build wrote the file, and an explicit `false` is somebody's answer. Read
+/// by the loader for `civ.bank_sites`, to offer an older world the update
+/// once (`WorldGen::bank_sites_offer`).
+pub fn saved_without(state: &serde_json::Value, key: &str) -> bool {
+    state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).is_none_or(|o| !o.contains_key(key))
+}
+
 /// Restores what [`save_state`] wrote, from a save's `state` object.
 /// Returns how many parameters were applied.
 ///

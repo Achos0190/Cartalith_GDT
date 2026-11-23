@@ -1074,6 +1074,14 @@ pub const SHORE_TIDY_M: f64 = 3.0;
 pub fn shore_snap(ring: &[Vec2], site: &Site) -> Option<Vec<Vec2>> {
     let w = site.water_ctx()?;
     let open = w.open_water.as_deref().filter(|o| o.len() == w.mw * w.mh)?;
+    shore_snap_on(ring, w, open)
+}
+
+/// [`shore_snap`] against any raster of the site's water context `w`:
+/// `open` is one byte a cell, `1` water. [`shore_snap`] passes the open-water
+/// raster; [`wall_off_water`] (Ruling HN) passes the whole mask, the town's
+/// own river band included.
+fn shore_snap_on(ring: &[Vec2], w: &crate::site::WaterCtx, open: &[u8]) -> Option<Vec<Vec2>> {
     let c = w.cell_m;
     if ring.len() < 3 || !(c > 0.0) {
         return None;
@@ -1188,6 +1196,110 @@ pub fn snap_wall_to_shore(wall_state: &mut WallState, site: &Site) -> bool {
         return false;
     }
     let Some(r) = wall_state.ring.as_deref().and_then(|r| shore_snap(r, site)) else {
+        return false;
+    };
+    for gt in wall_state.gates.iter_mut() {
+        gt.pt = nearest_on_ring(gt.pt, &r);
+    }
+    wall_state.ring = Some(r);
+    true
+}
+
+/// How near a wet run of the wall a water gate must stand for the run to be
+/// a gated river wall and stay ([`ring_off_water`]), metres. **A labelled
+/// judgement**: `fortify::build_wall` refuses a second water gate within
+/// 40 m of the first, so 15 m names one crossing and never its neighbour.
+pub const WATER_GATE_KEEP_M: f64 = 15.0;
+
+/// **Not the reference** (Ruling HN, owner 2026-11-23: no wall over the
+/// map's water but a gated river wall; `GenOpts::bank_sites`): `ring` with
+/// every run of vertices standing in the water (`wet`) taken out, so the wall
+/// runs straight between the dry vertices either side, unless one of
+/// `water_gates` stands within [`WATER_GATE_KEEP_M`] of the run (a circuit
+/// that encloses its river crosses it at its water gates, and that run
+/// stays). Each run is judged on its own, longest first: a run whose removal
+/// would make the ring cross itself, or leave fewer than three vertices, is
+/// tried vertex by vertex, and what cannot go stays. `None` when no run is taken out (no vertex wet, every vertex wet,
+/// or none can go): the ring is then kept as it is.
+///
+/// Why: the circuit builder closes a one-bank wall along "the bank" of the
+/// town's own river (`fortify::town_bank`). Where that river ends in the box
+/// (a tributary joining a wider river whose bank the town stands on), the
+/// bank walk runs out to the river's end in mid-water and the ring went
+/// with it: a spike of two walls several hundred metres into the river
+/// (seed 912345 #2 and 246371 #8 at 384 cells: 1 188 and 1 320 m of wall in
+/// the water, up to 396 m from the bank). [`shore_snap`] moves a point at
+/// most [`SHORE_MAX_M`] and so left them. Must never move a dry vertex.
+pub fn ring_off_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
+    let n = ring.len();
+    let w: Vec<bool> = ring.iter().map(|&p| wet(p)).collect();
+    let start = (0..n).find(|&i| !w[i])?;
+    // The wet runs with no water gate on them, as (first vertex, length), walking from a dry vertex.
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut k = 0;
+    while k < n {
+        let i = (start + k) % n;
+        if !w[i] {
+            k += 1;
+            continue;
+        }
+        let len = (0..n).take_while(|&d| w[(i + d) % n]).count();
+        // The run with the dry vertex before it and after it.
+        let run: Vec<Vec2> = (0..len + 2).map(|d| ring[(i + n - 1 + d) % n]).collect();
+        if !water_gates.iter().any(|&g| run.windows(2).any(|s| dist_pt_seg(g, s[0], s[1]) <= WATER_GATE_KEEP_M)) {
+            runs.push((i, len));
+        }
+        k += len;
+    }
+    // Each run is taken out on its own account, longest first: one whose removal would make the ring cross
+    // itself, or leave under three vertices, stays, and the others still go.
+    runs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let mut gone = vec![false; n];
+    let build = |gone: &[bool]| -> Vec<Vec2> { (0..n).filter(|&i| !gone[i]).map(|i| ring[i]).collect() };
+    let mut any = false;
+    for (i, len) in runs {
+        (0..len).for_each(|d| gone[(i + d) % n] = true);
+        let out = build(&gone);
+        if out.len() >= 3 && !ring_self_crosses(&out) {
+            any = true;
+        } else {
+            // The run cannot go whole: its vertices are tried one at a time, each kept out only where the ring
+            // still does not cross itself (a spike's tip goes though the shore vertices beside it must stay).
+            (0..len).for_each(|d| gone[(i + d) % n] = false);
+            for d in 0..len {
+                gone[(i + d) % n] = true;
+                let out = build(&gone);
+                if out.len() >= 3 && !ring_self_crosses(&out) {
+                    any = true;
+                } else {
+                    gone[(i + d) % n] = false;
+                }
+            }
+        }
+    }
+    any.then(|| build(&gone))
+}
+
+/// [`ring_off_water`] applied to a built wall: the ring taken off the site's
+/// water ([`Site::is_water`]: its river at the width the host handed over,
+/// and its open water), its water gates kept, and every gate kept on the
+/// moved ring ([`nearest_on_ring`]). Then, for a wall with no water gate (it
+/// encloses no river), the stretches still over any water of the site's mask
+/// (a chord between two dry vertices that cuts a bend of the river) are set
+/// on the shore as [`shore_snap`] sets them for open water (at most
+/// [`SHORE_MAX_M`]; a stretch further out is left). Nothing for a bastioned
+/// trace (its ring is the gorge, not the drawn wall) or a wall with no ring.
+/// Returns whether it moved the ring.
+pub fn wall_off_water(wall_state: &mut WallState, site: &Site) -> bool {
+    if wall_state.style == "bastioned" {
+        return false;
+    }
+    let gates: Vec<Vec2> = wall_state.gates.iter().filter(|g| g.water).map(|g| g.pt).collect();
+    let Some(ring) = wall_state.ring.as_deref() else { return false };
+    let cut = ring_off_water(ring, &gates, &|p| site.is_water(p));
+    let base: &[Vec2] = cut.as_deref().unwrap_or(ring);
+    let snapped = if gates.is_empty() { site.water_ctx().filter(|w| w.mask.len() == w.mw * w.mh).and_then(|w| shore_snap_on(base, w, &w.mask)) } else { None };
+    let Some(r) = snapped.or(cut) else {
         return false;
     };
     for gt in wall_state.gates.iter_mut() {

@@ -54,7 +54,12 @@ use crate::urban_adapter::{
 /// `2` (2026-11-23, Ruling HM): with `civ.bank_sites` on a river town is laid round the drawn river's edge, its
 /// river is as wide as the map draws it and its roads keep to its bank; with it off every layout is v1's (the six
 /// v1 fixture hashes did not move), and a seventh fixture pins the new path.
-pub const URBAN_RULES_VERSION: u32 = 2;
+/// `3` (2026-11-23, Ruling HN): with `civ.bank_sites` on a town's lake and sea edges are the map's drawn water, a
+/// town at a junction takes the wider drawn river, stands where its road reaches the bank, keeps its walled
+/// streets, and lays no street, wall or house over the map's water or off its box; with the switch off every
+/// layout is still v1's (the six v1 fixture hashes did not move), v2's seventh fixture moved, and an eighth pins
+/// the map's shore.
+pub const URBAN_RULES_VERSION: u32 = 3;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).

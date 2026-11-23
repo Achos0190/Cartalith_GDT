@@ -57,7 +57,7 @@
 //! |---|---|---|
 //! | [`build_markets`](crate::amenities::build_markets) | `cleared_parcels`, `removed_buildings` | flags + `Vec::remove` in reverse |
 //! | [`apply_decay`] | `ruined_parcels`, `ruined_buildings` | flags |
-//! | [`clear_fort_zone`] | `parcels_cleared`, `buildings_removed`, `details_removed` | flags + `Vec::remove` (already descending) |
+//! | [`clear_fort_zone`](crate::cleanup::clear_fort_zone) | `parcels_cleared`, `buildings_removed`, `details_removed` | flags + `Vec::remove` (already descending) |
 //! | [`detect_river_crossings`] | [`Crossings`] | `site.bridges` / `site.ford` on [`TownSite`] |
 //!
 //! [`assign_districts`] likewise returns [`Lot`]s — a parcel plus the seven
@@ -78,7 +78,7 @@ use crate::amenities::{Civic, GamesBuilding, Market, build_civic, build_games, b
 use crate::blocks::{Block, Parcel, build_blocks};
 use crate::citadel::{CITADEL_MIN_POP, Citadel, build_citadel, citadel_sweep};
 use crate::courtyard::build_courtyard_rings;
-use crate::cleanup::{clear_fort_zone, privatize_alleys};
+use crate::cleanup::{clear_fort_zone_keeping, privatize_alleys};
 use crate::districts::{
     Building, FaithSite, Lot, assign_districts, build_buildings, build_faith_sites,
 };
@@ -304,6 +304,15 @@ pub struct GenOpts {
     /// `WorldParams::urban_parallel_streets`, off at both boundaries until
     /// the owner rules at PS-7 (`DECISIONS.md` section 7p).
     pub parallel_streets: bool,
+    /// **Not the reference** -- Ruling HN (owner, 2026-11-23): the town is
+    /// laid out beside water as wide as the map draws it (the host's
+    /// `civ.bank_sites`: its river at the drawn width, its lake and sea edges
+    /// the map's). It turns on the layout rules that regime needs and that
+    /// would move a town on the reference's 12 to 46 m channel:
+    /// the rampart sweep keeps the market's streets
+    /// ([`crate::cleanup::clear_fort_zone_keeping`]). `false` is the
+    /// reference, by control flow.
+    pub bank_sites: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -542,7 +551,7 @@ pub struct TownParcel {
     pub unsuitable: bool,
     pub built: bool,
     pub churchyard: bool,
-    /// `par.cleared` — set by [`build_markets`](crate::amenities::build_markets) and [`clear_fort_zone`]. Written
+    /// `par.cleared` — set by [`build_markets`](crate::amenities::build_markets) and [`clear_fort_zone`](crate::cleanup::clear_fort_zone). Written
     /// twice in block 4 and read nowhere in it; carried because it is the
     /// model's, and a renderer wants to know the lot was swept.
     pub cleared: bool,
@@ -639,6 +648,10 @@ pub struct Town {
     /// village ([`crate::village`], Ruling FE item 2): `GenOpts::street_village`
     /// on, under `PLAZA_MARKET_POP`, the organic plan. `false` with it off.
     pub street_village: bool,
+    /// **Not the reference** -- `GenOpts::bank_sites` as this town was laid
+    /// out with it (Ruling HN): read by [`crate::riverbank::second_pass`] and
+    /// its village fits, whose band is narrower for such a town.
+    pub bank_sites: bool,
     /// **Not the reference** -- where the settlement's map position falls in
     /// this layout's box: the point a renderer anchors onto the settlement's
     /// cell. [`Self::anchors`]' market, as in the reference (whose
@@ -885,8 +898,49 @@ pub fn houses_reach_water(buildings: &[crate::districts::Building], w: &WaterCtx
 ///
 /// `front` lets Ruling FK's harbour front move the market (see [`generate`]);
 /// `false` is the reference's market.
+/// What [`generate_pass`] decides before it lays a street: its resolved
+/// inputs, the built site, and the market with where it was moved from.
+/// [`sited`] returns it; the fields are that function's locals under their
+/// own names, documented where they are computed.
+struct Sited {
+    profile: CultureProfile,
+    rules: crate::rules::Rules,
+    terrain_aware: bool,
+    ruined: bool,
+    wall_generations: bool,
+    settlement_age: f64,
+    epochs: i32,
+    pop_target: f64,
+    walls: bool,
+    fort_requested: bool,
+    fortified: bool,
+    target_len: f64,
+    max_rf: f64,
+    street_village: bool,
+    burgage: bool,
+    wm: f64,
+    hm: f64,
+    site: Site,
+    riverbank: bool,
+    both_banks: bool,
+    town_bridge: Option<TownBridge>,
+    anchors: crate::routes::Anchors,
+    pin: Option<Vec2>,
+    road_bank_moved: bool,
+    front_water: Option<Vec2>,
+}
+
+/// **The first part of [`generate_pass`]**, unchanged and in its order: the
+/// resolved options, `build_site`, and the market placement with every rule
+/// that moves it (the channel nudge, the harbour front, a street village's
+/// landing and roads' bank, `GenOpts::market_road_bank`). Split out
+/// (Ruling HN, 2026-11-23) so [`market_only`] can answer where a layout's
+/// market goes without laying the town out; `generate_pass` calls it first
+/// and nothing else does, so a layout is byte for byte what it was (the
+/// goldens of `generate/tests/golden.rs` pin that). Reads nothing of the
+/// riverbank pass. `front` as for [`generate_pass`].
 #[allow(clippy::too_many_lines)]
-pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, front: bool) -> Town {
+fn sited(seed: u32, opts: &GenOpts, front: bool) -> Sited {
     let profile: CultureProfile = resolve_profile(or_str(opts.culture.as_deref(), ""));
     let rules = resolve_rules(opts.rules.as_ref());
     let terrain_aware = opts.terrain_aware;
@@ -965,7 +1019,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         && pop_target >= BOTH_BANKS_MIN_POP
         && (site.kind == "river" || site.kind == "riverthrough")
         && profile.planning != "radial";
-    let mut town_bridge: Option<TownBridge> = None;
+    let town_bridge: Option<TownBridge> = None;
     // v0.95: the host's real connected neighbours, not `buildSite`'s synthetic
     // map-edge endpoints. `buildPrimaries` reads only `site.routeEnds`, so this
     // is the whole of the route-locking hook.
@@ -1101,6 +1155,88 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             road_bank_moved = true;
         }
         anchors.market = mc;
+    }
+    Sited {
+        profile,
+        rules,
+        terrain_aware,
+        ruined,
+        wall_generations,
+        settlement_age,
+        epochs,
+        pop_target,
+        walls,
+        fort_requested,
+        fortified,
+        target_len,
+        max_rf,
+        street_village,
+        burgage,
+        wm,
+        hm,
+        site,
+        riverbank,
+        both_banks,
+        town_bridge,
+        anchors,
+        pin,
+        road_bank_moved,
+        front_water,
+    }
+}
+
+/// **Ruling HN (owner, 2026-11-23): where one layout pass puts its market**,
+/// without laying the town out: `(market, moved)`, the market in the layout's
+/// local metres and whether `GenOpts::market_road_bank` moved it
+/// (`Town::road_bank_moved`). Exactly `generate_pass(seed, opts, _, front)`'s
+/// `anchors.market` and `road_bank_moved` (the riverbank pass does not reach
+/// the market), from the same code ([`sited`]); `market_only_is_the_laid_markets`
+/// holds the two together. For a host that must know a town's market's bank
+/// for every settlement on the map (the marker), where a full layout costs a
+/// tenth of a second a town.
+///
+/// It is one pass's answer. [`generate`] may keep another pass's layout (the
+/// harbour front's, or the reference market's where the roads' bank housed
+/// fewer); a caller that needs the kept market asks for each pass's and lays
+/// the town out only where they disagree.
+pub fn market_only(seed: u32, opts: &GenOpts, front: bool) -> (Vec2, bool) {
+    let s = sited(seed, opts, front);
+    (s.anchors.market, s.road_bank_moved)
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, front: bool) -> Town {
+    // The site and the market, decided before any street ([`sited`]; split out for [`market_only`], Ruling HN).
+    let Sited {
+        profile,
+        rules,
+        terrain_aware,
+        ruined,
+        wall_generations,
+        settlement_age,
+        epochs,
+        pop_target,
+        walls,
+        fort_requested,
+        fortified,
+        target_len,
+        max_rf,
+        street_village,
+        burgage,
+        wm,
+        hm,
+        mut site,
+        riverbank,
+        both_banks,
+        mut town_bridge,
+        anchors,
+        pin,
+        road_bank_moved,
+        front_water,
+    } = sited(seed, opts, front);
+    // Ruling HN: ground past the river's end is the market's bank (`Site::bank_ref`), from here on.
+    if opts.bank_sites {
+        site.bank_ref = Some(anchors.market);
     }
 
     // **Not the reference** (Ruling FN, `GenOpts::river_stretch`): a river
@@ -1367,6 +1503,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     {
         crate::village::landing_lane(&site, &mut g, anchors.market);
     }
+    // **Not the reference** (Ruling HN, `GenOpts::bank_sites`): beside water as wide as the map
+    // draws it, no street stands in the water but a bridge (`cleanup::sweep_wet_streets`). After
+    // the last street laid beside the water and before the faces become blocks.
+    if opts.bank_sites {
+        crate::cleanup::sweep_wet_streets(&site, &mut g, anchors.market);
+    }
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = crate::blocks::build_parcels_with(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules), burgage);
     // **Not the reference** (Ruling FE item 2, `crate::village::plat_tofts`): a
@@ -1397,6 +1539,12 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         // of the fitted wall that stand over open water are set on the shore.
         // Not a bastioned trace (its ring is the gorge, not the drawn wall).
         crate::wallhug::snap_wall_to_shore(&mut wall_state, &site);
+    }
+    // **Not the reference** (Ruling HN, `GenOpts::bank_sites`): beside water as wide as the map
+    // draws it, the wall's vertices in the water go, but for a gated river wall
+    // (`crate::wallhug::ring_off_water`). After the fit and the shore snap, whichever built the ring.
+    if opts.bank_sites {
+        crate::wallhug::wall_off_water(&mut wall_state, &site);
     }
     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
     // backing onto the wall from inside, and a faubourg against it outside.
@@ -1623,7 +1771,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         let building_polys: Vec<Vec<Vec2>> = buildings.iter().map(|b| b.poly.clone()).collect();
         let parcel_polys: Vec<Vec<Vec2>> = lots.iter().map(|l| l.par.poly.clone()).collect();
         let detail_pts: Vec<Option<Vec2>> = details.iter().map(Detail::anchor).collect();
-        let sweep = clear_fort_zone(&wall_state, &mut g, &building_polys, &parcel_polys, &detail_pts);
+        // Ruling HN: beside the map's wide water the walled town keeps its own streets (`GenOpts::bank_sites`).
+        let sweep = clear_fort_zone_keeping(&wall_state, &mut g, &building_polys, &parcel_polys, &detail_pts, opts.bank_sites.then_some(anchors.market));
         // **Not the reference** (Ruling H, `crate::wallside`): a faubourg is a
         // cluster built against the wall's outer face, so its first rows lie
         // inside the curtain's 15 m rampart strip on purpose — so every one of
@@ -1692,7 +1841,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // do. Last, so every house any stage made is checked.
     let mut wet_swept = 0usize;
     if riverbank {
-        let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly)).collect();
+        // Ruling HN (`GenOpts::bank_sites`): and a house with a corner off the box, where the town has no water
+        // to test (`Site::off_box`).
+        let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly) || (opts.bank_sites && buildings[i].poly.iter().any(|&v| site.off_box(v)))).collect();
         for i in wet {
             if let Some(k) = lots.iter().position(|l| l.par.id == buildings[i].parcel) {
                 parcel_cleared[k] = true;
@@ -1813,6 +1964,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         both_banks,
         riverbank_pass: (riverbank || street_village).then_some(pass),
         street_village,
+        bank_sites: opts.bank_sites,
         embankment,
         pin,
         road_bank_moved,

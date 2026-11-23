@@ -1,0 +1,49 @@
+U1 rampart sweep keeps the largest piece only                          KILLED
+U2 rampart sweep ignores the market                                    KILLED
+U3 wet sweep: the quay is not exempt                                   KILLED   (survived the first run: the fixture's quay hung off the bridge; it now runs from the bank into the water)
+U4 wet sweep: a street's ends are not sampled                          KILLED
+U5 wet sweep: every wet street seeds a bridge                          KILLED
+U6 wet sweep: a street off the box stays                               KILLED
+U7 past a river's end: the last segment is not read                    KILLED
+U8 past a river's end keeps the line's own side                        KILLED
+U9 WATER_GATE_KEEP_M 15 to 1500                                        KILLED
+U10 a gated wall run is the one taken out                              KILLED   (the first run's literal no longer existed after the per-run rewrite; re-run on the new literal)
+U13 a wall run that would make the ring cross itself is taken out anyway KILLED   (added with the per-run rule)
+U11 BANK_SITES_LOW_SHARE 0.97 to 0.5                                   KILLED
+U12 market_only answers the box corner                                 KILLED
+C1 MAP_WATER_TAPS: the centre alone                                    KILLED
+C2 the map's water test is not asked                                   KILLED
+C3 a junction town takes the nearer run                                KILLED
+C4 DRAWN_WIDTH_MARGIN_M 8 to 80                                        KILLED
+C5 BANK_CENTRE_CLEAR_M 20 to 3                                         KILLED
+C6 the market offsets answer the box centre                            KILLED
+C7 URBAN_RULES_VERSION 3 to 4                                          KILLED
+C8 the bank-site layout rules are never turned on                      KILLED   (survived the first run: no test read the flag; `the_bank_site_layout_rules_are_on_exactly_where_the_map_s_widths_are_given` added)
+G1 the sea test inverted                                               KILLED
+G2 the lake shore's sign                                               KILLED
+G3 four lake corners read land                                         KILLED
+G4 the marker never goes to its dry market                             KILLED
+G5 the clear market itself is not taken                                KILLED
+G6 a road's landing past the reach is followed                         KILLED
+G7 the road's landing is never taken                                   KILLED
+G8 a town is found round its cell plus its origin without the half cell KILLED
+G9 census: GATE_NEAR_M 15 to 1500                                      KILLED
+G10 census: BRIDGE_ON_EDGE_M 1.5 to 1500                               KILLED
+G11 census: OVER_STEP_M 4 to 400                                       KILLED
+G12 an older archive is not read as saved without the switch           KILLED
+
+U15 a wet wall run is not tried vertex by vertex                        KILLED
+U17 the wall is never taken off the water (the call in generate_pass)  KILLED
+
+35 mutants on rules and constants, 35 killed (29 on the full run; U3 and C8 survived it and their tests were
+tightened, U10's literal was renewed, U13, U15 and U17 added, and those were run again by name).
+
+SURVIVORS, not hidden: four mutants on WIRING lines of generate_pass, where GenOpts::bank_sites is read. No unit
+fixture reaches them (a fixture needs a town with water on a wider scale than the urban crate's 24 m test river);
+each rule behind them is unit-tested and killed above, and the census is what sees the wiring:
+U14 the wet street sweep is never called                                SURVIVED (census: streets over a drawn river)
+U16 ground past a river's end is never given the market's bank          SURVIVED (census: housed, 532187 #9)
+U18 the rampart sweep is never given the market                         SURVIVED (plot of the owner's town: streets on its market's bank)
+U19 a house off the box is never swept                                  SURVIVED (census: buildings over a drawn river, 483920 at 2 048 #122)
+They were not run against the census (a census run is nine minutes); that is a claim about what would catch them,
+not a measurement.

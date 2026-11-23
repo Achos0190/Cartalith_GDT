@@ -38,6 +38,7 @@ fn towns() -> Vec<(u64, UrbanLayout)> {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: true,
+        map_water: None,
     };
     let o = PlaceOverrides { wall_hug: true, riverbank: true, street_village: true, market_scale: true, harbour_front: true, market_road_bank: true, water_widen: true, town_bridge_search: true, ..Default::default() };
     [(1u64, 50usize, 8usize, 200u32), (2, 45, 12, 4_000), (3, 40, 20, 12_000), (4, 34, 47, 3_000), (5, 21, 30, 5_000)]
@@ -262,4 +263,16 @@ fn the_chip_shows_at_two_x_and_not_at_one_point_nine() {
     assert!(!pop_chip(1900, 1000));
     assert!(pop_chip(0, 5));
     assert!(!pop_chip(500, 500));
+}
+
+/// Protects Ruling HN leftover (e), `town_centre`: an unfrozen town is found round the point it is laid round,
+/// not its cell. A town at cell (10, 5) laid round (10.2, 5.1) in the adapter's frame, 400 m from its river, has
+/// its centre at (10.7, 5.6) in the traced frame and a box 1 700 + 2 x 400 = 2 500 m long; with no origin, the
+/// cell's centre and the reference's 1 700 m. MUTATION: dropping the half cell, or the grown box for the
+/// reference's, fails a literal.
+#[test]
+fn a_town_is_found_round_the_point_it_is_laid_round() {
+    let o = cartalith_civ::urban_adapter::BankOrigin { at: (10.2, 5.1), river_m: 400.0 };
+    assert_eq!(super::town_centre((10, 5), Some(o)), ((10.7, 5.6), 2500.0));
+    assert_eq!(super::town_centre((10, 5), None), ((10.5, 5.5), 1700.0));
 }

@@ -7886,6 +7886,27 @@ mod tests {
     /// test. Removing the `basin_routing` row from `LOADS_WHEN_ABSENT`, or making the restore skip
     /// a row, turns this red. The owner's 2026-11-13 combing world had rough routing, the lake
     /// balance and the shared trunks off for exactly the first half of this.
+    /// Protects Ruling HN's offer premise (`params::saved_without`) on the two real older archives of this
+    /// repository and on a save this build writes: both archives were written before `civ.bank_sites` and read
+    /// "saved without it", while a state this build saves carries the key whether the switch is on or off, so an
+    /// explicit off is never offered the update. MUTATION: `is_none_or` to `is_some_and` inverts all four.
+    #[test]
+    fn an_older_archive_reads_as_saved_without_the_bank_switch_and_a_new_save_never_does() {
+        for bytes in [&include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip")[..], &include_bytes!("../tests/fixtures/project_384cap_512x328_2026-09-28.zip")[..]] {
+            let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+            assert!(crate::params::saved_without(&data.save.state, "civ.bank_sites"), "an archive of September 2026 predates the switch");
+        }
+        let pre = project::read_project(std::io::Cursor::new(&include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip")[..])).expect("the fixture reads");
+        assert!(!crate::params::saved_without(&pre.save.state, "passes.glacial"), "the control: a key that archive does carry");
+        for on in [true, false] {
+            let mut p = crate::params::defaults();
+            p.civ.bank_sites = on;
+            let state = crate::params::save_state(&p);
+            assert!(!crate::params::saved_without(&state, "civ.bank_sites"), "a save of this build carries the key (switch {on})");
+        }
+        assert!(crate::params::saved_without(&serde_json::json!({}), "civ.bank_sites"), "no native block at all");
+    }
+
     #[test]
     fn a_new_world_after_opening_a_pre_ruling_er_archive_is_made_by_the_app_rules() {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");

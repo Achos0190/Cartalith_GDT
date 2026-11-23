@@ -64,6 +64,7 @@ mod town_river_census;
 // The town measures the censuses share (buildings in water, the fronted bank): out of the test-only
 // module so Ruling HM's live census (`bank_site::town_bank_census`) reads the same ones.
 mod town_measures;
+mod town_water;
 #[cfg(test)]
 mod sea_site_census;
 // Owner Ruling GO (2026-11-22): the border straightness and terrain census of
@@ -7309,6 +7310,16 @@ struct WorldGen {
     /// Ruling HG: the drawn river indexed for the settlements' bank points (`bank_site::StrokeIndex`), keyed like
     /// `river_geom_cache` on `river_network_key_str`. Derived; never saved.
     bank_index_cache: std::cell::RefCell<Option<(String, std::sync::Arc<bank_site::StrokeIndex>)>>,
+    /// Ruling HN: the map's drawn lake and sea as a point test (`town_water::DrawnWater`), under `drawn_water_key`.
+    town_water_cache: std::cell::RefCell<Option<(String, std::sync::Arc<town_water::DrawnWater>)>>,
+    /// Ruling HN: the open world was read from a save that carries no `civ.bank_sites` key (it was made before
+    /// towns stood on the bank), so the shell may offer the update once (`bank_site::bank_sites_offer`). Set by
+    /// every load; cleared when a new world's rules are restored (`restore_new_world_rules`).
+    bank_sites_absent: bool,
+    /// Ruling HN: each settlement's town origin (`bank_site::town_origin`) by `(tid, x, y)`, under `bank_site::origin_key`.
+    origin_cache: std::cell::RefCell<(u64, std::collections::HashMap<(u64, usize, usize), Option<cartalith_civ::urban_adapter::BankOrigin>>)>,
+    /// Ruling HN: each settlement's market on the map (`bank_site::market_points`), under `bank_site::market_key`.
+    market_cache: std::cell::RefCell<Option<(u64, Vec<Option<(f64, f64)>>)>>,
     /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
     /// height built for it. A rendering input only; never a world field.
     valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
@@ -8131,6 +8142,10 @@ impl IRefCounted for WorldGen {
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
             bank_index_cache: std::cell::RefCell::new(None),
+            town_water_cache: std::cell::RefCell::new(None),
+            market_cache: std::cell::RefCell::new(None),
+            origin_cache: std::cell::RefCell::new((0, std::collections::HashMap::new())),
+            bank_sites_absent: false,
             valley_shade_cache: std::cell::RefCell::new(None),
             valley_shade_timing: std::cell::Cell::new(None),
             forced_lakes: None,
@@ -9547,6 +9562,8 @@ impl WorldGen {
         if self.bake.check(cartalith_engine::bake::Mutation::Generation).is_err() {
             return PackedStringArray::new();
         }
+        // Ruling HN: the world about to be made is not the older save that was opened.
+        self.bank_sites_absent = false;
         let chosen = self.rules_chosen.clone();
         let changed = params::restore_new_world_rules(&mut self.params, &|k: &str| chosen.iter().find(|&&(c, _)| c == k).map(|&(_, v)| v));
         if !changed.is_empty() {
@@ -11654,6 +11671,9 @@ impl WorldGen {
         // `rules_chosen` is left alone, so a New World after it is made by the
         // app's rules and the user's own choices (`restore_new_world_rules`).
         params::apply_saved_state(&mut self.params, &save.state);
+        // Ruling HN: a save with no `civ.bank_sites` key was made before towns stood on the bank
+        // (`save_state` always writes the key, so absence means an older build wrote the file).
+        self.bank_sites_absent = params::saved_without(&save.state, "civ.bank_sites");
         self.seed = save.params.seed;
         // The archive's own record of its name, verbatim including its
         // absence -- see the `world_name` field's own note on why this is

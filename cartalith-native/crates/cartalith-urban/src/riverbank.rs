@@ -905,11 +905,28 @@ pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
     // [`VILLAGE_LOW_SHARE`] of its target, whose road frontage ran out (a road
     // along its bank has one side; a short road has little), is laid out again
     // with more lanes by its road, whose frontage takes more tofts.
-    if t.street_village && t.pop < t.pop_target * VILLAGE_LOW_SHARE {
+    if t.street_village && t.pop < t.pop_target * village_low_share(t) {
         let scale = if t.pop > 0.0 { (t.pop_target / t.pop).clamp(1.0, VILLAGE_MAX_SCALE) } else { VILLAGE_MAX_SCALE };
         return Some(RiverbankPass::Village { street_scale: scale, trim: false });
     }
     None
+}
+
+/// [`VILLAGE_LOW_SHARE`] for a town on the map's wide water
+/// (`GenOpts::bank_sites`, Ruling HN, owner 2026-11-23). **A labelled
+/// judgement**, 0.97: the ruling's bar is that a town houses on the bank what
+/// it housed in the river, and a river village on the reference's narrow
+/// channel over-built and was fitted down to its target, while on the bank
+/// its first layout landed in the 80 to 100 % it was accepted in (seed 532187
+/// at 2 048 x 1 311: villages at 81, 89 and 92 % that had housed 100 %). Three
+/// points under the target is the fit's own noise (one toft in 30).
+pub const BANK_SITES_LOW_SHARE: f64 = 0.97;
+
+/// The least share of its target a street village's layout is accepted at:
+/// [`BANK_SITES_LOW_SHARE`] for a town laid out with `GenOpts::bank_sites`,
+/// else [`VILLAGE_LOW_SHARE`].
+pub fn village_low_share(t: &crate::Town) -> f64 {
+    if t.bank_sites { BANK_SITES_LOW_SHARE } else { VILLAGE_LOW_SHARE }
 }
 
 /// The share of its target a riverbank village's refitted layout may house
@@ -957,7 +974,7 @@ pub const VILLAGE_MAX_SCALE: f64 = 8.0;
 /// trimmed would, or run with the switch off.
 pub fn fit_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -> crate::Town {
     let target = first.pop_target;
-    let (lo, hi, aim) = (target * VILLAGE_LOW_SHARE, target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
+    let (lo, hi, aim) = (target * village_low_share(&first), target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
     if first.pop < lo {
         return fit_short_village(first, lay);
     }
@@ -998,7 +1015,7 @@ pub fn fit_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -
 /// housing fewer than `first`, or one over the cap.
 pub fn fit_short_village(first: crate::Town, lay: impl Fn(f64, bool) -> crate::Town) -> crate::Town {
     let target = first.pop_target;
-    let (lo, hi, aim) = (target * VILLAGE_LOW_SHARE, target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
+    let (lo, hi, aim) = (target * village_low_share(&first), target * RIVER_HOUSING_CAP, target * VILLAGE_AIM_SHARE);
     let mut pts: Vec<(f64, f64)> = vec![(1.0, first.pop)];
     let mut best = first;
     let mut scale = (target / best.pop.max(1.0)).clamp(1.0, VILLAGE_MAX_SCALE);

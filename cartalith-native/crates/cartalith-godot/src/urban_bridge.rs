@@ -989,6 +989,12 @@ impl WorldGen {
         // see this module's header and `traced_river_polys`, now shared with
         // `settlement_diagnostics` below.
         let river_polys = traced_river_polys(ws, gw, gh);
+        // Ruling HN: where the map draws lake and sea, for the town's water raster (`UrbanWorld::map_water`).
+        let drawn_water = self.town_map_water();
+        let map_water = drawn_water.as_ref().map(|dw| {
+            let field: &[f32] = &ws.field;
+            move |x: f64, y: f64| dw.class_at(field, x, y) != crate::town_water::LAND
+        });
 
         let world = UrbanWorld {
             field: &ws.field,
@@ -1006,6 +1012,8 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.params.urban_river_kind_map,
+            // Ruling HN: the map's drawn lake and sea (`civ.bank_sites` on), else the reference's own test.
+            map_water: map_water.as_ref().map(|f| f as &(dyn Fn(f64, f64) -> bool + Sync)),
         };
 
         // `currentResourcePotentials()`, for the one override that needs a
@@ -1092,6 +1100,12 @@ impl WorldGen {
             return out;
         }
         let river_polys = traced_river_polys(ws, gw, gh);
+        // Ruling HN: where the map draws lake and sea, for the town's water raster (`UrbanWorld::map_water`).
+        let drawn_water = self.town_map_water();
+        let map_water = drawn_water.as_ref().map(|dw| {
+            let field: &[f32] = &ws.field;
+            move |x: f64, y: f64| dw.class_at(field, x, y) != crate::town_water::LAND
+        });
         let world = UrbanWorld {
             field: &ws.field,
             flow: &ws.flow_discharge,
@@ -1106,6 +1120,8 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.params.urban_river_kind_map,
+            // Ruling HN: the map's drawn lake and sea as `town_batch` passes it, so a town's box is judged on the context it is drawn from.
+            map_water: map_water.as_ref().map(|f| f as &(dyn Fn(f64, f64) -> bool + Sync)),
         };
         let others: Vec<(f64, f64, f64)> =
             civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
@@ -1224,6 +1240,7 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.params.urban_river_kind_map,
+            map_water: None,
         };
 
         let mut out = out;

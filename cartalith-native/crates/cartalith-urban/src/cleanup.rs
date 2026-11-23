@@ -127,6 +127,14 @@ pub fn prune_largest(g: &mut Graph) {
 /// 483920 #11 at 384: the village laid out on another stretch of road, 40 %
 /// housed). `None` is [`prune_largest`] exactly.
 pub fn prune_keeping(g: &mut Graph, keep: Option<Vec2>) {
+    prune_components(g, keep, false);
+}
+
+/// [`prune_keeping`], and with `also_largest` the largest component is kept
+/// **as well as** the one holding the live node nearest `keep` (**not the
+/// reference**; Ruling HN, 2026-11-23, [`clear_fort_zone_keeping`]). With
+/// `also_largest` false it is [`prune_keeping`] exactly.
+fn prune_components(g: &mut Graph, keep: Option<Vec2>, also_largest: bool) {
     let mut order: Vec<usize> = Vec::new();
     let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
     for e in &g.edges {
@@ -177,16 +185,18 @@ pub fn prune_keeping(g: &mut Graph, keep: Option<Vec2>) {
             best = i;
         }
     }
+    let largest = best;
     if let Some(p) = keep
         && let Some(&n) = order.iter().min_by(|&&a, &&b| g.nodes[a].pt().dist(p).total_cmp(&g.nodes[b].pt().dist(p)))
         && let Some(&c) = comp.get(&n)
     {
         best = c;
     }
+    let kept = |c: Option<usize>| c == Some(best) || (also_largest && c == Some(largest));
     let victims: Vec<usize> = g
         .edges
         .iter()
-        .filter(|e| e.alive && comp.get(&e.a).copied() != Some(best))
+        .filter(|e| e.alive && !kept(comp.get(&e.a).copied()))
         .map(|e| e.id)
         .collect();
     for eid in victims {
@@ -284,6 +294,86 @@ pub fn remove_water_crossings_keeping(site: &Site, g: &mut Graph, keep: Option<V
     }
 
     prune_keeping(g, keep);
+}
+
+/// How far apart [`sweep_wet_streets`] samples a street, metres. **A
+/// labelled judgement**: under the narrowest street (4 m) and a third of the
+/// narrowest channel a town lays (12 m), so no street steps over water
+/// between two samples.
+pub const WET_STREET_STEP_M: f64 = 4.0;
+
+/// **Not the reference** (Ruling HN, owner 2026-11-23: no street over the
+/// map's water but a real bridge; `GenOpts::bank_sites`): kills every live
+/// street with a point in the water ([`Site::is_water`], sampled every
+/// [`WET_STREET_STEP_M`] with both ends) that is no part of a bridge, then
+/// keeps the market's streets and the largest piece (`prune_components`).
+/// Returns how many it killed.
+///
+/// **A bridge** is a chain of streets in the water, joined end to end, one
+/// of which crosses the town's own river centreline. The quay is exempt, as
+/// in [`remove_water_crossings`]: it stands on the waterline by design.
+///
+/// **A street with a point off the town's box goes too, and is never a bridge**
+/// ([`Site::off_box`]): the town knows its water only inside its box, and a road followed out past
+/// the edge was lined with houses standing in a river the map draws there
+/// (seed 483920 #122 at 2 048 cells: a street village's 29 houses, up to
+/// 160 m outside its box).
+///
+/// Why a pass of its own: [`remove_water_crossings`] samples nine interior
+/// points and spares everything within `1.5 * riverW + 34` m of the bridge
+/// point, a disc of about 100 m on the reference's 12 to 46 m channel and of
+/// over a kilometre on a river as wide as the map draws it, so streets stood
+/// in the water all round a bridge; and a street that dips its end or one
+/// sample into the water was never seen. Run after the last pass that lays a
+/// street beside the water (the embankment and a village's landing lane) and
+/// before the faces become blocks, so no lot is platted on a street it kills.
+/// Must never kill a street with no point in the water.
+pub fn sweep_wet_streets(site: &Site, g: &mut Graph, market: Vec2) -> usize {
+    let ends = |g: &Graph, id: usize| (g.nodes[g.edges[id].a].pt(), g.nodes[g.edges[id].b].pt());
+    let any_sample = |g: &Graph, id: usize, f: &dyn Fn(Vec2) -> bool| {
+        let (a, b) = ends(g, id);
+        let n = (a.dist(b) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
+        (0..=n).any(|i| f(a.lerp(b, i as f64 / n as f64)))
+    };
+    let live: Vec<usize> = g.edges.iter().filter(|e| e.alive && e.cls != "quay").map(|e| e.id).collect();
+    // Off the box: never part of a bridge, whatever it crosses out there.
+    let off: HashSet<usize> = live.iter().copied().filter(|&id| any_sample(g, id, &|p| site.off_box(p))).collect();
+    let wet: HashSet<usize> = live.iter().copied().filter(|&id| !off.contains(&id) && any_sample(g, id, &|p| site.is_water(p))).collect();
+    if wet.is_empty() && off.is_empty() {
+        return 0;
+    }
+    // The bridges: flooded through wet streets from each one that crosses the centreline.
+    let mut bridge: HashSet<usize> = HashSet::new();
+    let mut stack: Vec<usize> = wet
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let (a, b) = ends(g, id);
+            site.river.windows(2).any(|w| crate::geom::seg_int(a, b, w[0], w[1]).is_some())
+        })
+        .collect();
+    stack.sort_unstable();
+    while let Some(id) = stack.pop() {
+        if !bridge.insert(id) {
+            continue;
+        }
+        for n in [g.edges[id].a, g.edges[id].b] {
+            for &k in &g.nodes[n].adj {
+                if wet.contains(&k) && !bridge.contains(&k) {
+                    stack.push(k);
+                }
+            }
+        }
+    }
+    let mut victims: Vec<usize> = wet.difference(&bridge).chain(off.iter()).copied().collect();
+    victims.sort_unstable();
+    for &id in &victims {
+        kill_edge(g, id);
+    }
+    if !victims.is_empty() {
+        prune_components(g, Some(market), true);
+    }
+    victims.len()
 }
 
 // --------------------------------------------------------- privatizeAlleys --
@@ -473,6 +563,31 @@ pub fn clear_fort_zone(
     parcel_polys: &[Vec<Vec2>],
     detail_pts: &[Option<Vec2>],
 ) -> FortZoneSweep {
+    clear_fort_zone_keeping(wall, g, building_polys, parcel_polys, detail_pts, None)
+}
+
+/// [`clear_fort_zone`], and with `market` (**not the reference**; Ruling HN,
+/// owner 2026-11-23, `GenOpts::bank_sites`) the street component holding the
+/// market is kept as well as the largest. `None` is [`clear_fort_zone`]
+/// exactly.
+///
+/// Why: the sweep kills every street that crosses the curtain away from a
+/// gate and then keeps one connected piece, the largest. A town on the bank
+/// of a river as wide as the map draws it walls its market's bank and grows
+/// its far bank from a bridge whose road meets the near bank outside the
+/// wall; where the far bank's streets outnumbered the walled town's, the
+/// walled town lost **every street** while its lots and houses stayed
+/// (measured on the owner's world, seed 532187 at 2 048 x 1 311, his town at
+/// cell 1478, 1159: 641 streets, none within 150 m of its market, under
+/// 1 993 houses). Both pieces are kept: houses stand on both.
+pub fn clear_fort_zone_keeping(
+    wall: &WallState,
+    g: &mut Graph,
+    building_polys: &[Vec<Vec2>],
+    parcel_polys: &[Vec<Vec2>],
+    detail_pts: &[Option<Vec2>],
+    market: Option<Vec2>,
+) -> FortZoneSweep {
     let mut out = FortZoneSweep::default();
     let (Some(ring), Some(land)) = (wall.ring.as_ref(), wall.land_arc.as_ref()) else {
         return out;
@@ -543,7 +658,7 @@ pub fn clear_fort_zone(
         kill_edge(g, eid);
     }
 
-    prune_largest(g);
+    prune_components(g, market, market.is_some());
     out
 }
 

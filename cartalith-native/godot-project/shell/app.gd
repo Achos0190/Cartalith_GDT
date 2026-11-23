@@ -5628,6 +5628,7 @@ func _load_project(path: String) -> bool:
 			## not come back" is precisely the sentence a person must not have
 			## to go looking for.
 			_show_phone_toast(line, null, 5.0)
+		_offer_bank_sites.call_deferred()
 		return true
 	## `GUI_GAP_REGISTER.md` **FI-04**. "see console" names somewhere the person
 	## running an exported build cannot look, and it was the *only* thing said
@@ -6350,6 +6351,101 @@ func _write_project_busy(path: String, then: Callable = Callable(), include_lod_
 func open_project_busy(path: String) -> bool:
 	var ok: Variant = await busy_run("opening project…", _load_project.bind(path))
 	return ok is bool and ok
+
+## ── Ruling HN (owner, 2026-11-23): an older world is offered towns on the bank, once ──
+##
+## A world saved before `civ.bank_sites` existed opens with the switch off (its towns stay where they were drawn).
+## Opening one shows this card, once per world: Update turns the switch on through the ordinary parameter write, so
+## every unfrozen town is laid out again on its river's bank and a frozen town stays as saved and reports the rules
+## change (`engine_bridge.gd::param_write` emits `urban_params_changed`); Keep leaves the world alone. Either answer
+## is remembered for that world (`DccSettings.bank_offer_answer`, by the engine's world key), so it is never asked
+## again; Keep writes no parameter, so it is not taken as the user's rule for the next new world (Ruling EV).
+##
+## **Not a dialog**: a card over the map's top edge, never exclusive, so the map, the menus and every tool work while
+## it is up, and it can simply be left. It is a child of the shell, so a class change (MS-1) keeps it.
+## Asked only where the engine says there is something to offer (`WorldGen.bank_sites_offer`: a save without the key,
+## the switch still off, a world that can lay towns beside a drawn river).
+const BANK_OFFER_TEXT := "This world was made before towns sat on the bank — update?"
+const BANK_OFFER_W := 420.0  ## The card's width where the window allows it, dp. A judgement: the sentence in two lines.
+const BANK_OFFER_TOP := 64.0  ## Below the menu bar or the phone's status row, dp. A judgement.
+const BANK_OFFER_TOUCH_MIN := 44.0  ## The touch floor for its two buttons, dp (`DccTheme.PHONE_TAP_MIN`'s rule).
+var _bank_offer: PanelContainer
+
+func _offer_bank_sites() -> void:
+	_close_bank_offer()
+	if bridge.world_gen == null or bridge.generating or not bridge.world_gen.has_method("bank_sites_offer"):
+		return
+	var key := String(bridge.world_gen.bank_sites_offer())
+	if key == "" or DccSettings.bank_offer_answer(key) != "":
+		return
+	var card := PanelContainer.new()
+	card.name = "BankSitesOffer"
+	card.z_index = 60  ## Above the phone's toasts (50): it carries buttons.
+	var box := DccTheme.panel("raised")
+	box.set_corner_radius_all(8)
+	box.set_content_margin_all(12)
+	card.add_theme_stylebox_override("panel", box)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	card.add_child(col)
+	var msg := DccTheme.label(BANK_OFFER_TEXT, "text_bright", _pfont(11.5) if _phone else DccTheme.FS_BODY)
+	msg.name = "BankSitesOfferText"
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(msg)
+	var note := DccTheme.label("Towns are laid out again on their river's bank. Frozen towns stay as they are.", "text_secondary", _pfont(9.5) if _phone else DccTheme.FS_SMALL)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(note)
+	## Phone: the two buttons stack; elsewhere they sit in a row.
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	col.add_child(row)
+	var yes := DccWidgets.action(row, "Update", _answer_bank_offer.bind(key, true), true)
+	yes.name = "BankSitesOfferYes"
+	var no := DccWidgets.action(row, "Keep as it is", _answer_bank_offer.bind(key, false))
+	no.name = "BankSitesOfferNo"
+	for b in [yes, no]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if DccTheme.is_touch():
+			b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, float(_pscale(BANK_OFFER_TOUCH_MIN)) if _phone else BANK_OFFER_TOUCH_MIN)
+	add_child(card)
+	_bank_offer = card
+	_place_bank_offer()
+	get_viewport().size_changed.connect(_place_bank_offer)
+
+## Centres the card under the top bar at the width the window allows (16 dp gutters), its height the content's.
+func _place_bank_offer() -> void:
+	if _bank_offer == null or not is_instance_valid(_bank_offer):
+		return
+	var screen: Vector2 = get_viewport_rect().size
+	var k: float = float(_pscale(1000)) / 1000.0 if _phone else 1.0
+	var w: float = minf(BANK_OFFER_W * k, screen.x - 32.0 * k)
+	## A wrapping label reports the height of one word a line until it has a width, and the card took that height
+	## (2 077 px on the desktop, first run): each label is given the card's inner width, then the card its content's.
+	for l in _bank_offer.find_children("*", "Label", true, false):
+		(l as Label).custom_minimum_size.x = w - 24.0
+	_bank_offer.custom_minimum_size.x = w
+	_bank_offer.position = Vector2((screen.x - w) * 0.5, BANK_OFFER_TOP * k)
+	_bank_offer.reset_size()
+	_bank_offer.reset_size.call_deferred()
+
+func _close_bank_offer() -> void:
+	if _bank_offer != null and is_instance_valid(_bank_offer):
+		if get_viewport().size_changed.is_connected(_place_bank_offer):
+			get_viewport().size_changed.disconnect(_place_bank_offer)
+		_bank_offer.queue_free()
+	_bank_offer = null
+
+## The card's two buttons. The answer is recorded first, so a failed write still does not ask again.
+func _answer_bank_offer(key: String, yes: bool) -> void:
+	DccSettings.set_bank_offer_answer(key, "yes" if yes else "no")
+	_close_bank_offer()
+	if not yes:
+		return
+	if bool(bridge.param_write("civ.bank_sites", true).get("ok", false)):
+		bridge.mark_world_dirty()
+		set_status("hint", "towns now stand on their river's bank; frozen towns are unchanged", "accent")
+	else:
+		set_status("hint", "the update could not be applied (the engine refused the switch)", "accent")
 
 ## File ▸ Revert to last save. Throws the in-memory world away and reloads
 ## the file, which is exactly `_load_project` on the current path -- the

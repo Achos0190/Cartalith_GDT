@@ -1,0 +1,27 @@
+completed 
+form desktop, window (1600.0, 900.0)
+params from C:/cw/hn_scratch/census_params.txt: 156 keys
+ok    a world exists
+ok    the towns to frame exist  -- [103, 2, 6]
+ok    a press at #103's drawn point finds it (at one of the zooms framed)
+ok    a press at #2's drawn point finds it (at one of the zooms framed)
+ok    a press at #6's drawn point finds it (at one of the zooms framed)
+ok    each write of civ.bank_sites made the shell forget the towns it drew (urban_params_changed)  -- 2
+ok    with the switch off no framed town is laid off its cell  -- 0
+ok    with the switch on at least one framed town is laid round the drawn edge or has its river at the map's width (the positive control)  -- 1 of 3 reached, 0 moved
+FAIL  #103: the marker and the market are on one bank at x1 and x4
+ok    #103: no building over a river the map draws  -- 0 of 690
+ok    #103: the town has its river and its market is out of it
+ok    #2: the marker and the market are on one bank at x1 and x4
+ok    #2: no building over a river the map draws  -- 0 of 11345
+ok    #2: the town has its river and its market is out of it
+ok    #6: the marker and the market are on one bank at x1 and x4
+ok    #6: no building over a river the map draws  -- 0 of 18180
+ok    #6: the town has its river and its market is out of it
+ok    the export copy builds
+ok    the export copy asks at its own density (10.37 px per cell against the screen's 2.38)
+ok    the export copy's markers stand at the engine's bank points for that density  -- 178 of 239 moved
+ok    #6 froze with the switch off
+ok    #6 is served unchanged with the switch on (pin, market and every building)
+ok    #6's check says what changed ("civ bank origin is now on", or for a town not moved that the ground under it changed)  -- ["the ground or roads under this town changed since it was drawn"]
+RESULT FAIL (1 failed)

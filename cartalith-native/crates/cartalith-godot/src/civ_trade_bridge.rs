@@ -157,6 +157,7 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.params.urban_river_kind_map,
+            map_water: None,
         };
         let navigability: Vec<Navigability> = civ
             .settlements
@@ -362,6 +363,7 @@ impl WorldGen {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.params.urban_river_kind_map,
+            map_water: None,
         };
         let rows: Vec<SaltAccess> = civ
             .settlements
@@ -418,6 +420,7 @@ pub(crate) fn trade_network_for(
         flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km),
         world_seed: seed,
         river_kind_from_map: river_kind_map,
+        map_water: None,
     };
     let tariffs = civ.faction_roster.tariff_rows();
     let input = TradeInput {

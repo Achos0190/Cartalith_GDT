@@ -334,6 +334,7 @@ fn town_river_census() {
             flow_thresh,
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let gpm = gw as f64 / (p.map_width_km * 1000.0);
         let cell_m = 1.0 / gpm;
@@ -719,6 +720,7 @@ fn town_placement_audit() {
             flow_thresh,
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let (wm, hm) = (cartalith_civ::urban_adapter::SITE_WM, cartalith_civ::urban_adapter::SITE_HM);
         let half_box = (wm / 2.0 * gpm, hm / 2.0 * gpm);
@@ -1546,6 +1548,7 @@ fn riverbank_gap_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: p.urban_river_kind_map,
+            map_water: None,
         };
         let mut seed_gap = Vec::new();
         let others = stretch_others(&civ);
@@ -1749,6 +1752,7 @@ fn town_housing_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let mut seed_bld = [0usize; 2];
         let others = stretch_others(&civ);
@@ -1934,6 +1938,7 @@ fn both_banks_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let others = stretch_others(&civ);
         // Ruling FN: every town's building centroids in world metres, for the
@@ -2433,6 +2438,7 @@ fn harbour_front_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let mut c = [0usize; 15];
         c[0] = civ.settlements.iter().filter(|s| s.placement.coastal).count();
@@ -2667,6 +2673,7 @@ fn stretch_water_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let others = stretch_others(&civ);
         let mut c = [0usize; 3];
@@ -2811,7 +2818,7 @@ fn parallel_streets_audit() {
             (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
             _ => Vec::new(),
         };
-        let uw = UrbanWorld { field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(), river_polys: &river_polys, gw, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km, flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km), world_seed: *seed, river_kind_from_map: river_kind_map(&p) };
+        let uw = UrbanWorld { field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(), river_polys: &river_polys, gw, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km, flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km), world_seed: *seed, river_kind_from_map: river_kind_map(&p), map_water: None };
         let others = stretch_others(&civ);
         for (i, s) in civ.settlements.iter().enumerate() {
             let mk = |on: bool| PlaceOverrides { faith: civ.town_faith(s), wall_hug: p.urban_wall_hug, riverbank: bank, street_village: street_village(&p), market_scale: market_scale(&p), burgage: burgage(&p), market_road_bank: market_road_bank(&p), water_widen: water_widen(&p), town_bridge_search: town_bridge_search(&p), parallel_streets: on, river_stretch: river_stretch(&p).then_some(others.as_slice()), ..Default::default() };
@@ -3042,6 +3049,7 @@ fn river_smooth_audit() {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
             world_seed: seed,
             river_kind_from_map: river_kind_map(&p),
+            map_water: None,
         };
         let gpm = gw as f64 / (p.map_width_km * 1000.0);
         let others = stretch_others(&civ);

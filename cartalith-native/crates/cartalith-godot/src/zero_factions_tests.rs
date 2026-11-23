@@ -169,7 +169,7 @@ fn zero_factions_economy_relations_and_knowledge() {
     let uw = cartalith_civ::urban_adapter::UrbanWorld {
         field: &ws.field, flow: &ws.flow_discharge, water_bodies: &civ.water_bodies, order: ws.stream_order.as_deref(),
         river_polys: &polys, gw: GW, gh, sea_level: ws.sea_level, map_width_km: p.map_width_km,
-        flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km), world_seed: seed, river_kind_from_map: false,
+        flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km), world_seed: seed, river_kind_from_map: false, map_water: None,
     };
     let big = civ.settlements.iter().max_by_key(|s| s.pop).unwrap();
     let o = cartalith_civ::urban_adapter::PlaceOverrides { faith: civ.town_faith(big), ..Default::default() };

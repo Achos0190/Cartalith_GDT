@@ -1,0 +1,40 @@
+completed 
+form phone, window (450.0, 975.0)
+ok    the old save is copied for the run  -- C:/cw/hn_scratch/oldsave/world_before_bank_sites_seed483920_384x288.cartalith
+ok    the old save opens
+ok    the engine offers this world the update (a save without the key, a world that lays towns beside a drawn river)  -- key 'd553604c2df24e24'
+ok    the switch loaded off
+ok    one offer card is shown
+ok    it asks the ruling's question, word for word  -- This world was made before towns sat on the bank — update?
+ok    the card is inside the window, 16 dp or more from its sides  -- [P: (17.472, 69.888), S: (416.0, 174.0)] in (450.0, 975.0)
+ok    it is a card on the shell, not a window
+ok    no exclusive window is open with it  -- 0
+ok    it has its two buttons
+ok    both buttons are 44 dp tall or more  -- 48.0 and 48.0 px against 48.0
+ok    the map zooms under the card (it blocks nothing)  -- zoom 2.889 to 3.322
+ok    Keep closes the card
+ok    Keep leaves the switch off
+ok    Keep changes nothing in the world
+ok    Keep is not the user's rule for a new world
+ok    the answer is recorded for this world  -- no
+ok    the same save opens again
+ok    and is not asked again
+ok    a renamed copy opens
+ok    and is not asked either (the record is the world's)
+ok    with the record cleared the save opens
+ok    and is asked again (the control for step 3)
+ok    no town is moved before the answer
+ok    #0 is frozen before the answer
+ok    Update closes the card
+ok    Update turns the switch on
+ok    Update marks the world changed
+ok    the answer is recorded
+ok    unfrozen towns are laid out again on the bank  -- 142 of 234 laid round a point that is not their cell
+ok    the frozen town #0 is served unchanged (pin, market and every building)
+ok    and its check reports the rules change  -- ["civ bank origin is now on", "the ground or roads under this town changed since it was drawn"]
+ok    the updated world saves  -- { "ok": true, "error": "", "bytes": 2577185, "entries": 41, "substrate": true, "geology": true }
+ok    the new save opens
+ok    with the switch on and no card (its file carries the key)
+ok    a save with the switch turned off by hand opens
+ok    with the switch off and no card (an explicit off is an answer)
+RESULT PASS (0 failed)

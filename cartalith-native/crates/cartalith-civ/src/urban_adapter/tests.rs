@@ -83,6 +83,7 @@ impl Fixture {
             flow_thresh: 1_000.0,
             world_seed: 7,
             river_kind_from_map: false,
+            map_water: None,
         }
     }
 }
@@ -1165,6 +1166,7 @@ fn site_profile_visibility_and_relief_read_the_real_disc() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let summit = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // defR = max(4, round(64/70)) = 4, stepping by 2 over [-4,4]: a 5x5
@@ -1206,6 +1208,7 @@ fn site_profile_visibility_needs_the_0_004_deadband() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert_eq!(p.visibility, 0.0, "the 0.004 deadband is gone");
@@ -1413,6 +1416,7 @@ fn site_profile_buildable_fraction_reads_slope_and_sea() {
             flow_thresh: 1_000.0,
             world_seed: 7,
             river_kind_from_map: false,
+            map_water: None,
         };
         um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0)
             .expect("a profile")
@@ -1501,6 +1505,7 @@ fn site_profile_relief_disc_radius_reads_gw_over_70() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 192.0, 8.0).expect("a profile");
     // 6 x 6 = 36 samples, exactly one of them the planted low cell.
@@ -1540,6 +1545,7 @@ fn site_profile_slope_n_is_normalised_by_gw() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // 0.05 per cell -> central difference 0.05 -> x 64.
@@ -1626,6 +1632,7 @@ fn site_profile_buildable_lattice_is_eleven_by_nine_over_the_site_box() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // The slope is gentle enough everywhere that only the sea test can reject
@@ -1731,6 +1738,7 @@ fn site_profile_buildable_slope_sample_is_the_nearest_cell() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // Nothing here is under water, so only the slope ladder can reject a
@@ -1765,6 +1773,7 @@ fn site_profile_buildable_slope_sample_is_the_nearest_row() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert!((p.buildable_frac - 7.0 / 9.0).abs() < 1e-12, "{}", p.buildable_frac);
@@ -1846,6 +1855,7 @@ fn site_profile_samples_the_rounded_cell() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     // 50.6 rounds to 51 and floors to 50, and the two cells differ.
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.6, 8.0).expect("a profile");
@@ -1879,6 +1889,7 @@ fn site_profile_elev_n_divisor_is_floored_at_1e_minus_6() {
         flow_thresh: 1_000.0,
         world_seed: 7,
         river_kind_from_map: false,
+        map_water: None,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert_eq!(p.elev_n, 0.0, "elevN went NaN -- the 1e-6 floor is gone");
@@ -2320,6 +2331,7 @@ fn box_water(river: bool, sea_frac: f64) -> UmWater {
         mostly_water: false,
         sea_frac,
         to_sea: None,
+        strokes: Vec::new(),
     }
 }
 
@@ -2839,10 +2851,10 @@ fn a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin()
     assert_eq!(ctx.origin_m.map(|m| (m.x.round(), m.y.round())), Some((180.0, 0.0)));
     let water = &ctx.water.as_ref().expect("the town has water").ctx;
     assert!(water.has_real_river_path(), "the town kept its river");
-    assert_eq!(water.river_width_m, Some(300.0), "as wide as the map draws it");
+    assert_eq!(water.river_width_m, Some(308.0), "as wide as the map draws it, and Ruling HN's 8 m margin");
     let l = run_layout(&ctx, None).expect("a layout");
     assert_eq!((l.pin.x.round(), l.pin.y.round()), (1030.0 - 180.0, 805.0), "the cell, 180 m west of the box centre");
-    assert_eq!(l.river_w, 300.0);
+    assert_eq!(l.river_w, 308.0);
     // The river runs north to south through the pin's x; the market is east of its east edge.
     assert!(l.market.x - l.pin.x >= 150.0, "the market is dry on the origin's bank: {:?} against pin {:?}", l.market, l.pin);
     assert!(!l.buildings.is_empty(), "the town is built");
@@ -2851,11 +2863,12 @@ fn a_bank_origin_moves_the_box_keeps_the_river_and_reports_the_cell_as_the_pin()
     // A town that stays round its cell, in the middle of the map's 300 m river: the layout moves its market to dry
     // ground, and the cell is still reported at the box centre (not at the moved market, the generator's own pin),
     // so the town's river stays on the map's.
-    // Its box grows by the river's 300 m (it has no origin to size it from): 2 000 x 1 550.
+    // Its box grows by the river's width as the town lays it, the map's 300 m and Ruling HN's 8 m margin (it has
+    // no origin to size it from): 2 008 x 1 558.
     let mid_ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { origin: None, ..on });
-    assert_eq!(mid_ctx.site_box, Some((2000.0, 1550.0)), "the reference box plus the river's width");
+    assert_eq!(mid_ctx.site_box, Some((2008.0, 1558.0)), "the reference box plus the river's width");
     let mid = run_layout(&mid_ctx, None).expect("a layout");
-    assert_eq!(mid.pin, Vec2::new(1000.0, 775.0), "the cell is the box centre");
+    assert_eq!(mid.pin, Vec2::new(1004.0, 779.0), "the cell is the box centre");
     assert!(mid.market.dist(mid.pin) >= 150.0, "the market left the river: {:?}", mid.market);
 
     let narrow = drawn_stem(&polys, 1.5).into_iter().map(|d| DrawnRiver { widths: Vec::new(), ..d }).collect::<Vec<_>>();
@@ -2919,4 +2932,122 @@ fn a_road_over_the_wide_river_is_pressed_to_the_markets_bank() {
         let k = ((hm / 2.0 + p.y) / water.cell_m) as usize * water.mw + ((wm / 2.0 + p.x) / water.cell_m) as usize;
         assert!(water.dt[k] >= 2.0 && water.dt[k] < 3.0, "the nearest cell two cells from the water, got {}", water.dt[k]);
     }
+}
+
+/// Protects Ruling HN's lake and sea raster (`UrbanWorld::map_water`, `MAP_WATER_TAPS`): with the host's test of
+/// the map's drawn water saying "wet east of local x = 985 m" (the middle of raster cell 44, whose centre is at
+/// 979 m), cell 44 is water though its centre is dry (its east corners are wet), cell 45 is water, cell 43 is
+/// land; and the sea share that names a town seaside (`sea_frac`) is the reference's own, unmoved. With no test
+/// handed over (the reference) the same dry inland box has no water context at all. MUTATION: `MAP_WATER_TAPS`
+/// cut to the centre alone leaves cell 44 dry; `Some(drawn) =>` reading `sea_here || lake` leaves all three dry.
+#[test]
+fn the_towns_lake_and_sea_cells_are_where_the_map_draws_water() {
+    let f = Fixture::new();
+    let order = vec![0i16; GW * GH];
+    let polys: Vec<Vec<(f64, f64)>> = Vec::new();
+    let base = mouth_world(&f, &order, &polys);
+    assert!(um_water_ctx_box(&base, 20.0, 24.0, false, SITE_WM, SITE_HM).is_none(), "the control: a dry inland box");
+    // 200 m cells: local x = 985 m is 135 m east of the box centre at grid x = 20.
+    let drawn = |x: f64, _y: f64| x > 20.0 + 135.0 / 200.0;
+    let w = UrbanWorld { map_water: Some(&drawn), ..mouth_world(&f, &order, &polys) };
+    let u = um_water_ctx_box(&w, 20.0, 24.0, false, SITE_WM, SITE_HM).expect("the map's water makes a water context");
+    let c = &u.ctx;
+    assert_eq!(c.cell_m, 22.0);
+    let row = c.mh / 2 * c.mw;
+    assert_eq!((c.mask[row + 43], c.mask[row + 44], c.mask[row + 45]), (0, 1, 1), "wet from the cell the map's shore crosses");
+    assert_eq!(c.open_water.as_ref().expect("open water")[row + 44], 1, "and in the open-water raster the bank geometry reads");
+    assert_eq!(u.sea_frac, 0.0, "the sea share keeps the reference's test: no site kind or port moves");
+}
+
+/// Protects Ruling HN's junction rule (`drawn_stretch`): of two drawn runs that both pass within
+/// `DRAWN_BIND_CELLS` of the vertex the town binds to, the town's river is the one the map draws wider there
+/// through the box (the trunk whose bank it stands on), not the nearer, even where the narrow run takes the
+/// trunk's width at the one point nearest the town (the map tapers a tributary into its trunk); with no drawn
+/// widths (the switch off) it is the nearer, as before. The narrow run lies on the stem (x = 850 m in the box)
+/// and the wide one 60 m east of it. MUTATION: the `mean_width` comparison dropped follows the nearer run in
+/// both cases; reading the width at the nearest point alone follows the tapered tributary; `DRAWN_WIDTH_MARGIN_M`
+/// 8 to 80 or `BANK_CENTRE_CLEAR_M` 20 to 3 fails a width literal.
+#[test]
+fn at_a_junction_the_towns_river_is_the_wider_drawn_run() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let run = |dx: f64, width: Option<f32>| DrawnRiver { pts: polys[0].iter().map(|&(x, y)| (x + dx, y)).collect(), ranks: Vec::new(), widths: width.map_or_else(Vec::new, |v| vec![v; polys[0].len()]) };
+    let x_of = |runs: &[DrawnRiver]| {
+        let u = um_water_ctx_box_smooth(&w, 20.0, 24.0, false, SITE_WM, SITE_HM, Some(runs)).expect("water");
+        (u.ctx.river_path.as_ref().expect("a path")[0].x, u.ctx.river_width_m)
+    };
+    let (x, width) = x_of(&[run(0.0, Some(0.1)), run(0.3, Some(0.25))]);
+    assert!((x - 910.0).abs() < 1e-6, "the wider run, 60 m east: {x}");
+    assert_eq!(width, Some(58.0), "at the width the map draws it, a quarter of a 200 m cell, and the 8 m margin");
+    // A run 300 m wide 60 m from the box centre would put the centre in the river: the channel is held 20 m off it
+    // (`BANK_CENTRE_CLEAR_M`), 2 x (60 - 20) m wide, and the rest of the drawn width is stamped as water.
+    let (x, width) = x_of(&[run(0.0, Some(0.1)), run(0.3, Some(1.5))]);
+    assert!((x - 910.0).abs() < 1e-6 && (width.expect("a width") - 80.0).abs() < 1e-9, "held off the centre: {x} {width:?}");
+    // The narrow run tapered up to the trunk's width at the town's own row (24), and a hair wider there.
+    let mut tapered = run(0.0, Some(0.1));
+    tapered.widths[24] = 1.6;
+    let (x, _) = x_of(&[tapered, run(0.3, Some(1.5))]);
+    assert!((x - 910.0).abs() < 1e-6, "still the run that is wider through the box: {x}");
+    let (x, _) = x_of(&[run(0.0, None), run(0.3, None)]);
+    assert!((x - 850.0).abs() < 1e-6, "with no drawn width, the nearer run: {x}");
+}
+
+/// Protects Ruling HN's `um_market_offsets`: for a town and for a street village on a river as wide as the map
+/// draws it, the market the layout ends with (`run_layout`), measured from its box centre, is one of the offsets
+/// answered without laying the town out, and the first of them when there is only one (a town on the bank, a
+/// village on it, and a town left on the centreline, whose market the layout moves to dry ground); a town with no water in
+/// its box answers the box centre alone. The control: for the village the market is not the box centre.
+/// MUTATION: answering `Vec2::new(0.0, 0.0)` for every context fails the village.
+#[test]
+fn the_market_is_known_without_laying_the_town_out() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let wide = drawn_stem(&polys, 1.5);
+    let mut moved = 0;
+    // Laid round a point on the east bank, 180 m from the centreline, as the host lays it; and (the last case)
+    // round its cell on the centreline of the 300 m river, where the layout must move the market off the water.
+    let bank = Some(BankOrigin { at: (20.9, 20.0), river_m: 180.0 });
+    for (pop, village, origin) in [(3_000u32, false, bank), (300, true, bank), (300, false, bank), (3_000, false, None)] {
+        let s = settlement(20, 20, pop);
+        let o = PlaceOverrides { riverbank: true, street_village: village, river_smooth: Some(&wide), origin, ..Default::default() };
+        let ctx = um_place_context_with(&w, &s, &crossing_ways(20.0), &o);
+        let l = run_layout(&ctx, None).expect("a layout");
+        let got = Vec2::new(l.market.x - l.wm / 2.0, l.market.y - l.hm / 2.0);
+        let offs = um_market_offsets(&ctx, None);
+        assert!(!offs.is_empty() && offs.iter().any(|q| q.dist(got) < 0.01), "pop {pop} village {village}: the laid market {got:?} is not among {offs:?}");
+        if offs.len() == 1 {
+            assert!(offs[0].dist(got) < 0.01);
+        }
+        moved += usize::from(got.dist(Vec2::new(0.0, 0.0)) > 1.0);
+    }
+    assert!(moved >= 1, "the control: a market that left its box centre");
+    let dry = um_place_context_with(&mouth_world(&f, &vec![0i16; GW * GH], &[]), &settlement(20, 24, 3_000), &[], &PlaceOverrides::default());
+    assert!(dry.water.is_none(), "the control: no water in this box");
+    assert_eq!(um_market_offsets(&dry, None), vec![Vec2::new(0.0, 0.0)]);
+}
+
+/// Protects where Ruling HN's layout rules are turned on (`GenOpts::bank_sites`): exactly for a town the host
+/// handed the map's drawn river widths (`civ.bank_sites` on), whether it is laid round a bank point or stays
+/// round its cell, and never for a town with no drawn width (the switch off, the reference). MUTATION:
+/// `bank_sites: false` in `layout_opts` fails the first two.
+#[test]
+fn the_bank_site_layout_rules_are_on_exactly_where_the_map_s_widths_are_given() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let polys = vec![(0..=47).map(|y| traced(20, y)).collect::<Vec<_>>()];
+    let w = mouth_world(&f, &order, &polys);
+    let s = settlement(20, 20, 3_000);
+    let wide = drawn_stem(&polys, 1.5);
+    let unwidthed = vec![DrawnRiver { pts: polys[0].clone(), ranks: Vec::new(), widths: Vec::new() }];
+    let flag = |runs: &[DrawnRiver], origin: Option<BankOrigin>| {
+        let ctx = um_place_context_with(&w, &s, &[], &PlaceOverrides { riverbank: true, river_smooth: Some(runs), origin, ..Default::default() });
+        layout_opts(&ctx, None).bank_sites
+    };
+    assert!(flag(&wide, Some(BankOrigin { at: (20.9, 20.0), river_m: 180.0 })), "a town laid round its bank point");
+    assert!(flag(&wide, None), "a town that stays round its cell beside the map's wide river");
+    assert!(!flag(&unwidthed, None), "no drawn width: the reference's rules");
 }

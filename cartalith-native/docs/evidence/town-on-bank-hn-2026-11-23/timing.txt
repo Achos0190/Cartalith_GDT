@@ -1,0 +1,9 @@
+TOWN TIME settlement_bank_offsets COLD (a new world state), 234 settlements: median 748 ms (min 745 .. max 846), 5 calls
+TOWN TIME settlement_bank_offsets, 234 settlements: median 8.02 ms (min 6.73 .. max 9.12), 15 calls
+TOWN TIME urban_layout_boxes, 234 settlements: median 95.04 ms (min 94.10 .. max 96.17), 15 calls
+TOWN TIME settlement_bank_offsets COLD (a new world state), 42 settlements: median 187 ms (min 187 .. max 1364), 5 calls
+TOWN TIME settlement_bank_offsets, 42 settlements: median 2.04 ms (min 1.75 .. max 3.52), 15 calls
+TOWN TIME urban_layout_boxes, 42 settlements: median 60.65 ms (min 60.41 .. max 61.16), 15 calls
+TOWN TIME settlement_bank_offsets COLD (a new world state), 234 settlements: median 749 ms (min 744 .. max 849), 5 calls
+TOWN TIME settlement_bank_offsets, 234 settlements: median 8.01 ms (min 6.72 .. max 9.11), 15 calls
+TOWN TIME urban_layout_boxes, 234 settlements: median 95.07 ms (min 94.60 .. max 96.08), 15 calls

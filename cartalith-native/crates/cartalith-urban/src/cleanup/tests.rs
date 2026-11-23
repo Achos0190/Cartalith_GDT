@@ -1358,6 +1358,71 @@ fn fort_zone_prunes_last() {
     assert!(after > 0);
 }
 
+/// Protects Ruling HN's rampart sweep ([`crate::cleanup::clear_fort_zone_keeping`]): a walled town of 24 streets
+/// round its market and an unwalled far bank of 49 streets with no street between them. The reference's sweep
+/// keeps the larger piece only, so the walled town loses every street; with the market given both are kept, and
+/// a third, smaller stray piece (17 streets, neither the largest nor the market's) still goes. MUTATION:
+/// `prune_components(g, market, false)` loses the far bank; `prune_components(g, None, ..)` loses the walled town.
+#[test]
+fn the_rampart_sweep_keeps_the_markets_streets_as_well_as_the_largest_piece() {
+    // A ring far from every street, so the sweep itself kills nothing: only the prune acts.
+    let ring = ring_poly(3000.0, 3000.0, 60.0, 60.0, 12);
+    let wall = WallState { ring: Some(ring.clone()), land_arc: Some(ring), style: "curtain".to_string(), ..WallState::default() };
+    let build = || {
+        let mut g = Graph::new();
+        grid(&mut g, 100.0, 100.0, 3, 3, 60.0, 55.0, "street", 6.0, 1, false); // the walled town: 24 streets
+        grid(&mut g, 900.0, 100.0, 4, 5, 60.0, 55.0, "street", 6.0, 1, false); // the far bank: 49
+        grid(&mut g, 100.0, 900.0, 2, 3, 60.0, 55.0, "street", 6.0, 1, false); // a stray piece
+        g
+    };
+    let market = Vec2::new(160.0, 155.0);
+    let near = |g: &Graph, x: f64, y: f64| g.edges.iter().filter(|e| e.alive && g.nodes[e.a].pt().dist(Vec2::new(x, y)) < 300.0).count();
+    let mut g = build();
+    assert_eq!((near(&g, 160.0, 155.0), near(&g, 990.0, 210.0), near(&g, 130.0, 955.0)), (24, 49, 17), "the control: three separate pieces");
+    clear_fort_zone(&wall, &mut g, &[], &[], &[]);
+    assert_eq!((near(&g, 160.0, 155.0), near(&g, 990.0, 210.0)), (0, 49), "the reference keeps the largest piece only");
+    let mut g = build();
+    crate::cleanup::clear_fort_zone_keeping(&wall, &mut g, &[], &[], &[], Some(market));
+    assert_eq!((near(&g, 160.0, 155.0), near(&g, 990.0, 210.0), near(&g, 130.0, 955.0)), (24, 49, 0), "the market's piece and the largest, and no other");
+}
+
+/// Protects Ruling HN's `sweep_wet_streets` on a river 100 m wide along `y = 600` (water from 548 to 652): a
+/// street wholly on land stays; a street whose end alone is in the water, 4 m in, goes; a road that crosses the
+/// river in three pieces stays whole (its middle piece crosses the centreline and the two others join it in the
+/// water: a bridge); a street in the water joined to nothing that crosses goes; a quay that runs from the bank
+/// 4 m into the water, joined to no bridge, stays; and a street that runs out of the town's box goes while the street it left stays.
+/// MUTATION: seeding the bridge flood from every wet street keeps the dipping one; dropping the flood through
+/// shared ends kills the bridge's two approaches; sampling without the ends misses the dip; the quay's
+/// exemption dropped kills the quay; `off_box` dropped keeps the street off the box.
+#[test]
+fn only_a_bridge_stands_in_the_water_after_the_wet_street_sweep() {
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
+    site.river = vec![Vec2::new(0.0, 600.0), Vec2::new(850.0, 600.0), Vec2::new(1700.0, 600.0)];
+    site.river_w = 100.0;
+    assert!(site.is_water(Vec2::new(300.0, 640.0)) && !site.is_water(Vec2::new(300.0, 660.0)), "the fixture's channel");
+    let mut g = Graph::new();
+    g.add_street(100.0, 300.0, 600.0, 300.0, "street", 6.0, 1, "on land");
+    g.add_street(300.0, 300.0, 300.0, 540.0, "street", 6.0, 1, "to the bank");
+    g.add_street(300.0, 540.0, 300.0, 552.0, "street", 6.0, 1, "dips in");
+    g.add_street(600.0, 300.0, 1400.0, 300.0, "street", 6.0, 1, "to the edge");
+    g.add_street(1400.0, 300.0, 1400.0, -40.0, "street", 6.0, 1, "off the box");
+    g.add_polyline_street(&[Vec2::new(600.0, 300.0), Vec2::new(600.0, 560.0), Vec2::new(600.0, 640.0), Vec2::new(600.0, 900.0)], "primary", 9.0, 1, "the bridge road");
+    g.add_street(900.0, 570.0, 1000.0, 570.0, "street", 6.0, 1, "in the water");
+    g.add_street(700.0, 300.0, 700.0, 540.0, "street", 6.0, 1, "to the quay");
+    g.add_street(700.0, 540.0, 760.0, 552.0, "quay", 6.0, 1, "the quay");
+    let live = |g: &Graph, why: &str| g.edges.iter().filter(|e| e.alive && e.prov == why).count();
+    let before = (live(&g, "on land"), live(&g, "dips in"), live(&g, "the bridge road"), live(&g, "in the water"), live(&g, "the quay"));
+    assert!(before.1 >= 1 && before.2 >= 3 && before.3 >= 1 && before.4 >= 1, "the fixture laid every street: {before:?}");
+    let killed = sweep_wet_streets(&site, &mut g, Vec2::new(350.0, 300.0));
+    assert_eq!(live(&g, "dips in"), 0, "a street with its end in the water goes");
+    assert_eq!(live(&g, "in the water"), 0, "a street in the water that is no bridge goes");
+    assert_eq!(live(&g, "the bridge road"), before.2, "the bridge stays whole, approaches and span");
+    assert_eq!(live(&g, "on land"), before.0, "no dry street is touched");
+    assert_eq!(live(&g, "the quay"), before.4, "the quay stands on the waterline by design");
+    assert_eq!((live(&g, "off the box"), live(&g, "to the edge")), (0, 2), "a street that leaves the box goes; the street it left (two pieces) stays");
+    assert_eq!(killed, before.1 + before.3 + 1);
+}
+
 // ------------------------------------------------- the generate() ordering --
 
 /// **The runtime seam between milestones 9 and 11, walked in `generate()`'s own

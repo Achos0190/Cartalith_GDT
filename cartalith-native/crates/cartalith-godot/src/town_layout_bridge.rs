@@ -472,6 +472,15 @@ pub(crate) enum MarkRef {
     Icon(usize),
 }
 
+/// [`WorldGen::town_at`]'s centre (traced frame, cells) and longer box side (metres) for an unfrozen town at cell
+/// `cell` laid round `origin`: the origin (the adapter's frame, so plus a half) with the box Ruling HM grows for it,
+/// else the cell centre with the reference's box.
+fn town_centre(cell: (usize, usize), origin: Option<cartalith_civ::urban_adapter::BankOrigin>) -> ((f64, f64), f64) {
+    let c = origin.map_or((cell.0 as f64 + 0.5, cell.1 as f64 + 0.5), |b| (b.at.0 + 0.5, b.at.1 + 0.5));
+    let long = cartalith_civ::urban_adapter::um_keep_river_box(origin).map_or(cartalith_civ::urban_adapter::SITE_WM, |b| b.0.max(b.1));
+    (c, long)
+}
+
 impl WorldGen {
     /// Metres per grid cell (`world_crs`' `cell_km` times 1000); `0` before a world.
     fn town_cell_m(&self) -> f64 {
@@ -492,8 +501,16 @@ impl WorldGen {
         (sx as f64 + 0.5 + t.x / mpc, sy as f64 + 0.5 + t.y / mpc)
     }
 
-    /// The settlement index whose town grid point `(gx, gy)` is in: the nearest settlement within [`TOWN_RADIUS_M`]
-    /// of its cell centre (half the longer side for a frozen stretched town). `None` outside every town.
+    /// The settlement index whose town grid point `(gx, gy)` is in: the nearest settlement whose town's centre is
+    /// within its radius. `None` outside every town.
+    ///
+    /// **The town's centre is where the town is drawn, not the cell** (Ruling HN leftover (e), 2026-11-23): a frozen
+    /// town's saved box centre carried onto the map by its own pin, else the point an unfrozen town is laid round
+    /// (`bank_site::town_origin`, Ruling HM), else the cell centre. Measured from the cell, a pin dropped on the far
+    /// side of a town moved several hundred metres to its river's bank was outside the cell's radius and attached
+    /// to nothing (the widest move in the HM census is 1 745 m against the 850 m radius). The radius is
+    /// [`TOWN_RADIUS_M`], widened to half the longer side of a larger box: a frozen layout's own, or the box
+    /// Ruling HM grows for a town on the drawn edge (`urban_adapter::um_keep_river_box`).
     pub(crate) fn town_at(&self, gx: f64, gy: f64) -> Option<usize> {
         let civ = self.civ.as_ref()?;
         let mpc = self.town_cell_m();
@@ -504,9 +521,12 @@ impl WorldGen {
             .iter()
             .enumerate()
             .filter_map(|(i, s)| {
-                let d = ((gx - s.placement.x as f64 - 0.5).hypot(gy - s.placement.y as f64 - 0.5)) * mpc;
-                let r = self.town_layouts.rows.get(&s.tid).and_then(|f| f.layout.as_ref()).map_or(TOWN_RADIUS_M, |l| TOWN_RADIUS_M.max(l.wm.max(l.hm) / 2.0));
-                (d <= r).then_some((i, d))
+                let (c, long) = match self.town_layouts.rows.get(&s.tid).and_then(|f| f.layout.as_ref()) {
+                    Some(l) => (self.town_grid(l, s.placement.x, s.placement.y, UVec2 { x: l.wm / 2.0, y: l.hm / 2.0 }), l.wm.max(l.hm)),
+                    None => town_centre((s.placement.x, s.placement.y), self.town_origin(s)),
+                };
+                let d = (gx - c.0).hypot(gy - c.1) * mpc;
+                (d <= TOWN_RADIUS_M.max(long / 2.0)).then_some((i, d))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
             .map(|(i, _)| i)

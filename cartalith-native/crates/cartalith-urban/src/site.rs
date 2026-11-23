@@ -273,6 +273,12 @@ pub struct Site {
     /// reference, and every town the search did not move) leaves
     /// `remove_water_crossings` exactly as it was.
     pub alt_bridge_pt: Option<Vec2>,
+    /// **Not the reference** (Ruling HN, owner 2026-11-23; `GenOpts::bank_sites`):
+    /// the town's market, set by `generate` once it is placed, so that
+    /// [`Site::bank_side`] calls ground past the river's end the market's
+    /// bank. `None` (the reference, and every town off the map's wide water)
+    /// leaves `bank_side` exactly as it was.
+    pub bank_ref: Option<Vec2>,
     /// `routeEnds` — the external route endpoints on the box edge. Four on a
     /// river-like or landlocked site, three on a sea one (it trades seaward).
     pub route_ends: Vec<Vec2>,
@@ -734,7 +740,49 @@ impl Site {
     /// bridgehead rule and `buildWall`'s far-bank test both read it, so the
     /// on-the-line case having a definite answer is load-bearing rather than
     /// incidental.
+    ///
+    /// **Not the reference, with [`Site::bank_ref`] set only** (Ruling HN):
+    /// a point **past the river's end** (nearest the centreline's first or
+    /// last segment, and beyond that segment's free end along it) is on the
+    /// market's bank. There is no river there to be across: the reference's
+    /// test reads the last segment carried on as a line, which split the
+    /// land beyond a river's end into two "banks". A town moved off its cell
+    /// to the bank of a wider river stands beyond the end of the tributary
+    /// that joins there, and half of it was the far bank: its growth refused
+    /// it, its wall cut it off, its houses were not built (seed 532187 #9 at
+    /// 2 048 x 1 311: 73 % of its target, streets with no house south of its
+    /// road).
     pub fn bank_side(&self, p: Vec2) -> f64 {
+        match self.bank_ref {
+            Some(m) if self.past_river_end(p) => self.bank_side_of_line(m),
+            _ => self.bank_side_of_line(p),
+        }
+    }
+
+    /// Whether `p` lies off the site's box by more than a metre (**not the
+    /// reference**; Ruling HN, `GenOpts::bank_sites`): ground the town has no
+    /// water for, since the host's water raster covers the box alone. Read by
+    /// `cleanup::sweep_wet_streets` and `generate`'s last house sweep.
+    pub fn off_box(&self, p: Vec2) -> bool {
+        p.x < -1.0 || p.y < -1.0 || p.x > self.wm + 1.0 || p.y > self.hm + 1.0
+    }
+
+    /// Whether `p` lies past an end of the centreline: its nearest segment is
+    /// the first or the last and `p` projects beyond that segment's free end.
+    /// For [`Site::bank_side`] under [`Site::bank_ref`]. `false` for a
+    /// centreline of fewer than two points.
+    pub fn past_river_end(&self, p: Vec2) -> bool {
+        let r = &self.river;
+        let n = r.len();
+        if n < 2 {
+            return false;
+        }
+        let bi = self.nearest_river_seg(p);
+        (bi == 0 && (p - r[0]).dot(r[1] - r[0]) < 0.0) || (bi == n - 2 && (p - r[n - 1]).dot(r[n - 2] - r[n - 1]) < 0.0)
+    }
+
+    /// The reference's `bankSide`: the side of the nearest centreline segment, carried on as a line.
+    fn bank_side_of_line(&self, p: Vec2) -> f64 {
         let bi = self.nearest_river_seg(p);
         let a = self.river[bi];
         let b = self.river.get(bi + 1).copied().unwrap_or(a);
@@ -969,6 +1017,7 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
         bridge_pt: None,
         bridge_dir: None,
         alt_bridge_pt: None,
+        bank_ref: None,
         route_ends: Vec::new(),
         uses_real_water,
         real_river,

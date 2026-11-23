@@ -256,6 +256,7 @@ fn opt_str(s: &str) -> Option<String> {
 fn opts_for(c: &golden::Case) -> GenOpts {
     GenOpts {
         street_village: false,
+        bank_sites: false,
         culture: opt_str(c.o_culture),
         rules: match c.o_rules {
             1 => Some(rules_patch()),

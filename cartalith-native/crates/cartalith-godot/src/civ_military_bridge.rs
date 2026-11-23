@@ -485,6 +485,7 @@ impl MilWorld<'_> {
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
             river_kind_from_map: self.river_kind_map,
+            map_water: None,
         };
         let nav: Vec<NavKind> =
             view.settlements.iter().map(|s| place_navigability(&world, s).kind).collect();

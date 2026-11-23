@@ -1,0 +1,12 @@
+cargo test --workspace --no-fail-fast, CARGO_TARGET_DIR=C:/cw/hn_target, on the tree rebased onto origin/main cbc49e73
+(2026-11-23; dll built 11:48, after the last .rs change):
+
+289 result lines; passed 9047, failed 0, ignored 204
+
+Two earlier runs on the way: 9042 passed, 4 failed (three description tests: civ.bank_sites' catalogue text was 189
+characters against a 160 limit; one HM adapter literal, 300 m, that Ruling HN's 8 m margin moves to 308); then 9046
+passed, 1 failed (the same test's second literal, the box grown by that width: 2 000 x 1 550 to 2 008 x 1 558). Both
+were re-pinned with the reason in the test, not loosened.
+
+The push was rebased once more onto 3f5e9d11, a one-file change to OUTSTANDING_WORK.md; the suite was not run again
+for it.

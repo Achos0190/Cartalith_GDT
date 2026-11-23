@@ -345,6 +345,21 @@ pub struct UrbanWorld<'a> {
     /// `WorldParams::defaults`, the `DECISIONS.md` §7p split). With `order`
     /// `None` the flag changes nothing: there is no map river to read.
     pub river_kind_from_map: bool,
+    /// **Ruling HN (owner, 2026-11-23): whether the map draws lake or sea at
+    /// a grid point** (this adapter's frame: cell `c`'s value at `c`), so a
+    /// town's lake and sea edges are the map's. The host's test, because the
+    /// map's shoreline is the renderer's (the bilinear of its shore field,
+    /// `cartalith-godot`'s `town_water::DrawnWater`), which this crate cannot
+    /// see; the reference stamps a lake by the nearest cell, a square up to
+    /// half a cell (1 km at 384 cells over 800 km) off the smooth shore the
+    /// map draws.
+    ///
+    /// Read by `finish_water_ctx` for the town's water raster and nothing
+    /// else: the sea share that names a town seaside ([`UmWater::sea_frac`],
+    /// [`um_box_has_sea`]) keeps the reference's test, so no site kind, port
+    /// or badge moves. **`None` is the reference** and what every golden and
+    /// every world with `WorldParams::civ.bank_sites` off passes.
+    pub map_water: Option<&'a (dyn Fn(f64, f64) -> bool + Sync)>,
 }
 
 /// The lowest Strahler order that counts as **the map's river** for
@@ -906,6 +921,12 @@ pub struct UmWater {
     /// the river as traced first and from this one only where the harbour
     /// front's second layout is kept (`cartalith_urban::generate`).
     pub to_sea: Option<WaterCtx>,
+    /// **Ruling HN**: every drawn river segment that can reach the box, as `(a, b, width)` in the town's local
+    /// metres, at the width the map draws it (no margin). Empty with no drawn widths (`civ.bank_sites` off). Read by
+    /// `layout_from_town`, which takes the wall's vertices off the map's own strokes: the generator tests its
+    /// water (one width for the town's river, a 22 m raster for the rest), and the wall of a town at a confluence
+    /// kept a spike several hundred metres into a stroke the generator's water did not cover.
+    pub strokes: Vec<(Vec2, Vec2, f64)>,
 }
 
 /// `_umWaterCtx` (line 22300) — the real water near the settlement, packaged
@@ -974,6 +995,42 @@ pub fn um_water_ctx_box(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, wm: f64,
 /// second river is at least a cell away.
 pub const DRAWN_BIND_CELLS: f64 = 0.75;
 
+/// **Ruling HN: how much wider than the map draws it a town lays its river**,
+/// metres over the whole width (half on each bank). The town measures its
+/// channel from its own centreline, the drawn curve clipped to the box and
+/// resampled every 8 m (`cartalith_urban::generate`'s `fine_river_path`),
+/// which cuts the curve's corners by up to a metre or two, and its quay
+/// stands on the waterline by design; with no margin a quay, a street's end
+/// or a house's corner stood 1 to 4 m inside the map's stroke in 5 towns of
+/// about 1 230 (the mid-run census of 2026-11-23). **A labelled judgement**:
+/// 8 m, twice the deepest of those.
+pub const DRAWN_WIDTH_MARGIN_M: f64 = 8.0;
+
+/// **Ruling HN: how near its box centre a town's river's edge may come by the
+/// river's own width**, metres. A town the host stood beside its river
+/// ([`PlaceOverrides::origin`]) is 30 m off the edge the map draws there
+/// (`cartalith-godot`'s `bank_site::ORIGIN_BANK_GAP_M`). The town lays its
+/// river at one width, the widest the map draws it through the box, and
+/// where the map draws it much wider a little way along, that one width
+/// covered the town's own market and the town was not laid out at all (seed
+/// 483920 #4, a capital, at 2 048 x 1 536). **A labelled judgement**: 20 m,
+/// so a town at its 30 m with the 4 m margin a side
+/// ([`DRAWN_WIDTH_MARGIN_M`]) is never narrowed (narrowed, its river's own
+/// width goes into the 22 m raster and the bank loses its frontage: measured
+/// at 30 m, the fronted share fell 6 points).
+pub const BANK_CENTRE_CLEAR_M: f64 = 20.0;
+
+/// **Ruling HN: how much wider than the map draws it a second river is
+/// stamped into a town's water raster**, metres over the whole width:
+/// [`DRAWN_WIDTH_MARGIN_M`], the town's own river's margin, for the same
+/// reason (a street's end or a house's corner 1 to 4 m inside the stroke).
+/// **Not more**: the host stands a town 30 m off every drawn river's edge
+/// (`PlaceOverrides::origin`), the stamp already reaches half a 22 m cell
+/// past the width, and a pad of a whole cell (tried, 2026-11-23) put the
+/// town's own centre in the water on a strip between two rivers, so a
+/// capital was not laid out at all (seed 483920 #4 at 2 048 x 1 536).
+pub const DRAWN_STAMP_PAD_M: f64 = DRAWN_WIDTH_MARGIN_M;
+
 /// One run of the map's drawn rivers as the town reads it (RR-T1, RR-T2).
 #[derive(Clone, Debug, Default)]
 pub struct DrawnRiver {
@@ -1012,7 +1069,32 @@ fn drawn_stretch(
     grid_to_local: &impl Fn(f64, f64) -> Vec2,
 ) -> Option<(Vec<Vec2>, f32, usize, f32)> {
     let near = |run: &[(f64, f64)]| run.iter().map(|&q| js_hypot(q.0 - bound.0, q.1 - bound.1)).enumerate().fold((0usize, f64::INFINITY), |b, (i, d)| if d < b.1 { (i, d) } else { b });
-    let (ri, dr, bi) = runs.iter().enumerate().filter(|(_, r)| r.pts.len() >= 2).map(|(ri, r)| (ri, r, near(&r.pts))).filter(|(_, _, (_, d))| *d <= DRAWN_BIND_CELLS).min_by(|a, b| a.2.1.total_cmp(&b.2.1)).map(|(ri, r, (i, _))| (ri, r, i))?;
+    // Ruling HN: where two drawn runs pass the bound vertex (a junction: the tributary's trace ends on
+    // the trunk's own vertex), the town's river is the one the map draws wider through the box, the
+    // river whose bank the town was stood on (`PlaceOverrides::origin`), not whichever is a hair
+    // nearer. Bound to the tributary, a town on the trunk's bank had "its river" end in mid-trunk,
+    // and the layout read the line carried on past that end as a river with two banks: capitals at
+    // confluences housed 29 to 35 % of their target (seed 83744 #11 and #15 at 384 cells). The width
+    // is the mean over the run's points in the box, not the width at the junction itself, where the
+    // map tapers the tributary's stroke into the trunk's and the two read alike (seed 532187 #2 and
+    // #9 at 2 048 cells). Runs with no drawn width (the switch off) all read `0` wide, so the
+    // nearest is chosen, as before the ruling.
+    let far_from = |q: (f64, f64)| {
+        let c = traced_to_cell(q);
+        js_hypot(c.0 - at.0, c.1 - at.1) >= box_rad_g
+    };
+    let mean_width = |r: &DrawnRiver| {
+        let (n, sum) = r.pts.iter().zip(&r.widths).filter(|(q, _)| !far_from(**q)).fold((0usize, 0.0f64), |a, (_, w)| (a.0 + 1, a.1 + f64::from(*w)));
+        if n == 0 { 0.0 } else { sum / n as f64 }
+    };
+    let (ri, dr, bi) = runs
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.pts.len() >= 2)
+        .map(|(ri, r)| (ri, r, near(&r.pts)))
+        .filter(|(_, _, (_, d))| *d <= DRAWN_BIND_CELLS)
+        .min_by(|a, b| mean_width(b.1).total_cmp(&mean_width(a.1)).then(a.2.1.total_cmp(&b.2.1)))
+        .map(|(ri, r, (i, _))| (ri, r, i))?;
     let rank = dr.ranks.get(bi).copied().unwrap_or(0.0);
     let run = &dr.pts;
     let pl: Vec<(f64, f64)> = run.iter().map(|&q| traced_to_cell(q)).collect();
@@ -1145,7 +1227,16 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
                                     // Ruling HM (the width half): never narrower than the map draws
                                     // it, so no house stands on the map's water. `wide` is `0` with
                                     // no drawn width, which leaves the channel above.
-                                    river_width_m = js_max(river_width_m, f64::from(wide) / gpm);
+                                    // Ruling HN: and [`DRAWN_WIDTH_MARGIN_M`] wider, where the map
+                                    // draws it at all.
+                                    river_width_m = js_max(river_width_m, if wide > 0.0 { f64::from(wide) / gpm + DRAWN_WIDTH_MARGIN_M } else { 0.0 });
+                                    // Ruling HN: but never so wide that the box centre, stood beside
+                                    // the river by the host, is in it ([`BANK_CENTRE_CLEAR_M`]); the
+                                    // stretches the map draws wider than that are stamped below.
+                                    let d0 = l.windows(2).map(|s| cartalith_urban::geom::dist_pt_seg(Vec2::new(cx, cy), s[0], s[1])).fold(f64::INFINITY, f64::min);
+                                    if wide > 0.0 && d0 > TOWN_CHANNEL_MAX_M / 2.0 + BANK_CENTRE_CLEAR_M && river_width_m / 2.0 > d0 - BANK_CENTRE_CLEAR_M {
+                                        river_width_m = 2.0 * (d0 - BANK_CENTRE_CLEAR_M);
+                                    }
                                     bound_run = Some(ri);
                                     l
                                 }
@@ -1168,6 +1259,8 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
     // channel above and is left out of `other`; it is kept in `all` for the river carried to
     // the sea, whose channel follows the raw trace and can lie off the drawn curve.
     let (mut other, mut all): (Vec<(Vec<Vec2>, f64)>, Vec<(Vec<Vec2>, f64)>) = (Vec::new(), Vec::new());
+    // Ruling HN: the same segments at the width the map draws them, for `UmWater::strokes`.
+    let mut strokes: Vec<(Vec2, Vec2, f64)> = Vec::new();
     for (ri, r) in drawn.unwrap_or(&[]).iter().enumerate() {
         if r.widths.len() != r.pts.len() {
             continue;
@@ -1175,12 +1268,16 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
         for (k, seg) in r.pts.windows(2).enumerate() {
             let (a, b) = (traced_to_cell(seg[0]), traced_to_cell(seg[1]));
             let (la, lb) = (grid_to_local(a.0, a.1), grid_to_local(b.0, b.1));
-            let wd = f64::from(r.widths[k].max(r.widths[k + 1])) / gpm;
+            // Ruling HN: padded by [`DRAWN_STAMP_PAD_M`], so no dry raster cell reaches into the stroke.
+            let wd = f64::from(r.widths[k].max(r.widths[k + 1])) / gpm + DRAWN_STAMP_PAD_M;
             // Kept when the segment's band can reach the box.
             let out = |lo: f64, hi: f64, top: f64| hi < -wd || lo > top + wd;
             if !out(la.x.min(lb.x), la.x.max(lb.x), wm) && !out(la.y.min(lb.y), la.y.max(lb.y), hm) {
                 all.push((vec![la, lb], wd));
-                if Some(ri) != bound_run {
+                strokes.push((la, lb, wd - DRAWN_STAMP_PAD_M));
+                // The town's own river is its channel, except a stretch the map draws wider than
+                // that channel (Ruling HN: the channel is held off the box centre, above).
+                if Some(ri) != bound_run || wd - DRAWN_STAMP_PAD_M + DRAWN_WIDTH_MARGIN_M > river_width_m {
                     other.push((vec![la, lb], wd));
                 }
             }
@@ -1188,7 +1285,7 @@ pub fn um_water_ctx_box_smooth(w: &UrbanWorld, px: f64, py: f64, to_sea: bool, w
     }
     // Ruling FK item 1: the river carried on, as a second context.
     let to_sea = river_ext.and_then(|ext| finish_water_ctx(w, &local_to_grid, Some(ext), river_width_m, river_order, wm, hm, &all)).map(|u| u.ctx);
-    finish_water_ctx(w, &local_to_grid, river_path, river_width_m, river_order, wm, hm, &other).map(|u| UmWater { to_sea, ..u })
+    finish_water_ctx(w, &local_to_grid, river_path, river_width_m, river_order, wm, hm, &other).map(|u| UmWater { to_sea, strokes, ..u })
 }
 
 /// **Not the reference** -- Ruling FK item 1: carries a river `local` (local
@@ -1447,6 +1544,7 @@ pub fn um_box_has_sea(field: &[f32], water_bodies: &[u8], gw: usize, gh: usize, 
         flow_thresh: 0.0,
         world_seed: 0,
         river_kind_from_map: false,
+        map_water: None,
     };
     let (wm, hm) = (SITE_WM, SITE_HM);
     let (cx, cy) = (wm / 2.0, hm / 2.0);
@@ -1523,6 +1621,16 @@ fn box_water_kind(w: &UrbanWorld, kind: &'static str, water: Option<&UmWater>) -
     }
 }
 
+/// **Ruling HN: where in a water-raster cell the map's drawn water is asked
+/// for** ([`UrbanWorld::map_water`]), as fractions of the cell: the centre
+/// and the four corners. A cell is water when any of them is, so every point
+/// of a cell the raster calls dry lies between dry taps at most a cell
+/// (22 m) apart, while the map's shoreline is the zero line of a bilinear
+/// over grid cells hundreds of metres wide and cannot wriggle between them.
+/// **A labelled judgement** for the corners (the centre is the reference's
+/// own sample).
+pub const MAP_WATER_TAPS: [(f64, f64); 5] = [(0.5, 0.5), (0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)];
+
 /// Part (b) of `_umWaterCtx`: the local sea/lake mask, the river-band stamp,
 /// the chamfer distance transform, and the open-water verdict. Split out only
 /// so the river-stem search above can return through one path.
@@ -1563,7 +1671,19 @@ fn finish_water_ctx(
                 w.water_bodies.get(gi).copied() == Some(2)
             };
             let sea_here = w.bilin_field(gx, gy) < w.sea_level;
-            if sea_here || lake {
+            // Ruling HN: with the host's test of the map's drawn water the
+            // cell is water where the map draws lake or sea at its centre or
+            // at any of its four corners, so the 22 m raster never calls
+            // ground dry that the map draws wet in part ([`MAP_WATER_TAPS`]).
+            // `None`: the reference's test, by control flow.
+            let wet = match w.map_water {
+                Some(drawn) => MAP_WATER_TAPS.iter().any(|&(u, v)| {
+                    let (x, y) = local_to_grid((i as f64 + u) * cell_m, (j as f64 + v) * cell_m);
+                    drawn(x, y)
+                }),
+                None => sea_here || lake,
+            };
+            if wet {
                 mask[j * mw + i] = 1;
                 water_cells += 1;
             }
@@ -1714,6 +1834,7 @@ fn finish_water_ctx(
         mostly_water,
         sea_frac: sea_cells as f64 / (mw * mh) as f64,
         to_sea: None,
+        strokes: Vec::new(),
     })
 }
 
@@ -3401,6 +3522,56 @@ fn choose_stretch(ctx: &UrbanContext, rules: Option<&Rules>, base: bool) -> Opti
     })
 }
 
+/// **Ruling HN (owner, 2026-11-23): every market the town of `ctx` can be
+/// laid out with**, as metre offsets from its box centre (which the host
+/// knows on the map: the settlement's cell, or `PlaceOverrides::origin`),
+/// without laying the town out. The first is the first layout pass's market;
+/// the rest are the markets of the other layouts [`run_layout`] and
+/// `cartalith_urban::generate` may keep instead: the reference-box town of a
+/// stretched context (`UrbanContext::plain`), the harbour front's market and
+/// the layout from the river carried to its sea (Ruling FK), and the
+/// reference's market where `market_road_bank` moved it. Which of them is
+/// kept is decided by housing, so only a full layout knows; a host needs
+/// that only where the candidates stand on different banks.
+///
+/// Each is `cartalith_urban::market_only`, the generator's own market code.
+/// A town with no real water in its box has no drawn river in it either and
+/// answers its box centre alone (its market is the site's own choice and is
+/// not pinned to the box centre). Offsets are in the map's frame: a town on
+/// real water is never rotated ([`um_place_context_with`]'s `orient`).
+pub fn um_market_offsets(ctx: &UrbanContext, rules: Option<&Rules>) -> Vec<Vec2> {
+    let mut out: Vec<Vec2> = Vec::new();
+    let mut push = |m: Vec2, wm: f64, hm: f64| {
+        let o = Vec2::new(m.x - wm / 2.0, m.y - hm / 2.0);
+        if !out.iter().any(|q| q.dist(o) < 0.01) {
+            out.push(o);
+        }
+    };
+    for c in [Some(ctx), ctx.plain.as_deref()].into_iter().flatten() {
+        if c.water.is_none() {
+            push(Vec2::new(0.0, 0.0), 0.0, 0.0);
+            continue;
+        }
+        let opts = layout_opts(c, rules);
+        let (wm, hm) = opts.site_box.unwrap_or((SITE_WM, SITE_HM));
+        // The waters `generate_front` lays out from, and whether its harbour front may move the market.
+        let seas: Vec<GenOpts> = opts.water_to_sea.clone().map(|ws| GenOpts { water: Some(ws), water_to_sea: None, ..opts.clone() }).into_iter().collect();
+        for o in std::iter::once(&opts).chain(&seas) {
+            for front in [false, true] {
+                if front && !o.harbour_front {
+                    continue;
+                }
+                let (m, moved) = cartalith_urban::generate::market_only(c.seed, o, front);
+                push(m, wm, hm);
+                if moved {
+                    push(cartalith_urban::generate::market_only(c.seed, &GenOpts { market_road_bank: false, ..o.clone() }, front).0, wm, hm);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Replays a verdict of [`run_layout_choosing`] for the same `ctx` and
 /// `rules`: the one layout it kept, with one `generate()` call. A context
 /// that is not stretched (`choice` then means nothing) is laid out as
@@ -3515,6 +3686,9 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         water_widen: ctx.water_widen,
         town_bridge_search: ctx.town_bridge_search,
         parallel_streets: ctx.parallel_streets,
+        // Ruling HN: the layout rules of a town on the map's wide water, exactly where the host handed
+        // that water over (`UrbanContext::origin_m`, `civ.bank_sites`).
+        bank_sites: ctx.origin_m.is_some(),
         harbour_front: ctx.harbour_front,
         // Ruling FK item 1: the river carried to the sea, for the harbour
         // front's second layout only.
@@ -3528,7 +3702,20 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
 /// [`run_layout`]'s [`UrbanLayout`] from the town `t` generated from `ctx`.
 /// Split out of [`run_layout`] (2026-11-16, Ruling FQ) with
 /// [`layout_opts`].
-fn layout_from_town(ctx: &UrbanContext, t: cartalith_urban::generate::Town) -> UrbanLayout {
+fn layout_from_town(ctx: &UrbanContext, mut t: cartalith_urban::generate::Town) -> UrbanLayout {
+    // Ruling HN: the wall's vertices off the map's own river strokes (`UmWater::strokes`), but for a gated river
+    // wall, by the generator's own rule (`wallhug::ring_off_water`); the gates stay on the moved ring. Nothing
+    // with no drawn widths, for a bastioned trace (its ring is the gorge, not the drawn wall) or an unwalled town.
+    if let (Some(w), Some(ring), true) = (ctx.water.as_ref().filter(|w| !w.strokes.is_empty()), t.wall.ring.as_deref(), t.wall.style != "bastioned") {
+        let wet = |p: Vec2| w.strokes.iter().any(|&(a, b, width)| cartalith_urban::geom::dist_pt_seg(p, a, b) < width / 2.0);
+        let gates: Vec<Vec2> = t.wall.gates.iter().filter(|g| g.water).map(|g| g.pt).collect();
+        if let Some(r) = cartalith_urban::wallhug::ring_off_water(ring, &gates, &wet) {
+            for g in t.wall.gates.iter_mut() {
+                g.pt = cartalith_urban::wallhug::nearest_on_ring(g.pt, &r);
+            }
+            t.wall.ring = Some(r);
+        }
+    }
 
     let edges = t
         .graph

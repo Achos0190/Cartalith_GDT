@@ -1,0 +1,8 @@
+TOWN SLIDER seed 483920: the look took the width (1 value set); markers moved 172 of 234; town boxes the same; the 60 laid towns the same
+TOWN SLIDER seed 83744: the look took the width (1 value set); markers moved 167 of 239; town boxes the same; the 60 laid towns the same
+exit 0
+
+MUTANT (the town's river widths multiplied by the look's river_width, `urban_bridge.rs::drawn_river_runs`; must fail):
+TOWN SLIDER seed 483920: the look took the width (1 value set); markers moved 172 of 234; town boxes the same; the 60 laid towns MOVED
+TOWN FAIL: the river look's width moved a town
+exit 1

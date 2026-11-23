@@ -203,3 +203,250 @@ pub(crate) fn wet_buildings(l: &cartalith_civ::urban_adapter::UrbanLayout, open:
     }
     wet
 }
+
+/// How far apart [`footprint_over`] samples a footprint's lines, metres.
+/// **A labelled judgement**: under the narrowest lane the layout lays (3 m
+/// wide streets are 4 to 5.4 m) and the smallest house side, so a line with
+/// an end on each bank of the narrowest drawn river (12 m) cannot step over it.
+pub(crate) const OVER_STEP_M: f64 = 4.0;
+
+/// How near a wall's wet run a water gate must stand for the run to count as
+/// a gated river wall ([`footprint_over`]), metres. `fortify::build_wall`
+/// puts a water gate where the circuit meets the river and refuses a second
+/// within 40 m; half that separates two crossings, and 15 m is under it.
+/// **A labelled judgement.**
+pub(crate) const GATE_NEAR_M: f64 = 15.0;
+
+/// How near a street edge a detected crossing must lie for the edge to carry
+/// it ([`footprint_over`]), metres. `water::detect_river_crossings` computes
+/// the point on the edge itself, so this is only rounding room.
+pub(crate) const BRIDGE_ON_EDGE_M: f64 = 1.5;
+
+/// How far inside the water a quay may reach and still be on the waterline
+/// ([`footprint_over`]), metres. A quay is built along the water's edge
+/// (`buildHarbour`, and the generator's own water sweeps exempt it), so its
+/// line touches the stroke; **a labelled judgement**, 2 m: under half its own
+/// width (4 to 6 m). A quay deeper than that is a street in the river.
+/// Against a lake or the sea, where the depth is not known, a quay is never
+/// counted.
+pub(crate) const QUAY_ON_WATERLINE_M: f64 = 2.0;
+
+/// [`footprint_over`]'s counts for one town against one kind of water.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub(crate) struct Over {
+    /// Buildings with their centre or a point of their outline in the water, and buildings tested.
+    pub b: usize,
+    pub of_b: usize,
+    /// Wall-ring runs in the water with no water gate on them; runs with one; ring segments tested.
+    pub w: usize,
+    pub w_gated: usize,
+    pub of_w: usize,
+    /// Street edges in the water that are no part of a bridge; edges that are; edges tested.
+    pub s: usize,
+    pub s_bridge: usize,
+    pub of_s: usize,
+    /// The longest bridge (the wet edges of one chain, summed), metres.
+    pub span_m: f64,
+    /// The classes of the edges counted in `s`, as `class count` pairs, for a cause dump.
+    pub s_by: String,
+    /// How deep in the water the deepest counted point of the buildings, the wall runs and the street edges is
+    /// (`depth`'s answer), and about how long the longest counted wall run is, metres. For a cause dump.
+    pub depth_m: [f64; 3],
+    pub w_run_m: f64,
+}
+
+/// **Ruling HN: what of town `l` lies over water**, where `depth` answers how deep
+/// a local point (metres, the layout's frame) is in the water measured (the
+/// map's drawn river stroke, its drawn lake, or its drawn sea; metres inside
+/// its edge, any number where that is not known), `None` for a point out of it. Lines are
+/// sampled every [`OVER_STEP_M`], ends included, so a line with an end on each
+/// bank is seen.
+///
+/// With `exempt`, the two things a river town may lay over its river are
+/// counted apart, and defined here:
+///
+/// - **a real bridge**: a chain of street edges in the water, joined end to
+///   end, one of which carries a crossing the layout itself detected
+///   (`UrbanLayout::bridges`, `water::detect_river_crossings`: a live non-quay
+///   road meeting the river's centreline, within [`BRIDGE_ON_EDGE_M`] of the
+///   edge). A wet edge joined to no such chain is a street in the river.
+/// - **a gated river wall**: a run of the wall ring in the water with one of
+///   the wall's own water gates (`Gate::water`) within [`GATE_NEAR_M`] of it.
+///   A wet run with no gate is a wall in the river.
+///
+/// No span limit: the stroke is as wide as the map draws it, which on a
+/// coarse grid is a cell (2 km at 384 cells over 800 km); the longest bridge
+/// is reported (`span_m`), not judged. Without `exempt` (lake and sea) every
+/// wet edge and run counts.
+///
+/// The ring is the wall the shell draws (`wall_ring`). A measurement: nothing
+/// here feeds generation.
+pub(crate) fn footprint_over(l: &cartalith_civ::urban_adapter::UrbanLayout, depth: &dyn Fn((f64, f64)) -> Option<f64>, exempt: bool) -> Over {
+    let pt = |v: cartalith_civ::urban_adapter::Vec2| (v.x, v.y);
+    let buildings: Vec<Vec<(f64, f64)>> = l.buildings.iter().map(|b| b.poly.iter().map(|&v| pt(v)).collect()).collect();
+    let ring: Vec<(f64, f64)> = l.wall.ring.iter().flatten().map(|&v| pt(v)).collect();
+    let gates: Vec<(f64, f64)> = l.wall.gates.iter().filter(|g| g.water).map(|g| pt(g.pt)).collect();
+    let edges: Vec<((f64, f64), (f64, f64), &str)> = l.edges.iter().map(|e| (pt(e.a), pt(e.b), e.cls)).collect();
+    let bridges: Vec<(f64, f64)> = l.bridges.iter().flatten().map(|b| pt(b.pt)).collect();
+    footprint_over_parts(&buildings, &ring, &gates, &edges, &bridges, depth, exempt)
+}
+
+/// [`footprint_over`] on plain geometry (local metres): building outlines, the wall ring (empty: none), the wall's
+/// water gates, street edges as `(a, b, class)` and the detected crossings. Split out so the rule is tested on
+/// hand-made shapes (`tests::the_footprint_measure_counts_what_the_ruling_forbids`).
+pub(crate) fn footprint_over_parts(
+    buildings: &[Vec<(f64, f64)>],
+    ring: &[(f64, f64)],
+    gates: &[(f64, f64)],
+    edges: &[((f64, f64), (f64, f64), &str)],
+    bridges: &[(f64, f64)],
+    depth: &dyn Fn((f64, f64)) -> Option<f64>,
+    exempt: bool,
+) -> Over {
+    // Deepest sample of each kind's counted (not exempt) footprint.
+    let deep = std::cell::Cell::new([0.0f64; 3]);
+    let note = |kind: usize, d: f64| {
+        let mut v = deep.get();
+        v[kind] = v[kind].max(d);
+        deep.set(v);
+    };
+    let wet = |p: (f64, f64)| depth(p).is_some();
+    let deepest = |pts: &mut dyn Iterator<Item = (f64, f64)>| pts.filter_map(depth).fold(0.0, f64::max);
+    let samples = |a: (f64, f64), b: (f64, f64)| {
+        let n = ((a.0 - b.0).hypot(a.1 - b.1) / OVER_STEP_M).ceil().max(1.0) as usize;
+        (0..=n).map(move |i| (a.0 + (b.0 - a.0) * i as f64 / n as f64, a.1 + (b.1 - a.1) * i as f64 / n as f64))
+    };
+    let mut o = Over { of_b: buildings.len(), of_s: edges.len(), ..Over::default() };
+    for poly in buildings {
+        let n = poly.len();
+        if n == 0 {
+            continue;
+        }
+        let c = (poly.iter().map(|v| v.0).sum::<f64>() / n as f64, poly.iter().map(|v| v.1).sum::<f64>() / n as f64);
+        let over = wet(c) || (0..n).any(|k| samples(poly[k], poly[(k + 1) % n]).any(wet));
+        o.b += usize::from(over);
+        if over {
+            note(0, deepest(&mut (0..n).flat_map(|k| samples(poly[k], poly[(k + 1) % n])).chain(std::iter::once(c))));
+        }
+    }
+    if ring.len() >= 2 {
+        o.of_w = ring.len();
+        // The ring's samples in order, each segment's far end left to the next segment.
+        let pts: Vec<(f64, f64)> = (0..ring.len()).flat_map(|k| {
+            let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+            let v: Vec<_> = samples(a, b).collect();
+            v[..v.len() - 1].to_vec()
+        }).collect();
+        let w: Vec<bool> = pts.iter().map(|&p| wet(p)).collect();
+        let n = pts.len();
+        // Start after a dry sample so no run is split by the list's seam; a ring wholly wet is one run.
+        let start = (0..n).find(|&i| !w[i]).map_or(0, |i| i + 1);
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for step in 0..=n {
+            let i = (start + step) % n;
+            if step < n && w[i] {
+                run.push(pts[i]);
+            } else if !run.is_empty() {
+                let gated = exempt && run.iter().any(|&p| gates.iter().any(|&g| (p.0 - g.0).hypot(p.1 - g.1) <= GATE_NEAR_M));
+                if gated {
+                    o.w_gated += 1
+                } else {
+                    o.w += 1;
+                    note(1, deepest(&mut run.iter().copied()));
+                    o.w_run_m = o.w_run_m.max(run.len() as f64 * OVER_STEP_M);
+                }
+                run.clear();
+            }
+        }
+    }
+    // A quay stands on the waterline by design: it is in the water only past [`QUAY_ON_WATERLINE_M`].
+    let wet_edge: Vec<bool> = edges.iter().map(|e| samples(e.0, e.1).any(|p| depth(p).is_some_and(|d| e.2 != "quay" || d > QUAY_ON_WATERLINE_M))).collect();
+    // Chains of wet edges by shared end (ends keyed to the centimetre), flooded from the edges that carry a crossing.
+    let key = |v: (f64, f64)| ((v.0 * 100.0).round() as i64, (v.1 * 100.0).round() as i64);
+    let mut at: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    for (i, e) in edges.iter().enumerate().filter(|(i, _)| wet_edge[*i]) {
+        at.entry(key(e.0)).or_default().push(i);
+        at.entry(key(e.1)).or_default().push(i);
+    }
+    let mut chain = vec![usize::MAX; edges.len()];
+    let crossings: &[(f64, f64)] = if exempt { bridges } else { &[] };
+    let mut spans: Vec<f64> = Vec::new();
+    for (i, e) in edges.iter().enumerate() {
+        if !wet_edge[i] || chain[i] != usize::MAX || !crossings.iter().any(|&b| seg_dist(b, e.0, e.1) <= BRIDGE_ON_EDGE_M) {
+            continue;
+        }
+        let id = spans.len();
+        spans.push(0.0);
+        let mut stack = vec![i];
+        chain[i] = id;
+        while let Some(j) = stack.pop() {
+            spans[id] += (edges[j].0.0 - edges[j].1.0).hypot(edges[j].0.1 - edges[j].1.1);
+            for end in [key(edges[j].0), key(edges[j].1)] {
+                for &k in at.get(&end).into_iter().flatten() {
+                    if chain[k] == usize::MAX {
+                        chain[k] = id;
+                        stack.push(k);
+                    }
+                }
+            }
+        }
+    }
+    o.span_m = spans.iter().copied().fold(0.0, f64::max);
+    let mut by: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for (i, e) in edges.iter().enumerate().filter(|(i, _)| wet_edge[*i]) {
+        if chain[i] == usize::MAX {
+            o.s += 1;
+            *by.entry(e.2).or_default() += 1;
+            note(2, deepest(&mut samples(e.0, e.1)));
+        } else {
+            o.s_bridge += 1;
+        }
+    }
+    o.depth_m = deep.get();
+    o.s_by = by.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" ");
+    o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Protects Ruling HN's measure (`footprint_over_parts`) on a river along `y = 0`, 40 m wide (water where
+    /// `|y| < 20`): of two houses the one with a corner 2 m in the water counts; of a ring whose south side runs
+    /// through the water in two places, the run with a water gate on it is a gated river wall and the other counts;
+    /// of the streets, a three-piece road that crosses the river with the detected crossing on its middle piece is a
+    /// bridge (all three pieces, 120 m of them, the two outer ones reaching into the water from each bank), a street that dips into the water without crossing counts, and a
+    /// street on land does not. A line with an end on each bank and no vertex in the water is still seen (the
+    /// sampling). Without the exemptions (lake and sea) every wet run and street counts. MUTATION: `GATE_NEAR_M`
+    /// 15 to 1500 gates both runs; `BRIDGE_ON_EDGE_M` 1.5 to 1500 makes the dipping street a bridge;
+    /// `OVER_STEP_M` 4 to 400 misses the wall's crossings.
+    #[test]
+    fn the_footprint_measure_counts_what_the_ruling_forbids() {
+        let depth = |p: (f64, f64)| (p.1.abs() < 20.0).then(|| 20.0 - p.1.abs());
+        let sq = |x: f64, y: f64| vec![(x, y), (x + 10.0, y), (x + 10.0, y + 10.0), (x, y + 10.0)];
+        let buildings = [sq(0.0, 30.0), sq(40.0, 12.0)];
+        // A box north of the river with two prongs down across it: each prong's two sides cross the water.
+        let ring = [(-300.0, 200.0), (300.0, 200.0), (300.0, 50.0), (210.0, 50.0), (210.0, -50.0), (190.0, -50.0), (190.0, 50.0), (-190.0, 50.0), (-190.0, -50.0), (-210.0, -50.0), (-210.0, 50.0), (-300.0, 50.0)];
+        let gates = [(190.0, 0.0), (210.0, 0.0)];
+        let edges = [
+            ((100.0, 60.0), (100.0, 10.0), "primary"),
+            ((100.0, 10.0), (100.0, -10.0), "primary"),
+            ((100.0, -10.0), (100.0, -60.0), "primary"),
+            ((120.0, 60.0), (120.0, 15.0), "street"),
+            ((0.0, 60.0), (90.0, 60.0), "street"),
+            // A quay along the waterline, 1 m in: on it. A second, 6 m in: a street in the river.
+            ((-100.0, 19.0), (-40.0, 19.0), "quay"),
+            ((-100.0, 14.0), (-40.0, 14.0), "quay"),
+        ];
+        let bridges = [(100.0, 0.0)];
+        let o = footprint_over_parts(&buildings, &ring, &gates, &edges, &bridges, &depth, true);
+        assert_eq!((o.b, o.of_b), (1, 2), "one house in the water");
+        assert_eq!((o.w, o.w_gated), (2, 2), "the east prong's two crossings are gated, the west prong's are not");
+        assert_eq!((o.s, o.s_bridge, o.of_s), (2, 3, 7), "the dipping street and the deep quay count; the bridge's three pieces and the quay on the waterline do not");
+        assert_eq!(o.s_by, "quay 1 street 1");
+        assert!((o.span_m - 120.0).abs() < 1e-9, "the bridge road's three pieces, summed: {}", o.span_m);
+        assert!((o.depth_m[0] - 8.0).abs() < 1e-9 && (o.depth_m[2] - 6.0).abs() < 1e-9, "deepest house point 8 m, street (the quay) 6 m: {:?}", o.depth_m);
+        let open = footprint_over_parts(&buildings, &ring, &gates, &edges, &bridges, &depth, false);
+        assert_eq!((open.b, open.w, open.w_gated, open.s, open.s_bridge), (1, 4, 0, 5, 0), "no exemption over a lake or the sea");
+    }
+}

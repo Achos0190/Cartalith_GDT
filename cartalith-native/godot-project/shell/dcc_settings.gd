@@ -203,8 +203,9 @@ const RESET_BACKUP_PATH := "user://cartalith_settings.before_reset.bak.cfg"
 ## F40. Sections a reset leaves alone, each because it points at data the owner said a reset must never touch
 ## (worlds, vault, asset library) or carries the assistant's key names: storage locations, the recent-worlds list,
 ## the asset library's own record, the vault's per-note folders and the assistant's saved profiles (they hold the
-## credential-store entry names, so dropping them would orphan stored keys).
-const RESET_KEEP_SECTIONS := ["storage_roots", "recent", "asset_library", "vault_note_folders", "llm_profiles"]
+## credential-store entry names, so dropping them would orphan stored keys); and the answers given to the
+## older-world offer (Ruling HN: a reset must not make a world ask again).
+const RESET_KEEP_SECTIONS := ["storage_roots", "recent", "asset_library", "vault_note_folders", "llm_profiles", "bank_sites_offer"]
 
 ## F40. Keys kept inside the `llm` section: where the assistant's API key comes from. The key itself is in the OS
 ## credential store, never in this file; these are only the pointers to it.
@@ -311,6 +312,21 @@ static func remember_project(path: String) -> void:
 	if list.size() > MAX_RECENT:
 		list.resize(MAX_RECENT)
 	_cfg.set_value(_SEC_RECENT, "paths", list)
+	_save()
+
+## Ruling HN (owner, 2026-11-23): the answer a user gave when an older world was offered towns on the bank
+## (`DccApp._offer_bank_sites`), by the engine's key for that world (`WorldGen.bank_sites_offer`: the world, not the
+## file, so a renamed copy is not asked again). `"yes"`, `"no"`, or `""` for a world never asked. Kept here and not
+## in the save: "no" must not rewrite the file, and must not become the user's rule for the next new world.
+const _SEC_BANK_OFFER := "bank_sites_offer"
+
+static func bank_offer_answer(world_key: String) -> String:
+	_ensure_loaded()
+	return String(_cfg.get_value(_SEC_BANK_OFFER, world_key, ""))
+
+static func set_bank_offer_answer(world_key: String, answer: String) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_BANK_OFFER, world_key, answer)
 	_save()
 
 ## Drops `path` from the recent list (a world card's delete button removed the file behind it).

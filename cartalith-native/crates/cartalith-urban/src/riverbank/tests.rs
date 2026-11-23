@@ -1563,3 +1563,72 @@ fn a_town_with_a_grain_is_judged_against_a_quarter_over_its_target() {
     no_grain.parallel = None;
     assert_eq!(second_pass(&no_grain), None, "no grain, no slack");
 }
+
+/// Protects Ruling HN's `generate::market_only`: for every pass it answers the market and the roads'-bank flag the
+/// layout itself ends with (`generate_pass`'s `anchors.market` and `road_bank_moved`), over three seeds, a town and a
+/// street village, a road on the far bank (which moves a street village's market there), the harbour front and
+/// `market_road_bank`, with the market allowed to move (`front`) and not. The control: the market is not always the
+/// box centre, so the equality is not between two constants. MUTATION: `market_only` returning the box centre, or
+/// `sited` skipping the roads'-bank move, breaks the equality on the moved cases.
+#[test]
+fn market_only_is_the_laid_markets() {
+    use super::RiverbankPass;
+    use crate::generate::{generate_pass, market_only};
+    // One road that comes in from the far (north) bank and ends at the box centre.
+    let road: Vec<Vec2> = (0..12).map(|k| Vec2::new(0.0, -55.0 * f64::from(k))).collect();
+    let cases = [
+        opts(true, true),
+        GenOpts { pop: Some(400.0), street_village: true, ..opts(true, true) },
+        GenOpts { pop: Some(400.0), street_village: true, primary_paths: vec![road.clone()], ..opts(true, true) },
+        GenOpts { market_road_bank: true, primary_paths: vec![road.clone()], ..opts(true, true) },
+        GenOpts { harbour_front: true, ..opts(true, true) },
+    ];
+    let (mut n, mut moved) = (0usize, 0usize);
+    for seed in [4242u32, 7, 990_001] {
+        for o in &cases {
+            for front in [false, true] {
+                let t = generate_pass(seed, o, RiverbankPass::First, front);
+                assert_eq!(market_only(seed, o, front), (t.anchors.market, t.road_bank_moved), "seed {seed}, front {front}");
+                n += 1;
+                moved += usize::from(t.anchors.market.dist(Vec2::new(t.wm / 2.0, t.hm / 2.0)) > 1.0);
+            }
+        }
+    }
+    assert_eq!(n, 30);
+    assert!(moved >= 3, "the control: a market that left the box centre in at least three layouts, got {moved}");
+}
+
+/// Protects Ruling HN's village band as literals: a town laid out with `GenOpts::bank_sites` is accepted from 97 %
+/// of its target, any other from 80 %, and `second_pass` sends a street village housing 90 % of its target back
+/// to be fitted only in the first case. MUTATION: `BANK_SITES_LOW_SHARE` 0.97 to 0.5, or `village_low_share`
+/// ignoring the flag, fails a literal.
+#[test]
+fn a_village_on_the_maps_wide_water_is_fitted_from_ninety_seven_per_cent() {
+    use super::{RiverbankPass, second_pass, village_low_share};
+    let mut t = crate::generate::generate_pass(4242, &GenOpts { pop: Some(400.0), street_village: true, ..opts(true, true) }, RiverbankPass::First, false);
+    assert!(t.street_village && !t.bank_sites, "the fixture is a street village off the wide water");
+    assert_eq!(village_low_share(&t), 0.8);
+    t.pop = 0.9 * t.pop_target;
+    assert_eq!(second_pass(&t), None, "at 90 % the reference band accepts it");
+    t.bank_sites = true;
+    assert_eq!(village_low_share(&t), 0.97);
+    assert!(matches!(second_pass(&t), Some(RiverbankPass::Village { trim: false, .. })), "on the wide water it is fitted again");
+}
+
+/// Protects that `GenOpts::bank_sites` reaches `generate`: a walled street village (seed 7) whose fitted wall has a
+/// vertex in the channel is laid out differently with the flag on (the wall is taken off the water,
+/// `wallhug::wall_off_water`, and the rampart sweep then spares other houses), while a village with nothing in the
+/// water (seed 4242) is the same town to the model hash. MUTATION: the `wall_off_water` call in `generate_pass`
+/// put behind `false` makes the two seed-7 layouts equal. **It does not see** the four other places the flag is
+/// read in `generate_pass` (`Site::bank_ref`, the `sweep_wet_streets` call, the market handed to the rampart
+/// sweep, the off-box house sweep): each rule has its own unit test, and the census
+/// (`_towncensus_probe.gd`) is what holds their wiring.
+#[test]
+fn the_bank_site_rules_reach_the_layout_only_where_something_stands_in_the_water() {
+    let o = GenOpts { pop: Some(400.0), street_village: true, walls: Some(true), wall_hug: true, ..opts(true, true) };
+    let on = GenOpts { bank_sites: true, ..o.clone() };
+    let (a, b) = (generate(7, &o), generate(7, &on));
+    assert_ne!(hash_model(&a), hash_model(&b), "the flag changes this layout");
+    assert!(b.buildings.len() < a.buildings.len() && b.buildings.len() >= 150, "{} houses against {}", b.buildings.len(), a.buildings.len());
+    assert_eq!(hash_model(&generate(4242, &o)), hash_model(&generate(4242, &on)), "and leaves a town with nothing in the water alone");
+}

@@ -281,6 +281,7 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
         flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
         world_seed: seed,
         river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
+        map_water: None,
     };
     let mut order: Vec<usize> = (0..civ.settlements.len()).collect();
     order.sort_by(|&a, &b| civ.settlements[b].pop.cmp(&civ.settlements[a].pop).then(a.cmp(&b)));
@@ -598,6 +599,7 @@ fn trade_world<'a>(
         flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
         world_seed: seed,
         river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
+        map_water: None,
     }
 }
 
@@ -1026,6 +1028,7 @@ fn fh_r2_m3_rite_only() {
                 flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
                 world_seed: seed,
                 river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
+        map_water: None,
             };
             for s in civ.settlements.iter() {
                 let faith = civ.town_faith(s);
@@ -1160,6 +1163,7 @@ fn fh_r2_urban_breakdown() {
                     flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
                     world_seed: seed,
                     river_kind_from_map: false,
+                    map_water: None,
                 };
                 let mut order: Vec<usize> = (0..civ.settlements.len()).collect();
                 order.sort_by(|&a, &b| civ.settlements[b].pop.cmp(&civ.settlements[a].pop).then(a.cmp(&b)));
