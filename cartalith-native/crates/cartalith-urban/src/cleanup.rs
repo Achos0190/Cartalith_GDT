@@ -133,7 +133,9 @@ pub fn prune_keeping(g: &mut Graph, keep: Option<Vec2>) {
 /// [`prune_keeping`], and with `also_largest` the largest component is kept
 /// **as well as** the one holding the live node nearest `keep` (**not the
 /// reference**; Ruling HN, 2026-11-23, [`clear_fort_zone_keeping`]). With
-/// `also_largest` false it is [`prune_keeping`] exactly.
+/// `also_largest` false it is [`prune_keeping`] exactly. Every component
+/// holding the live node nearest a ferry landing (`Graph::ferries`, Ruling
+/// HQ) is kept too; with `bank_sites` off there are none.
 fn prune_components(g: &mut Graph, keep: Option<Vec2>, also_largest: bool) {
     let mut order: Vec<usize> = Vec::new();
     let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -308,9 +310,11 @@ pub const WET_STREET_STEP_M: f64 = 4.0;
 /// **Not the reference** (Ruling HN, owner 2026-11-23: no street over the
 /// map's water but a real bridge; `GenOpts::bank_sites`): kills every live
 /// street with a point in the water ([`Site::is_water`], sampled every
-/// [`WET_STREET_STEP_M`] with both ends) that is no part of a bridge, then
-/// keeps the market's streets and the largest piece (`prune_components`).
-/// Returns how many it killed.
+/// [`WET_STREET_STEP_M`] with both ends) that is no part of a bridge, and
+/// (Ruling HQ) every bridge longer than [`BRIDGE_MAX_SPAN_M`] over the water,
+/// recorded as a ferry ([`ferry_long_bridges`]); then keeps the market's
+/// streets, the largest piece and the piece at each ferry landing
+/// (`prune_components`). Returns how many it killed.
 ///
 /// **A bridge** is a chain of streets in the water, joined end to end, one
 /// of which crosses the town's own river centreline. The quay is exempt, as
@@ -402,10 +406,11 @@ pub const BRIDGE_MAX_SPAN_M: f64 = 400.0;
 /// crosses the town's centreline) longer than [`BRIDGE_MAX_SPAN_M`] becomes a
 /// ferry. Returns the chain's edges, for the caller to kill, and records in
 /// `Graph::ferries` a landing on each bank: on the market's bank and on the
-/// other, the waterline end of a chain street that leaves a dry node still
-/// joined to the rest of the town (walked from that node in
-/// [`WET_STREET_STEP_M`] steps to the last dry point). A long chain with no
-/// such end on both banks is still taken out, with no ferry.
+/// other, the waterline end of a chain street that leaves a dry node,
+/// preferring one still joined to the rest of the town (walked from that node
+/// in [`WET_STREET_STEP_M`] steps to the last dry point). A long chain with no
+/// dry node on both banks is still taken out, with no ferry (the census
+/// counts both, `_towncensus_probe.gd`).
 ///
 /// Why: the census found towns bridging the map's river with spans up to
 /// 1 788 m (seed 246371 at 384 cells, Ruling HN), and the owner's own town
@@ -449,22 +454,28 @@ fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, marke
         }
         // The landings: from each dry node of the chain still joined to a street outside it, along its chain street
         // to the water's edge.
-        let mut near: Option<Vec2> = None;
-        let mut far: Option<Vec2> = None;
+        // Per bank, the first landing found, preferring a dry node still joined to a street outside the chain
+        // (rank 0) over any other dry node of the chain (rank 1: the chain's own dead end on dry land, measured on
+        // the census as the case that lost 14 crossings outright).
+        let mut near: Option<(u8, Vec2)> = None;
+        let mut far: Option<(u8, Vec2)> = None;
         for &e in &chain {
             for (n, o) in [(g.edges[e].a, g.edges[e].b), (g.edges[e].b, g.edges[e].a)] {
                 let p = g.nodes[n].pt();
-                if site.is_water(p) || !g.nodes[n].adj.iter().any(|j| !chain.contains(j) && g.edges[*j].alive) {
+                if site.is_water(p) {
                     continue;
                 }
+                let rank = u8::from(!g.nodes[n].adj.iter().any(|j| !chain.contains(j) && g.edges[*j].alive));
                 let q = g.nodes[o].pt();
                 let steps = (p.dist(q) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
                 let landing = (0..=steps).map(|i| p.lerp(q, i as f64 / steps as f64)).take_while(|&x| !site.is_water(x)).last().unwrap_or(p);
                 let slot = if site.bank_side(p) == mkt_side { &mut near } else { &mut far };
-                slot.get_or_insert(landing);
+                if slot.is_none_or(|(r, _)| rank < r) {
+                    *slot = Some((rank, landing));
+                }
             }
         }
-        if let (Some(a), Some(b)) = (near, far) {
+        if let (Some((_, a)), Some((_, b))) = (near, far) {
             g.ferries.push((a, b));
         }
         out.extend(chain);

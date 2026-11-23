@@ -245,6 +245,7 @@ func _init() -> void:
 			## Ruling HQ: ferries (a crossing longer than the bridge limit), the longest; towns that kept no street round
 			## their market where the switch off had one (HN's survivor U18); towns housing over 125 % of their target.
 			var ferries := 0
+			var bridge_towns := 0
 			var ferry_towns := 0
 			var ferry_m := 0.0
 			var mkt_lost := 0
@@ -302,6 +303,12 @@ func _init() -> void:
 						span = maxf(span, float(r["span_m"]))
 						wet_span = maxf(wet_span, float(r.get("wet_span_m", 0.0)))
 						ferries += int(r.get("ferries", 0))
+						## Ruling HQ: towns with a bridge, and a note per row, so a crossing that became a ferry and one that
+						## was lost can be told apart against another build's census.
+						if int(r["bridge_s"]) > 0:
+							bridge_towns += 1
+							if on:
+								note += " BRIDGE %d (%.0f m over the water)" % [r["bridge_s"], float(r.get("wet_span_m", r["span_m"]))]
 						ferry_towns += int(int(r.get("ferries", 0)) > 0)
 						ferry_m = maxf(ferry_m, float(r.get("ferry_m", 0.0)))
 						if int(r.get("ferries", 0)) > 0:
@@ -364,8 +371,8 @@ func _init() -> void:
 			var open_all := 0
 			for kk in open:
 				open_all += open[kk]
-			print("TOWN   %s: river towns %d | lost river %d | market in its river %d | buildings in water %d | fronted %d/%d (%.1f %%) | housed p10 %.0f %% (all towns %.0f %%) | over drawn river: buildings %d of %d, wall runs %d (gated %d), street edges %d of %d (bridge edges %d, longest bridge %.0f m, over the water %.0f m) | over drawn lake: b %d w %d s %d | over drawn sea: b %d w %d s %d | other bank x1 %d/%d x4 %d/%d x16 %d/%d x64 %d/%d | moved %d (median %.0f m, max %.0f m), past the 625 m reach %d, box grown %d | ferries %d in %d towns (longest %.0f m) | no street near the market %d | over-housed (over 125 %%) %d | housed under a quarter of off %d" % [
-				"on " if on else "off", n, lost, in_river, wet, fronted, reach, 100.0 * fronted / maxf(1.0, reach), p10, _p10(housed_all), over["b"], over_of["b"], over["w"], gated, over["s"], over_of["s"], bridge, span, wet_span,
+			print("TOWN   %s: river towns %d | lost river %d | market in its river %d | buildings in water %d | fronted %d/%d (%.1f %%) | housed p10 %.1f %% (all towns %.1f %%) | over drawn river: buildings %d of %d, wall runs %d (gated %d), street edges %d of %d (bridge edges %d in %d towns, longest bridge %.0f m, over the water %.0f m) | over drawn lake: b %d w %d s %d | over drawn sea: b %d w %d s %d | other bank x1 %d/%d x4 %d/%d x16 %d/%d x64 %d/%d | moved %d (median %.0f m, max %.0f m), past the 625 m reach %d, box grown %d | ferries %d in %d towns (longest %.0f m) | no street near the market %d | over-housed (over 125 %%) %d | housed under a quarter of off %d" % [
+				"on " if on else "off", n, lost, in_river, wet, fronted, reach, 100.0 * fronted / maxf(1.0, reach), p10, _p10(housed_all), over["b"], over_of["b"], over["w"], gated, over["s"], over_of["s"], bridge, bridge_towns, span, wet_span,
 				open["lake_b"], open["lake_w"], open["lake_s"], open["sea_b"], open["sea_w"], open["sea_s"],
 				sides["x1"][1], sides["x1"][0], sides["x4"][1], sides["x4"][0], sides["x16"][1], sides["x16"][0], sides["x64"][1], sides["x64"][0], moved,
 				origin_m[origin_m.size() / 2] if not origin_m.is_empty() else 0.0, origin_m[-1] if not origin_m.is_empty() else 0.0, far, grown,

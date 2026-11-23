@@ -1153,8 +1153,8 @@ pub const FAR_BANK_TRIES: i32 = 2600;
 /// candidates ended with the far bank at 0.95 of the market bank's streets
 /// and the town at 78 % of its target; of the candidates, 56 % were edges
 /// under the 38 m branch rule and 31 % dead-end searches on a street with no
-/// dead end, so the far bank stopped for want of tries, not of ground or
-/// budget. 10 000 tries housed 85 %, 20 000 89 %, 40 000 91 %
+/// dead end, so the far bank stopped for want of tries first (with 10 000
+/// it reached Ruling FB's cap of 1.0 instead, about 80 % housed). 10 000 tries housed 85 %, 20 000 89 %, 40 000 91 %
 /// (`docs/evidence/town-on-bank-hq-2026-11-23/`). Most candidates are
 /// rejected before `legalize_street`, so the extra tries are cheap; the loop
 /// still stops at the budget (the town's shortfall) and the cap.

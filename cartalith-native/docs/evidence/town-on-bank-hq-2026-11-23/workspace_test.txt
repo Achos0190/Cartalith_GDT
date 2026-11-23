@@ -1,0 +1,1 @@
+cargo test --workspace --no-fail-fast on the final tree (hq-1123 rebased onto origin/main 9ae58a2c, plus this lane's last edits): 289 result lines, 9052 passed, 0 failed, 205 ignored; exit 0

@@ -1085,10 +1085,11 @@ pub const FAR_BANK_MAX_RATIO: f64 = 1.0;
 /// the market's bank keeps less ground than on the reference's 12 to 46 m
 /// channel, and the far bank, grown from the bridge's far end, is the
 /// town's other half rather than its suburb. Measured on that town
-/// (`docs/evidence/town-on-bank-hq-2026-11-23/`): with
-/// [`crate::growth::BANK_SITES_FAR_BANK_TRIES`] its far bank stops at 1.41
-/// times the market bank's streets, so 2.0 never binds there; 1.0 stopped it
-/// at 1.0 (78 % housed). Still a cap, so the market's bank stays the town's
+/// (`docs/evidence/town-on-bank-hq-2026-11-23/`): both bound, the tries
+/// first. With FB's 2 600 tries it stopped at 0.95 of the cap (78 % housed);
+/// with 10 000 tries and the cap at 1.0 it reached the cap (about 80 %); with
+/// [`crate::growth::BANK_SITES_FAR_BANK_TRIES`] and this cap it stops at
+/// 1.41 times the market bank's streets (91 %), so 2.0 does not bind there. Still a cap, so the market's bank stays the town's
 /// centre where the far bank has far more ground. The share it also bounds is
 /// the shortfall (`second_pass`), so a town is never grown past its target by it.
 pub const BANK_SITES_FAR_BANK_MAX_RATIO: f64 = 2.0;

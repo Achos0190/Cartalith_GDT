@@ -10,19 +10,19 @@ Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
 TOWN params from C:/cw/owner_repro/seed532187_params.txt: 155 keys set; engine answered { "rejected": [], "clamped": [] }
 [WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
 	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
-[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x19dd799f460, name: ?)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1731fe66d40, name: ?)
 [WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
 	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
-[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x19dd799f460, name: ?)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1731fe66d40, name: ?)
 [WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
 	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
-[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x19dd799f460, name: ?)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1731fe66d40, name: ?)
 [INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
 [INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
 
 TOWN seed 532187 at 2048x1311, view 1150x800: 42 settlements
-TOWN   bank_sites off: 42 rows in 14.5 s
-TOWN   bank_sites on: 42 rows in 21.1 s
+TOWN   bank_sites off: 42 rows in 15.2 s
+TOWN   bank_sites on: 42 rows in 17.7 s
 TOWN     off #0 capital (146,1179) pop 0: OVER b 1254 w 1 s 1 (street 1; deepest b 90 w 90 (run 192) s 26 m) | box 1700x1250 river_w 38 market-river 30 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 1254/3885 w 1 s 1 gated 1 bridge 391 wet 0 fronted 70/127 housed 91% of 20000
 TOWN     off #1 capital (1478,1159) pop 0: SEA b 2 w 3 s 2 (lane 1 ringroad 1) OVER b 1535 w 1 s 4 (street 4; deepest b 195 w 195 (run 540) s 33 m) | box 1700x1250 river_w 38 market-river 292 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 1535/4690 w 1 s 4 gated 1 bridge 466 wet 0 fronted 128/190 housed 107% of 20000
 TOWN     off #2 town (1490,1030) pop 0: OVER b 297 w 1 s 125 (lane 14 primary 16 quay 1 ringroad 21 street 73; deepest b 180 w 180 (run 612) s 180 m) | box 1700x1250 river_w 38 market-river 30 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 297/536 w 1 s 125 gated 0 bridge 0 wet 0 fronted 4/7 housed 102% of 2498
@@ -60,12 +60,14 @@ TOWN     off #36 hamlet (2020,1297) pop 0: OVER b 3 w 0 s 1 (street 1; deepest b
 TOWN     off #38 hamlet (13,1205) pop 0: OVER b 27 w 0 s 10 (primary 1 quay 3 street 6; deepest b 38 w 0 (run 0) s 41 m) | box 1700x1250 river_w 24 market-river 44 market Market sited on flat lan at (-0.40, 0.10) cells origin - river_m - over b 27/152 w 0 s 10 gated 0 bridge 0 wet 0 fronted 14/26 housed 100% of 400
 TOWN     off #39 village (1873,229) pop 0: OVER b 17 w 0 s 17 (bank 4 primary 4 quay 2 street 7; deepest b 35 w 0 (run 0) s 39 m) OTHER BANK x1 OTHER BANK x4 OTHER BANK x16 OTHER BANK x64 | box 1700x1250 river_w 31 market-river 17 market Market sited on flat lan at (0.08, 0.13) cells origin - river_m - over b 17/169 w 0 s 17 gated 0 bridge 0 wet 0 fronted 12/29 housed 100% of 432
 TOWN   off least housed: #36 85% #32 86% #41 91% #0 91% #9 97% #15 99% #10 100% #4 100%
-TOWN   off: river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1119/2120 (52.8 %) | housed p10 97 % (all towns 97 %) | over drawn river: buildings 6527 of 26923, wall runs 6 (gated 9), street edges 965 of 7530 (bridge edges 1354, longest bridge 12658 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 3 w 3 s 3 | other bank x1 2/39 x4 2/39 x16 2/39 x64 2/39 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2
-TOWN     on  #1 capital (1478,1159) pop 0: HOUSED 78% from 107% | box 2099x1649 river_w 399 market-river 276 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 0/3325 w 0 s 0 gated 0 bridge 1 wet 0 fronted 100/171 housed 78% of 20000
+TOWN   off: river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1119/2120 (52.8 %) | housed p10 96.5 % (all towns 96.5 %) | over drawn river: buildings 6527 of 26923, wall runs 6 (gated 9), street edges 965 of 7530 (bridge edges 1354 in 14 towns, longest bridge 12658 m, over the water 0 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 3 w 3 s 3 | other bank x1 2/39 x4 2/39 x16 2/39 x64 2/39 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 0
+TOWN FAIL: the town at (1478, 1159) houses 78 % with the switch on, under 90 %
+TOWN     on  #1 capital (1478,1159) pop 0: BRIDGE 1 (405 m over the water) HOUSED 78% from 107% | box 2099x1649 river_w 399 market-river 276 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 0/3325 w 0 s 0 gated 0 bridge 1 wet 0 fronted 100/171 housed 78% of 20000
 TOWN     on  #8 town (673,143) pop 0: HOUSED 106% from 180% | box 2022x1572 river_w 205 market-river 161 market Market sited on flat lan at (0.70, 0.00) cells origin 275 river_m 161 over b 0/421 w 0 s 0 gated 0 bridge 0 wet 0 fronted 19/62 housed 106% of 1923
-TOWN     on  #11 city (1663,1255) pop 0: HOUSED 103% from 139% | box 2019x1900 river_w 153 market-river 119 market Market sited on flat lan at (0.10, 0.10) cells origin 55 river_m 119 over b 0/1663 w 0 s 0 gated 0 bridge 1 wet 0 fronted 141/222 housed 103% of 7604
+TOWN     on  #11 city (1663,1255) pop 0: BRIDGE 1 (160 m over the water) HOUSED 103% from 139% | box 2019x1900 river_w 153 market-river 119 market Market sited on flat lan at (0.10, 0.10) cells origin 55 river_m 119 over b 0/1663 w 0 s 0 gated 0 bridge 1 wet 0 fronted 141/222 housed 103% of 7604
 TOWN     on  #37 town (1963,393) pop 0: HOUSED 106% from 155% | box 1752x1302 river_w 52 market-river 391 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 0/496 w 0 s 0 gated 0 bridge 0 wet 0 fronted 19/41 housed 106% of 2109
 TOWN   on  least housed: #1 78% (off 107%) #0 89% (off 91%) #12 91% (off 100%) #9 95% (off 97%) #32 99% (off 86%) #15 99% (off 99%) #10 100% (off 100%) #4 100% (off 100%)
-TOWN   on : river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1100/2370 (46.4 %) | housed p10 99 % (all towns 99 %) | over drawn river: buildings 0 of 23964, wall runs 0 (gated 0), street edges 0 of 7346 (bridge edges 2, longest bridge 405 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/39 x4 0/39 x16 0/39 x64 0/39 | moved 26 (median 164 m, max 275 m), past the 625 m reach 0, box grown 37
+TOWN   on : river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1100/2370 (46.4 %) | housed p10 98.8 % (all towns 98.8 %) | over drawn river: buildings 0 of 23964, wall runs 0 (gated 0), street edges 0 of 7346 (bridge edges 2 in 2 towns, longest bridge 405 m, over the water 0 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/39 x4 0/39 x16 0/39 x64 0/39 | moved 26 (median 164 m, max 275 m), past the 625 m reach 0, box grown 37 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 1 | housed under a quarter of off 0
 
-TOWN run: bridge edges 2, gated wall runs 0 (switch on); footprint over the map's lake or sea with the switch off 9
+TOWN run: bridge edges 2, ferries 0, gated wall runs 0 (switch on); footprint over the map's lake or sea with the switch off 9
+exit 1

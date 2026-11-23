@@ -1,0 +1,60 @@
+bridge: 6
+   83744@384 #48 hamlet: HN bridge 439 m (chain), housed 90 % -> HQ 90 %
+   83744@384 #118 hamlet: HN bridge 672 m (chain), housed 100 % -> HQ 100 %
+   83744@384 #224 hamlet: HN bridge 666 m (chain), housed 100 % -> HQ 100 %
+   912345@384 #63 hamlet: HN bridge 395 m (chain), housed 96 % -> HQ 96 %
+   912345@384 #101 hamlet: HN bridge 541 m (chain), housed 100 % -> HQ 100 %
+   912345@384 #157 hamlet: HN bridge 373 m (chain), housed 100 % -> HQ 100 %
+ferry: 17
+   246371@384 #0 capital: HN bridge 1788 m (chain), housed 83 % -> HQ 83 %
+   246371@384 #15 capital: HN bridge 569 m (chain), housed 76 % -> HQ 84 %
+   246371@384 #19 capital: HN bridge 803 m (chain), housed 69 % -> HQ 85 %
+   246371@384 #27 hamlet: HN bridge 1273 m (chain), housed 100 % -> HQ 100 %
+   246371@384 #68 hamlet: HN bridge 1599 m (chain), housed 100 % -> HQ 100 %
+   246371@384 #205 hamlet: HN bridge 675 m (chain), housed 11 % -> HQ 0 %
+   483920@384 #0 capital: HN bridge 975 m (chain), housed 81 % -> HQ 95 %
+   483920@384 #6 capital: HN bridge 994 m (chain), housed 67 % -> HQ 69 %
+   483920@384 #9 capital: HN bridge 736 m (chain), housed 83 % -> HQ 88 %
+   483920@384 #12 capital: HN bridge 448 m (chain), housed 93 % -> HQ 96 %
+   83744@384 #0 capital: HN bridge 477 m (chain), housed 66 % -> HQ 86 %
+   83744@384 #1 capital: HN bridge 918 m (chain), housed 79 % -> HQ 89 %
+   83744@384 #11 capital: HN bridge 504 m (chain), housed 97 % -> HQ 97 %
+   83744@384 #15 capital: HN bridge 455 m (chain), housed 91 % -> HQ 94 %
+   83744@384 #64 hamlet: HN bridge 870 m (chain), housed 98 % -> HQ 98 %
+   83744@384 #85 hamlet: HN bridge 1083 m (chain), housed 95 % -> HQ 76 %
+   912345@384 #7 town: HN bridge 801 m (chain), housed 109 % -> HQ 104 %
+nothing: 7
+   246371@384 #42 hamlet: HN bridge 1447 m (chain), housed 111 % -> HQ listed in neither (at least 4/5 of off)
+   483920@384 #149 hamlet: HN bridge 557 m (chain), housed 100 % -> HQ listed in neither (at least 4/5 of off)
+   83744@384 #3 capital: HN bridge 1597 m (chain), housed 72 % -> HQ 72 %
+   83744@384 #19 village: HN bridge 809 m (chain), housed 100 % -> HQ listed in neither (at least 4/5 of off)
+   912345@384 #13 city: HN bridge 1245 m (chain), housed 109 % -> HQ listed in neither (at least 4/5 of off)
+   912345@384 #44 hamlet: HN bridge 968 m (chain), housed 100 % -> HQ listed in neither (at least 4/5 of off)
+   912345@384 #83 hamlet: HN bridge 575 m (chain), housed 100 % -> HQ listed in neither (at least 4/5 of off)
+bridge: 17
+   483920@2048 #0 capital: HN bridge 287 m (chain), housed 78 % -> HQ 81 %
+   483920@2048 #1 city: HN bridge 289 m (chain), housed 86 % -> HQ 86 %
+   483920@2048 #4 capital: HN bridge 92 m (chain), housed 60 % -> HQ 82 %
+   483920@2048 #8 capital: HN bridge 167 m (chain), housed 90 % -> HQ 90 %
+   483920@2048 #19 city: HN bridge 224 m (chain), housed 97 % -> HQ 97 %
+   483920@2048 #21 hamlet: HN bridge 297 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #64 hamlet: HN bridge 535 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #69 hamlet: HN bridge 415 m (chain), housed 22 % -> HQ 22 %
+   483920@2048 #94 hamlet: HN bridge 241 m (chain), housed 98 % -> HQ 98 %
+   483920@2048 #146 hamlet: HN bridge 623 m (chain), housed 125 % -> HQ 125 %
+   483920@2048 #162 hamlet: HN bridge 813 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #167 hamlet: HN bridge 395 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #175 hamlet: HN bridge 885 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #177 hamlet: HN bridge 44 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #194 hamlet: HN bridge 61 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #195 hamlet: HN bridge 162 m (chain), housed 100 % -> HQ 100 %
+   483920@2048 #228 hamlet: HN bridge 241 m (chain), housed 100 % -> HQ 100 %
+ferry: 1
+   483920@2048 #27 hamlet: HN bridge 663 m (chain), housed 100 % -> HQ 100 %
+nothing: 1
+   483920@2048 #49 hamlet: HN bridge 649 m (chain), housed 100 % -> HQ listed in neither (at least 4/5 of off)
+bridge: 2
+   532187@2048 #1 capital: HN bridge 405 m (chain), housed 78 % -> HQ 91 %
+   532187@2048 #11 city: HN bridge 160 m (chain), housed 103 % -> HQ 103 %
+ferry: 0
+nothing: 0

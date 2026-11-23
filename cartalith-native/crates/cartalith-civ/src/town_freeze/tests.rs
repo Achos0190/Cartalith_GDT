@@ -383,11 +383,15 @@ fn gates_reattach_by_bearing() {
 
 
 /// Protects that rules v4's ninth fixture reaches Ruling HQ's ferry rule (so its pinned hash covers the path): the
-/// bank town on a river drawn 625 m wide has a `ferry` detail and no detected bridge.
+/// bank town on a river drawn 625 m wide has one `ferry` detail, and still has it after a freeze (encode, decode).
+/// MUTATION: no ferry detail emitted (`generate.rs`) turns it red.
 #[test]
 fn the_fixture_on_a_river_too_wide_to_bridge_crosses_by_ferry() {
     let f = fixtures();
     let (_, l) = f.iter().find(|(n, _)| *n == "bank town on a river too wide to bridge").expect("the fixture");
     let ferries = l.details.iter().filter(|d| d.kind == "ferry").count();
     assert_eq!(ferries, 1, "one ferry");
+    // A frozen ferry town keeps its ferry: the codec interns the detail kind it reads back.
+    let back = decode(&encode(l)).expect("decodes");
+    assert_eq!(back.details.iter().filter(|d| d.kind == "ferry").count(), 1, "the ferry survives a freeze");
 }

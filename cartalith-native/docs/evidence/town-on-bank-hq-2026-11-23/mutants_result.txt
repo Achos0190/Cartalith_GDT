@@ -9,6 +9,7 @@ N6b BRIDGE_MAX_SPAN_M 400 to 250                                       KILLED
 N7 the prune does not keep a ferry's landings                          KILLED
 N8 the span is whole street lengths, not the water's share             KILLED
 N9 a landing at the street's dry node, not the water's edge            KILLED
+N9b a landing only where a street leaves the chain                     KILLED   (added with the dead-end landing, after the census found 14 crossings lost)
 N10 no ferry detail is emitted                                         KILLED
 N11 the spike's base never goes                                        KILLED
 N12 SHORE_ROUTE_CLEAR_M 6 to 0                                         KILLED   (survived the first run: the test's bay now stands 2 to 4 m from the route lattice)
@@ -19,6 +20,6 @@ N16 the route is not pulled straight                                   KILLED   
 N17 a self-crossing route is returned                                  KILLED   (survived the first run: a prong fixture whose only route crosses it added)
 N18 URBAN_RULES_VERSION 4 to 5                                         KILLED
 
-20 mutants on rules and constants: 18 killed by the unit suite (N12, N16 and N17 after their test was
+21 mutants on rules and constants: 19 killed by the unit suite (N12, N16 and N17 after their test was
 tightened and the three re-run by name with N11, N13, N14 and N15, all killed); N2 and N5 (the tries)
 survive any unit fixture and are killed by the census on the owner's town (--cell-min-housed 90).

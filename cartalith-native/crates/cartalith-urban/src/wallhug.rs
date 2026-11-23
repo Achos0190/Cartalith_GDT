@@ -1219,7 +1219,10 @@ pub const WATER_GATE_KEEP_M: f64 = 15.0;
 /// that encloses its river crosses it at its water gates, and that run
 /// stays). Each run is judged on its own, longest first: a run whose removal
 /// would make the ring cross itself, or leave fewer than three vertices, is
-/// tried vertex by vertex, and what cannot go stays. `None` when no run is taken out (no vertex wet, every vertex wet,
+/// tried vertex by vertex. Then (Ruling HQ) a wet vertex still standing goes
+/// together with the run's dry neighbour before it, else after it, where
+/// that leaves the ring uncrossed (the base of a spike); what cannot go even
+/// then stays. `None` when no run is taken out (no vertex wet, every vertex wet,
 /// or none can go): the ring is then kept as it is.
 ///
 /// Why: the circuit builder closes a one-bank wall along "the bank" of the
@@ -1229,7 +1232,8 @@ pub const WATER_GATE_KEEP_M: f64 = 15.0;
 /// with it: a spike of two walls several hundred metres into the river
 /// (seed 912345 #2 and 246371 #8 at 384 cells: 1 188 and 1 320 m of wall in
 /// the water, up to 396 m from the bank). [`shore_snap`] moves a point at
-/// most [`SHORE_MAX_M`] and so left them. Must never move a dry vertex.
+/// most [`SHORE_MAX_M`] and so left them. Must never move a dry vertex, and
+/// takes one out only as a spike's base, with its wet tip (Ruling HQ).
 pub fn ring_off_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
     let n = ring.len();
     let w: Vec<bool> = ring.iter().map(|&p| wet(p)).collect();
@@ -1316,7 +1320,9 @@ pub fn ring_off_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) ->
 /// encloses no river), the stretches still over any water of the site's mask
 /// (a chord between two dry vertices that cuts a bend of the river) are set
 /// on the shore as [`shore_snap`] sets them for open water (at most
-/// [`SHORE_MAX_M`]; a stretch further out is left). Nothing for a bastioned
+/// [`SHORE_MAX_M`]; a stretch further out is left). Last (Ruling HQ), what
+/// is still over the water is routed round it along the shore
+/// ([`ring_round_water`]). Nothing for a bastioned
 /// trace (its ring is the gorge, not the drawn wall) or a wall with no ring.
 /// Returns whether it moved the ring.
 pub fn wall_off_water(wall_state: &mut WallState, site: &Site) -> bool {

@@ -761,13 +761,15 @@ fn the_far_bank_pass_is_capped_and_grows_only_the_far_bank() {
     assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
 }
 
-/// Protects Ruling HQ's raised cap and tries for a bank-site town
-/// (`BANK_SITES_FAR_BANK_MAX_RATIO` 2.0, `BANK_SITES_FAR_BANK_TRIES`): the
-/// same fixture and ask as the test above, with `bank_sites`, grows the far
-/// bank past the market bank's 2 660 m (Ruling FB's cap of 1.0 stops it at
-/// 2 785 m) and stops by 2.0 times it plus one street. MUTATION: the ratio
-/// 2.0 to 1.0 keeps it under the first bound; 2.0 to 20.0 or the tries
-/// literal 40 000 to 2 600 is read by the assertions on the measured length.
+/// Protects Ruling HQ's raised cap for a bank-site town
+/// (`BANK_SITES_FAR_BANK_MAX_RATIO` 2.0): the same fixture and ask as the
+/// test above, with `bank_sites`, grows the far bank past the market bank's
+/// 2 660 m (Ruling FB's cap of 1.0 stops it by 2 785 m) and stops by 2.0
+/// times it plus one street (measured 5 340 m). MUTATION: the ratio 2.0 to
+/// 1.0 keeps it under the first bound; 2.0 to 20.0 passes the second. The
+/// tries (`BANK_SITES_FAR_BANK_TRIES`) are not read here: this fixture
+/// reaches the cap within FB's 2 600, so that literal's mutant survives the
+/// unit suite and is killed by the census on the owner's town.
 #[test]
 fn a_bank_site_far_bank_may_grow_to_twice_the_market_bank() {
     let r = RIVER_Y;
@@ -781,7 +783,6 @@ fn a_bank_site_far_bank_may_grow_to_twice_the_market_bank() {
     let ws = crate::growth::WallState::default();
     crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 10.0, Vec2::new(800.0, r + 30.0), true);
     let (n1, s1) = bank_lengths(&g);
-    eprintln!("far bank {s1:.0} m against {n0:.0} m");
     assert!(s1 > n0 + 125.0, "the far bank stopped at Ruling FB's cap: {s1:.0} m against {n0:.0} m");
     assert!(s1 <= 2.0 * n0 + 125.0, "the far bank passed twice the market bank's: {s1:.0} m against {n0:.0} m");
     assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
