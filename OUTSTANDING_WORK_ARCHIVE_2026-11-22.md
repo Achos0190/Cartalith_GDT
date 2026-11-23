@@ -5664,3 +5664,12 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Parallel streets: PS-3 measured no-go (`4d540795`), PS-4 measured no-go (`68c45f38`), fix E built and the water gate refused (`2aa402de`); Rulings GY, HB, HD.
 - Town-layout save scope written (`b37692e6`); answers Ruling HA.
 - World-scale: ChatGPT review (`aa0d0fd2`), Ruling GV and the free-B drop (`8bdf7ad2`).
+
+- Builds v.26.11.22-002: APK on the 6T and the Pad, D: folder; Windows export and the self-signed setup `Cartalith-Setup-v.26.11.22-002.exe` (Rulings HH, HI).
+- Windows installer, Inno Setup per-user, unsigned script (`dba7dcb4`).
+- Ruling HF timeline range from the vault, phone Back at L0, phone ladder text (`3b3fa4a9`, `0daf5a26`).
+- Small rows round three: assistant window foot, trace Preferences switch and spans, `_watch_dialog` (`6384e687`); round four: docked assistant foot, 529 status, city-state redo (`24463f88`).
+- RR-T1 frames and RR-T2 streams, Ruling HE (`b2c277de`, `e65e7644`).
+- Town layouts in the save, TL-0..TL-8, Rulings GZ and HA (`a9649689`, `30608de0`).
+- Zero factions allowed; every settlement in a sphere at 0, Ruling HK (`39b0e8bf`).
+- Ruling HG's marker half: markers on the river bank, `civ.bank_sites` (`4e273cb2`).
