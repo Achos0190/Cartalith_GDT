@@ -1,0 +1,24 @@
+completed 
+ok    the switch is on and the world has settlements (the control)  -- 236 settlements
+SEA LEVEL 0.50 -> 0.51: main-thread builds 0 -> 0, job tables 1 -> 2 (last 728 ms); the shell's marker call 62.1 ms; longest frame in 4 s 33 ms
+ok    SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 0, "worker": 2, "last_ms": 727.7958 }
+ok    SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 0, "worker": 2, "last_ms": 727.7958 }
+ok    SEA LEVEL 0.50 -> 0.51: the markers are the exact ones once landed  -- 236 markers
+ok    SEA LEVEL 0.50 -> 0.51: the change moved the table (the control)  -- { "main": 0, "worker": 2, "last_ms": 727.7958 }
+SCULPT a stroke, committed: main-thread builds 0 -> 0, job tables 2 -> 3 (last 726 ms); the shell's marker call 74.9 ms; longest frame in 4 s 34 ms
+ok    SCULPT a stroke, committed: no table built on the main thread  -- { "main": 0, "worker": 3, "last_ms": 726.2316 }
+ok    SCULPT a stroke, committed: a table landed from the job  -- { "main": 0, "worker": 3, "last_ms": 726.2316 }
+ok    SCULPT a stroke, committed: the markers are the exact ones once landed  -- 236 markers
+ok    SCULPT a stroke, committed: the change moved the table (the control)  -- { "main": 0, "worker": 3, "last_ms": 726.2316 }
+OPEN the save made before the sea-level move: main-thread builds 0 -> 0, job tables 3 -> 4 (last 795 ms); the shell's marker call 18.0 ms; longest frame in 4 s 133 ms
+ok    OPEN the save made before the sea-level move: no table built on the main thread  -- { "main": 0, "worker": 4, "last_ms": 794.907 }
+ok    OPEN the save made before the sea-level move: a table landed from the job  -- { "main": 0, "worker": 4, "last_ms": 794.907 }
+ok    OPEN the save made before the sea-level move: the markers are the exact ones once landed  -- 236 markers
+ok    OPEN the save made before the sea-level move: the change moved the table (the control)  -- { "main": 0, "worker": 4, "last_ms": 794.907 }
+PARAMETER WRITE urban_wall_hug: main-thread builds 0 -> 0, job tables 4 -> 5 (last 792 ms); the shell's marker call 17.1 ms; longest frame in 4 s 33 ms
+ok    PARAMETER WRITE urban_wall_hug: no table built on the main thread  -- { "main": 0, "worker": 5, "last_ms": 792.279 }
+ok    PARAMETER WRITE urban_wall_hug: a table landed from the job  -- { "main": 0, "worker": 5, "last_ms": 792.279 }
+ok    PARAMETER WRITE urban_wall_hug: the markers are the exact ones once landed  -- 236 markers
+ok    PARAMETER WRITE urban_wall_hug: the change moved the table (the control)  -- { "main": 0, "worker": 5, "last_ms": 792.279 }
+RESULT PASS
+exit 0

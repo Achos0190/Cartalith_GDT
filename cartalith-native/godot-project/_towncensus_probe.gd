@@ -23,7 +23,7 @@ extends SceneTree
 ## that is no bridge over a drawn river; any of the three over the map's drawn lake or sea; a marker across a drawn
 ## river from its market at x1, x4, x16 or x64; housed p10 under the switch-off p10; a town whose target moved; a
 ## walled town with no street within 150 m of its market that had one with the switch off (Ruling HQ); no town moved at
-## all. Positive controls (also exit 1): no river town; no building over a drawn river with the switch
+## all; a bridge longer than 400 m with its approaches, or a ferry shorter than half its town's river (Ruling HU). Positive controls (also exit 1): no river town; no building over a drawn river with the switch
 ## off; no bridge counted with it on. The run's last line gives the bridge edges, the gated wall runs and the
 ## footprint over the map's lake or sea with the switch off (that measure's control).
 
@@ -248,6 +248,7 @@ func _init() -> void:
 			var bridge_towns := 0
 			var ferry_towns := 0
 			var ferry_m := 0.0
+			var short_ferries := 0
 			var mkt_lost := 0
 			var over_housed := 0
 			## Ruling HQ (HN's survivor U16): river towns housing under a quarter of what they housed with the switch off
@@ -313,6 +314,12 @@ func _init() -> void:
 						ferry_m = maxf(ferry_m, float(r.get("ferry_m", 0.0)))
 						if int(r.get("ferries", 0)) > 0:
 							note += " FERRY %d (%.0f m)" % [r["ferries"], r["ferry_m"]]
+							## Ruling HU: a ferry crosses its river: one shorter than half the town's river is a landing
+							## on its own bank (a straight-across landing taken before the centreline gave 246371 #42 at 384
+							## a 20 m ferry across a river 1 006 m wide).
+							if on and r.has("ferry_min_m") and float(r["ferry_min_m"]) < 0.5 * float(r["river_w"]):
+								short_ferries += 1
+								note += " SHORT FERRY (%.0f m of %.0f)" % [r["ferry_min_m"], r["river_w"]]
 						if not on:
 							off_mkt[k] = int(r.get("mkt_s", 0))
 						## Walled towns only: the miss this gate guards is the rampart sweep's (HN's U18), which acts on a wall's
@@ -386,6 +393,14 @@ func _init() -> void:
 					bad = true
 				if moved == 0:
 					print("TOWN FAIL: no town moved: the switch reached nothing")
+					bad = true
+				## Ruling HU: the 400 m bridge limit (`cleanup::BRIDGE_MAX_SPAN_M`) counts the whole bridge, approaches
+				## included, which is this census's chain; a longer one should have been a ferry.
+				if span > 400.0:
+					print("TOWN FAIL: a bridge %.0f m long with its approaches, over the 400 m a town bridges (Ruling HU)" % span)
+					bad = true
+				if short_ferries > 0:
+					print("TOWN FAIL: %d towns with a ferry shorter than half their river (Ruling HU)" % short_ferries)
 					bad = true
 				## Positive controls: the exemptions are not vacuous (a bridge exists), and the water measures can see water
 				## (with the switch off the towns stand over the drawn river).

@@ -1,0 +1,10 @@
+H1 the span over the water alone (Ruling HQ's measure)                 KILLED
+H2 BRIDGE_MAX_SPAN_M 400 to 4 000                                      KILLED
+H3 BRIDGE_MAX_SPAN_M 400 to 350                                        KILLED
+H4 a ferried street's dry part is never laid again                     KILLED
+H5 STUB_MIN_M 4 to 4 000                                               KILLED
+H6 FERRY_REACH_RIVERS 2 to 0                                           KILLED
+H7 the square crossing is never tried                                  KILLED
+H9 the line is carried on from any wet node, not only a dead end       KILLED
+H10 URBAN_RULES_VERSION 5 to 6                                         KILLED
+H8 (the square crossing lands before the centreline) survived the unit suite; it is census_mutants.py's C2, KILLED by the short-ferry gate on 246371 at 384.

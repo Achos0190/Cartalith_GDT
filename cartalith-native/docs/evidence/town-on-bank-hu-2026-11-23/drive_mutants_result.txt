@@ -1,0 +1,14 @@
+W1 the markers read the table in place (the job never used)    KILLED
+   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 1198.6779 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 1198.6779 }
+   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 1450.5246 }
+   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 1450.5246 }
+W2 the shell never turns the job on                            KILLED
+   FAIL  SEA LEVEL 0.50 -> 0.51: no table built on the main thread  -- { "main": 1, "worker": 1, "last_ms": 743.1071 }
+   FAIL  SEA LEVEL 0.50 -> 0.51: a table landed from the job  -- { "main": 1, "worker": 1, "last_ms": 743.1071 }
+   FAIL  SCULPT a stroke, committed: no table built on the main thread  -- { "main": 2, "worker": 1, "last_ms": 875.192 }
+   FAIL  SCULPT a stroke, committed: a table landed from the job  -- { "main": 2, "worker": 1, "last_ms": 875.192 }
+W3 a landed table is never re-asked for                        KILLED
+   FAIL  SEA LEVEL 0.50 -> 0.51: the map's markers stand where the landed table puts them  -- 2 of 236 markers elsewhere at ppc 2.378
+   FAIL  SCULPT a stroke, committed: the map's markers stand where the landed table puts them  -- 5 of 236 markers elsewhere at ppc 2.378
+   FAIL  OPEN the save made before the sea-level move: the map's markers stand where the landed table puts them  -- 14 of 236 markers elsewhere at ppc 2.378

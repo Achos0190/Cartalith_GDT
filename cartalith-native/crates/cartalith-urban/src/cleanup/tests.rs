@@ -1388,8 +1388,8 @@ fn the_rampart_sweep_keeps_the_markets_streets_as_well_as_the_largest_piece() {
 
 /// Protects Ruling HN's `sweep_wet_streets` on a river 100 m wide along `y = 600` (water from 548 to 652): a
 /// street wholly on land stays; a street whose end alone is in the water, 4 m in, goes; a road that crosses the
-/// river in three pieces stays whole (its middle piece crosses the centreline and the two others join it in the
-/// water: a bridge); a street in the water joined to nothing that crosses goes; a quay that runs from the bank
+/// river in five pieces stays whole (its middle piece crosses the centreline and the two beside it join it in the
+/// water: a bridge, 120 m with its approaches); a street in the water joined to nothing that crosses goes; a quay that runs from the bank
 /// 4 m into the water, joined to no bridge, stays; and a street that runs out of the town's box goes while the street it left stays.
 /// MUTATION: seeding the bridge flood from every wet street keeps the dipping one; dropping the flood through
 /// shared ends kills the bridge's two approaches; sampling without the ends misses the dip; the quay's
@@ -1406,7 +1406,8 @@ fn only_a_bridge_stands_in_the_water_after_the_wet_street_sweep() {
     g.add_street(300.0, 540.0, 300.0, 552.0, "street", 6.0, 1, "dips in");
     g.add_street(600.0, 300.0, 1400.0, 300.0, "street", 6.0, 1, "to the edge");
     g.add_street(1400.0, 300.0, 1400.0, -40.0, "street", 6.0, 1, "off the box");
-    g.add_polyline_street(&[Vec2::new(600.0, 300.0), Vec2::new(600.0, 560.0), Vec2::new(600.0, 640.0), Vec2::new(600.0, 900.0)], "primary", 9.0, 1, "the bridge road");
+    // Its chain (the pieces with a point in the water) is 540 -> 660, 120 m: a bridge, approaches included (Ruling HU).
+    g.add_polyline_street(&[Vec2::new(600.0, 300.0), Vec2::new(600.0, 540.0), Vec2::new(600.0, 560.0), Vec2::new(600.0, 640.0), Vec2::new(600.0, 660.0), Vec2::new(600.0, 900.0)], "primary", 9.0, 1, "the bridge road");
     g.add_street(900.0, 570.0, 1000.0, 570.0, "street", 6.0, 1, "in the water");
     g.add_street(700.0, 300.0, 700.0, 540.0, "street", 6.0, 1, "to the quay");
     g.add_street(700.0, 540.0, 760.0, 552.0, "quay", 6.0, 1, "the quay");
@@ -1559,15 +1560,51 @@ fn keep_rect_leaves_closed_rectangular_blocks_whole_and_cuts_the_rest() {
     assert!(run(1.0, true) > 0, "a sheared (parallelogram) block is not rectangular enough to keep");
 }
 
-/// Protects Ruling HQ's ferry rule (`ferry_long_bridges` through `sweep_wet_streets`, `BRIDGE_MAX_SPAN_M` 400 m)
-/// on a river along `y = 600`: over a channel 300 m wide a bridge road stays whole (its span over the water,
-/// 300 m, is under the limit); over one 500 m wide the same road's streets in the water go, a ferry is recorded
-/// with a landing on each bank at the water's edge (north landing within 8 m of y = 350, south within 8 m of
-/// y = 850), and the small street piece on the far bank stays though it is neither the market's nor the largest
-/// (the prune keeps a ferry's landings). MUTATION: `BRIDGE_MAX_SPAN_M` 400 to 4 000 keeps the long bridge; the
-/// prune's ferry keep dropped deletes the far piece; a landing only where a street leaves the chain loses the
-/// dead-end road's ferry (a third case: the road ends on the far bank); the wet share dropped (whole street lengths) ferries the
-/// 300 m one too (its street in the water is 560 m long, water and banks).
+/// Protects Ruling HU's two landings for a ferry whose chain stops in the water (`ferry_long_bridges`), on a river
+/// 500 m wide along `y = 600` (water from 350 to 850) with no street on its far bank. (1) A road that slants into the
+/// river and stops 90 m short of the far bank: the far landing is where its line, carried on, reaches the far bank
+/// (x past 800 m), not straight across from the near landing (x near 620 m). (2) A road that slants into the river
+/// and turns to run 400 m along its centreline to a dead end, the river running on past the box: its line never
+/// reaches dry ground, so the ferry crosses square to the centreline from the near landing (straight down), not
+/// along the slant of its first piece. MUTATION: `FERRY_REACH_RIVERS` 2 to 0 lands (1) straight across; the square
+/// crossing dropped leaves (2) with no ferry; carrying the line on from the turn (a wet node that is no dead end)
+/// lands (2) on the slant.
+#[test]
+fn a_ferry_whose_road_stops_in_the_water_still_lands_on_the_far_bank() {
+    let lay = |road: &[Vec2]| {
+        let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
+        site.river = vec![Vec2::new(-2000.0, 600.0), Vec2::new(850.0, 600.0), Vec2::new(4000.0, 600.0)];
+        site.river_w = 500.0;
+        let mut g = Graph::new();
+        for k in 0..4 {
+            let y = 100.0 + k as f64 * 50.0;
+            g.add_street(200.0, y, 1000.0, y, "street", 6.0, 1, "north");
+        }
+        g.add_polyline_street(road, "primary", 9.0, 1, "the road");
+        sweep_wet_streets(&site, &mut g, Vec2::new(400.0, 150.0));
+        g.ferries.clone()
+    };
+    let slant = lay(&[Vec2::new(600.0, 250.0), Vec2::new(600.0, 300.0), Vec2::new(800.0, 760.0)]);
+    assert_eq!(slant.len(), 1, "(1) one ferry: {slant:?}");
+    let (a, b) = slant[0];
+    assert!((a.y - 350.0).abs() < 8.0 && (b.y - 850.0).abs() < 8.0 && b.x > 800.0, "(1) along the road's line: {a:?} {b:?}");
+    let along = lay(&[Vec2::new(600.0, 250.0), Vec2::new(600.0, 300.0), Vec2::new(700.0, 600.0), Vec2::new(1100.0, 600.0)]);
+    assert_eq!(along.len(), 1, "(2) one ferry: {along:?}");
+    let (a, b) = along[0];
+    assert!((a.y - 350.0).abs() < 8.0 && (b.y - 850.0).abs() < 8.0 && (b.x - a.x).abs() < 1.0, "(2) square across: {a:?} {b:?}");
+}
+
+/// Protects Ruling HQ's ferry rule (`ferry_long_bridges` through `sweep_wet_streets`, `BRIDGE_MAX_SPAN_M` 400 m),
+/// measured since Ruling HU on the whole bridge, approaches included, on a river along `y = 600`: the bridge road's
+/// piece in the water reaches 30 m onto each bank, so its chain is the channel plus 60 m. Over a channel 300 m wide
+/// (chain 360 m) the road stays whole; over one 360 m wide (chain 420 m: the water alone is under the limit, the
+/// bridge is not) and one 500 m wide its streets in the water go, a ferry is recorded with a landing on each bank at
+/// the water's edge (north landing within 8 m of y = 600 - w/2, south within 8 m of y = 600 + w/2), the dry parts of
+/// the ferried streets stay up to their landings (Ruling HU), and the small street piece on the far bank stays though
+/// it is neither the market's nor the largest (the prune keeps a ferry's landings). MUTATION: `BRIDGE_MAX_SPAN_M` 400
+/// to 4 000 keeps the long bridge; the span measured over the water alone (HQ's rule) keeps the 360 m one; the prune's
+/// ferry keep dropped deletes the far piece; a landing only where a street leaves the chain loses the dead-end road's
+/// ferry (a third case: the road ends on the far bank); the stubs never laid leaves no street on the dry approach.
 #[test]
 fn a_crossing_longer_than_a_bridge_is_a_ferry_with_a_landing_on_each_bank() {
     let lay = |river_w: f64, south_street: bool| {
@@ -1583,8 +1620,9 @@ fn a_crossing_longer_than_a_bridge_is_a_ferry_with_a_landing_on_each_bank() {
         g.add_street(600.0, 100.0, 600.0, 250.0, "street", 6.0, 1, "north");
         // The bridge road, from the north grid to the far bank, in three pieces.
         // Without the far street the road stops 30 m past the water, so the chain's far node is a dead end.
-        let far_end = if south_street { 1000.0 } else { 880.0 };
-        let mut road = vec![Vec2::new(600.0, 250.0), Vec2::new(600.0, 320.0), Vec2::new(600.0, 880.0), Vec2::new(600.0, far_end)];
+        let (n_bank, s_bank) = (600.0 - river_w / 2.0, 600.0 + river_w / 2.0);
+        let far_end = if south_street { 1000.0 } else { s_bank + 30.0 };
+        let mut road = vec![Vec2::new(600.0, 250.0), Vec2::new(600.0, n_bank - 30.0), Vec2::new(600.0, s_bank + 30.0), Vec2::new(600.0, far_end)];
         road.dedup();
         g.add_polyline_street(&road, "primary", 9.0, 1, "the bridge road");
         // The far bank: one street off the road's end.
@@ -1594,18 +1632,30 @@ fn a_crossing_longer_than_a_bridge_is_a_ferry_with_a_landing_on_each_bank() {
         let live = |g: &Graph, why: &str| g.edges.iter().filter(|e| e.alive && e.prov == why).count();
         let before = live(&g, "the bridge road");
         sweep_wet_streets(&site, &mut g, Vec2::new(400.0, 150.0));
-        (live(&g, "the bridge road"), before, live(&g, "south"), g.ferries.clone())
+        // The road's live streets: how many reach into the water, and their length on the dry approaches (both
+        // banks), metres, which the stubs Ruling HU keeps.
+        let ends: Vec<(Vec2, Vec2)> = g.edges.iter().filter(|e| e.alive && e.prov == "the bridge road").map(|e| (g.nodes[e.a].pt(), g.nodes[e.b].pt())).collect();
+        let on_dry = |(a, b): &(Vec2, Vec2)| a.y.max(b.y) <= n_bank + 1.0 || a.y.min(b.y) >= s_bank - 1.0;
+        let in_water = ends.iter().filter(|s| !on_dry(s)).count();
+        let dry: f64 = ends.iter().filter(|s| on_dry(s)).map(|(a, b)| a.dist(*b)).sum();
+        (in_water, before, live(&g, "south"), g.ferries.clone(), dry)
     };
-    let (road, before, south, ferries) = lay(300.0, true);
-    assert!(before >= 3 && ferries.is_empty() && road == before && south == 1, "300 m: a bridge, whole: {road}/{before}, {ferries:?}");
-    let (road, _, south, ferries) = lay(500.0, true);
-    assert_eq!(ferries.len(), 1, "500 m: one ferry");
-    let (a, b) = ferries[0];
-    assert!((a.y - 350.0).abs() < 8.0 && (b.y - 850.0).abs() < 8.0 && (a.x - 600.0).abs() < 1e-6, "the landings at the water's edge: {a:?} {b:?}");
-    assert!(road < before, "the bridge's streets in the water went");
-    assert_eq!(south, 1, "the far bank's piece stays, kept by its landing");
+    let (wet, before, south, ferries, _) = lay(300.0, true);
+    assert!(before >= 3 && ferries.is_empty() && wet == 1 && south == 1, "300 m (chain 360 m): a bridge, whole: {wet} in the water of {before}, {ferries:?}");
+    for w in [360.0, 500.0] {
+        let (wet, _, south, ferries, dry) = lay(w, true);
+        assert_eq!(ferries.len(), 1, "{w} m (chain {} m): one ferry", w + 60.0);
+        let (a, b) = ferries[0];
+        assert!((a.y - (600.0 - w / 2.0)).abs() < 8.0 && (b.y - (600.0 + w / 2.0)).abs() < 8.0 && (a.x - 600.0).abs() < 1e-6, "{w} m: the landings at the water's edge: {a:?} {b:?}");
+        assert_eq!(wet, 0, "{w} m: the bridge's streets in the water went");
+        assert_eq!(south, 1, "{w} m: the far bank's piece stays, kept by its landing");
+        // Never in the chain: the road north of it (250 -> bank - 30) and south of it (bank + 30 -> 1 000). The
+        // stubs bring back the ferried piece's 30 m on each bank, less a landing step (4 m) each.
+        let base = (600.0 - w / 2.0 - 30.0 - 250.0) + (1000.0 - (600.0 + w / 2.0) - 30.0);
+        assert!(dry > base + 50.0, "{w} m: the ferried street's dry parts stay: {dry} m on the dry banks, {base} m without them");
+    }
     // The road ends 30 m past the far bank with nothing beyond it: its own dry dead end is the landing.
-    let (_, _, _, ferries) = lay(500.0, false);
+    let (_, _, _, ferries, _) = lay(500.0, false);
     assert_eq!(ferries.len(), 1, "a dead-end road still lands: {ferries:?}");
     assert!((ferries[0].1.y - 850.0).abs() < 8.0, "at the water's edge: {ferries:?}");
 }

@@ -1849,9 +1849,10 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // do. Last, so every house any stage made is checked.
     let mut wet_swept = 0usize;
     if riverbank {
-        // Ruling HN (`GenOpts::bank_sites`): and a house with a corner off the box, where the town has no water
-        // to test (`Site::off_box`).
-        let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly) || (opts.bank_sites && buildings[i].poly.iter().any(|&v| site.off_box(v)))).collect();
+        // Ruling HN added a house with a corner off the box here (`Site::off_box`); Ruling HU removed it: it swept
+        // no house on the six census worlds (HN's survivor U19), because the street sweep already takes every
+        // street off the box and no lot is platted on a street it kills (`cleanup::sweep_wet_streets`).
+        let wet: Vec<usize> = (0..buildings.len()).rev().filter(|&i| site.poly_in_water(&buildings[i].poly)).collect();
         for i in wet {
             if let Some(k) = lots.iter().position(|l| l.par.id == buildings[i].parcel) {
                 parcel_cleared[k] = true;

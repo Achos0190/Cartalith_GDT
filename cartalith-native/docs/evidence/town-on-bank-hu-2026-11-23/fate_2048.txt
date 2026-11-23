@@ -1,0 +1,30 @@
+483920@2048 #0 capital: HN bridge (287 m over the water), housed 78 % | HQ bridge 81 % | HU bridge 81 %
+483920@2048 #1 city: HN bridge (289 m over the water), housed 86 % | HQ bridge 86 % | HU bridge 86 %
+483920@2048 #4 capital: HN bridge (92 m over the water), housed 60 % | HQ bridge 82 % | HU bridge 82 %
+483920@2048 #8 capital: HN bridge (167 m over the water), housed 90 % | HQ bridge 90 % | HU bridge 90 %
+483920@2048 #19 city: HN bridge (224 m over the water), housed 97 % | HQ bridge 97 % | HU bridge 97 %
+483920@2048 #21 hamlet: HN bridge (297 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+483920@2048 #27 hamlet: HN bridge (663 m over the water), housed 100 % | HQ ferry 100 % | HU ferry 100 %
+483920@2048 #49 hamlet: HN bridge (649 m over the water), housed 100 % | HQ nothing listed in neither | HU ferry 100 %
+483920@2048 #64 hamlet: HN bridge (535 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+483920@2048 #69 hamlet: HN bridge (415 m over the water), housed 22 % | HQ bridge 22 % | HU ferry 20 %
+483920@2048 #94 hamlet: HN bridge (241 m over the water), housed 98 % | HQ bridge 98 % | HU bridge 98 %
+483920@2048 #146 hamlet: HN bridge (623 m over the water), housed 125 % | HQ bridge 125 % | HU ferry 125 %
+483920@2048 #162 hamlet: HN bridge (813 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+483920@2048 #167 hamlet: HN bridge (395 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+483920@2048 #175 hamlet: HN bridge (885 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+483920@2048 #177 hamlet: HN bridge (44 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+483920@2048 #194 hamlet: HN bridge (61 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+483920@2048 #195 hamlet: HN bridge (162 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+483920@2048 #228 hamlet: HN bridge (241 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+HQ: {'bridge': 17, 'ferry': 1, 'nothing': 1}
+HU: {'bridge': 12, 'ferry': 7, 'nothing': 0}
+towns off a bar: 0
+crossing kind changed HQ -> HU: 7
+   483920@2048 #49: nothing -> ferry
+   483920@2048 #64: bridge -> ferry
+   483920@2048 #69: bridge -> ferry
+   483920@2048 #95: nothing -> ferry
+   483920@2048 #146: bridge -> ferry
+   483920@2048 #162: bridge -> ferry
+   483920@2048 #175: bridge -> ferry

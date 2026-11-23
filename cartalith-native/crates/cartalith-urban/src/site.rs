@@ -762,7 +762,8 @@ impl Site {
     /// Whether `p` lies off the site's box by more than a metre (**not the
     /// reference**; Ruling HN, `GenOpts::bank_sites`): ground the town has no
     /// water for, since the host's water raster covers the box alone. Read by
-    /// `cleanup::sweep_wet_streets` and `generate`'s last house sweep.
+    /// `cleanup::sweep_wet_streets` (`generate`'s last house sweep read it too
+    /// until Ruling HU removed that test: it swept no house).
     pub fn off_box(&self, p: Vec2) -> bool {
         p.x < -1.0 || p.y < -1.0 || p.x > self.wm + 1.0 || p.y > self.hm + 1.0
     }

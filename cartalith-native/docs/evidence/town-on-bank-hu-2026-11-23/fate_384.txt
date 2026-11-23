@@ -1,0 +1,49 @@
+246371@384 #0 capital: HN bridge (1788 m over the water), housed 83 % | HQ ferry 83 % | HU ferry 83 %
+246371@384 #15 capital: HN bridge (569 m over the water), housed 76 % | HQ ferry 84 % | HU ferry 84 %
+246371@384 #19 capital: HN bridge (803 m over the water), housed 69 % | HQ ferry 85 % | HU ferry 86 %
+246371@384 #27 hamlet: HN bridge (1273 m over the water), housed 100 % | HQ ferry 100 % | HU ferry 100 %
+246371@384 #42 hamlet: HN bridge (1447 m over the water), housed 111 % | HQ nothing listed in neither | HU ferry 111 %
+246371@384 #68 hamlet: HN bridge (1599 m over the water), housed 100 % | HQ ferry 100 % | HU ferry 100 %
+246371@384 #205 hamlet: HN bridge (675 m over the water), housed 11 % | HQ ferry 0 % | HU ferry 9 %
+483920@384 #0 capital: HN bridge (975 m over the water), housed 81 % | HQ ferry 95 % | HU ferry 95 %
+483920@384 #6 capital: HN bridge (994 m over the water), housed 67 % | HQ ferry 69 % | HU ferry 69 %
+483920@384 #9 capital: HN bridge (736 m over the water), housed 83 % | HQ ferry 88 % | HU ferry 88 %
+483920@384 #12 capital: HN bridge (448 m over the water), housed 93 % | HQ ferry 96 % | HU ferry 96 %
+483920@384 #149 hamlet: HN bridge (557 m over the water), housed 100 % | HQ nothing listed in neither | HU ferry 100 %
+83744@384 #0 capital: HN bridge (477 m over the water), housed 66 % | HQ ferry 86 % | HU ferry 86 %
+83744@384 #1 capital: HN bridge (918 m over the water), housed 79 % | HQ ferry 89 % | HU ferry 89 %
+83744@384 #3 capital: HN bridge (1597 m over the water), housed 72 % | HQ nothing 72 % | HU ferry 72 %
+83744@384 #11 capital: HN bridge (504 m over the water), housed 97 % | HQ ferry 97 % | HU ferry 97 %
+83744@384 #15 capital: HN bridge (455 m over the water), housed 91 % | HQ ferry 94 % | HU ferry 94 %
+83744@384 #19 village: HN bridge (809 m over the water), housed 100 % | HQ nothing listed in neither | HU ferry 100 %
+83744@384 #48 hamlet: HN bridge (439 m over the water), housed 90 % | HQ bridge 90 % | HU ferry 90 %
+83744@384 #64 hamlet: HN bridge (870 m over the water), housed 98 % | HQ ferry 98 % | HU ferry 100 %
+83744@384 #85 hamlet: HN bridge (1083 m over the water), housed 95 % | HQ ferry 76 % | HU ferry 90 %
+83744@384 #118 hamlet: HN bridge (672 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+83744@384 #224 hamlet: HN bridge (666 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+912345@384 #7 town: HN bridge (801 m over the water), housed 109 % | HQ ferry 104 % | HU ferry 109 %
+912345@384 #13 city: HN bridge (1245 m over the water), housed 109 % | HQ nothing listed in neither | HU ferry 109 %
+912345@384 #44 hamlet: HN bridge (968 m over the water), housed 100 % | HQ nothing listed in neither | HU ferry 100 %
+912345@384 #63 hamlet: HN bridge (395 m over the water), housed 96 % | HQ bridge 96 % | HU bridge 96 %
+912345@384 #83 hamlet: HN bridge (575 m over the water), housed 100 % | HQ nothing listed in neither | HU ferry 100 %
+912345@384 #101 hamlet: HN bridge (541 m over the water), housed 100 % | HQ bridge 100 % | HU ferry 100 %
+912345@384 #157 hamlet: HN bridge (373 m over the water), housed 100 % | HQ bridge 100 % | HU bridge 100 %
+HQ: {'bridge': 6, 'ferry': 17, 'nothing': 7}
+HU: {'bridge': 2, 'ferry': 28, 'nothing': 0}
+towns off a bar: 0
+crossing kind changed HQ -> HU: 15
+   246371@384 #42: nothing -> ferry
+   246371@384 #92: nothing -> ferry
+   246371@384 #174: nothing -> ferry
+   483920@384 #149: nothing -> ferry
+   83744@384 #3: nothing -> ferry
+   83744@384 #19: nothing -> ferry
+   83744@384 #48: bridge -> ferry
+   83744@384 #55: nothing -> ferry
+   83744@384 #118: bridge -> ferry
+   83744@384 #224: bridge -> ferry
+   912345@384 #13: nothing -> ferry
+   912345@384 #44: nothing -> ferry
+   912345@384 #83: nothing -> ferry
+   912345@384 #101: bridge -> ferry
+   912345@384 #232: nothing -> ferry

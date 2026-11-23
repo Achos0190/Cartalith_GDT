@@ -64,7 +64,12 @@ use crate::urban_adapter::{
 /// bridge street), and a wall still over the water after its wet vertices go is routed round it along the shore;
 /// with the switch off every layout is still v1's (the six v1 fixture hashes did not move), v2's fixture moved again,
 /// v3's did not, and a ninth pins a ferry town.
-pub const URBAN_RULES_VERSION: u32 = 4;
+/// `5` (2026-11-23, Ruling HU): with `civ.bank_sites` on the 400 m bridge limit counts the whole bridge, approaches
+/// included; a ferried street's dry part stays up to its landing; a ferry whose road stops in the water lands on the
+/// far bank (along the road's line, else square across); and the house sweep no longer tests the box's edge (it swept
+/// no house). With the switch off every layout is still v1's (the six v1 fixture hashes did not move), and of the
+/// three bank fixtures only the ferry town moved (its dry approaches now stand).
+pub const URBAN_RULES_VERSION: u32 = 5;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).

@@ -129,9 +129,10 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
 
 /// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the nine fixture towns' canonical hashes are committed literals
 /// (six until rules v2, whose change, Ruling HM, moves no town that is not laid round a drawn edge: the first six
-/// hashes are v1's, unchanged through v4; "bank river town" is the town v2 added, moved by v3 and by v4; the
-/// map-shore town is the one v3, Ruling HN, added: its sea edge is the map's drawn shore, unmoved by v4; and the
-/// town on a river too wide to bridge is v4's, Ruling HQ: it crosses by ferry).
+/// hashes are v1's, unchanged through v5; "bank river town" is the town v2 added, moved by v3 and by v4, not by v5;
+/// the map-shore town is the one v3, Ruling HN, added: its sea edge is the map's drawn shore, unmoved by v4 and v5;
+/// and the town on a river too wide to bridge is v4's, Ruling HQ: it crosses by ferry, moved by v5, Ruling HU, whose
+/// ferried streets keep their dry parts).
 /// A behavioural change to the generator or the adapter moves a hash and turns this red; mutating the version alone
 /// turns it red too. The fix for a red here is to bump the version **and** re-pin the hashes in the same change
 /// (scope §4.1, R5).
@@ -139,7 +140,7 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
 fn the_rules_version_and_fixture_hashes_are_pinned() {
     let got: Vec<(&str, String)> = fixtures().iter().map(|(n, l)| (*n, layout_hash(&encode(l)))).collect();
     let want: (u32, [(&str, &str); 9]) = (
-        4,
+        5,
         [
             ("hamlet", "f73d0b225a9deadc"),
             ("walled town", "e35063368a67a961"),
@@ -148,7 +149,7 @@ fn the_rules_version_and_fixture_hashes_are_pinned() {
             ("river town", "e4e55c3ac40ff4e6"),
             ("stretched river town", "cf58aeec8b057fde"),
             ("bank river town", "f2cfc8624fd4ea41"),
-            ("bank town on a river too wide to bridge", "2ff564ac42495058"),
+            ("bank town on a river too wide to bridge", "3869d0bb60ae56ad"),
             ("coastal town on the map's shore", "d58a334ae8e9cdb3"),
         ],
     );

@@ -1,0 +1,7 @@
+532187@2048 #1 capital: HN bridge (405 m over the water), housed 78 % | HQ bridge 91 % | HU ferry 91 %
+532187@2048 #11 city: HN bridge (160 m over the water), housed 103 % | HQ bridge 103 % | HU bridge 103 %
+HQ: {'bridge': 2, 'ferry': 0, 'nothing': 0}
+HU: {'bridge': 1, 'ferry': 1, 'nothing': 0}
+towns off a bar: 0
+crossing kind changed HQ -> HU: 1
+   532187@2048 #1: bridge -> ferry

@@ -311,8 +311,9 @@ pub const WET_STREET_STEP_M: f64 = 4.0;
 /// map's water but a real bridge; `GenOpts::bank_sites`): kills every live
 /// street with a point in the water ([`Site::is_water`], sampled every
 /// [`WET_STREET_STEP_M`] with both ends) that is no part of a bridge, and
-/// (Ruling HQ) every bridge longer than [`BRIDGE_MAX_SPAN_M`] over the water,
-/// recorded as a ferry ([`ferry_long_bridges`]); then keeps the market's
+/// (Ruling HQ) every bridge longer than [`BRIDGE_MAX_SPAN_M`], approaches
+/// included (Ruling HU), recorded as a ferry ([`ferry_long_bridges`]), whose
+/// streets' dry parts are laid again up to their landings; then keeps the market's
 /// streets, the largest piece and the piece at each ferry landing
 /// (`prune_components`). Returns how many it killed.
 ///
@@ -373,12 +374,16 @@ pub fn sweep_wet_streets(site: &Site, g: &mut Graph, market: Vec2) -> usize {
         }
     }
     // Ruling HQ: a bridge longer than `BRIDGE_MAX_SPAN_M` is a ferry: its streets go, a landing on each bank.
-    let ferried = ferry_long_bridges(site, g, &bridge, market);
+    let (ferried, stubs) = ferry_long_bridges(site, g, &bridge, market);
     let mut victims: Vec<usize> = wet.difference(&bridge).chain(off.iter()).chain(ferried.iter()).copied().collect();
     victims.sort_unstable();
     victims.dedup();
     for &id in &victims {
         kill_edge(g, id);
+    }
+    // Ruling HU: a ferried street's dry part, laid again once the chain is gone (so it attaches to no dying street).
+    for s in &stubs {
+        g.add_street(s.from.x, s.from.y, s.to.x, s.to.y, s.cls, s.w, s.epoch, &s.prov);
     }
     if !victims.is_empty() {
         prune_components(g, Some(market), true);
@@ -393,12 +398,12 @@ pub fn sweep_wet_streets(site: &Site, g: &mut Graph, market: Vec2) -> usize {
 /// gives a limit, but the long medieval town bridges bracket it (lengths
 /// from Wikipedia's articles, read 2026-11-23): Regensburg's Stone Bridge
 /// 336 m when built (1135-46), Prague's Charles Bridge 516 m, and Avignon's
-/// Pont Saint-Benezet about 900 m over the Rhone, an exception. Measured over
-/// the water: the length of the bridge's streets that lies in it (each
-/// street's length times the share of its [`WET_STREET_STEP_M`] samples in
-/// the water), so the dry approaches a bridge road carries do not count. The
-/// census reports a bridge's whole chain (`town_measures::footprint_over`),
-/// approaches included, so its longest bridge can read a little over this.
+/// Pont Saint-Benezet about 900 m over the Rhone, an exception. **Measured
+/// on the whole bridge, its approaches included** (Ruling HU, owner
+/// 2026-11-23): the summed length of the chain's streets, every one with a
+/// point in the water, as the census measures a bridge
+/// (`town_measures::footprint_over`). Ruling HQ measured the water alone, and
+/// the owner's 532187 town kept a bridge 388 m over the water and 404 m long.
 pub const BRIDGE_MAX_SPAN_M: f64 = 400.0;
 
 /// **Ruling HQ** (`GenOpts::bank_sites`, through [`sweep_wet_streets`]): each
@@ -408,17 +413,27 @@ pub const BRIDGE_MAX_SPAN_M: f64 = 400.0;
 /// `Graph::ferries` a landing on each bank: on the market's bank and on the
 /// other, the waterline end of a chain street that leaves a dry node,
 /// preferring one still joined to the rest of the town (walked from that node
-/// in [`WET_STREET_STEP_M`] steps to the last dry point). A long chain with no
-/// dry node on both banks is still taken out, with no ferry (the census
-/// counts both, `_towncensus_probe.gd`).
+/// in [`WET_STREET_STEP_M`] steps to the last dry point). **Ruling HU**: a
+/// bank with no dry node of the chain lands where the line of a street that
+/// stops in the water first reaches dry ground (within
+/// [`FERRY_REACH_RIVERS`] river widths), else straight over from the
+/// landing it has, square to the centreline; and each
+/// ferried street's dry part, from its dry end to its landing, is returned as
+/// a [`Stub`] for the caller to lay again. A long chain with no landing pair
+/// even so is still taken out, with no ferry (the census counts both,
+/// `_towncensus_probe.gd`).
 ///
 /// Why: the census found towns bridging the map's river with spans up to
 /// 1 788 m (seed 246371 at 384 cells, Ruling HN), and the owner's own town
-/// with a 405 m one. **Must never** touch a chain of
+/// with a 405 m one. Ruling HQ's first build lost 8 crossings for want of a
+/// landing pair (a road cut at the box, a far bank whose streets were gone, a
+/// road along the river inside its drawn width) and two hamlets their housing (the dry approach
+/// killed with the chain); Ruling HU's three additions answer those. **Must never** touch a chain of
 /// [`BRIDGE_MAX_SPAN_M`] or less, a street that is no part of `bridge`, or
 /// anything with `bank_sites` off (its only caller runs with the switch on).
-fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, market: Vec2) -> Vec<usize> {
+fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, market: Vec2) -> (Vec<usize>, Vec<Stub>) {
     let mut out = Vec::new();
+    let mut kept: Vec<Stub> = Vec::new();
     let mut seen: HashSet<usize> = HashSet::new();
     let mut ids: Vec<usize> = bridge.iter().copied().collect();
     ids.sort_unstable();
@@ -440,15 +455,8 @@ fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, marke
             }
             k += 1;
         }
-        // The span over the water: each chain street's length times the share of its samples in the water.
-        let len: f64 = chain
-            .iter()
-            .map(|&e| {
-                let (a, b) = (g.nodes[g.edges[e].a].pt(), g.nodes[g.edges[e].b].pt());
-                let k = (a.dist(b) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
-                a.dist(b) * (0..=k).filter(|&i| site.is_water(a.lerp(b, i as f64 / k as f64))).count() as f64 / (k + 1) as f64
-            })
-            .sum();
+        // Ruling HU: the whole bridge, its approaches included: every chain street's whole length.
+        let len: f64 = chain.iter().map(|&e| g.nodes[g.edges[e].a].pt().dist(g.nodes[g.edges[e].b].pt())).sum();
         if len <= BRIDGE_MAX_SPAN_M {
             continue;
         }
@@ -459,6 +467,7 @@ fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, marke
         // the census as the case that lost 14 crossings outright).
         let mut near: Option<(u8, Vec2)> = None;
         let mut far: Option<(u8, Vec2)> = None;
+        let mut stubs: Vec<Stub> = Vec::new();
         for &e in &chain {
             for (n, o) in [(g.edges[e].a, g.edges[e].b), (g.edges[e].b, g.edges[e].a)] {
                 let p = g.nodes[n].pt();
@@ -469,9 +478,70 @@ fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, marke
                 let q = g.nodes[o].pt();
                 let steps = (p.dist(q) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
                 let landing = (0..=steps).map(|i| p.lerp(q, i as f64 / steps as f64)).take_while(|&x| !site.is_water(x)).last().unwrap_or(p);
+                // Ruling HU: the street's dry part stays, up to its landing (83744 #85 at 384 cells: a 655 m dry
+                // approach killed with the ferry took its houses, 95 % -> 76 % housed).
+                if landing.dist(p) > STUB_MIN_M {
+                    let e = &g.edges[e];
+                    stubs.push(Stub { from: p, to: landing, cls: e.cls, w: e.w, epoch: e.epoch, prov: e.prov.clone() });
+                }
                 let slot = if site.bank_side(p) == mkt_side { &mut near } else { &mut far };
                 if slot.is_none_or(|(r, _)| rank < r) {
                     *slot = Some((rank, landing));
+                }
+            }
+        }
+        // Ruling HU: a bank with no dry node of the chain. The chain stops in the water (a road cut at the town's
+        // box, or its far streets already gone): its landing is where the line of its last street, carried on past
+        // its wet end, first reaches dry ground, within `FERRY_REACH_RIVERS` river widths (seven of the eight
+        // crossings HQ lost, on 912345, 246371, 83744 at 384 and 483920 at 2 048).
+        if near.is_none() || far.is_none() {
+            let reach = FERRY_REACH_RIVERS * site.river_w.max(1.0);
+            for &e in &chain {
+                for (n, o) in [(g.edges[e].a, g.edges[e].b), (g.edges[e].b, g.edges[e].a)] {
+                    let p = g.nodes[n].pt();
+                    if !site.is_water(p) || g.nodes[n].adj.iter().any(|&j| j != e && g.edges[j].alive) {
+                        continue;
+                    }
+                    let d = p - g.nodes[o].pt();
+                    let len = d.len();
+                    if len < 1e-9 {
+                        continue;
+                    }
+                    let step = d * (WET_STREET_STEP_M / len);
+                    let Some(x) = (1..=(reach / WET_STREET_STEP_M) as usize).map(|k| p + step * k as f64).find(|&x| !site.is_water(x)) else { continue };
+                    let slot = if site.bank_side(x) == mkt_side { &mut near } else { &mut far };
+                    if slot.is_none() {
+                        *slot = Some((2, x));
+                    }
+                }
+            }
+        }
+        // Ruling HU: still one bank short (a road that runs along the river inside its drawn width, measured on
+        // 246371 #42 at 384: 1 447 m of road in a river drawn 1 km wide, its far end on the centreline at the box's
+        // edge; or a road into the water and out again on the far bank, 483920 #149 at 384, with no dry node on the
+        // market's bank): the ferry crosses straight over, from the landing it has, square to the centreline, to the
+        // first dry ground past the centreline within the same reach. Past it, not the first dry point: a landing at
+        // the edge of open water (a lake or sea cell) can have dry ground between it and the river (246371 #42 then
+        // got a 20 m ferry to its own bank).
+        let one = match (near, far) {
+            (Some((_, a)), None) => Some((a, false)),
+            (None, Some((_, b))) => Some((b, true)),
+            _ => None,
+        };
+        if let Some((from, missing_near)) = one
+            && site.river.len() >= 2
+        {
+            let i = site.nearest_river_seg(from);
+            let (a, b) = (site.river[i], site.river[(i + 1).min(site.river.len() - 1)]);
+            let ab = b - a;
+            let s = if ab.len() > 1e-9 { ((from - a).dot(ab) / ab.dot(ab)).clamp(0.0, 1.0) } else { 0.0 };
+            let c = a + ab * s;
+            let d = c - from;
+            if d.len() > 1e-9 {
+                let step = d * (WET_STREET_STEP_M / d.len());
+                let n = ((d.len() + FERRY_REACH_RIVERS * site.river_w.max(1.0)) / WET_STREET_STEP_M) as usize;
+                if let Some(x) = (1..=n).map(|k| from + step * k as f64).skip_while(|&x| x.dist(from) < d.len()).find(|&x| !site.is_water(x)) {
+                    if missing_near { near = Some((4, x)); } else { far = Some((4, x)); }
                 }
             }
         }
@@ -479,8 +549,30 @@ fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, marke
             g.ferries.push((a, b));
         }
         out.extend(chain);
+        kept.extend(stubs);
     }
-    out
+    (out, kept)
+}
+
+/// How far past a chain's wet end [`ferry_long_bridges`] looks for the far bank, in the town's river widths
+/// (`Site::river_w`). **A labelled judgement**: a road that stops in the water has at most the river still to
+/// cross, and twice its width allows for the road meeting the river at a slant (60 degrees off square doubles the
+/// crossing).
+pub const FERRY_REACH_RIVERS: f64 = 2.0;
+
+/// The shortest dry part of a ferried street [`ferry_long_bridges`] keeps, metres. **A labelled judgement**: the
+/// graph's own shortest link (`Graph::raw_edge` drops links under 3.5 m), rounded up.
+pub const STUB_MIN_M: f64 = 4.0;
+
+/// A ferried street's dry part, from its dry end to its landing (Ruling HU), laid again by [`sweep_wet_streets`]
+/// after the chain is killed.
+struct Stub {
+    from: Vec2,
+    to: Vec2,
+    cls: &'static str,
+    w: f64,
+    epoch: i32,
+    prov: String,
 }
 
 // --------------------------------------------------------- privatizeAlleys --

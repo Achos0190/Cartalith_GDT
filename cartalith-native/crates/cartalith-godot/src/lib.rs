@@ -7361,6 +7361,10 @@ struct WorldGen {
     /// Ruling HQ: how many times `bank_site::market_points` built its table on the main thread and off it, and
     /// the last build's milliseconds, for `market_points_stats` (a probe's measure of where the cost lands).
     market_builds: std::cell::Cell<(u32, u32, f64)>,
+    /// Ruling HU: the markers' table being built off the main thread (`bank_site::MarketJob`), at most one.
+    market_job: std::cell::RefCell<Option<bank_site::MarketJob>>,
+    /// Ruling HU: the markers read their table off the main thread (`bank_site::set_markers_async`; the shell sets it).
+    markers_async: std::cell::Cell<bool>,
     /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
     /// height built for it. A rendering input only; never a world field.
     valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
@@ -8186,6 +8190,8 @@ impl IRefCounted for WorldGen {
             town_water_cache: std::cell::RefCell::new(None),
             market_cache: std::cell::RefCell::new(None),
             market_builds: std::cell::Cell::new((0, 0, 0.0)),
+            market_job: std::cell::RefCell::new(None),
+            markers_async: std::cell::Cell::new(false),
             origin_cache: std::cell::RefCell::new((0, std::collections::HashMap::new())),
             bank_sites_absent: false,
             valley_shade_cache: std::cell::RefCell::new(None),

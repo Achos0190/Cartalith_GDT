@@ -615,6 +615,136 @@ pub fn origin_point(geom: &RiverGeometry, index: &StrokeIndex, dry: &dyn Fn(f64,
     Some((p, river.d))
 }
 
+/// **Ruling HU: the markers' table being built off the main thread** (`WorldGen::market_points_marker`): the
+/// `market_key` it is built for, and its thread, which answers the table and its milliseconds.
+pub(crate) struct MarketJob {
+    key: u64,
+    handle: std::thread::JoinHandle<(Vec<Option<(f64, f64)>>, f64)>,
+}
+
+/// Everything [`market_table`] reads, owned (Ruling HU; `WorldGen::market_snap` fills it). Holds no Godot value
+/// and nothing behind a `RefCell`, so it can be moved to another thread.
+pub(crate) struct MarketSnap {
+    field: std::sync::Arc<Vec<f32>>,
+    flow: std::sync::Arc<Vec<f32>>,
+    order: Option<Vec<i16>>,
+    recv: Option<Vec<i32>>,
+    water_bodies: Vec<u8>,
+    settlements: Vec<cartalith_civ::NamedSettlement>,
+    ways: Vec<cartalith_civ::Way>,
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    map_width_km: f64,
+    seed: i32,
+    params: cartalith_engine::WorldParams,
+    /// `WorldGen::town_map_water` (the town's water raster) and `WorldGen::town_water` (the origin's dry test).
+    map_water: Option<std::sync::Arc<crate::town_water::DrawnWater>>,
+    town_water: Option<std::sync::Arc<crate::town_water::DrawnWater>>,
+    resources: Option<cartalith_civ::ResourcePotentials>,
+    drawn: Vec<cartalith_civ::urban_adapter::DrawnRiver>,
+    /// Each settlement's place-editor row and ruling rite, by `tid`.
+    extras: HashMap<u64, crate::civ_roster_bridge::PlaceExtras>,
+    faith: HashMap<u64, Option<&'static str>>,
+    urban_rules: Option<cartalith_civ::urban_adapter::Rules>,
+    bank: Option<(std::sync::Arc<RiverGeometry>, std::sync::Arc<StrokeIndex>)>,
+    /// The stretched towns' verdicts as they stand (`WorldGen::stretch_choices`); a verdict reached here is not kept.
+    stretch: HashMap<u64, cartalith_civ::urban_adapter::StretchChoice>,
+    /// A frozen town's own market, per settlement (`None`: not frozen).
+    frozen: Vec<Option<(f64, f64)>>,
+}
+
+/// **The markers' table** (`WorldGen::market_points`'s doc says what each entry is), built from a snapshot so the
+/// same code runs on the main thread (the labels, the generation worker's warm-up) and on the markers' job (Ruling
+/// HU). One builder of the town context with the drawn town (`urban_bridge::town_batch_in`).
+pub(crate) fn market_table(m: &MarketSnap) -> Vec<Option<(f64, f64)>> {
+    use cartalith_civ::urban_adapter as ua;
+    let mut out = m.frozen.clone();
+    let rest: Vec<usize> = (0..out.len()).filter(|&i| out[i].is_none()).collect();
+    let mpc = m.map_width_km * 1000.0 / m.gw.max(1) as f64;
+    let origin = |s: &cartalith_civ::NamedSettlement| {
+        let (geom, index) = m.bank.as_ref()?;
+        m.params.civ.bank_sites.then(|| origin_in(&OriginIn { field: &m.field, water_bodies: &m.water_bodies, ways: &m.ways, drawn: m.town_water.as_deref(), geom, index, gw: m.gw, gh: m.gh, sea_level: m.sea_level, map_width_km: m.map_width_km }, s)).flatten()
+    };
+    let b = crate::urban_bridge::TownInputs {
+        field: &m.field,
+        flow: &m.flow,
+        order: m.order.as_deref(),
+        recv: m.recv.as_deref(),
+        water_bodies: &m.water_bodies,
+        settlements: &m.settlements,
+        ways: &m.ways,
+        gw: m.gw,
+        gh: m.gh,
+        sea_level: m.sea_level,
+        map_width_km: m.map_width_km,
+        seed: m.seed,
+        params: &m.params,
+        map_water: m.map_water.as_deref(),
+        resources: m.resources.as_ref(),
+        drawn: &m.drawn,
+        extras: &|s| m.extras.get(&s.tid).cloned().unwrap_or_default(),
+        faith: &|s| m.faith.get(&s.tid).copied().flatten(),
+        rules: &|e| crate::urban_bridge::own_rules_in(m.urban_rules, e),
+        origin: &origin,
+    };
+    for (i, p) in crate::urban_bridge::town_batch_in(&b, &rest, |_, s, ctx, rules, o, _| {
+        let at = o.origin.map_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), |b| (b.at.0 + 0.5, b.at.1 + 0.5));
+        let cand: Vec<(f64, f64)> = ua::um_market_offsets(ctx, rules).iter().map(|v| (at.0 + v.x / mpc, at.1 + v.y / mpc)).collect();
+        // Candidates on two banks of any drawn centreline: only the layout knows which is kept.
+        let split = m.bank.as_ref().is_some_and(|(geom, index)| cand.iter().skip(1).any(|&q| index.crosses(geom, cand[0], q, &|_| true)));
+        if split && let Some(l) = crate::urban_bridge::stretch_layout_in(&m.stretch, ctx, rules) {
+            // `WorldGen::town_grid`: the layout's market as a grid point of its settlement's cell.
+            let t = cartalith_civ::town_freeze::to_town(&l, l.market);
+            return (s.placement.x as f64 + 0.5 + t.x / mpc.max(1e-9), s.placement.y as f64 + 0.5 + t.y / mpc.max(1e-9));
+        }
+        cand.first().copied().unwrap_or(at)
+    }) {
+        out[i] = Some(p);
+    }
+    for (o, s) in out.iter_mut().zip(&m.settlements) {
+        o.get_or_insert((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5));
+    }
+    out
+}
+
+/// What [`origin_in`] reads (Ruling HU: from the live object, `WorldGen::town_origin_now`, or a [`MarketSnap`]).
+pub(crate) struct OriginIn<'a> {
+    pub field: &'a [f32],
+    pub water_bodies: &'a [u8],
+    pub ways: &'a [cartalith_civ::Way],
+    pub drawn: Option<&'a crate::town_water::DrawnWater>,
+    pub geom: &'a RiverGeometry,
+    pub index: &'a StrokeIndex,
+    pub gw: usize,
+    pub gh: usize,
+    pub sea_level: f64,
+    pub map_width_km: f64,
+}
+
+/// **Ruling HM: where settlement `s`'s town is laid out** (`WorldGen::town_origin`'s doc), computed afresh.
+pub(crate) fn origin_in(w: &OriginIn, s: &cartalith_civ::NamedSettlement) -> Option<cartalith_civ::urban_adapter::BankOrigin> {
+    let (gw, gh) = (w.gw, w.gh);
+    let cell_m = w.map_width_km * 1000.0 / gw.max(1) as f64;
+    if !(cell_m > 0.0) {
+        return None;
+    }
+    // Ruling HN: and not where the map DRAWS lake or sea (`town_water::DrawnWater`, the traced frame less a
+    // half): the cell test alone called a point dry that the smooth shore puts in the sea, and a capital at a
+    // river's mouth was stood in it and not laid out (seed 483920 #4 at 2 048 x 1 536).
+    let dry = |x: f64, y: f64| {
+        x >= 0.0 && y >= 0.0 && (x as usize) < gw && (y as usize) < gh && {
+            let k = y as usize * gw + x as usize;
+            f64::from(w.field[k]) >= w.sea_level && w.water_bodies.get(k).is_none_or(|&c| c == 0) && w.drawn.is_none_or(|d| d.class_at(w.field, x - 0.5, y - 0.5) == crate::town_water::LAND)
+        }
+    };
+    let c = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
+    let roads = road_points(w.ways, (s.placement.x as f64, s.placement.y as f64), c, gw, w.map_width_km, origin_road_reach_m(w.geom, cell_m));
+    let (p, river_cells) = origin_point(w.geom, w.index, &dry, cell_m, c, &roads)?;
+    // The adapter's frame puts cell `c` at `c`; the traced frame at `c + 0.5`.
+    Some(cartalith_civ::urban_adapter::BankOrigin { at: (p.0 - 0.5, p.1 - 0.5), river_m: river_cells * cell_m })
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// The index of the drawn river for [`bank_point`], built once per drawn
@@ -655,8 +785,9 @@ impl WorldGen {
             }
         };
         let q = BankQuery { geom: &geom, index: &index, a: &a, ppc, gap: gap_px.max(0.0) / f64::from(ppc), dry: &dry, wide: widest_half(&geom, &a), ground: None, reach_widths: None, same_bank: true };
-        // Ruling HM: each marker on its market's bank (`market_points`).
-        let markets = self.market_points();
+        // Ruling HM: each marker on its market's bank (`market_points`). Ruling HU: off the main thread when the shell
+        // asked for that (`set_markers_async`); a probe's census reads the exact table.
+        let markets = if self.markers_async.get() { self.market_points_marker() } else { self.market_points() };
         Some(civ.settlements.iter().zip(markets).map(|(s, m)| bank_point(&q, (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), m, Some(MARKET_FIRST_BANK))).collect())
     }
 
@@ -735,30 +866,14 @@ impl WorldGen {
         }
     }
 
-    /// [`Self::town_origin`] computed afresh (no cache; the switch is the caller's test).
+    /// [`Self::town_origin`] computed afresh (no cache; the switch is the caller's test): [`origin_in`] on the live
+    /// world.
     fn town_origin_now(&self, s: &cartalith_civ::NamedSettlement) -> Option<cartalith_civ::urban_adapter::BankOrigin> {
         let (Some(civ), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return None };
         let (geom, index) = self.bank_index()?;
-        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let cell_m = self.map_width_km * 1000.0 / gw.max(1) as f64;
-        if !(cell_m > 0.0) {
-            return None;
-        }
-        // Ruling HN: and not where the map DRAWS lake or sea (`town_water::DrawnWater`, the traced frame less a
-        // half): the cell test alone called a point dry that the smooth shore puts in the sea, and a capital at a
-        // river's mouth was stood in it and not laid out (seed 483920 #4 at 2 048 x 1 536).
         let drawn = self.town_water();
-        let dry = |x: f64, y: f64| {
-            x >= 0.0 && y >= 0.0 && (x as usize) < gw && (y as usize) < gh && {
-                let k = y as usize * gw + x as usize;
-                f64::from(ws.field[k]) >= self.sea_level && civ.water_bodies.get(k).is_none_or(|&c| c == 0) && drawn.as_ref().is_none_or(|w| w.class_at(&ws.field, x - 0.5, y - 0.5) == crate::town_water::LAND)
-            }
-        };
-        let c = (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5);
-        let roads = road_points(&civ.ways, (s.placement.x as f64, s.placement.y as f64), c, gw, self.map_width_km, origin_road_reach_m(&geom, cell_m));
-        let (p, river_cells) = origin_point(&geom, &index, &dry, cell_m, c, &roads)?;
-        // The adapter's frame puts cell `c` at `c`; the traced frame at `c + 0.5`.
-        Some(cartalith_civ::urban_adapter::BankOrigin { at: (p.0 - 0.5, p.1 - 0.5), river_m: river_cells * cell_m })
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        origin_in(&OriginIn { field: &ws.field, water_bodies: &civ.water_bodies, ways: &civ.ways, drawn: drawn.as_deref(), geom: &geom, index: &index, gw, gh, sea_level: self.sea_level, map_width_km: self.map_width_km }, s)
     }
 
     /// **Where each settlement's market stands on the map** (traced frame,
@@ -785,42 +900,156 @@ impl WorldGen {
     /// Cached under [`Self::market_key`]: it builds every settlement's layout
     /// context, and the marker asks on each zoom step.
     fn market_points(&self) -> Vec<Option<(f64, f64)>> {
-        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
         let key = self.market_key();
         if let Some((k, v)) = self.market_cache.borrow().as_ref()
             && *k == key
         {
             return v.clone();
         }
+        let Some(snap) = self.market_snap() else { return self.market_frozen_or_cell() };
         let t0 = std::time::Instant::now();
-        let mpc = self.map_width_km * 1000.0 / f64::from(self.gw.max(1));
-        let mut out: Vec<Option<(f64, f64)>> = civ
-            .settlements
+        let out = market_table(&snap);
+        self.market_landed(key, out.clone(), t0.elapsed().as_secs_f64() * 1000.0, godot::sys::is_main_thread());
+        out
+    }
+
+    /// Stores a built markers' table under `key` and counts where it was built (`market_points_stats`).
+    fn market_landed(&self, key: u64, table: Vec<Option<(f64, f64)>>, ms: f64, on_main: bool) {
+        *self.market_cache.borrow_mut() = Some((key, table));
+        let (main, off, _) = self.market_builds.get();
+        self.market_builds.set(if on_main { (main + 1, off, ms) } else { (main, off + 1, ms) });
+    }
+
+    /// **Ruling HU: the markers' table for the map's markers, never built on the calling thread.** The table for the
+    /// world as it stands when it is ready ([`Self::market_points`]'s cache); else the job building it is started or
+    /// left running ([`MarketJob`], one at a time, for the newest key) and the last table is answered meanwhile, so
+    /// a marker stays where it was drawn until the new table lands ([`Self::market_points_poll`], which the shell
+    /// calls until it does, and then re-asks). A last table for another roster (a different count) is not answered:
+    /// every marker then stands at its cell's bank point until the job lands. Before Ruling HU a live sea-level move,
+    /// a sculpt, an open and a parameter write each rebuilt the table here, on the main thread (about 0.8 s at 236
+    /// settlements, Ruling HQ's `marker_cost.txt`). The labels (`settlement_points`) still build it in place: a label
+    /// is placed once and stored, so it must read the exact table.
+    fn market_points_marker(&self) -> Vec<Option<(f64, f64)>> {
+        let key = self.market_key();
+        let n = self.civ.as_ref().map_or(0, |c| c.settlements.len());
+        if let Some((k, v)) = self.market_cache.borrow().as_ref()
+            && *k == key
+        {
+            return v.clone();
+        }
+        if self.market_job.borrow().as_ref().is_none_or(|j| j.key != key) {
+            self.market_job_start(key);
+        }
+        match self.market_cache.borrow().as_ref() {
+            Some((_, v)) if v.len() == n => v.clone(),
+            _ => vec![None; n],
+        }
+    }
+
+    /// **Ruling HU: the map's markers read their table without building it on the calling thread**
+    /// ([`Self::market_points_marker`]). The shell turns it on once (`EngineBridge`); off (the default) every caller,
+    /// a probe's census among them, gets the exact table for the world as it stands, built in place if need be.
+    #[func]
+    fn set_markers_async(&self, on: bool) {
+        self.markers_async.set(on);
+    }
+
+    /// Starts the markers' job for `key` on its own thread from a snapshot of the world ([`MarketSnap`]); a job for
+    /// an older key is dropped (its thread finishes and its table is discarded). Nothing with no world.
+    fn market_job_start(&self, key: u64) {
+        let Some(snap) = self.market_snap() else {
+            // No town context to build (a world without its substrate): the table is answered in place, at once.
+            *self.market_job.borrow_mut() = None;
+            *self.market_cache.borrow_mut() = Some((key, self.market_frozen_or_cell()));
+            return;
+        };
+        let handle = std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
+            let table = market_table(&snap);
+            (table, t0.elapsed().as_secs_f64() * 1000.0)
+        });
+        *self.market_job.borrow_mut() = Some(MarketJob { key, handle });
+    }
+
+    /// **Ruling HU: lands the markers' job when it has finished.** `1` when a table landed for the world as it stands
+    /// (the shell then asks for the markers again), `0` while the job runs, `2` with no job. A job finished for a
+    /// world that has since changed is discarded and one is started for the new state (`0`), so a table is never
+    /// stored under a key it was not built for. Main thread only, like every call on this object.
+    #[func]
+    fn market_points_poll(&self) -> i64 {
+        let done = match self.market_job.borrow().as_ref() {
+            None => return 2,
+            Some(j) => j.handle.is_finished(),
+        };
+        if !done {
+            return 0;
+        }
+        let Some(job) = self.market_job.borrow_mut().take() else { return 2 };
+        let Ok((table, ms)) = job.handle.join() else { return 2 };
+        let key = self.market_key();
+        if job.key == key {
+            self.market_landed(job.key, table, ms, false);
+            return 1;
+        }
+        // The world moved on while it ran: a table already built for it (the generation worker's warm-up) stands,
+        // else the job starts again for it.
+        if self.market_cache.borrow().as_ref().is_some_and(|(k, _)| *k == key) {
+            return 2;
+        }
+        self.market_job_start(key);
+        0
+    }
+
+    /// A frozen town's own market per settlement (its saved layout), `None` for a town not frozen.
+    fn market_frozen(&self) -> Vec<Option<(f64, f64)>> {
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        civ.settlements
             .iter()
             .map(|s| self.town_layouts.rows.get(&s.tid).and_then(|r| r.layout.as_ref()).map(|l| self.town_grid(l, s.placement.x, s.placement.y, l.market)))
-            .collect();
-        let rest: Vec<usize> = (0..out.len()).filter(|&i| out[i].is_none()).collect();
-        let lines = self.bank_index();
-        for (i, p) in self.town_batch(&rest, |_, s, ctx, rules, o, _| {
-            let at = o.origin.map_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), |b| (b.at.0 + 0.5, b.at.1 + 0.5));
-            let cand: Vec<(f64, f64)> = cartalith_civ::urban_adapter::um_market_offsets(ctx, rules).iter().map(|v| (at.0 + v.x / mpc, at.1 + v.y / mpc)).collect();
-            // Candidates on two banks of any drawn centreline: only the layout knows which is kept.
-            let split = lines.as_ref().is_some_and(|(geom, index)| cand.iter().skip(1).any(|&q| index.crosses(geom, cand[0], q, &|_| true)));
-            if split && let Some(l) = self.stretch_layout(ctx, rules) {
-                return self.town_grid(&l, s.placement.x, s.placement.y, l.market);
-            }
-            cand.first().copied().unwrap_or(at)
-        }) {
-            out[i] = Some(p);
-        }
-        for (o, s) in out.iter_mut().zip(&civ.settlements) {
-            o.get_or_insert((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5));
-        }
-        *self.market_cache.borrow_mut() = Some((key, out.clone()));
-        let (main, off, _) = self.market_builds.get();
-        let ms = t0.elapsed().as_secs_f64() * 1000.0;
-        self.market_builds.set(if godot::sys::is_main_thread() { (main + 1, off, ms) } else { (main, off + 1, ms) });
-        out
+            .collect()
+    }
+
+    /// The table where no town context can be built (a world without its substrate): a frozen town's market, else
+    /// the cell centre.
+    fn market_frozen_or_cell(&self) -> Vec<Option<(f64, f64)>> {
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        self.market_frozen().into_iter().zip(&civ.settlements).map(|(f, s)| Some(f.unwrap_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5)))).collect()
+    }
+
+    /// Everything [`market_table`] reads, copied or shared out of the live object (Ruling HU), so the table can be
+    /// built on another thread while the main thread goes on drawing. `None` before a world or without its
+    /// substrate. The large rasters are shared (`Arc`) or copied once (the stream order, the receivers, the water
+    /// bodies: a few megabytes at 2 048 cells); the ore rasters only when a mining town needs them, as
+    /// `town_batch` builds them.
+    fn market_snap(&self) -> Option<MarketSnap> {
+        let (Some(civ), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return None };
+        let frozen = self.market_frozen();
+        let wants_ore = civ.settlements.iter().zip(&frozen).any(|(s, f)| f.is_none() && civ.place_extras.get(s.tid).specialisation == "mining");
+        Some(MarketSnap {
+            field: ws.field.clone(),
+            flow: ws.flow_discharge.clone(),
+            order: ws.stream_order.clone(),
+            recv: ws.channels.as_ref().map(|c| c.recv.clone()),
+            water_bodies: civ.water_bodies.clone(),
+            settlements: civ.settlements.clone(),
+            ways: civ.ways.clone(),
+            gw: self.gw.max(0) as usize,
+            gh: self.gh.max(0) as usize,
+            sea_level: self.sea_level,
+            map_width_km: self.map_width_km,
+            seed: self.seed,
+            params: self.params.clone(),
+            map_water: self.town_map_water(),
+            town_water: self.town_water(),
+            resources: self.ore_potentials(ws, civ, wants_ore),
+            drawn: self.drawn_river_runs(),
+            extras: civ.settlements.iter().map(|s| (s.tid, civ.place_extras.get(s.tid))).collect(),
+            faith: civ.settlements.iter().map(|s| (s.tid, civ.town_faith(s))).collect(),
+            urban_rules: self.urban_rules,
+            bank: self.bank_index(),
+            stretch: self.stretch_choices.borrow().clone(),
+            frozen,
+        })
     }
 
     /// **Ruling HQ: where the markers' table was built** (`market_points`, the 0.75 s of Ruling HN's leftover
@@ -989,6 +1218,10 @@ impl WorldGen {
             }).collect();
             d.set("ferries", ferries.len() as i64);
             d.set("ferry_m", ferries.iter().copied().fold(0.0, f64::max));
+            // Ruling HU: and the shortest, for the census's gate that a ferry spans at least half its river.
+            if !ferries.is_empty() {
+                d.set("ferry_min_m", ferries.iter().copied().fold(f64::INFINITY, f64::min));
+            }
             // Ruling HQ (HN's survivor U18): live streets with a point within `MARKET_STREET_NEAR_M` of the market.
             d.set("mkt_s", crate::town_measures::streets_near(&l, l.market, crate::town_measures::MARKET_STREET_NEAR_M) as i64);
             d.set("depth", format!("b {:.0} w {:.0} (run {:.0}) s {:.0} m", river_o.depth_m[0], river_o.depth_m[1], river_o.w_run_m, river_o.depth_m[2]).as_str());

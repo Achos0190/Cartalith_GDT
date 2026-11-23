@@ -91,12 +91,209 @@ fn traced_river_polys(
     gw: usize,
     gh: usize,
 ) -> Vec<Vec<(f64, f64)>> {
-    match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
-        (Some(order), Some(ch)) => {
-            cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1)
-        }
+    trace_polys(ws.stream_order.as_deref(), ws.channels.as_ref().map(|c| &c.recv[..]), gw, gh)
+}
+
+/// [`traced_river_polys`] from its two inputs (the stream order and the
+/// channels' receivers), for a caller holding them without a `WorldState`
+/// (Ruling HU: the markers' background job, [`TownInputs`]).
+fn trace_polys(order: Option<&[i16]>, recv: Option<&[i32]>, gw: usize, gh: usize) -> Vec<Vec<(f64, f64)>> {
+    match (order, recv) {
+        (Some(order), Some(recv)) => cartalith_hydrology::trace_river_polylines(order, recv, gw, gh, 1),
         _ => Vec::new(),
     }
+}
+
+/// [`WorldGen::own_rules`] from the world's active rules `world` (Ruling HU, for [`TownInputs`]).
+pub(crate) fn own_rules_in(world: Option<urban_adapter::Rules>, e: &crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules> {
+    match e.rules_preset.as_str() {
+        "" => world,
+        "default" => None,
+        id => urban_adapter::rules_preset(id),
+    }
+}
+
+/// [`WorldGen::stretch_layout`] over a copy of its verdicts `choices` (Ruling HU: the markers' job, which may not
+/// write the live cache): the same layout for every context, and a verdict reached here is not kept.
+pub(crate) fn stretch_layout_in(
+    choices: &std::collections::HashMap<u64, urban_adapter::StretchChoice>,
+    ctx: &urban_adapter::UrbanContext,
+    rules: Option<&urban_adapter::Rules>,
+) -> Option<UrbanLayout> {
+    let Some(key) = urban_adapter::stretch_choice_key(ctx, rules) else {
+        return urban_adapter::run_layout(ctx, rules);
+    };
+    match choices.get(&key) {
+        Some(&c) => urban_adapter::run_layout_as(ctx, rules, c),
+        None => urban_adapter::run_layout_choosing(ctx, rules).map(|(l, _)| l),
+    }
+}
+
+/// [`WorldGen::place_overrides`] from its inputs, for [`town_batch_in`]
+/// (Ruling HU): every live `urban_*` switch from `params`, the ruling
+/// faction's rite `faith` and the town `origin`, already resolved.
+fn place_overrides_in<'a>(
+    params: &cartalith_engine::WorldParams,
+    faith: Option<&'static str>,
+    origin: Option<urban_adapter::BankOrigin>,
+    e: &'a crate::civ_roster_bridge::PlaceExtras,
+    resources: Option<&'a ResourcePotentials>,
+    stretch_others: &'a [(f64, f64, f64)],
+    drawn_rivers: &'a [urban_adapter::DrawnRiver],
+) -> urban_adapter::PlaceOverrides<'a> {
+    urban_adapter::PlaceOverrides {
+        specialisation: if e.specialisation.is_empty() {
+            None
+        } else {
+            Some(e.specialisation.as_str())
+        },
+        fortified_trait: e.traits.iter().any(|t| t == "fortified"),
+        walls_override: e.walls,
+        age_override: e.age.map(f64::from),
+        resources,
+        // Ruling J's town plan -- `None` for an unedited settlement,
+        // which is the exact call this site made before.
+        culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
+        variant: (e.variant != 0).then_some(e.variant),
+        // FH-R2 S3a, switched on 2026-10-25 (Ruling CY item 1, once
+        // places of worship were drawn: `"worship_sites"` above): the
+        // ruling faction's religion picks the rite through
+        // `religion_profile::religion_rite`. `None` -- an unaffiliated
+        // or Unclaimed town, or a religion whose form is S4's -- is the
+        // culture profile's default rite, the call this site made
+        // before, so those towns are byte-identical by control flow.
+        // Measured: site count, centres, yards and parcels unchanged;
+        // every moved house sits under a site (`fh_r2_m3_rite_only`).
+        faith,
+        // Ruling EW item 1: the wall hugs the built-up area. Read from the
+        // live parameters, so it is the switch the app and a save carry.
+        wall_hug: params.urban_wall_hug,
+        // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
+        // its bank. Read from the live parameters, like the wall hug.
+        riverbank: params.urban_riverbank,
+        // Ruling FE item 2: villages line their roads. Read live, like
+        // the two above.
+        street_village: params.urban_street_village,
+        // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
+        // the town. Read live, like the three above.
+        market_scale: params.urban_market_scale,
+        // Ruling FK item 1: a harbour town lays out to its water. Read
+        // live, like the four above.
+        harbour_front: params.urban_harbour_front,
+        // Ruling FN: river towns stretch along their river, short of
+        // the other settlements. Read live, like the five above.
+        river_stretch: params.urban_river_stretch.then_some(stretch_others),
+        // Ruling FE item 3's deep-plot prototype, off in the app until
+        // the owner rules. Read live, like the six above.
+        burgage: params.urban_burgage,
+        // The 483920 #4 row: a river town's market on its roads' bank.
+        // Read live, like the seven above.
+        market_road_bank: params.urban_market_road_bank,
+        // Ruling GB (2026-11-17): the water-clipped front and the bridge search.
+        water_widen: params.urban_growth_water_widen,
+        town_bridge_search: params.urban_town_bridge_search,
+        // RR-T1: the map's drawn river curve through the town. Read live; empty (no
+        // drawn network, a loaded save) is the raw trace.
+        river_smooth: (!drawn_rivers.is_empty()).then_some(drawn_rivers),
+        // PARALLEL_STREETS_SCOPE.md PS-1: town types, field and ground,
+        // off in the app until the owner rules at PS-7. Read live.
+        parallel_streets: params.urban_parallel_streets,
+        // Ruling HM: a town whose cell centre is inside its drawn river is laid round the
+        // river's edge (`bank_site::town_origin`; `None` with `civ.bank_sites` off). Read live.
+        origin,
+    }
+}
+
+/// **Everything [`WorldGen::town_batch`] builds a town's layout context from**,
+/// by reference (Ruling HU, 2026-11-23). [`WorldGen::town_batch`] borrows it
+/// from the live object; the markers' background job
+/// (`bank_site::MarketJob`) borrows it from its own snapshot, so one builder
+/// ([`town_batch_in`]) serves both and a context can never differ between
+/// the map's marker and the drawn town. The four closures answer per
+/// settlement: its place-editor row, its ruling faction's rite, its own rule
+/// set and its town origin (`bank_site::town_origin`, Ruling HM).
+///
+/// Must hold nothing tied to a Godot object or a `RefCell`: the job reads it
+/// on another thread.
+pub(crate) struct TownInputs<'a> {
+    pub field: &'a [f32],
+    pub flow: &'a [f32],
+    pub order: Option<&'a [i16]>,
+    pub recv: Option<&'a [i32]>,
+    pub water_bodies: &'a [u8],
+    pub settlements: &'a [cartalith_civ::NamedSettlement],
+    pub ways: &'a [cartalith_civ::Way],
+    pub gw: usize,
+    pub gh: usize,
+    pub sea_level: f64,
+    pub map_width_km: f64,
+    pub seed: i32,
+    pub params: &'a cartalith_engine::WorldParams,
+    /// The map's drawn lake and sea (`WorldGen::town_map_water`; `None` with `civ.bank_sites` off).
+    pub map_water: Option<&'a crate::town_water::DrawnWater>,
+    /// The ore rasters, built only when a mining town is in the batch (`WorldGen::ore_potentials`).
+    pub resources: Option<&'a ResourcePotentials>,
+    /// The drawn rivers (`WorldGen::drawn_river_runs`).
+    pub drawn: &'a [urban_adapter::DrawnRiver],
+    pub extras: &'a dyn Fn(&cartalith_civ::NamedSettlement) -> crate::civ_roster_bridge::PlaceExtras,
+    pub faith: &'a dyn Fn(&cartalith_civ::NamedSettlement) -> Option<&'static str>,
+    pub rules: &'a dyn Fn(&crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules>,
+    pub origin: &'a dyn Fn(&cartalith_civ::NamedSettlement) -> Option<urban_adapter::BankOrigin>,
+}
+
+/// [`WorldGen::town_batch`]'s body over [`TownInputs`]: one river trace for
+/// the batch, then each settlement's overrides ([`place_overrides_in`]) and
+/// context, handed to `f`. Must stay the only builder of a town's context.
+pub(crate) fn town_batch_in<R>(
+    b: &TownInputs,
+    indices: &[usize],
+    mut f: impl FnMut(usize, &cartalith_civ::NamedSettlement, &urban_adapter::UrbanContext, Option<&urban_adapter::Rules>, &urban_adapter::PlaceOverrides, bool) -> R,
+) -> Vec<(usize, R)> {
+    let mut res = Vec::new();
+    let (gw, gh) = (b.gw, b.gh);
+    if gw == 0 || gh == 0 || b.settlements.is_empty() || indices.is_empty() {
+        return res;
+    }
+    // The one full-grid pass, hoisted out of the per-settlement loop --
+    // see this module's header and `traced_river_polys`, now shared with
+    // `settlement_diagnostics`.
+    let river_polys = trace_polys(b.order, b.recv, gw, gh);
+    // Ruling HN: where the map draws lake and sea, for the town's water raster (`UrbanWorld::map_water`).
+    let map_water = b.map_water.map(|dw| {
+        let field: &[f32] = b.field;
+        move |x: f64, y: f64| dw.class_at(field, x, y) != crate::town_water::LAND
+    });
+    let world = UrbanWorld {
+        field: b.field,
+        flow: b.flow,
+        water_bodies: b.water_bodies,
+        order: b.order,
+        river_polys: &river_polys,
+        gw,
+        gh,
+        sea_level: b.sea_level,
+        map_width_km: b.map_width_km,
+        // The same call `compute_civilisation` makes, with the same
+        // arguments -- a settlement's site kind must agree with the river
+        // network the rest of the civ layer was built against.
+        flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, b.map_width_km),
+        world_seed: b.seed,
+        river_kind_from_map: b.params.urban_river_kind_map,
+        // Ruling HN: the map's drawn lake and sea (`civ.bank_sites` on), else the reference's own test.
+        map_water: map_water.as_ref().map(|f| f as &(dyn Fn(f64, f64) -> bool + Sync)),
+    };
+    // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
+    // call, so a stretched river town stops short of the others.
+    let stretch_others: Vec<(f64, f64, f64)> = b.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
+    for &idx in indices {
+        let Some(s) = b.settlements.get(idx) else { continue };
+        let e = (b.extras)(s);
+        let o = place_overrides_in(b.params, (b.faith)(s), (b.origin)(s), &e, b.resources, &stretch_others, b.drawn);
+        let ctx = urban_adapter::um_place_context_with(&world, s, b.ways, &o);
+        let rules = (b.rules)(&e);
+        res.push((idx, f(idx, s, &ctx, rules.as_ref(), &o, world.river_kind_from_map)));
+    }
+    res
 }
 
 /// [`ResourcePotentials`] has no `Default` (every field is a bare `Vec`,
@@ -671,7 +868,7 @@ impl WorldGen {
     /// rasters are a whole-grid build). Split out of [`Self::urban_layouts`]
     /// (2026-11-17) so [`Self::urban_layout_boxes`] hands the layout the same
     /// ore bearing the drawn town gets.
-    fn ore_potentials(&self, ws: &cartalith_engine::WorldState, civ: &crate::CivData, wants: bool) -> Option<ResourcePotentials> {
+    pub(crate) fn ore_potentials(&self, ws: &cartalith_engine::WorldState, civ: &crate::CivData, wants: bool) -> Option<ResourcePotentials> {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         wants.then(|| {
             let biome = cartalith_civ::build_biome_raster(
@@ -716,7 +913,7 @@ impl WorldGen {
     /// Empty when the switch is off or there is no drawn network (a loaded save).
     /// Ruling HM: with `civ.bank_sites` on each run carries the width the map draws it with, so a
     /// town's river is as wide as the map's (`DrawnRiver::widths`); off, none, the town's own channel.
-    fn drawn_river_runs(&self) -> Vec<urban_adapter::DrawnRiver> {
+    pub(crate) fn drawn_river_runs(&self) -> Vec<urban_adapter::DrawnRiver> {
         if !self.params.urban_river_smooth {
             return Vec::new();
         }
@@ -747,78 +944,14 @@ impl WorldGen {
         stretch_others: &'a [(f64, f64, f64)],
         drawn_rivers: &'a [urban_adapter::DrawnRiver],
     ) -> urban_adapter::PlaceOverrides<'a> {
-        urban_adapter::PlaceOverrides {
-            specialisation: if e.specialisation.is_empty() {
-                None
-            } else {
-                Some(e.specialisation.as_str())
-            },
-            fortified_trait: e.traits.iter().any(|t| t == "fortified"),
-            walls_override: e.walls,
-            age_override: e.age.map(f64::from),
-            resources,
-            // Ruling J's town plan -- `None` for an unedited settlement,
-            // which is the exact call this site made before.
-            culture: (!e.culture.is_empty()).then_some(e.culture.as_str()),
-            variant: (e.variant != 0).then_some(e.variant),
-            // FH-R2 S3a, switched on 2026-10-25 (Ruling CY item 1, once
-            // places of worship were drawn: `"worship_sites"` above): the
-            // ruling faction's religion picks the rite through
-            // `religion_profile::religion_rite`. `None` -- an unaffiliated
-            // or Unclaimed town, or a religion whose form is S4's -- is the
-            // culture profile's default rite, the call this site made
-            // before, so those towns are byte-identical by control flow.
-            // Measured: site count, centres, yards and parcels unchanged;
-            // every moved house sits under a site (`fh_r2_m3_rite_only`).
-            faith: civ.town_faith(s),
-            // Ruling EW item 1: the wall hugs the built-up area. Read from the
-            // live parameters, so it is the switch the app and a save carry.
-            wall_hug: self.params.urban_wall_hug,
-            // 2026-11-15 (Ruling EX's follow-ups): a river town builds to
-            // its bank. Read from the live parameters, like the wall hug.
-            riverbank: self.params.urban_riverbank,
-            // Ruling FE item 2: villages line their roads. Read live, like
-            // the two above.
-            street_village: self.params.urban_street_village,
-            // `TOWN_GENERATOR_JUDGEMENT.md` change 6: the square sized with
-            // the town. Read live, like the three above.
-            market_scale: self.params.urban_market_scale,
-            // Ruling FK item 1: a harbour town lays out to its water. Read
-            // live, like the four above.
-            harbour_front: self.params.urban_harbour_front,
-            // Ruling FN: river towns stretch along their river, short of
-            // the other settlements. Read live, like the five above.
-            river_stretch: self.params.urban_river_stretch.then_some(stretch_others),
-            // Ruling FE item 3's deep-plot prototype, off in the app until
-            // the owner rules. Read live, like the six above.
-            burgage: self.params.urban_burgage,
-            // The 483920 #4 row: a river town's market on its roads' bank.
-            // Read live, like the seven above.
-            market_road_bank: self.params.urban_market_road_bank,
-            // Ruling GB (2026-11-17): the water-clipped front and the bridge search.
-            water_widen: self.params.urban_growth_water_widen,
-            town_bridge_search: self.params.urban_town_bridge_search,
-            // RR-T1: the map's drawn river curve through the town. Read live; empty (no
-            // drawn network, a loaded save) is the raw trace.
-            river_smooth: (!drawn_rivers.is_empty()).then_some(drawn_rivers),
-            // PARALLEL_STREETS_SCOPE.md PS-1: town types, field and ground,
-            // off in the app until the owner rules at PS-7. Read live.
-            parallel_streets: self.params.urban_parallel_streets,
-            // Ruling HM: a town whose cell centre is inside its drawn river is laid round the
-            // river's edge (`bank_site::town_origin`; `None` with `civ.bank_sites` off). Read live.
-            origin: self.town_origin(s),
-        }
+        place_overrides_in(&self.params, civ.town_faith(s), self.town_origin(s), e, resources, stretch_others, drawn_rivers)
     }
 
     /// Settlement `e`'s rule set: empty follows the world's active rules,
     /// "default" pins `DEFAULT_RULES` (the `None` case), anything else a
     /// named preset. `set_town_plan` refused unknown ids on the way in.
     pub(crate) fn own_rules(&self, e: &crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules> {
-        match e.rules_preset.as_str() {
-            "" => self.urban_rules,
-            "default" => None,
-            id => urban_adapter::rules_preset(id),
-        }
+        own_rules_in(self.urban_rules, e)
     }
 
     /// `urban_adapter::run_layout` through the `stretch_choices` cache
@@ -974,48 +1107,15 @@ impl WorldGen {
     pub(crate) fn town_batch<R>(
         &self,
         indices: &[usize],
-        mut f: impl FnMut(usize, &cartalith_civ::NamedSettlement, &urban_adapter::UrbanContext, Option<&urban_adapter::Rules>, &urban_adapter::PlaceOverrides, bool) -> R,
+        f: impl FnMut(usize, &cartalith_civ::NamedSettlement, &urban_adapter::UrbanContext, Option<&urban_adapter::Rules>, &urban_adapter::PlaceOverrides, bool) -> R,
     ) -> Vec<(usize, R)> {
-        let mut res = Vec::new();
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
-            return res;
+            return Vec::new();
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if gw == 0 || gh == 0 || civ.settlements.is_empty() || indices.is_empty() {
-            return res;
+            return Vec::new();
         }
-
-        // The one full-grid pass, hoisted out of the per-settlement loop --
-        // see this module's header and `traced_river_polys`, now shared with
-        // `settlement_diagnostics` below.
-        let river_polys = traced_river_polys(ws, gw, gh);
-        // Ruling HN: where the map draws lake and sea, for the town's water raster (`UrbanWorld::map_water`).
-        let drawn_water = self.town_map_water();
-        let map_water = drawn_water.as_ref().map(|dw| {
-            let field: &[f32] = &ws.field;
-            move |x: f64, y: f64| dw.class_at(field, x, y) != crate::town_water::LAND
-        });
-
-        let world = UrbanWorld {
-            field: &ws.field,
-            flow: &ws.flow_discharge,
-            water_bodies: &civ.water_bodies,
-            order: ws.stream_order.as_deref(),
-            river_polys: &river_polys,
-            gw,
-            gh,
-            sea_level: self.sea_level,
-            map_width_km: self.map_width_km,
-            // The same call `compute_civilisation` makes, with the same
-            // arguments -- a settlement's site kind must agree with the river
-            // network the rest of the civ layer was built against.
-            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
-            world_seed: self.seed,
-            river_kind_from_map: self.params.urban_river_kind_map,
-            // Ruling HN: the map's drawn lake and sea (`civ.bank_sites` on), else the reference's own test.
-            map_water: map_water.as_ref().map(|f| f as &(dyn Fn(f64, f64) -> bool + Sync)),
-        };
-
         // `currentResourcePotentials()`, for the one override that needs a
         // raster. `um_ore_bearing` is read on `um_place_context_with`'s
         // `specialisation == "mining"` branch and nowhere else, so this is
@@ -1031,21 +1131,31 @@ impl WorldGen {
             .iter()
             .any(|idx| civ.settlements.get(*idx).is_some_and(|s| civ.place_extras.get(s.tid).specialisation == "mining"));
         let resources = self.ore_potentials(ws, civ, wants_ore);
-
+        let drawn_water = self.town_map_water();
         let drawn = self.drawn_river_runs();
-        // Ruling FN: every settlement as `(x, y, pop)` in grid cells, once per
-        // call, so a stretched river town stops short of the others.
-        let stretch_others: Vec<(f64, f64, f64)> =
-            civ.settlements.iter().map(|o| (o.placement.x as f64, o.placement.y as f64, o.pop as f64)).collect();
-        for &idx in indices {
-            let Some(s) = civ.settlements.get(idx) else { continue };
-            let e = civ.place_extras.get(s.tid);
-            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &stretch_others, &drawn);
-            let ctx = urban_adapter::um_place_context_with(&world, s, &civ.ways, &o);
-            let rules = self.own_rules(&e);
-            res.push((idx, f(idx, s, &ctx, rules.as_ref(), &o, world.river_kind_from_map)));
-        }
-        res
+        let b = TownInputs {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            order: ws.stream_order.as_deref(),
+            recv: ws.channels.as_ref().map(|c| &c.recv[..]),
+            water_bodies: &civ.water_bodies,
+            settlements: &civ.settlements,
+            ways: &civ.ways,
+            gw,
+            gh,
+            sea_level: self.sea_level,
+            map_width_km: self.map_width_km,
+            seed: self.seed,
+            params: &self.params,
+            map_water: drawn_water.as_deref(),
+            resources: resources.as_ref(),
+            drawn: &drawn,
+            extras: &|s| civ.place_extras.get(s.tid),
+            faith: &|s| civ.town_faith(s),
+            rules: &|e| self.own_rules(e),
+            origin: &|s| self.town_origin(s),
+        };
+        town_batch_in(&b, indices, f)
     }
 
     /// **Ruling FQ** (owner, 2026-11-16): the box each stretched river town's

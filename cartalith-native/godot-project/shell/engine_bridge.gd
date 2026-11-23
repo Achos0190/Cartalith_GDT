@@ -40,7 +40,8 @@ signal params_applied()            ## A generate landed; nothing is stale.
 signal urban_params_changed()
 ## Ruling HG: `civ.bank_sites` landed (`param_write`, `reset_params`), emitted after the engine took it. The switch
 ## changes no generated output, only where the map draws each settlement's marker, so nothing needs a regenerate:
-## `viewport_host.gd::setup` has the overlay ask for its markers' bank points again.
+## `viewport_host.gd::setup` has the overlay ask for its markers' bank points again. Ruling HU: also emitted when the
+## markers' table lands from its thread (`_market_poll`), for the same re-ask.
 signal bank_params_changed()
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
@@ -1692,10 +1693,41 @@ func river_paint_params() -> Dictionary:
 ## `ppc` screen pixels per cell, `gap_px` pixels clear of the drawn river's edge (negative: the engine's default)
 ## (`WorldGen::settlement_bank_offsets`). Empty while generating, against a binary without it, and when the world's
 ## `civ.bank_sites` switch is off: the caller then draws every marker at its cell centre.
+##
+## Ruling HU (owner, 2026-11-23): the markers' table (each town's market on the map) is never rebuilt here on the main
+## thread. After a sea-level move, a sculpt, an open or a parameter write the engine answers the last table (the
+## markers stay where they were drawn) and builds the new one on a thread of its own (`set_markers_async`);
+## `_market_poll` lands it and re-asks through `bank_params_changed`.
 func settlement_bank_offsets(ppc: float, gap_px: float) -> PackedVector2Array:
 	if generating or not _has("settlement_bank_offsets"):
 		return PackedVector2Array()
-	return world_gen.settlement_bank_offsets(ppc, gap_px)
+	var poll := _has("market_points_poll")
+	if poll:
+		world_gen.set_markers_async(true)
+	var r: PackedVector2Array = world_gen.settlement_bank_offsets(ppc, gap_px)
+	if poll:
+		_market_poll()
+	return r
+
+## Ruling HU: true while `_market_poll` waits on the markers' job, so one waiter runs.
+var _market_polling := false
+
+## Ruling HU: waits for the markers' job (`WorldGen.market_points_poll`: 0 running, 1 landed, 2 none), checking every
+## 50 ms of idle time and never while a generation holds the engine; when a table lands, `bank_params_changed` makes
+## the map ask for its markers again (`MapOverlay.bank_stale`), which now finds the table built.
+func _market_poll() -> void:
+	if _market_polling or not is_inside_tree():
+		return
+	_market_polling = true
+	var state := 0
+	while state == 0 and is_inside_tree():
+		if not generating:
+			state = world_gen.market_points_poll()
+		if state == 0:
+			await get_tree().create_timer(0.05).timeout
+	_market_polling = false
+	if state == 1:
+		bank_params_changed.emit()
 
 ## Ruling EQ item 4 (owner, 2026-11-11): the map view's live size, the window the river opening share is taken
 ## in (`WorldGen::set_river_view_size`). True when the law's fit moved, so the caller re-applies the shader's
