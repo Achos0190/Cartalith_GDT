@@ -124,23 +124,37 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
         .collect();
     let ctx = um_place_context_with(&uw_map, &settlement(8, 34, 47, 3_000), &[], &base);
     out.push(("coastal town on the map's shore", run_layout(&ctx, None).expect("the map-shore town lays out")));
+    // Ruling HS (rules v6): the coastal town again with both setback switches on, over hand-set fields: no flood,
+    // no wetland, no landform class, 1 000 m a field unit (so the fixture's step from 0.65 to the 0.30 sea at row 48
+    // is a cliff), no ocean classified (a sheltered shore: no surge band).
+    let fields = setback_fields();
+    let sb = PlaceOverrides { setback: Some(&fields), ..base };
+    let ctx = um_place_context_with(&uw, &settlement(10, 34, 47, 3_000), &[], &sb);
+    out.push(("coastal town with the setback", run_layout(&ctx, None).expect("the setback town lays out")));
     out
 }
 
-/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the nine fixture towns' canonical hashes are committed literals
+/// The hand-set fields of the setback fixture (see `fixtures`).
+fn setback_fields() -> crate::setback::SetbackFields {
+    crate::setback::SetbackFields { coast: true, river: true, flood: vec![0.0; GW * GH], wetland: vec![0; GW * GH], landform: vec![0; GW * GH], metres_per_unit: 1_000.0, h_surge_m: crate::setback::H_SURGE_M }
+}
+
+/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the ten fixture towns' canonical hashes are committed literals
 /// (six until rules v2, whose change, Ruling HM, moves no town that is not laid round a drawn edge: the first six
 /// hashes are v1's, unchanged through v5; "bank river town" is the town v2 added, moved by v3 and by v4, not by v5;
 /// the map-shore town is the one v3, Ruling HN, added: its sea edge is the map's drawn shore, unmoved by v4 and v5;
 /// and the town on a river too wide to bridge is v4's, Ruling HQ: it crosses by ferry, moved by v5, Ruling HU, whose
-/// ferried streets keep their dry parts).
+/// ferried streets keep their dry parts). The tenth is v6's, Ruling HS: the coastal town with both setback switches
+/// on, whose rule's layout the housing guard refuses, so its hash is the coastal town's own
+/// (`the_setback_fixture_keeps_the_reference_where_the_rule_houses_too_few`); v6 moved none of the nine.
 /// A behavioural change to the generator or the adapter moves a hash and turns this red; mutating the version alone
 /// turns it red too. The fix for a red here is to bump the version **and** re-pin the hashes in the same change
 /// (scope §4.1, R5).
 #[test]
 fn the_rules_version_and_fixture_hashes_are_pinned() {
     let got: Vec<(&str, String)> = fixtures().iter().map(|(n, l)| (*n, layout_hash(&encode(l)))).collect();
-    let want: (u32, [(&str, &str); 9]) = (
-        5,
+    let want: (u32, [(&str, &str); 10]) = (
+        6,
         [
             ("hamlet", "f73d0b225a9deadc"),
             ("walled town", "e35063368a67a961"),
@@ -151,6 +165,7 @@ fn the_rules_version_and_fixture_hashes_are_pinned() {
             ("bank river town", "f2cfc8624fd4ea41"),
             ("bank town on a river too wide to bridge", "3869d0bb60ae56ad"),
             ("coastal town on the map's shore", "d58a334ae8e9cdb3"),
+            ("coastal town with the setback", "dd5837456e1f0bca"),
         ],
     );
     assert_eq!((URBAN_RULES_VERSION, got.iter().map(|(n, h)| (*n, h.as_str())).collect::<Vec<_>>()), (want.0, want.1.to_vec()));
@@ -287,14 +302,18 @@ fn site_hash_moves_on_each_world_input() {
     assert_ne!(site_hash(&c), h2, "a primary-path point");
 }
 
-/// Protects the switch record: fourteen names (Ruling HM added `civ_bank_origin`), read from the overrides as in effect, and a switch absent from an
+/// Protects the switch record: sixteen names (Ruling HM added `civ_bank_origin`, Ruling HS the two setback switches), read from the overrides as in effect, and a switch absent from an
 /// older recipe reads as off (scope §4.1, §7 MUST).
 #[test]
 fn switch_record_and_absent_as_off() {
     let o = app_switches();
     let r = switch_record(&o, true);
-    assert_eq!(r.len(), 14);
+    assert_eq!(r.len(), 16);
     assert_eq!(r.get("civ_bank_origin"), Some(&false), "Ruling HM: no origin, not laid round the drawn edge");
+    assert_eq!((r.get("urban_coastal_setback"), r.get("urban_floodplain_setback")), (Some(&false), Some(&false)), "Ruling HS: no fields, not in effect");
+    let fields = crate::setback::SetbackFields { coast: true, river: false, ..Default::default() };
+    let sb = switch_record(&PlaceOverrides { setback: Some(&fields), ..o }, true);
+    assert_eq!((sb.get("urban_coastal_setback"), sb.get("urban_floodplain_setback")), (Some(&true), Some(&false)));
     let moved = PlaceOverrides { origin: Some(crate::urban_adapter::BankOrigin { at: (1.0, 1.0), river_m: 90.0 }), ..o };
     assert_eq!(switch_record(&moved, true).get("civ_bank_origin"), Some(&true));
     assert_eq!(r.get("urban_wall_hug"), Some(&true));
@@ -395,4 +414,22 @@ fn the_fixture_on_a_river_too_wide_to_bridge_crosses_by_ferry() {
     // A frozen ferry town keeps its ferry: the codec interns the detail kind it reads back.
     let back = decode(&encode(l)).expect("decodes");
     assert_eq!(back.details.iter().filter(|d| d.kind == "ferry").count(), 1, "the ferry survives a freeze");
+}
+
+/// Protects Ruling HS's housing guard (`cartalith_urban::generate`): on the fixture's coast (a step from 0.65 to the
+/// 0.30 sea, too steep to build down to) the market brought to the water housed 172 against 3 474 at the box centre
+/// (measured 2026-11-23), so the layout without the rule is kept and marked refused, with no setback record. The
+/// raster is the positive control: the coastal rule could act (switch on, a fine grid, sea in the box).
+#[test]
+fn the_setback_fixture_keeps_the_reference_where_the_rule_houses_too_few() {
+    let w = World::new();
+    let uw = w.world();
+    let fields = setback_fields();
+    let sb = PlaceOverrides { setback: Some(&fields), ..app_switches() };
+    let ctx = um_place_context_with(&uw, &settlement(10, 34, 47, 3_000), &[], &sb);
+    let sc = ctx.setback.as_ref().expect("a hazard raster");
+    assert!(sc.coast && sc.fine && sc.bits.iter().any(|&b| b & cartalith_urban::setback::SEA != 0), "the rule could act");
+    let l = run_layout(&ctx, None).expect("lays out");
+    assert!(l.setback_refused && l.setback.is_none());
+    assert_eq!((l.market.x, l.market.y), (850.0, 625.0), "the box centre, the layout without the rule");
 }

@@ -1393,6 +1393,9 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     // And Ruling GB's two (the water-clipped growth disc, the bridge search): a save without the keys drew the reference's.
     expect.urban_growth_water_widen = false;
     expect.urban_town_bridge_search = false;
+    // And Ruling HS's setback: a save without the keys placed its markets with none.
+    expect.urban_coastal_setback = false;
+    expect.urban_floodplain_setback = false;
     // And RR-T1's river curve: a save without the key drew the raw trace.
     expect.urban_river_smooth = false;
     // And Ruling FZ's names for the unnamed kinds: a save without the key named none.
@@ -1597,6 +1600,10 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
         app.urban_growth_water_widen && !parity.urban_growth_water_widen && app.urban_town_bridge_search && !parity.urban_town_bridge_search,
         "Ruling GB (2026-11-17): the widened growth disc and the bridge search are on in the app, off at the parity boundary"
     );
+    assert!(
+        app.urban_coastal_setback && !parity.urban_coastal_setback && app.urban_floodplain_setback && !parity.urban_floodplain_setback,
+        "Ruling HS (2026-11-23): the coastal and floodplain setback are on in the app, off at the parity boundary"
+    );
     assert!(app.urban_river_smooth && !parity.urban_river_smooth, "RR-T1 (Ruling FE item 4): the town's river follows the map's curve in the app, the raw trace at the parity boundary");
     assert!(app.name_unnamed_kinds && !parity.name_unnamed_kinds, "names for rivers and the other unnamed kinds, Ruling FZ item 5 (2026-11-17)");
     // The streak spike's two ablations are NOT divergences: off at both
@@ -1633,6 +1640,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_market_road_bank = false;
     neutral.urban_growth_water_widen = false;
     neutral.urban_town_bridge_search = false;
+    neutral.urban_coastal_setback = false;
+    neutral.urban_floodplain_setback = false;
     neutral.urban_river_smooth = false;
     neutral.name_unnamed_kinds = false;
     neutral.ws_tect_editable = false; // F28

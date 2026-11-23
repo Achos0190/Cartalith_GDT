@@ -97,6 +97,31 @@ impl WorldGen {
         Some(w)
     }
 
+    /// **Ruling HS: the setback's hazard fields** for the world as it stands (`cartalith_civ::setback::SetbackFields`:
+    /// the flood field, the wetland mask and the landform classes, about 65 ms at 2 048 x 1 311), cached under
+    /// `drawn_water_key` (the terrain, climate and sea level they are built from), the peak and the two switches.
+    /// `None` with both `urban_coastal_setback` and `urban_floodplain_setback` off (every town is laid out as
+    /// before), before a world and for a loaded save.
+    pub(crate) fn setback_fields(&self) -> Option<std::sync::Arc<cartalith_civ::setback::SetbackFields>> {
+        let (coast, river) = (self.params.urban_coastal_setback, self.params.urban_floodplain_setback);
+        if !coast && !river {
+            return None;
+        }
+        let key = format!("{};p{};{coast}{river}", self.drawn_water_key(), self.params.peak_m.to_bits());
+        if let Some((k, f)) = self.setback_cache.borrow().as_ref()
+            && *k == key
+        {
+            return Some(f.clone());
+        }
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else { return None };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let f = std::sync::Arc::new(cartalith_civ::setback::SetbackFields::build(
+            &ws.field, &ws.flow_discharge, &ws.temperature, &ws.rainfall, &civ.water_bodies, gw, gh, self.sea_level, self.world, self.map_width_km, self.params.peak_m, coast, river,
+        ));
+        *self.setback_cache.borrow_mut() = Some((key, f.clone()));
+        Some(f)
+    }
+
     /// [`Self::town_water`] for the town layout: `None` with the `civ.bank_sites` switch off, so a world made
     /// before Ruling HN keeps the reference's lake and sea test until the switch is turned on.
     pub(crate) fn town_map_water(&self) -> Option<std::sync::Arc<DrawnWater>> {

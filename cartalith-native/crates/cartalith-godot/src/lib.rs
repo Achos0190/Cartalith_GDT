@@ -7355,10 +7355,17 @@ struct WorldGen {
     bank_index_cache: std::cell::RefCell<Option<(String, std::sync::Arc<bank_site::StrokeIndex>)>>,
     /// Ruling HN: the map's drawn lake and sea as a point test (`town_water::DrawnWater`), under `drawn_water_key`.
     town_water_cache: std::cell::RefCell<Option<(String, std::sync::Arc<town_water::DrawnWater>)>>,
+    /// Ruling HS: the setback's hazard fields (`cartalith_civ::setback::SetbackFields`), under `drawn_water_key`,
+    /// the peak and the two switches (`town_water::WorldGen::setback_fields`). Derived; never saved.
+    setback_cache: std::cell::RefCell<Option<(String, std::sync::Arc<cartalith_civ::setback::SetbackFields>)>>,
     /// Ruling HN: the open world was read from a save that carries no `civ.bank_sites` key (it was made before
     /// towns stood on the bank), so the shell may offer the update once (`bank_site::bank_sites_offer`). Set by
     /// every load; cleared when a new world's rules are restored (`restore_new_world_rules`).
     bank_sites_absent: bool,
+    /// Ruling HS: the open world was read from a save without the `urban_coastal_setback` and
+    /// `urban_floodplain_setback` keys (made before the setback), so the shell may offer the update once
+    /// (`bank_site::town_rules_offer`). Set and cleared with [`Self::bank_sites_absent`].
+    setback_absent: bool,
     /// Ruling HN: each settlement's town origin (`bank_site::town_origin`) by `(tid, x, y)`, under `bank_site::origin_key`.
     origin_cache: std::cell::RefCell<(u64, std::collections::HashMap<(u64, usize, usize), Option<cartalith_civ::urban_adapter::BankOrigin>>)>,
     /// Ruling HN: each settlement's market on the map (`bank_site::market_points`), under `bank_site::market_key`.
@@ -8197,6 +8204,7 @@ impl IRefCounted for WorldGen {
             river_geom_cache: std::cell::RefCell::new(None),
             bank_index_cache: std::cell::RefCell::new(None),
             town_water_cache: std::cell::RefCell::new(None),
+            setback_cache: std::cell::RefCell::new(None),
             market_cache: std::cell::RefCell::new(None),
             market_builds: std::cell::Cell::new((0, 0, 0.0)),
             market_job: std::cell::RefCell::new(None),
@@ -8204,6 +8212,7 @@ impl IRefCounted for WorldGen {
             market_jobs: std::cell::Cell::new(0),
             origin_cache: std::cell::RefCell::new((0, std::collections::HashMap::new())),
             bank_sites_absent: false,
+            setback_absent: false,
             valley_shade_cache: std::cell::RefCell::new(None),
             valley_shade_timing: std::cell::Cell::new(None),
             forced_lakes: None,
@@ -9622,6 +9631,7 @@ impl WorldGen {
         }
         // Ruling HN: the world about to be made is not the older save that was opened.
         self.bank_sites_absent = false;
+        self.setback_absent = false;
         let chosen = self.rules_chosen.clone();
         let changed = params::restore_new_world_rules(&mut self.params, &|k: &str| chosen.iter().find(|&&(c, _)| c == k).map(|&(_, v)| v));
         if !changed.is_empty() {
@@ -11732,6 +11742,8 @@ impl WorldGen {
         // Ruling HN: a save with no `civ.bank_sites` key was made before towns stood on the bank
         // (`save_state` always writes the key, so absence means an older build wrote the file).
         self.bank_sites_absent = params::saved_without(&save.state, "civ.bank_sites");
+        // Ruling HS: likewise a save without the setback keys (`save_state` writes both).
+        self.setback_absent = params::saved_without(&save.state, "urban_coastal_setback") && params::saved_without(&save.state, "urban_floodplain_setback");
         self.seed = save.params.seed;
         // The archive's own record of its name, verbatim including its
         // absence -- see the `world_name` field's own note on why this is

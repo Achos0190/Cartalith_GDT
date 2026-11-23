@@ -643,6 +643,8 @@ pub(crate) struct MarketSnap {
     town_water: Option<std::sync::Arc<crate::town_water::DrawnWater>>,
     resources: Option<cartalith_civ::ResourcePotentials>,
     drawn: Vec<cartalith_civ::urban_adapter::DrawnRiver>,
+    /// Ruling HS: the setback's hazard fields (`WorldGen::setback_fields`).
+    setback: Option<std::sync::Arc<cartalith_civ::setback::SetbackFields>>,
     /// Each settlement's place-editor row and ruling rite, by `tid`.
     extras: HashMap<u64, crate::civ_roster_bridge::PlaceExtras>,
     faith: HashMap<u64, Option<&'static str>>,
@@ -683,6 +685,7 @@ pub(crate) fn market_table(m: &MarketSnap) -> Vec<Option<(f64, f64)>> {
         map_water: m.map_water.as_deref(),
         resources: m.resources.as_ref(),
         drawn: &m.drawn,
+        setback: m.setback.as_deref(),
         extras: &|s| m.extras.get(&s.tid).cloned().unwrap_or_default(),
         faith: &|s| m.faith.get(&s.tid).copied().flatten(),
         rules: &|e| crate::urban_bridge::own_rules_in(m.urban_rules, e),
@@ -1300,6 +1303,7 @@ impl WorldGen {
             town_water: self.town_water(),
             resources: self.ore_potentials(ws, civ, wants_ore),
             drawn: self.drawn_river_runs(),
+            setback: self.setback_fields(),
             extras: civ.settlements.iter().map(|s| (s.tid, civ.place_extras.get(s.tid))).collect(),
             faith: civ.settlements.iter().map(|s| (s.tid, civ.town_faith(s))).collect(),
             urban_rules: self.urban_rules,
@@ -1598,7 +1602,11 @@ impl WorldGen {
                     crate::town_measures::footprint_over_parts(&[poly], &[], &[], &[], &[], &|p| strokes.covering(self.town_grid(&l, s.placement.x, s.placement.y, cartalith_civ::urban_adapter::Vec2::new(p.0, p.1))).map(|_| 0.0), true).b > 0
                 })
                 .collect();
+            // Ruling HS: the setback record (absent: none), its reasons' bits and the distance it records.
+            let setback = l.setback.map(|sb| serde_json::json!({ "water": if sb.water == cartalith_civ::setback::SetbackWater::Coast { "coast" } else { "river" }, "reasons": sb.reasons, "to_m": sb.to.map(|t| t.1), "text": sb.describe() }));
             Some(serde_json::json!({
+                "setback": setback,
+                "setback_refused": l.setback_refused,
                 "over": over,
                 "wm": l.wm, "hm": l.hm, "step": step, "gw": gw, "gh": gh, "grid": grid,
                 "market": pt(l.market), "pin": pt(l.pin), "river_w": l.river_w, "site_kind": l.site_kind, "pop": l.pop, "pop_target": l.pop_target,
@@ -1636,10 +1644,14 @@ impl WorldGen {
     /// keep (`DccSettings`): "no" writes no parameter here, so it is never
     /// taken as the user's rule for the next new world (`rules_chosen`,
     /// Ruling EV), and the save is not rewritten.
+    ///
+    /// **Since Ruling HS (2026-11-23)** the same card offers the coastal and
+    /// floodplain setback to a save made before them ([`Self::town_rules_offer`]
+    /// lists what an Update writes), under the same key.
     #[func]
     fn bank_sites_offer(&self) -> GString {
-        let (Some(civ), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return GString::new() };
-        if !self.bank_sites_absent || self.params.civ.bank_sites || civ.settlements.is_empty() || self.river_geometry_any().is_none() {
+        let (Some(_), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return GString::new() };
+        if self.town_rules_offer().is_empty() {
             return GString::new();
         }
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -1657,6 +1669,26 @@ impl WorldGen {
             eat(u64::from(v.to_bits()));
         }
         GString::from(&format!("{h:016x}"))
+    }
+
+    /// **The switches an Update of the open world's offer writes** (Rulings HN and HS), in order: `civ.bank_sites`
+    /// where [`Self::bank_sites_offer`]'s HN conditions hold (a save without the key, the switch still off, a drawn
+    /// river to stand beside), then `urban_coastal_setback` and `urban_floodplain_setback` where the save carried
+    /// neither key and both are still off. Empty with no settlement, or nothing to offer.
+    #[func]
+    fn town_rules_offer(&self) -> PackedStringArray {
+        let mut out = PackedStringArray::new();
+        if self.civ.as_ref().is_none_or(|c| c.settlements.is_empty()) {
+            return out;
+        }
+        if self.bank_sites_absent && !self.params.civ.bank_sites && self.river_geometry_any().is_some() {
+            out.push("civ.bank_sites");
+        }
+        if self.setback_absent && !self.params.urban_coastal_setback && !self.params.urban_floodplain_setback {
+            out.push("urban_coastal_setback");
+            out.push("urban_floodplain_setback");
+        }
+        out
     }
 
     /// **Ruling HG: where each settlement's marker stands**, as an offset in

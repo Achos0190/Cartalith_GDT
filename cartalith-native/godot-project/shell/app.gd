@@ -6366,6 +6366,9 @@ func open_project_busy(path: String) -> bool:
 ## Asked only where the engine says there is something to offer (`WorldGen.bank_sites_offer`: a save without the key,
 ## the switch still off, a world that can lay towns beside a drawn river).
 const BANK_OFFER_TEXT := "This world was made before towns sat on the bank — update?"
+## Ruling HS (2026-11-23): the same card for a world made after towns sat on the bank but before the setback
+## (`WorldGen.town_rules_offer` lists only the two setback switches).
+const SETBACK_OFFER_TEXT := "This world was made before coastal and floodplain markets were placed by their hazards — update?"
 const BANK_OFFER_W := 420.0  ## The card's width where the window allows it, dp. A judgement: the sentence in two lines.
 const BANK_OFFER_TOP := 64.0  ## Below the menu bar or the phone's status row, dp. A judgement.
 const BANK_OFFER_TOUCH_MIN := 44.0  ## The touch floor for its two buttons, dp (`DccTheme.PHONE_TAP_MIN`'s rule).
@@ -6388,20 +6391,22 @@ func _offer_bank_sites() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
 	card.add_child(col)
-	var msg := DccTheme.label(BANK_OFFER_TEXT, "text_bright", _pfont(11.5) if _phone else DccTheme.FS_BODY)
+	var keys: PackedStringArray = bridge.world_gen.town_rules_offer() if bridge.world_gen.has_method("town_rules_offer") else PackedStringArray(["civ.bank_sites"])
+	var bank := keys.has("civ.bank_sites")
+	var msg := DccTheme.label(BANK_OFFER_TEXT if bank else SETBACK_OFFER_TEXT, "text_bright", _pfont(11.5) if _phone else DccTheme.FS_BODY)
 	msg.name = "BankSitesOfferText"
 	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(msg)
-	var note := DccTheme.label("Towns are laid out again on their river's bank. Frozen towns stay as they are.", "text_secondary", _pfont(9.5) if _phone else DccTheme.FS_SMALL)
+	var note := DccTheme.label(("Towns are laid out again on their river's bank. Frozen towns stay as they are." if keys.size() == 1 else "Towns are laid out again on their river's bank, their markets at the water unless a hazard sets them back. Frozen towns stay as they are.") if bank else "Markets come to the water unless storm surge, a cliff, marsh or a floodplain sets them back. Frozen towns stay as they are.", "text_secondary", _pfont(9.5) if _phone else DccTheme.FS_SMALL)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(note)
 	## Phone: the two buttons stack; elsewhere they sit in a row.
 	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	col.add_child(row)
-	var yes := DccWidgets.action(row, "Update", _answer_bank_offer.bind(key, true), true)
+	var yes := DccWidgets.action(row, "Update", _answer_bank_offer.bind(key, true, keys), true)
 	yes.name = "BankSitesOfferYes"
-	var no := DccWidgets.action(row, "Keep as it is", _answer_bank_offer.bind(key, false))
+	var no := DccWidgets.action(row, "Keep as it is", _answer_bank_offer.bind(key, false, keys))
 	no.name = "BankSitesOfferNo"
 	for b in [yes, no]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6435,17 +6440,21 @@ func _close_bank_offer() -> void:
 		_bank_offer.queue_free()
 	_bank_offer = null
 
-## The card's two buttons. The answer is recorded first, so a failed write still does not ask again.
-func _answer_bank_offer(key: String, yes: bool) -> void:
+## The card's two buttons. The answer is recorded first, so a failed write still does not ask again. `keys` are the
+## switches the engine offered (`WorldGen.town_rules_offer`), each written on through the ordinary parameter write.
+func _answer_bank_offer(key: String, yes: bool, keys: PackedStringArray = PackedStringArray(["civ.bank_sites"])) -> void:
 	DccSettings.set_bank_offer_answer(key, "yes" if yes else "no")
 	_close_bank_offer()
 	if not yes:
 		return
-	if bool(bridge.param_write("civ.bank_sites", true).get("ok", false)):
+	var ok := true
+	for k in keys:
+		ok = bool(bridge.param_write(k, true).get("ok", false)) and ok
+	if ok:
 		bridge.mark_world_dirty()
-		set_status("hint", "towns now stand on their river's bank; frozen towns are unchanged", "accent")
+		set_status("hint", ("towns now stand on their river's bank; frozen towns are unchanged" if keys.has("civ.bank_sites") else "markets now stand by their hazards; frozen towns are unchanged"), "accent")
 	else:
-		set_status("hint", "the update could not be applied (the engine refused the switch)", "accent")
+		set_status("hint", "the update could not be applied (the engine refused a switch)", "accent")
 
 ## File ▸ Revert to last save. Throws the in-memory world away and reloads
 ## the file, which is exactly `_load_project` on the current path -- the

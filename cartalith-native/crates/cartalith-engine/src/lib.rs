@@ -1497,6 +1497,22 @@ pub struct WorldParams {
     /// healthy towns. Same defaults and load rule as
     /// [`WorldParams::urban_growth_water_widen`].
     pub urban_town_bridge_search: bool,
+    /// **The coastal setback** (owner Ruling HS, 2026-11-23,
+    /// `COASTAL_SETBACK_RESEARCH.md` section 3.2): on a 2 048-class grid a
+    /// coastal town's market comes to the water, or stands back up to 600 m
+    /// on ground with no storm-surge, cliff or marsh reason, with its quay at
+    /// the water (`cartalith_urban::setback::coast_market`). **`false` here**
+    /// (every urban golden pins the reference); **`true` in the app**
+    /// (`params::defaults`); off on load for a save without the key
+    /// (`DECISIONS.md` section 7p). Read fresh each time a layout is asked
+    /// for, so it needs no regeneration.
+    pub urban_coastal_setback: bool,
+    /// **The floodplain setback** (owner Ruling HS, research section 3.4): a
+    /// river town whose market stands on floodplain moves back to the first
+    /// ground above flood level on its own bank, up to 500 m, on a
+    /// 2 048-class grid (`cartalith_urban::setback::river_market`). Same
+    /// defaults and load rule as [`WorldParams::urban_coastal_setback`].
+    pub urban_floodplain_setback: bool,
     /// **One river curve for town and map** (RR-T1, Ruling FE item 4,
     /// `RIVER_REALISM_SCOPE.md`): a riverbank town's river centreline is the
     /// curve the map draws (`river_render_polyline`: RDP at 0.5 cells then
@@ -1776,6 +1792,9 @@ impl WorldParams {
             // Ruling GB: the reference's radius and single bridge point.
             urban_growth_water_widen: false,
             urban_town_bridge_search: false,
+            // Ruling HS: markets where the reference puts them.
+            urban_coastal_setback: false,
+            urban_floodplain_setback: false,
             // RR-T1: the raw trace, as every golden had it.
             urban_river_smooth: false,
             // PS-1 of the parallel streets: no plan, as every golden had.

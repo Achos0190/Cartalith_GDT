@@ -387,7 +387,7 @@ impl UrbanWorld<'_> {
     /// `bilinField` (reference, inside `_umWaterCtx`/`_umTerrainCtx`) —
     /// bilinear height at a fractional grid position, clamping each of the
     /// four taps into the grid independently, exactly as the reference does.
-    fn bilin_field(&self, gx: f64, gy: f64) -> f64 {
+    pub(crate) fn bilin_field(&self, gx: f64, gy: f64) -> f64 {
         let x0 = gx.floor();
         let y0 = gy.floor();
         let fx = gx - x0;
@@ -2580,6 +2580,10 @@ pub struct UrbanContext {
     /// so the cell keeps its true place in the box and the town's water lies
     /// on the map's.
     pub origin_m: Option<Vec2>,
+    /// Ruling HS: the hazard raster over this context's box
+    /// ([`crate::setback::setback_ctx`], from [`PlaceOverrides::setback`]),
+    /// carried to `GenOpts::setback`. `None` with both switches off.
+    pub setback: Option<cartalith_urban::setback::SetbackCtx>,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -2732,6 +2736,14 @@ pub struct PlaceOverrides<'a> {
     /// `WorldParams::civ.bank_sites` for a settlement whose cell centre lies
     /// inside its drawn river (`cartalith-godot`'s `bank_site::town_origin`).
     pub origin: Option<BankOrigin>,
+    /// Ruling HS (owner, 2026-11-23): the world's hazard fields and the two
+    /// setback switches (`urban_coastal_setback`, `urban_floodplain_setback`),
+    /// read over the town's box into [`UrbanContext::setback`]
+    /// ([`crate::setback::setback_ctx`]). **Not a `_umPlaceContext` field**
+    /// and not in the reference, so `None` (the `Default`) is the reference
+    /// layout and every JS-captured golden is unmoved by control flow. The
+    /// app sets it where either switch is on.
+    pub setback: Option<&'a crate::setback::SetbackFields>,
 }
 
 /// **Ruling HM** (owner, 2026-11-23: *the town plan is laid around the same
@@ -2971,7 +2983,11 @@ pub fn um_place_context_with(
                 (p, _) => p,
             }
         };
+        // Ruling HS: the hazard raster over this box (the box `water` was read for).
+        let (sbw, sbh) = site_box.unwrap_or((SITE_WM, SITE_HM));
+        let setback = o.setback.zip(water.as_ref()).map(|(f, u)| crate::setback::setback_ctx(w, f, &u.ctx, bx, by, sbw, sbh, u.sea_frac > BOX_SEA_FRAC));
         UrbanContext {
+            setback,
             seed,
             culture: o.culture.map(str::to_string),
             pop: js_min(20000.0, js_max(400.0, pop)),
@@ -3183,6 +3199,12 @@ pub struct UrbanLayout {
     /// market, except where Ruling FK's harbour front moved the market toward
     /// the sea (then the box centre, so the layout's water lies on the map's).
     pub pin: Vec2,
+    /// Ruling HS: `cartalith_urban::Town::setback`, the market's setback
+    /// record (present only where a hazard reason was found).
+    pub setback: Option<cartalith_urban::setback::Setback>,
+    /// Ruling HS: `cartalith_urban::Town::setback_refused`, the set-back
+    /// layout housed too few and the layout without the rule was kept.
+    pub setback_refused: bool,
     /// `anchors.prov` — the reference's own derivation string for the market
     /// placement, one of three fixed values.
     pub market_prov: &'static str,
@@ -3556,7 +3578,9 @@ pub fn um_market_offsets(ctx: &UrbanContext, rules: Option<&Rules>) -> Vec<Vec2>
         let (wm, hm) = opts.site_box.unwrap_or((SITE_WM, SITE_HM));
         // The waters `generate_front` lays out from, and whether its harbour front may move the market.
         let seas: Vec<GenOpts> = opts.water_to_sea.clone().map(|ws| GenOpts { water: Some(ws), water_to_sea: None, ..opts.clone() }).into_iter().collect();
-        for o in std::iter::once(&opts).chain(&seas) {
+        // Ruling HS: `generate` keeps the layout without the setback where the rule's houses too few.
+        let unset: Vec<GenOpts> = if opts.setback.is_some() { std::iter::once(&opts).chain(&seas).map(|o| GenOpts { setback: None, ..o.clone() }).collect() } else { Vec::new() };
+        for o in std::iter::once(&opts).chain(&seas).chain(&unset) {
             for front in [false, true] {
                 if front && !o.harbour_front {
                     continue;
@@ -3696,6 +3720,8 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         // Ruling FN: a stretched river town's box and stretch.
         site_box: ctx.site_box,
         river_stretch: ctx.river_stretch,
+        // Ruling HS: the setback's hazard raster and switches.
+        setback: ctx.setback.clone(),
     }
 }
 
@@ -3787,6 +3813,8 @@ fn layout_from_town(ctx: &UrbanContext, mut t: cartalith_urban::generate::Town) 
             }
             None => t.pin,
         },
+        setback: t.setback,
+        setback_refused: t.setback_refused,
         market_prov: t.anchors.prov,
         site_kind: t.site.kind,
         orient: ctx.orient,

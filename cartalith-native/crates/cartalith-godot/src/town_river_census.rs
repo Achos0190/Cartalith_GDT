@@ -3279,8 +3279,9 @@ mod cs0 {
     pub const ON_WATER_RIVER_M: f64 = 120.0;
     /// `D_SURGE`: the ICZM Article 8 setback, 100 m (research 3.2).
     pub const D_SURGE_M: f64 = 100.0;
-    /// `H_SURGE` sweep: the research's start (4 m on an exposed shore, half that sheltered) and the values either side.
-    pub const H_SURGE_SWEEP: [f64; 3] = [2.0, 4.0, 8.0];
+    /// `H_SURGE` sweep: CS-0 swept 2, 4 and 8 m; Ruling HS sweeps 4, 6 and 8 m (the research's start and two
+    /// higher), the main reading at 4 m.
+    pub const H_SURGE_SWEEP: [f64; 3] = [4.0, 6.0, 8.0];
     /// `E_EXPOSED`: `river_delta::EXPOSURE_SHELTERED` (0.55), as research 3.2 proposes.
     pub const E_EXPOSED: f32 = 0.55;
     /// The exposure half-disc's radius, metres: **a labelled judgement of this census**. The research says "reuse
@@ -3474,6 +3475,9 @@ fn cs0_hazard_census() {
     let mut moves = [0usize; 2];
     // Section 3.2's input-1 reading (no surge on a sheltered shore), and section 3.4's terrace walk per `H_FLOOD`.
     let mut cls_strict = [[0usize; 4]; 2];
+    let mut sweep_strict = [[[0usize; 4]; 3]; 2];
+    let (mut hs_no_reason, mut hs_body_over): ([Vec<String>; 2], [Vec<String>; 2]) = Default::default();
+    let (mut hs_set, mut hs_refused) = ([0usize; 2], [0usize; 2]);
     let (mut terr_n, mut terr_found, mut terr_m) = ([0usize; 3], [0usize; 3], [Vec::new(), Vec::new(), Vec::new()]);
     let (mut map_err, mut lat_bad, mut lat_n) = (0f64, 0usize, 0usize);
     let (mut mkt_m, mut quay_m, mut relief): ([Vec<f64>; 2], Vec<f64>, [Vec<f64>; 2]) = (Default::default(), Vec::new(), Default::default());
@@ -3641,11 +3645,27 @@ fn cs0_hazard_census() {
                 }
                 None
             };
-            let h_main = if wk == 0 { cs0::H_SURGE_SWEEP[1] } else { cs0::H_FLOOD_SWEEP[0] };
+            let h_main = if wk == 0 { cs0::H_SURGE_SWEEP[0] } else { cs0::H_FLOOD_SWEEP[0] };
             let hs = if wk == 0 { cs0::H_SURGE_SWEEP } else { cs0::H_FLOOD_SWEEP };
             for (si, &h) in hs.iter().enumerate() {
                 sweep[wk][si][class_at(h)] += 1;
+                sweep_strict[wk][si][class_v(h, false)] += 1;
             }
+            // Ruling HS's bars, from the layout's own setback record (`town_debug_json`'s `setback`; absent before
+            // the rule): a market over `on_t` from this water with no record is set back without a reason; a
+            // recorded set-back town's nearest building or street must be within its recorded distance plus
+            // `REACH_M` of the water; the guard's refusals are counted, never a reason.
+            let rec = d.get("setback").filter(|v| !v.is_null() && v["water"].as_str() == Some(if wk == 0 { "coast" } else { "river" }));
+            if d0 > on_t && rec.is_none() {
+                hs_no_reason[wk].push(format!("#{i} {d0:.0} m"));
+            }
+            if let Some(to) = rec.and_then(|r| r["to_m"].as_f64()) {
+                hs_set[wk] += 1;
+                if landing > to + cs0::REACH_M {
+                    hs_body_over[wk].push(format!("#{i} body {landing:.0} m, setback {to:.0} m"));
+                }
+            }
+            hs_refused[wk] += usize::from(wk == 0 && d["setback_refused"].as_bool() == Some(true));
             let cl = class_at(h_main);
             cls[wk][cl] += 1;
             cls_strict[wk][class_v(h_main, false)] += 1;
@@ -3750,6 +3770,12 @@ fn cs0_hazard_census() {
         for (si, h) in hs.iter().enumerate() {
             println!("CS0 {name} sweep H {h} m: a {} b {} c {} d {}", sweep[wk][si][0], sweep[wk][si][1], sweep[wk][si][2], sweep[wk][si][3]);
         }
+        if wk == 0 {
+            for (si, h) in hs.iter().enumerate() {
+                println!("CS0 coast sweep H {h} m, input 1 (no surge band on a sheltered shore): a {} b {} c {} d {}", sweep_strict[0][si][0], sweep_strict[0][si][1], sweep_strict[0][si][2], sweep_strict[0][si][3]);
+            }
+        }
+        println!("HS {name} seed {seed} at {gw}: recorded set-back towns {}; set back without a reason {} {:?}; body past its setback + {} m {} {:?}; housing guard refusals {}", hs_set[wk], hs_no_reason[wk].len(), hs_no_reason[wk], cs0::REACH_M, hs_body_over[wk].len(), hs_body_over[wk], hs_refused[wk]);
         println!("CS0 {name} market to the water, m: {}; in-box relief, m: {}", cs0_spread(&mut mkt_m[wk]), cs0_spread(&mut relief[wk]));
         if wk == 0 {
             println!("CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a {} b {} c {} d {}", cls_strict[0][0], cls_strict[0][1], cls_strict[0][2], cls_strict[0][3]);

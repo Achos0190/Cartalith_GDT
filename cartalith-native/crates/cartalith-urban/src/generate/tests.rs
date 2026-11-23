@@ -308,6 +308,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         town_bridge_search: false,
         // Nor PS-1's plan (`urban_parallel_streets`), which changes no layout.
         parallel_streets: false,
+        // Nor Ruling HS's setback.
+        setback: None,
     }
 }
 

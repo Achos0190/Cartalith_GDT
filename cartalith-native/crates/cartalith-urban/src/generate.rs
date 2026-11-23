@@ -318,6 +318,15 @@ pub struct GenOpts {
     /// round the water (`crate::wallhug::ring_round_water`). `false` is the
     /// reference, by control flow.
     pub bank_sites: bool,
+    /// **Not the reference** -- Ruling HS (owner, 2026-11-23): the hazard
+    /// reasons over the town's box and the two setback switches
+    /// (`urban_coastal_setback`, `urban_floodplain_setback`), from the host
+    /// ([`crate::setback::SetbackCtx`]). The market placement reads it
+    /// ([`crate::setback::coast_market`], [`crate::setback::river_market`]),
+    /// and [`generate`] keeps a layout it moved only where it houses at least
+    /// [`HARBOUR_HOUSING_KEEP`] of the layout without it. `None` is the
+    /// reference, by control flow.
+    pub setback: Option<crate::setback::SetbackCtx>,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -675,6 +684,22 @@ pub struct Town {
     /// Read by [`generate`], which keeps such a layout only where it houses
     /// at least as many as the reference's market does.
     pub road_bank_moved: bool,
+    /// **Not the reference** -- Ruling HS: the setback record of this layout's
+    /// market ([`crate::setback::Setback`]): present only where a hazard
+    /// reason was found at the market. `None` with [`GenOpts::setback`]
+    /// `None`, for a town with no reason, and for a town whose set-back
+    /// layout housed too few ([`Self::setback_refused`]).
+    pub setback: Option<crate::setback::Setback>,
+    /// **Not the reference** -- Ruling HS: whether the coastal rule placed
+    /// this layout's market ([`crate::setback::coast_market`]), with or
+    /// without a reason. Read by [`generate_front`], which then tries no
+    /// harbour-front market of its own.
+    pub coast_front: bool,
+    /// **Not the reference** -- Ruling HS: whether [`generate`] laid the town
+    /// out with the setback rule and kept the layout without it, because the
+    /// rule's layout housed under [`HARBOUR_HOUSING_KEEP`] of it or had fewer
+    /// crossings. A count for the census, never a reason.
+    pub setback_refused: bool,
     /// **Not the reference** -- whether this layout was laid out with the
     /// deep-plot prototype (`GenOpts::burgage` on the organic plan of a town
     /// that is not a street village). Read by `crate::stretch::StretchMeasures::of`
@@ -744,7 +769,35 @@ fn or_str<'a>(s: Option<&'a str>, d: &'a str) -> &'a str {
 /// reference's market and the move is kept only where it houses at least as
 /// many ([`keep_road_bank_move`]). The harbour-front choice above is
 /// [`generate_front`], which this calls once or twice.
+///
+/// **Not the reference, with `GenOpts::setback` only** (Ruling HS, owner
+/// 2026-11-23): a layout whose market the coastal rule placed, or the river
+/// rule moved, is laid out again without the rule and kept only where it
+/// houses at least [`HARBOUR_HOUSING_KEEP`] of that layout's people or of its
+/// target, whichever is less (research 3.2's housing guard, the harbour
+/// front's own), and keeps as many crossings (detected bridges and ferries):
+/// on the census a floodplain town walked back from its river lost its
+/// bridge (seed 483920 #1 at 2 048 x 1 536, 2026-11-23), and no town may
+/// lose its crossing (Rulings HQ, HU); otherwise the layout without it,
+/// marked [`Town::setback_refused`].
 pub fn generate(seed: u32, opts: &GenOpts) -> Town {
+    let town = generate_road(seed, opts);
+    if opts.setback.is_none() || !(town.coast_front || town.setback.is_some_and(|s| s.to.is_some())) {
+        return town;
+    }
+    let mut reference = generate_road(seed, &GenOpts { setback: None, ..opts.clone() });
+    // Its crossings: the bridges the layout detected and its ferries (Rulings HQ and HU must hold).
+    let crossings = |t: &Town| t.site.bridges.as_ref().map_or(0, Vec::len) + t.details.iter().filter(|d| d.kind == "ferry").count();
+    if town.pop >= HARBOUR_HOUSING_KEEP * reference.pop.min(reference.pop_target) && crossings(&town) >= crossings(&reference) {
+        return town;
+    }
+    reference.setback_refused = true;
+    reference
+}
+
+/// [`generate`] before its Ruling HS housing guard: the
+/// `GenOpts::market_road_bank` comparison over [`generate_front`].
+fn generate_road(seed: u32, opts: &GenOpts) -> Town {
     let town = generate_front(seed, opts);
     // **Not the reference** (`GenOpts::market_road_bank`, 2026-11-17): a
     // market moved to its roads' bank is kept only where the town then houses
@@ -777,7 +830,8 @@ fn generate_front(seed: u32, opts: &GenOpts) -> Town {
     let Some(w) = opts.water.as_ref().filter(|_| opts.harbour_front) else {
         return town;
     };
-    let front = !town_reaches_water(&town, w, HARBOUR_REACH_M);
+    // Ruling HS: a market the coastal rule placed is not moved again here.
+    let front = !town.coast_front && !town_reaches_water(&town, w, HARBOUR_REACH_M);
     let to_sea = opts.water_to_sea.as_ref();
     if !front && to_sea.is_none() {
         return town;
@@ -936,6 +990,8 @@ struct Sited {
     pin: Option<Vec2>,
     road_bank_moved: bool,
     front_water: Option<Vec2>,
+    setback: Option<crate::setback::Setback>,
+    coast_front: bool,
 }
 
 /// **The first part of [`generate_pass`]**, unchanged and in its order: the
@@ -1051,9 +1107,25 @@ fn sited(seed: u32, opts: &GenOpts, front: bool) -> Sited {
     let mut road_bank_moved = false;
     // The water point the market was moved toward, for `harbour_street`.
     let mut front_water: Option<Vec2> = None;
+    // Ruling HS: the setback record and whether the coastal rule placed the market.
+    let mut setback: Option<crate::setback::Setback> = None;
+    let mut coast_front = false;
     if opts.water.is_some() {
         let mut mc = Vec2::new(wm / 2.0, hm / 2.0);
-        if opts.harbour_front
+        // **Not the reference** (Ruling HS, `GenOpts::setback`): a coastal
+        // town's market comes to the water, or stands back on reason-free
+        // ground ([`crate::setback::coast_market`]); it replaces the harbour
+        // front's move, and `pin` keeps the box centre as that does.
+        let coast = opts.setback.as_ref().and_then(|sc| crate::setback::coast_market(sc, mc, &|p| site.is_water(p)));
+        if let Some((q, water, rec)) = coast {
+            if q.dist(mc) > 1e-9 {
+                pin = Some(mc);
+                mc = q;
+            }
+            front_water = Some(water);
+            setback = rec;
+            coast_front = true;
+        } else if opts.harbour_front
             && front
             && let Some((q, water)) = harbour_front(&site, mc)
         {
@@ -1162,6 +1234,23 @@ fn sited(seed: u32, opts: &GenOpts, front: bool) -> Sited {
             mc = q;
             road_bank_moved = true;
         }
+        // **Not the reference** (Ruling HS, `GenOpts::setback`): a river
+        // town's market on floodplain walks back to the first ground above
+        // flood level on its own bank ([`crate::setback::river_market`]),
+        // after every bank rule above has chosen the bank. Not a market the
+        // coastal rule placed. `pin` keeps the market as the bank rules left
+        // it, so the town's map anchor and roads stay.
+        if !coast_front
+            && (site.kind == "river" || site.kind == "riverthrough")
+            && let Some(sc) = opts.setback.as_ref()
+            && let Some((q, rec)) = crate::setback::river_market(sc, &site.river, mc, &|p| site.is_water(p))
+        {
+            if q.dist(mc) > 1e-9 {
+                pin.get_or_insert(mc);
+                mc = q;
+            }
+            setback = Some(rec);
+        }
         anchors.market = mc;
     }
     Sited {
@@ -1190,6 +1279,8 @@ fn sited(seed: u32, opts: &GenOpts, front: bool) -> Sited {
         pin,
         road_bank_moved,
         front_water,
+        setback,
+        coast_front,
     }
 }
 
@@ -1241,6 +1332,8 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         pin,
         road_bank_moved,
         front_water,
+        setback,
+        coast_front,
     } = sited(seed, opts, front);
     // Ruling HN: ground past the river's end is the market's bank (`Site::bank_ref`), from here on.
     if opts.bank_sites {
@@ -1509,6 +1602,13 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         && site.riverbank()
         && (site.kind == "river" || site.kind == "riverthrough")
     {
+        crate::village::landing_lane(&site, &mut g, anchors.market);
+    }
+    // **Not the reference** (Ruling HS, research 3.4): a river town whose
+    // market the floodplain rule set back keeps a landing lane down to its
+    // river's edge, laid at the same point of the plan as the street
+    // village's.
+    if setback.is_some_and(|s| s.water == crate::setback::SetbackWater::River && s.to.is_some()) {
         crate::village::landing_lane(&site, &mut g, anchors.market);
     }
     // **Not the reference** (Ruling HN, `GenOpts::bank_sites`): beside water as wide as the map
@@ -1983,6 +2083,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         embankment,
         pin,
         road_bank_moved,
+        setback,
+        coast_front,
+        setback_refused: false,
         burgage,
         parallel,
         pop,

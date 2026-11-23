@@ -1,0 +1,24 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards balanced)
+ERROR: Error loading GDExtension configuration file: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: parse_gdextension_file (core/extension/gdextension_library_loader.cpp:282)
+ERROR: GDExtension dynamic library not found: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: open_library (core/extension/gdextension.cpp:810)
+ERROR: Error loading extension: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: load_extensions (core/extension/gdextension_manager.cpp:333)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+TOWN params from C:/cw/owner_repro/seed532187_params.txt: 155 keys set; engine answered { "rejected": [], "clamped": [] }
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+
+TOWN seed 532187 at 2048x1311, view 1150x800: 42 settlements
+TOWN   bank_sites off: 42 rows in 7.9 s
+TOWN   bank_sites on: 42 rows in 11.8 s
+TOWN     off #1 capital (1478,1159) pop 0: SEA b 2 w 3 s 2 (lane 1 ringroad 1) OVER b 1535 w 1 s 4 (street 4; deepest b 195 w 195 (run 540) s 33 m) | box 1700x1250 river_w 38 market-river 292 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 1535/4690 w 1 s 4 gated 1 bridge 466 wet 0 fronted 128/190 housed 107% of 20000
+TOWN   off least housed: #36 85% #32 86% #41 91% #0 91% #9 97% #15 99% #10 100% #4 100%
+TOWN   off: river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1119/2120 (52.8 %) | housed p10 96.5 % (all towns 96.5 %) | over drawn river: buildings 6527 of 26923, wall runs 6 (gated 9), street edges 965 of 7530 (bridge edges 1354 in 14 towns, longest bridge 12658 m, over the water 12095 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 3 w 3 s 3 | other bank x1 2/39 x4 2/39 x16 2/39 x64 2/39 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 0
+TOWN     on  #1 capital (1478,1159) pop 0: FERRY 1 (404 m) landing 0 m in the drawn river | box 2099x1649 river_w 399 market-river 276 market Market sited on flat lan at (0.00, 0.00) cells origin - river_m - over b 0/3708 w 0 s 0 gated 0 bridge 0 wet 0 fronted 128/205 housed 91% of 20000
+TOWN   on  least housed: #1 91% (off 107%) #12 91% (off 100%) #9 95% (off 97%) #0 96% (off 91%) #32 99% (off 86%) #15 99% (off 99%) #10 100% (off 100%) #4 100% (off 100%)
+TOWN   on : river towns 42 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 1134/2400 (47.3 %) | housed p10 98.8 % (all towns 98.8 %) | over drawn river: buildings 0 of 24621, wall runs 0 (gated 0), street edges 0 of 7789 (bridge edges 1 in 1 towns, longest bridge 160 m, over the water 140 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/39 x4 0/39 x16 0/39 x64 0/39 | moved 26 (median 164 m, max 275 m), past the 625 m reach 0, box grown 37 | ferries 1 in 1 towns (longest 404 m) | no street near the market 0 | over-housed (over 125 %) 1 | housed under a quarter of off 0
+
+TOWN run: bridge edges 1, ferries 1, gated wall runs 0 (switch on); footprint over the map's lake or sea with the switch off 9

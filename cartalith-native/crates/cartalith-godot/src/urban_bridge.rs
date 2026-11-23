@@ -140,6 +140,7 @@ fn place_overrides_in<'a>(
     resources: Option<&'a ResourcePotentials>,
     stretch_others: &'a [(f64, f64, f64)],
     drawn_rivers: &'a [urban_adapter::DrawnRiver],
+    setback: Option<&'a cartalith_civ::setback::SetbackFields>,
 ) -> urban_adapter::PlaceOverrides<'a> {
     urban_adapter::PlaceOverrides {
         specialisation: if e.specialisation.is_empty() {
@@ -201,6 +202,8 @@ fn place_overrides_in<'a>(
         // Ruling HM: a town whose cell centre is inside its drawn river is laid round the
         // river's edge (`bank_site::town_origin`; `None` with `civ.bank_sites` off). Read live.
         origin,
+        // Ruling HS: the setback's fields and switches (`None` with both off). Read live.
+        setback,
     }
 }
 
@@ -235,6 +238,8 @@ pub(crate) struct TownInputs<'a> {
     pub resources: Option<&'a ResourcePotentials>,
     /// The drawn rivers (`WorldGen::drawn_river_runs`).
     pub drawn: &'a [urban_adapter::DrawnRiver],
+    /// Ruling HS: the setback's hazard fields and switches (`WorldGen::setback_fields`; `None` with both off).
+    pub setback: Option<&'a cartalith_civ::setback::SetbackFields>,
     pub extras: &'a dyn Fn(&cartalith_civ::NamedSettlement) -> crate::civ_roster_bridge::PlaceExtras,
     pub faith: &'a dyn Fn(&cartalith_civ::NamedSettlement) -> Option<&'static str>,
     pub rules: &'a dyn Fn(&crate::civ_roster_bridge::PlaceExtras) -> Option<urban_adapter::Rules>,
@@ -288,7 +293,7 @@ pub(crate) fn town_batch_in<R>(
     for &idx in indices {
         let Some(s) = b.settlements.get(idx) else { continue };
         let e = (b.extras)(s);
-        let o = place_overrides_in(b.params, (b.faith)(s), (b.origin)(s), &e, b.resources, &stretch_others, b.drawn);
+        let o = place_overrides_in(b.params, (b.faith)(s), (b.origin)(s), &e, b.resources, &stretch_others, b.drawn, b.setback);
         let ctx = urban_adapter::um_place_context_with(&world, s, b.ways, &o);
         let rules = (b.rules)(&e);
         res.push((idx, f(idx, s, &ctx, rules.as_ref(), &o, world.river_kind_from_map)));
@@ -943,8 +948,9 @@ impl WorldGen {
         resources: Option<&'a ResourcePotentials>,
         stretch_others: &'a [(f64, f64, f64)],
         drawn_rivers: &'a [urban_adapter::DrawnRiver],
+        setback: Option<&'a cartalith_civ::setback::SetbackFields>,
     ) -> urban_adapter::PlaceOverrides<'a> {
-        place_overrides_in(&self.params, civ.town_faith(s), self.town_origin(s), e, resources, stretch_others, drawn_rivers)
+        place_overrides_in(&self.params, civ.town_faith(s), self.town_origin(s), e, resources, stretch_others, drawn_rivers, setback)
     }
 
     /// Settlement `e`'s rule set: empty follows the world's active rules,
@@ -1133,6 +1139,7 @@ impl WorldGen {
         let resources = self.ore_potentials(ws, civ, wants_ore);
         let drawn_water = self.town_map_water();
         let drawn = self.drawn_river_runs();
+        let setback = self.setback_fields();
         let b = TownInputs {
             field: &ws.field,
             flow: &ws.flow_discharge,
@@ -1150,6 +1157,7 @@ impl WorldGen {
             map_water: drawn_water.as_deref(),
             resources: resources.as_ref(),
             drawn: &drawn,
+            setback: setback.as_deref(),
             extras: &|s| civ.place_extras.get(s.tid),
             faith: &|s| civ.town_faith(s),
             rules: &|e| self.own_rules(e),
@@ -1242,15 +1250,16 @@ impl WorldGen {
             .iter()
             .filter(|s| {
                 let e = civ.place_extras.get(s.tid);
-                urban_adapter::um_stretch_gate(s, &self.place_overrides(civ, s, &e, None, &others, &[]))
+                urban_adapter::um_stretch_gate(s, &self.place_overrides(civ, s, &e, None, &others, &[], None))
             })
             .collect();
         let drawn = self.drawn_river_runs();
         let wants_ore = candidates.iter().any(|s| civ.place_extras.get(s.tid).specialisation == "mining");
         let resources = self.ore_potentials(ws, civ, wants_ore);
+        let setback = self.setback_fields();
         for s in candidates {
             let e = civ.place_extras.get(s.tid);
-            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &others, &drawn);
+            let o = self.place_overrides(civ, s, &e, resources.as_ref(), &others, &drawn, setback.as_deref());
             let ctx = urban_adapter::um_place_context_with(&world, s, &civ.ways, &o);
             let (bw, bh) = self.drawn_box(&ctx, self.own_rules(&e).as_ref());
             if (bw - urban_adapter::SITE_WM).abs() > 0.5 || (bh - urban_adapter::SITE_HM).abs() > 0.5 {

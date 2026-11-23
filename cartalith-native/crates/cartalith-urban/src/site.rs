@@ -325,9 +325,10 @@ struct BankCtx {
 /// (1 orthogonal, 1.41421 diagonal, the reference's five-digit literal), over
 /// `mask`'s `== 1` cells, in cells. `INFINITY`, not the reference's `1e9`, for
 /// a raster with no water: "no water" must not read as a distance a threshold
-/// could compare under.
+/// could compare under. Public since Ruling HS (2026-11-23) for the setback's
+/// hazard raster (`cartalith_civ::setback`), one transform for both.
 #[allow(clippy::approx_constant, reason = "the reference's own five-digit literal; see the doc comment")]
-fn chamfer(mask: &[u8], mw: usize, mh: usize) -> Vec<f64> {
+pub fn chamfer(mask: &[u8], mw: usize, mh: usize) -> Vec<f64> {
     let mut dt: Vec<f64> = mask.iter().map(|&m| if m == 1 { 0.0 } else { f64::INFINITY }).collect();
     const D: f64 = 1.41421;
     for j in 0..mh {

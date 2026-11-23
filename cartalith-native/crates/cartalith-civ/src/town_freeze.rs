@@ -69,7 +69,11 @@ use crate::urban_adapter::{
 /// far bank (along the road's line, else square across); and the house sweep no longer tests the box's edge (it swept
 /// no house). With the switch off every layout is still v1's (the six v1 fixture hashes did not move), and of the
 /// three bank fixtures only the ferry town moved (its dry approaches now stand).
-pub const URBAN_RULES_VERSION: u32 = 5;
+/// `6` (2026-11-23, Ruling HS): with `urban_coastal_setback` on, a coastal town's market on a 2 048-class grid comes
+/// to the water or stands back on reason-free ground (storm surge on an exposed shore, a cliff, marsh); with
+/// `urban_floodplain_setback` on, a river town's market on floodplain walks back to the first ground above flood level
+/// on its own bank. Both off in `WorldParams::defaults`, so every fixture laid out without them is unmoved.
+pub const URBAN_RULES_VERSION: u32 = 6;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).
@@ -142,6 +146,7 @@ pub fn switch_record(o: &PlaceOverrides, river_kind_from_map: bool) -> BTreeMap<
         parallel_streets,
         river_smooth,
         origin,
+        setback,
     } = *o;
     [
         ("urban_wall_hug", wall_hug),
@@ -159,6 +164,9 @@ pub fn switch_record(o: &PlaceOverrides, river_kind_from_map: bool) -> BTreeMap<
         ("urban_river_kind_map", river_kind_from_map),
         // Ruling HM: this town was laid round the drawn river's edge (`civ.bank_sites` on and its cell in the stroke).
         ("civ_bank_origin", origin.is_some()),
+        // Ruling HS: the two setback switches, as in effect (`PlaceOverrides::setback`).
+        ("urban_coastal_setback", setback.is_some_and(|f| f.coast)),
+        ("urban_floodplain_setback", setback.is_some_and(|f| f.river)),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
@@ -489,6 +497,10 @@ fn ridge_decode(ip: &[(i64, i64)], sel: i64, r: [i64; 4]) -> Option<[(i64, i64);
 #[allow(clippy::too_many_lines)]
 pub fn encode(l: &UrbanLayout) -> Value {
     let UrbanLayout {
+        // Ruling HS: the setback record is a report of how the layout was chosen, not part of the town drawn, so a
+        // frozen row does not carry it (a decoded town reads "no record"); the town's market and streets do.
+        setback: _,
+        setback_refused: _,
         wm,
         hm,
         market,
@@ -1160,6 +1172,8 @@ pub fn decode(geom: &Value) -> Result<UrbanLayout, DecodeError> {
         .collect::<Result<Vec<_>, DecodeError>>()?;
     let orient = dbits(r.get("orient")?, "orient")?;
     Ok(UrbanLayout {
+        setback: None,
+        setback_refused: false,
         wm: m(int(&bx[0], "box")?),
         hm: m(int(&bx[1], "box")?),
         market: dpt(r.get("market")?, "market")?,

@@ -1,0 +1,72 @@
+== Coarse grids: towns laid out differently, before vs after (cmp_dumps.py) ==
+w483920_384: 234 towns before, 234 after; laid out differently: 0 []
+w912345_384: 235 towns before, 235 after; laid out differently: 0 []
+w246371_384: 239 towns before, 239 after; laid out differently: 0 []
+w83744_384: 239 towns before, 239 after; laid out differently: 0 []
+app483920_384: 236 towns before, 236 after; laid out differently: 0 []
+
+== 2048: towns laid out differently ==
+245 towns before, 245 after; laid out differently: 53 [1, 3, 7, 20, 25, 32, 35, 38, 39, 50, 54, 55, 56, 60, 70, 71, 78, 82, 92, 95, 96, 120, 121, 122, 126, 129, 133, 136, 138, 142, 143, 144, 145, 146, 151, 153, 154, 164, 172, 174]
+42 towns before, 42 after; laid out differently: 8 [0, 8, 9, 16, 20, 32, 33, 38]
+
+== Hard gates (bars.py over _towncensus_probe.gd) ==
+483920@384   census_384.txt         p10 off 76.8 on 92.3 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 6 in 6 towns (longest 990 m) | no street near mkt 0 | over-housed 3 | quartered 2
+912345@384   census_384.txt         p10 off 82.0 on 85.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 2 longest 395 m | ferries 7 in 7 towns (longest 1445 m) | no street near mkt 0 | over-housed 4 | quartered 0
+246371@384   census_384.txt         p10 off 72.8 on 88.5 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 9 in 9 towns (longest 1784 m) | no street near mkt 0 | over-housed 4 | quartered 1
+83744@384    census_384.txt         p10 off 84.5 on 89.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 12 in 12 towns (longest 2053 m) | no street near mkt 0 | over-housed 2 | quartered 3
+483920@384   census_384.txt         p10 off 76.8 on 92.3 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 6 in 6 towns (longest 990 m) | no street near mkt 0 | over-housed 3 | quartered 2
+912345@384   census_384.txt         p10 off 82.0 on 85.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 2 longest 395 m | ferries 7 in 7 towns (longest 1445 m) | no street near mkt 0 | over-housed 4 | quartered 0
+246371@384   census_384.txt         p10 off 72.8 on 88.5 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 9 in 9 towns (longest 1784 m) | no street near mkt 0 | over-housed 4 | quartered 1
+83744@384    census_384.txt         p10 off 84.5 on 89.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 0 longest 0 m | ferries 12 in 12 towns (longest 2053 m) | no street near mkt 0 | over-housed 2 | quartered 3
+483920@2048  census_2048_rows.txt   p10 off 91.0 on 97.5 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 12 longest 395 m | ferries 8 in 8 towns (longest 573 m) | no street near mkt 0 | over-housed 4 | quartered 2
+483920@2048  census_2048_rows.txt   p10 off 95.0 on 97.5 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 15 longest 395 m | ferries 9 in 8 towns (longest 573 m) | no street near mkt 0 | over-housed 5 | quartered 1
+532187@2048  census_owner.txt       p10 off 96.5 on 98.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 1 longest 160 m | ferries 1 in 1 towns (longest 404 m) | no street near mkt 0 | over-housed 1 | quartered 0
+532187@2048  census_owner.txt       p10 off 99.4 on 99.8 | river b0 w0 s0 | lake 0/0/0 sea 0/0/0 | other bank 0 0 0 0 | bridge towns 1 longest 160 m | ferries 1 in 1 towns (longest 404 m) | no street near mkt 0 | over-housed 3 | quartered 0
+
+== Crossings (crossings.py) ==
+crossing towns before 20, lost 0; gained a crossing 3 [('483920@2048', 14), ('483920@2048', 168), ('483920@2048', 241)]
+crossing towns before 1, lost 0; gained a crossing 1 [('532187@2048', 11)]
+
+== Census exit codes (after) ==
+census384 0
+owner 0
+census2048 0
+probe w483920_2048 0
+rows 0
+probe w532187_2048 0
+probe w483920_384 0
+probe w912345_384 0
+probe w246371_384 0
+probe w83744_384 0
+probe app483920_384 0
+ALLDONE
+cs0 app483920_384 0
+cs0 w246371_384 0
+cs0 w483920_384 0
+cs0 w83744_384 0
+cs0 w912345_384 0
+rows 0
+owner 0
+probe h4 0
+probe owner 0
+probe h6 0
+probe h8 0
+ALLDONE
+
+== HS lines ==
+CS0 coast seed 483920 at 2048: towns 33; classes a 2 b 22 c 4 d 5 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 7, of them the rule moves the core 7; reasons [surge, cliff, marsh/flood] [3, 3, 3]; height reason splits the land within the cap 31; cell fields vary within the cap 24
+HS coast seed 483920 at 2048: recorded set-back towns 4; set back without a reason 4 ["#7 232 m", "#30 318 m", "#166 838 m", "#236 1030 m"]; body past its setback + 23 m 0 []; housing guard refusals 1
+CS0 river seed 483920 at 2048: towns 217; classes a 2 b 171 c 17 d 27 (c with safe ground in the cap: 16); with a reason (the rule moves the core, or holds it back) 20, of them the rule moves the core 18; reasons [floodplain, -, wetland] [17, 0, 4]; height reason splits the land within the cap 194; cell fields vary within the cap 103
+HS river seed 483920 at 2048: recorded set-back towns 25; set back without a reason 9 ["#5 214 m", "#25 528 m", "#29 264 m", "#35 251 m", "#90 324 m", "#136 188 m", "#164 531 m", "#179 626 m", "#199 167 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 coast seed 532187 at 2048: towns 3; classes a 0 b 1 c 1 d 1 (c with safe ground in the cap: 1); with a reason (the rule moves the core, or holds it back) 1, of them the rule moves the core 1; reasons [surge, cliff, marsh/flood] [1, 0, 0]; height reason splits the land within the cap 3; cell fields vary within the cap 2
+HS coast seed 532187 at 2048: recorded set-back towns 1; set back without a reason 0 []; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 river seed 532187 at 2048: towns 39; classes a 1 b 26 c 4 d 8 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 5, of them the rule moves the core 4; reasons [floodplain, -, wetland] [5, 0, 0]; height reason splits the land within the cap 32; cell fields vary within the cap 26
+HS river seed 532187 at 2048: recorded set-back towns 6; set back without a reason 3 ["#20 136 m", "#27 262 m", "#37 314 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 coast seed 483920 at 2048: towns 33; classes a 2 b 16 c 4 d 11 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 7, of them the rule moves the core 7; reasons [surge, cliff, marsh/flood] [3, 3, 3]; height reason splits the land within the cap 31; cell fields vary within the cap 24
+HS coast seed 483920 at 2048: recorded set-back towns 10; set back without a reason 4 ["#7 232 m", "#30 318 m", "#166 838 m", "#236 1030 m"]; body past its setback + 23 m 0 []; housing guard refusals 1
+CS0 river seed 483920 at 2048: towns 217; classes a 2 b 171 c 17 d 27 (c with safe ground in the cap: 16); with a reason (the rule moves the core, or holds it back) 20, of them the rule moves the core 18; reasons [floodplain, -, wetland] [17, 0, 4]; height reason splits the land within the cap 194; cell fields vary within the cap 103
+HS river seed 483920 at 2048: recorded set-back towns 25; set back without a reason 9 ["#5 214 m", "#25 528 m", "#29 264 m", "#35 251 m", "#90 324 m", "#136 188 m", "#164 531 m", "#179 626 m", "#199 167 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 coast seed 483920 at 2048: towns 33; classes a 2 b 9 c 4 d 18 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 7, of them the rule moves the core 7; reasons [surge, cliff, marsh/flood] [3, 3, 3]; height reason splits the land within the cap 31; cell fields vary within the cap 24
+HS coast seed 483920 at 2048: recorded set-back towns 18; set back without a reason 4 ["#7 232 m", "#30 318 m", "#166 838 m", "#236 1030 m"]; body past its setback + 23 m 0 []; housing guard refusals 1
+CS0 river seed 483920 at 2048: towns 217; classes a 2 b 171 c 17 d 27 (c with safe ground in the cap: 16); with a reason (the rule moves the core, or holds it back) 20, of them the rule moves the core 18; reasons [floodplain, -, wetland] [17, 0, 4]; height reason splits the land within the cap 194; cell fields vary within the cap 103
+HS river seed 483920 at 2048: recorded set-back towns 25; set back without a reason 9 ["#5 214 m", "#25 528 m", "#29 264 m", "#35 251 m", "#90 324 m", "#136 188 m", "#164 531 m", "#179 626 m", "#199 167 m"]; body past its setback + 23 m 0 []; housing guard refusals 0

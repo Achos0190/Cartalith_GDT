@@ -812,6 +812,8 @@ impl WorldGen {
             ("urban_market_road_bank", p.urban_market_road_bank),
             ("urban_growth_water_widen", p.urban_growth_water_widen),
             ("urban_town_bridge_search", p.urban_town_bridge_search),
+            ("urban_coastal_setback", p.urban_coastal_setback),
+            ("urban_floodplain_setback", p.urban_floodplain_setback),
             ("urban_parallel_streets", p.urban_parallel_streets),
             ("urban_river_smooth", p.urban_river_smooth),
             ("urban_river_kind_map", p.urban_river_kind_map),

@@ -361,8 +361,10 @@ pub const LANDING_LANE_PROV: &str = "Landing lane: from the village green down t
 /// one of eleven samples of the line is dry (`Site::is_water`) and clear of
 /// the channel (half its width plus a metre). Draws nothing. **Must never**
 /// lay a street into the water or across the river (it runs toward the
-/// nearest centreline point, so it stays on `m`'s bank), nor run for a town
-/// (`generate_pass` calls it only for a street village).
+/// nearest centreline point, so it stays on `m`'s bank). `generate_pass`
+/// calls it for a street village and, since Ruling HS (2026-11-23), for a
+/// town whose market the floodplain rule set back
+/// (`crate::setback::river_market`), whose landing it is.
 pub fn landing_lane(site: &Site, g: &mut Graph, m: Vec2) -> Option<Vec2> {
     if site.river.len() < 2 {
         return None;

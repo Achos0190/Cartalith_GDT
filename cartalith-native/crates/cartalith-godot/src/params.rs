@@ -228,6 +228,9 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::urban_growth_water_widen` / `urban_town_bridge_search`.
     p.urban_growth_water_widen = true;
     p.urban_town_bridge_search = true;
+    // Ruling HS (2026-11-23): the coastal and floodplain setback. Both off in `WorldParams::defaults`.
+    p.urban_coastal_setback = true;
+    p.urban_floodplain_setback = true;
     // RR-T1 (Ruling FE item 4): the town's river is the map's drawn curve. Off in `WorldParams::defaults`.
     p.urban_river_smooth = true;
     // Ruling FZ item 5 (2026-11-17): rivers and the landmark kinds that were unnamed get names from the
@@ -586,6 +589,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_town_bridge_search", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "River towns search for a crossing", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_town_bridge_search), set_fn: |p, v| p.urban_town_bridge_search = v != 0.0 },
+    // Ruling HS (owner, 2026-11-23): a coastal market comes to the water unless storm surge, a cliff or marsh
+    // sets it back (`cartalith_urban::setback`). Same defaults, load rule and regen as the rows above.
+    ParamSpec { key: "urban_coastal_setback", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Coastal markets set back only for a hazard", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_coastal_setback), set_fn: |p, v| p.urban_coastal_setback = v != 0.0 },
+    // Ruling HS: a river town on floodplain stands on the first ground above flood level. Same as above.
+    ParamSpec { key: "urban_floodplain_setback", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River towns stand above the floodplain", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_floodplain_setback), set_fn: |p, v| p.urban_floodplain_setback = v != 0.0 },
     // RR-T1 (Ruling FE item 4): a riverbank town's river is the curve the map draws. Same defaults, load
     // rule (`LOADS_WHEN_ABSENT`: off) and live regen as the rows above.
     ParamSpec { key: "urban_river_smooth", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
@@ -1389,6 +1401,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     // Port-only (Ruling GB); the reference's growth radius and single bridge point.
     ("urban_growth_water_widen", ""),
     ("urban_town_bridge_search", ""),
+    // Port-only (Ruling HS); the reference's market is the box centre or its harbour point.
+    ("urban_coastal_setback", ""),
+    ("urban_floodplain_setback", ""),
     // Port-only (RR-T1); the reference's river through a town is the raw trace.
     ("urban_river_smooth", ""),
     // Port-only (PARALLEL_STREETS_SCOPE.md PS-1); the reference has no town types or field.
@@ -1776,6 +1791,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Ruling GB (2026-11-17): every save without the keys drew the reference's radius and bridge point.
     ("urban_growth_water_widen", Value::Bool(false)),
     ("urban_town_bridge_search", Value::Bool(false)),
+    // Ruling HS (2026-11-23): every save without the keys placed its markets with no setback.
+    ("urban_coastal_setback", Value::Bool(false)),
+    ("urban_floodplain_setback", Value::Bool(false)),
     // RR-T1 (2026-11-22): every save without the key drew the raw trace.
     ("urban_river_smooth", Value::Bool(false)),
     // Parallel streets, PS-1 (2026-11-18): every save without the key had no town types or field.

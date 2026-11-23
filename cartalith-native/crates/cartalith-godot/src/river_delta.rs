@@ -397,23 +397,11 @@ fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
 /// `r` in front of the shore crossing `d` (facing `dir`, a unit vector) that
 /// are drawn water, in `0..=1`; cells off the grid count as land. A proxy for
 /// the fetch that waves reach the mouth over ([`EXPOSURE_SHELTERED`]). `None`
-/// when the half-disc holds no cell (a radius under one cell).
+/// when the half-disc holds no cell (a radius under one cell). Since Ruling HS
+/// (2026-11-23) the one definition lives in `cartalith_civ::setback`, where the
+/// coastal setback reads a shore's exposure too.
 pub fn exposure(d: (f32, f32), dir: (f32, f32), r: f32, wet: Wet) -> Option<f32> {
-    let ri = r.ceil() as i64;
-    let (mut n, mut w) = (0u32, 0u32);
-    for dy in -ri..=ri {
-        for dx in -ri..=ri {
-            let (fx, fy) = (dx as f32, dy as f32);
-            if fx * fx + fy * fy > r * r || fx * dir.0 + fy * dir.1 <= 0.0 {
-                continue;
-            }
-            n += 1;
-            if wet((d.0 + fx).floor() as i64, (d.1 + fy).floor() as i64) {
-                w += 1;
-            }
-        }
-    }
-    (n > 0).then(|| w as f32 / n as f32)
+    cartalith_civ::setback::exposure(d, dir, r, wet)
 }
 
 /// A small deterministic generator (SplitMix64, Steele, Lea & Flood 2014),

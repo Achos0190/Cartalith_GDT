@@ -1,0 +1,23 @@
+KILLED       COAST_FRONT_M 70 -> 100
+KILLED       COAST_CAP_M 600 -> 700
+KILLED       RIVER_CAP_M 500 -> 550
+KILLED       H_FLOOD_M 2 -> 3
+KILLED       WALK_STEP_M 11 -> 22
+KILLED       cap <= -> <
+KILLED       tie prefers lower ground
+KILLED       walk ignores wetland
+KILLED       market never comes to the front
+KILLED       walk terrace >= -> >
+KILLED       FINE_MAX_CELL_M 625 -> 700
+KILLED       H_SURGE_M 4 -> 3
+KILLED       D_SURGE_M 100 -> 90
+KILLED       E_EXPOSED 0.55 -> 0.85
+KILLED       D_CLIFF_M 50 -> 40
+KILLED       H_CLIFF_M 15 -> 16
+KILLED       FLOOD_SAFE 0.55 -> 0.6
+KILLED       LF_CLIFF 1 -> 2
+KILLED       LF_FLOODPLAIN 6 -> 5
+KILLED       surge on a sheltered shore
+KILLED       housing guard always keeps the rule
+21 of 21 killed
+done

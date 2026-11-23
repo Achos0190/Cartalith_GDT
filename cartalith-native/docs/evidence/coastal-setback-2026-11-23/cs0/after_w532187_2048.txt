@@ -1,0 +1,30 @@
+
+running 1 test
+test town_river_census::cs0_hazard_census ... CS0 params from C:/cw/owner_repro/seed532187_params.txt: 155 set, refused []
+CS0 params from the dump's header: 158 of 158 set
+CS0 seed 532187 at 2048x1311: 42 settlements; cell heights differing from the probe's: 0; sea 0.4200, peak 5556 m, 390.6 m a cell, lattice 8 m
+CS0 checks: box-to-grid transform vs the census's market offset, worst 0.00 m; lattice sea vs DrawnWater here: 0 of 233601 samples differ
+CS0 coast seed 532187 at 2048: towns 3; classes a 0 b 1 c 1 d 1 (c with safe ground in the cap: 1); with a reason (the rule moves the core, or holds it back) 1, of them the rule moves the core 1; reasons [surge, cliff, marsh/flood] [1, 0, 0]; height reason splits the land within the cap 3; cell fields vary within the cap 2
+CS0 coast sweep H 4 m: a 0 b 1 c 1 d 1
+CS0 coast sweep H 6 m: a 0 b 1 c 1 d 1
+CS0 coast sweep H 8 m: a 0 b 1 c 1 d 1
+CS0 coast sweep H 4 m, input 1 (no surge band on a sheltered shore): a 0 b 2 c 0 d 1
+CS0 coast sweep H 6 m, input 1 (no surge band on a sheltered shore): a 0 b 2 c 0 d 1
+CS0 coast sweep H 8 m, input 1 (no surge band on a sheltered shore): a 0 b 2 c 0 d 1
+HS coast seed 532187 at 2048: recorded set-back towns 1; set back without a reason 0 []; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 coast market to the water, m: n 3 min 20 p10 20 median 92 p90 133 max 133; in-box relief, m: n 3 min 119 p10 119 median 418 p90 1675 max 1675
+CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a 0 b 2 c 0 d 1
+CS0 river seed 532187 at 2048: towns 39; classes a 1 b 26 c 4 d 8 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 5, of them the rule moves the core 4; reasons [floodplain, -, wetland] [5, 0, 0]; height reason splits the land within the cap 32; cell fields vary within the cap 26
+CS0 river sweep H 2 m: a 1 b 26 c 4 d 8
+CS0 river sweep H 4 m: a 1 b 24 c 6 d 8
+CS0 river sweep H 8 m: a 1 b 23 c 7 d 8
+HS river seed 532187 at 2048: recorded set-back towns 6; set back without a reason 3 ["#20 136 m", "#27 262 m", "#37 314 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 river market to the water, m: n 39 min 20 p10 29 median 36 p90 314 max 463; in-box relief, m: n 39 min 2 p10 11 median 122 p90 616 max 1212
+CS0 river, section 3.4's terrace walk at H_FLOOD 2 m: applies to 4, a terrace found 1; distance from the market, m: n 1 min 108 p10 108 median 108 p90 108 max 108
+CS0 river, section 3.4's terrace walk at H_FLOOD 4 m: applies to 4, a terrace found 1; distance from the market, m: n 1 min 212 p10 212 median 212 p90 212 max 212
+CS0 river, section 3.4's terrace walk at H_FLOOD 8 m: applies to 4, a terrace found 1; distance from the market, m: n 1 min 244 p10 244 median 244 p90 244 max 244
+CS0 quays: 1, over 23 m from the drawn sea 0; quay gap, m: n 1 min 14 p10 14 median 14 p90 14 max 14; badged harbours with sea in the box: 3, nearest street or building over 23 m 2
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1521 filtered out; finished in 10.32s
+

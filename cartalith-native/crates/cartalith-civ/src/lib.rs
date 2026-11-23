@@ -122,6 +122,8 @@ pub mod travel_library;
 /// See its own module doc for the exact function-by-function boundary and for
 /// why it is not golden-verified.
 pub mod urban_adapter;
+/// Ruling HS: the coastal and floodplain setback's hazard fields (`urban_coastal_setback`, `urban_floodplain_setback`).
+pub mod setback;
 /// `TOWN_LAYOUT_SAVE_SCOPE.md` (Rulings GZ, HA): frozen town layouts' pure half -- the rules version, the switch
 /// record, `site_hash`, the integer codec, the fingerprint and pin anchors. The save slot is `cartalith-godot`'s.
 pub mod town_freeze;

@@ -89,6 +89,8 @@ pub mod routes;
 pub mod riverbank;
 pub mod rules;
 pub mod site;
+/// Ruling HS: the coastal and floodplain setback (`urban_coastal_setback`, `urban_floodplain_setback`).
+pub mod setback;
 /// Ruling FN: river towns stretched along their river (`urban_river_stretch`).
 pub mod stretch;
 /// Ruling FE item 2: street villages (`urban_street_village`).
