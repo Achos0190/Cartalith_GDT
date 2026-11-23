@@ -277,7 +277,7 @@ const FENCE := Color(0.471, 0.392, 0.275)       # rgb(120,100,70)
 ## which the host's only reachable culture (`medieval`: `run_layout` passes
 ## `culture: None`) does not set, so it has a branch but no live town reaches it.
 const DETAIL_KINDS_DRAWN := ["well", "cross", "crane", "bollard", "spoilheap",
-	"tree", "dryingrack", "logboom", "fence", "waterway"]
+	"tree", "dryingrack", "logboom", "fence", "waterway", "ferry"]
 
 ## The rooftop base, in HSV. Every roof is this hue with its brightness and
 ## saturation moved together by its own `tone` -- see `_roof_color()`.
@@ -1413,6 +1413,7 @@ static func _draw_details(ci: CanvasItem, layout: Dictionary, to_screen: Callabl
 	var ink: Color = a.call(CASING)
 
 	if not trees:
+		_draw_ferries(ci, kinds, geoms, n, to_screen, m_scale, px_floor, a, ink)
 		_draw_props(ci, kinds, geoms, radii, flags, n, to_screen, m_scale, px_floor, a, ink, fine)
 		return
 	# Rims then canopies, so overlapping crowns merge into one
@@ -1439,6 +1440,28 @@ static func _draw_details(ci: CanvasItem, layout: Dictionary, to_screen: Callabl
 			ci.draw_circle(tree_c[k], tree_r[k] + maxf(px_floor * 0.6, 0.5 * m_scale), rim)
 	for k in tree_c.size():
 		ci.draw_circle(tree_c[k], tree_r[k], a.call(TREE_ORCHARD if tree_orch[k] else TREE))
+
+
+## Ruling HQ (`civ.bank_sites`): a `ferry` detail is a crossing wider than a town would bridge
+## (`cartalith-urban`'s `cleanup::BRIDGE_MAX_SPAN_M`, 400 m), from the landing on the market's bank to the
+## one on the other. Drawn at every detail, as a map draws a ferry route: a dashed ink line over the water
+## and a landing stage (a small timber square, the log boom's colour) at each end. Must never draw a street.
+static func _draw_ferries(ci: CanvasItem, kinds: PackedStringArray, geoms: Array, n: int, to_screen: Callable,
+		m_scale: float, px_floor: float, a: Callable, ink: Color) -> void:
+	var w: float = maxf(px_floor * 0.8, 1.6 * m_scale)
+	var half: float = maxf(px_floor * 1.5, 5.0 * m_scale)
+	for i in n:
+		if kinds[i] != "ferry":
+			continue
+		var g: PackedVector2Array = geoms[i]
+		if g.size() < 2:
+			continue
+		var p: Vector2 = to_screen.call(g[0])
+		var q: Vector2 = to_screen.call(g[1])
+		ci.draw_dashed_line(p, q, ink, w, maxf(px_floor * 4.0, 12.0 * m_scale))
+		for e in [p, q]:
+			ci.draw_rect(Rect2(e - Vector2(half, half), Vector2(half, half) * 2.0), a.call(LOGBOOM))
+			ci.draw_rect(Rect2(e - Vector2(half, half), Vector2(half, half) * 2.0), ink, false, maxf(px_floor * 0.5, 0.5 * m_scale))
 
 
 ## Draws the settlement's point props (for example wells) from parallel `kinds` / `geoms` / `radii` / `flags` arrays of length `n`, only when `fine` is true. `to_screen` projects a point, `a` tints a colour, and glyph radius and ink width scale with `m_scale` with `px_floor` as the minimum.
@@ -1506,5 +1529,6 @@ static func _draw_props(ci: CanvasItem, kinds: PackedStringArray, geoms: Array,
 					var pts: PackedVector2Array = project.call(g)
 					pts.append(pts[0])
 					ci.draw_polyline(pts, a.call(WATER), maxf(px_floor, 6.0 * m_scale), true)
-			# "tree" was drawn above, "fence" under the streets; anything else
+			# "tree" was drawn above, "fence" under the streets, "ferry" by
+			# `_draw_ferries` (at every detail); anything else
 			# has no branch (see `DETAIL_KINDS_DRAWN`).

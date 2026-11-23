@@ -754,10 +754,36 @@ fn the_far_bank_pass_is_capped_and_grows_only_the_far_bank() {
     assert!((n0 - 2660.0).abs() < 1.0 && (s0 - 90.0).abs() < 1.0, "premise: {n0} {s0}");
     let opts = crate::growth::GrowOpts { max_rf: 720.0, ..Default::default() };
     let ws = crate::growth::WallState::default();
-    let laid = crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 10.0, Vec2::new(800.0, r + 30.0));
+    let laid = crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 10.0, Vec2::new(800.0, r + 30.0), false);
     let (n1, s1) = bank_lengths(&g);
     assert!(laid > 500.0, "the far bank grew only {laid:.0} m");
     assert!(s1 <= n0 + 125.0, "far bank {s1:.0} m against the market bank's {n0:.0} m");
+    assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
+}
+
+/// Protects Ruling HQ's raised cap and tries for a bank-site town
+/// (`BANK_SITES_FAR_BANK_MAX_RATIO` 2.0, `BANK_SITES_FAR_BANK_TRIES`): the
+/// same fixture and ask as the test above, with `bank_sites`, grows the far
+/// bank past the market bank's 2 660 m (Ruling FB's cap of 1.0 stops it at
+/// 2 785 m) and stops by 2.0 times it plus one street. MUTATION: the ratio
+/// 2.0 to 1.0 keeps it under the first bound; 2.0 to 20.0 or the tries
+/// literal 40 000 to 2 600 is read by the assertions on the measured length.
+#[test]
+fn a_bank_site_far_bank_may_grow_to_twice_the_market_bank() {
+    let r = RIVER_Y;
+    let mut streets: Vec<(Vec2, Vec2)> = (0..4).map(|k| (Vec2::new(500.0, r - 60.0 - k as f64 * 70.0), Vec2::new(1100.0, r - 60.0 - k as f64 * 70.0))).collect();
+    streets.push((Vec2::new(800.0, r - 40.0), Vec2::new(800.0, r - 300.0)));
+    streets.push((Vec2::new(800.0, r + 30.0), Vec2::new(800.0, r + 120.0)));
+    let (site, mut g) = bank_site_and_streets(&streets);
+    let anchors = crate::routes::Anchors { market: Vec2::new(800.0, r - 120.0), prov: "test" };
+    let (n0, _) = bank_lengths(&g);
+    let opts = crate::growth::GrowOpts { max_rf: 720.0, ..Default::default() };
+    let ws = crate::growth::WallState::default();
+    crate::growth::grow_far_bank(7, &site, &anchors, &mut g, &ws, &opts, 8, 10.0, Vec2::new(800.0, r + 30.0), true);
+    let (n1, s1) = bank_lengths(&g);
+    eprintln!("far bank {s1:.0} m against {n0:.0} m");
+    assert!(s1 > n0 + 125.0, "the far bank stopped at Ruling FB's cap: {s1:.0} m against {n0:.0} m");
+    assert!(s1 <= 2.0 * n0 + 125.0, "the far bank passed twice the market bank's: {s1:.0} m against {n0:.0} m");
     assert!((n1 - n0).abs() < 1e-6, "the market's bank changed: {n0} -> {n1}");
 }
 
@@ -785,6 +811,12 @@ fn second_pass_asks_for_the_shortfall_and_the_village_refit() {
     assert_eq!(second_pass(&with(2000.0, 6000.0)), Some(RiverbankPass::FarBank { share: 1.0 }));
     assert_eq!(second_pass(&with(4000.0, 6000.0)), Some(RiverbankPass::FarBank { share: 0.5 }));
     assert_eq!(second_pass(&with(7000.0, 6000.0)), None);
+    // Ruling HQ: a bank-site town's share is capped at 2.0, not 1.0 (literals).
+    let mut wide = with(1500.0, 6000.0);
+    wide.bank_sites = true;
+    assert_eq!(second_pass(&wide), Some(RiverbankPass::FarBank { share: 2.0 }));
+    wide.pop = 2500.0;
+    assert_eq!(second_pass(&wide), Some(RiverbankPass::FarBank { share: 1.4 }));
     let mut village = with(600.0, 400.0);
     village.both_banks = false;
     assert_eq!(second_pass(&village), Some(RiverbankPass::Village { street_scale: 400.0 / 600.0, trim: false }));

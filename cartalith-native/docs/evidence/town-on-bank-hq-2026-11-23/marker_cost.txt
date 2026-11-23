@@ -1,0 +1,27 @@
+Ruling HQ item 4: tools/marker_cost_drive.gd, seed 483920 at 384 x 288 (236 settlements), desktop 1600x900, real shell.
+The runs below were taken with three headless census runs going at the same time, so their milliseconds are high.
+The same pair run earlier with no census going (the same drive and build, before the adapter's wall routing was removed; that code is not on this path):
+  after:  built on the worker once, 812 ms and 815 ms (two runs); 0 builds on the main thread. Sea level 0.50 -> 0.51: the next marker query 810 ms on the main thread, a zoom step after it 15.0 ms.
+  nowarm: built on the main thread at the first marker draw, 768 ms; the next query after the sea-level move 801 ms, a zoom step 14.9 ms.
+
+== after (the render warm-up on, as the shell ships)
+completed 
+world 236 settlements, civ.bank_sites true; table builds before { "main": 0, "worker": 0, "last_ms": 0.0 }, after the generate { "main": 0, "worker": 1, "last_ms": 1473.5379 }
+ok    the switch is on and the world has settlements (the control)
+ok    the markers' table was built on the worker  -- { "main": 0, "worker": 1, "last_ms": 1473.5379 }
+ok    and not on the main thread at the first marker draw  -- { "main": 0, "worker": 1, "last_ms": 1473.5379 }
+SEA LEVEL 0.500 -> 0.510 (changed true): main-thread builds 0 -> 0 after the redraw, 1 after a marker query of 927 ms; last build 861 ms
+A ZOOM STEP after it: 17.3 ms
+RESULT PASS
+exit 0
+
+== HQ_MUTATE=nowarm (the warm-up off: the state before this change; the drive's mutant, which must FAIL)
+completed 
+world 236 settlements, civ.bank_sites true; table builds before { "main": 0, "worker": 0, "last_ms": 0.0 }, after the generate { "main": 1, "worker": 0, "last_ms": 1224.6469 }
+ok    the switch is on and the world has settlements (the control)
+FAIL  the markers' table was built on the worker  -- { "main": 1, "worker": 0, "last_ms": 1224.6469 }
+FAIL  and not on the main thread at the first marker draw  -- { "main": 1, "worker": 0, "last_ms": 1224.6469 }
+SEA LEVEL 0.500 -> 0.510 (changed true): main-thread builds 1 -> 1 after the redraw, 2 after a marker query of 924 ms; last build 859 ms
+A ZOOM STEP after it: 15.4 ms
+RESULT FAIL (2)
+exit 1

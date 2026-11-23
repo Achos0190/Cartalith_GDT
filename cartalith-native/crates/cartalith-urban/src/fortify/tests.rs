@@ -2323,3 +2323,65 @@ fn a_walls_vertices_in_the_water_are_taken_out_unless_a_water_gate_stands_there(
     assert!(!fixed.contains(&v(480.0, 650.0)) && fixed.contains(&v(300.0, 700.0)) && fixed.len() == 8, "{fixed:?}");
     assert_eq!(ring_off_water(&ring, &[], &|_| true), None, "all wet: no dry ground to run between");
 }
+
+/// Protects Ruling HQ's two wall rules on water `y > 600`. (1) `ring_off_water`'s spike base: a wall whose
+/// south side runs out to a wet tip at (300, 900) between dry vertices at (480, 590) and (100, 590), with a fold
+/// just above the water before them ((300, 584) to (430, 595)) so the tip alone cannot go (the chord from
+/// (480, 590) to (100, 590) would cross the fold; a fixture found by search): the tip goes with its base before
+/// it, (480, 590), and the ring does not cross itself. (2)
+/// `ring_round_water`: a chord between two dry vertices across a bay (`x` 200..400) is replaced by
+/// a dry route round the bay (`y` 446..550 wet), every segment of which is dry at 1 m; a chord over the same bay with a water gate on
+/// it is left alone; a ring whose only route would cross its own prong is left alone; a ring with nothing over the
+/// water gives `None`; a short chord over a pond goes round it within the 200 m margin. MUTATION: the base pass
+/// dropped keeps the tip; `SHORE_ROUTE_CLEAR_M` 6 to 0 lets the route pass 2 to 4 m from the water (asserted 5 m
+/// clear); the water-gate test dropped routes the gated chord; the straight pull dropped leaves a lattice staircase
+/// (asserted at most 10 vertices); the self-crossing test dropped returns the route through the prong;
+/// `SHORE_ROUTE_MARGIN_M` 200 to 0 finds no way round the pond; `SHORE_ROUTE_CELL_M` 8 to 80 finds none either.
+#[test]
+fn a_wall_spike_goes_with_its_base_and_a_chord_over_water_goes_round_it() {
+    use crate::wallhug::{ring_off_water, ring_round_water, ring_self_crosses};
+    let v = |x: f64, y: f64| Vec2::new(x, y);
+    let wet = |p: Vec2| p.y > 600.0;
+    let ring = vec![v(100.0, 100.0), v(500.0, 100.0), v(330.0, 555.0), v(300.0, 584.0), v(430.0, 595.0), v(480.0, 590.0), v(300.0, 900.0), v(100.0, 590.0)];
+    // The fixture's premise: the tip alone cannot go.
+    let tip_alone: Vec<Vec2> = ring.iter().copied().filter(|&p| p != v(300.0, 900.0)).collect();
+    assert!(ring_self_crosses(&tip_alone), "premise: without its base the tip's chord crosses the fold");
+    let fixed = ring_off_water(&ring, &[], &wet).expect("the spike goes");
+    assert!(!fixed.contains(&v(300.0, 900.0)) && !ring_self_crosses(&fixed) && fixed.iter().all(|&p| !wet(p)), "{fixed:?}");
+    assert_eq!(fixed.len(), ring.len() - 2, "the tip and one base vertex: {fixed:?}");
+    assert!(!fixed.contains(&v(480.0, 590.0)), "the base before the tip: {fixed:?}");
+
+    // The bay's north edge at 446 m and west edge at 200 m stand 2 m and 4 m from the route lattice's rows and
+    // columns (8 m from `y` 300 and `x` -100), so a route without its clearance would pass that close.
+    let bay = |p: Vec2| p.x > 200.0 && p.x < 400.0 && p.y > 446.0 && p.y < 550.0;
+    let square = vec![v(100.0, 100.0), v(500.0, 100.0), v(500.0, 500.0), v(100.0, 500.0)];
+    let routed = ring_round_water(&square, &[], &bay).expect("the south chord goes round the bay");
+    let dry_at = |a: Vec2, b: Vec2, clear: f64| {
+        let k = (a.dist(b) / 1.0).ceil() as usize;
+        (0..=k).all(|t| {
+            let p = a.lerp(b, t as f64 / k as f64);
+            [(0.0, 0.0), (clear, 0.0), (-clear, 0.0), (0.0, clear), (0.0, -clear)].iter().all(|&(dx, dy)| !bay(v(p.x + dx, p.y + dy)))
+        })
+    };
+    for k in 0..routed.len() {
+        assert!(dry_at(routed[k], routed[(k + 1) % routed.len()], 0.0), "segment {k} of {routed:?} is over the bay");
+    }
+    assert!(routed.iter().filter(|p| !square.contains(p)).all(|&p| dry_at(p, p, 5.0)), "the route stands clear of the water: {routed:?}");
+    assert!(!ring_self_crosses(&routed));
+    assert!(routed.len() <= 10, "the route is pulled straight, a few corners round the bay: {routed:?}");
+    assert_eq!(ring_round_water(&square, &[v(300.0, 500.0)], &bay), None, "a gated chord is a river wall and stays");
+    // A bay too deep to go round south inside the route's box, and a prong hanging from the north side to 4 m
+    // above the water: the only dry route crosses the prong, so the ring is left as it was.
+    let deep = |p: Vec2| p.x > 200.0 && p.x < 400.0 && p.y > 446.0 && p.y < 800.0;
+    let pronged = vec![v(100.0, 100.0), v(290.0, 100.0), v(300.0, 440.0), v(310.0, 100.0), v(500.0, 100.0), v(500.0, 500.0), v(100.0, 500.0)];
+    assert!(!ring_self_crosses(&pronged), "premise");
+    assert_eq!(ring_round_water(&pronged, &[], &deep), None, "the only route crosses the ring");
+    let inland = vec![v(100.0, 100.0), v(500.0, 100.0), v(500.0, 250.0), v(100.0, 250.0)];
+    assert_eq!(ring_round_water(&inland, &[], &bay), None, "nothing over the water");
+    // A short chord (100 m) over a pond that reaches 80 m past it on each side: the 200 m margin
+    // (`SHORE_ROUTE_MARGIN_M`, not the chord's half) is what leaves room to go round.
+    let pond = |p: Vec2| p.x > 260.0 && p.x < 340.0 && p.y > 420.0 && p.y < 580.0;
+    let small = vec![v(250.0, 100.0), v(350.0, 100.0), v(350.0, 500.0), v(250.0, 500.0)];
+    let round = ring_round_water(&small, &[], &pond).expect("the short chord goes round the pond");
+    assert!(round.len() > small.len() && !ring_self_crosses(&round), "{round:?}");
+}

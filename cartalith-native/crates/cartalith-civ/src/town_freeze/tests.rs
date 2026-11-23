@@ -101,7 +101,11 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
     // sea's edge is a straight shore 300 m south of its cell (0.48 cells of 625 m), not the fixture's own coast.
     let shore = |_x: f64, y: f64| y > 47.0 + 300.0 / 625.0;
     let uw_map = UrbanWorld { map_water: Some(&shore), ..w.world() };
-    let cases: [(&str, NamedSettlement, PlaceOverrides); 7] = [
+    // Ruling HQ (rules v4): the bank river town again with the map's river drawn a whole cell (625 m) wide, laid round
+    // its east edge plus 30 m (0.55 cells = 343.75 m from the centreline): wider than a town bridges.
+    let wide = [crate::urban_adapter::DrawnRiver { pts: w.rivers[0].clone(), ranks: Vec::new(), widths: vec![1.0; w.rivers[0].len()] }];
+    let ferry = PlaceOverrides { river_smooth: Some(&wide), origin: Some(crate::urban_adapter::BankOrigin { at: (20.55, 30.0), river_m: 343.75 }), ..base };
+    let cases: [(&str, NamedSettlement, PlaceOverrides); 8] = [
         ("hamlet", settlement(1, 50, 8, 200), base),
         ("walled town", settlement(2, 45, 12, 4_000), walled),
         ("fortified city", settlement(3, 40, 20, 15_000), fort),
@@ -109,6 +113,7 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
         ("river town", settlement(5, 21, 30, 5_000), base),
         ("stretched river town", settlement(6, 21, 38, 6_000), stretch),
         ("bank river town", settlement(7, 20, 30, 5_000), bank),
+        ("bank town on a river too wide to bridge", settlement(9, 20, 30, 5_000), ferry),
     ];
     let mut out: Vec<(&'static str, UrbanLayout)> = cases
         .into_iter()
@@ -122,18 +127,19 @@ fn fixtures() -> Vec<(&'static str, UrbanLayout)> {
     out
 }
 
-/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the eight fixture towns' canonical hashes are committed literals
+/// Protects TL-0's bar: [`URBAN_RULES_VERSION`] and the nine fixture towns' canonical hashes are committed literals
 /// (six until rules v2, whose change, Ruling HM, moves no town that is not laid round a drawn edge: the first six
-/// hashes are v1's, unchanged through v3; the seventh is the town v2 added, moved by v3; the eighth is the town
-/// v3, Ruling HN, added: its sea edge is the map's drawn shore).
+/// hashes are v1's, unchanged through v4; "bank river town" is the town v2 added, moved by v3 and by v4; the
+/// map-shore town is the one v3, Ruling HN, added: its sea edge is the map's drawn shore, unmoved by v4; and the
+/// town on a river too wide to bridge is v4's, Ruling HQ: it crosses by ferry).
 /// A behavioural change to the generator or the adapter moves a hash and turns this red; mutating the version alone
 /// turns it red too. The fix for a red here is to bump the version **and** re-pin the hashes in the same change
 /// (scope §4.1, R5).
 #[test]
 fn the_rules_version_and_fixture_hashes_are_pinned() {
     let got: Vec<(&str, String)> = fixtures().iter().map(|(n, l)| (*n, layout_hash(&encode(l)))).collect();
-    let want: (u32, [(&str, &str); 8]) = (
-        3,
+    let want: (u32, [(&str, &str); 9]) = (
+        4,
         [
             ("hamlet", "f73d0b225a9deadc"),
             ("walled town", "e35063368a67a961"),
@@ -141,7 +147,8 @@ fn the_rules_version_and_fixture_hashes_are_pinned() {
             ("coastal town", "dd5837456e1f0bca"),
             ("river town", "e4e55c3ac40ff4e6"),
             ("stretched river town", "cf58aeec8b057fde"),
-            ("bank river town", "a21aad6d17345b88"),
+            ("bank river town", "f2cfc8624fd4ea41"),
+            ("bank town on a river too wide to bridge", "2ff564ac42495058"),
             ("coastal town on the map's shore", "d58a334ae8e9cdb3"),
         ],
     );
@@ -374,3 +381,13 @@ fn gates_reattach_by_bearing() {
     assert_eq!(one(20.0), None, "20 degrees: outside the bar, detached");
 }
 
+
+/// Protects that rules v4's ninth fixture reaches Ruling HQ's ferry rule (so its pinned hash covers the path): the
+/// bank town on a river drawn 625 m wide has a `ferry` detail and no detected bridge.
+#[test]
+fn the_fixture_on_a_river_too_wide_to_bridge_crosses_by_ferry() {
+    let f = fixtures();
+    let (_, l) = f.iter().find(|(n, _)| *n == "bank town on a river too wide to bridge").expect("the fixture");
+    let ferries = l.details.iter().filter(|d| d.kind == "ferry").count();
+    assert_eq!(ferries, 1, "one ferry");
+}

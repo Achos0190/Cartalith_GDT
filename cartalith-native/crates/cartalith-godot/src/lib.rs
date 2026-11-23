@@ -7320,6 +7320,9 @@ struct WorldGen {
     origin_cache: std::cell::RefCell<(u64, std::collections::HashMap<(u64, usize, usize), Option<cartalith_civ::urban_adapter::BankOrigin>>)>,
     /// Ruling HN: each settlement's market on the map (`bank_site::market_points`), under `bank_site::market_key`.
     market_cache: std::cell::RefCell<Option<(u64, Vec<Option<(f64, f64)>>)>>,
+    /// Ruling HQ: how many times `bank_site::market_points` built its table on the main thread and off it, and
+    /// the last build's milliseconds, for `market_points_stats` (a probe's measure of where the cost lands).
+    market_builds: std::cell::Cell<(u32, u32, f64)>,
     /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
     /// height built for it. A rendering input only; never a world field.
     valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
@@ -8144,6 +8147,7 @@ impl IRefCounted for WorldGen {
             bank_index_cache: std::cell::RefCell::new(None),
             town_water_cache: std::cell::RefCell::new(None),
             market_cache: std::cell::RefCell::new(None),
+            market_builds: std::cell::Cell::new((0, 0, 0.0)),
             origin_cache: std::cell::RefCell::new((0, std::collections::HashMap::new())),
             bank_sites_absent: false,
             valley_shade_cache: std::cell::RefCell::new(None),
@@ -15258,6 +15262,13 @@ impl WorldGen {
         if let Some(geom) = self.river_geometry_any() {
             let fans = if a.smooth_shores && a.rivers_as_water { self.delta_fans_for(&a) } else { None };
             let _ = self.river_colour_field(&a, &geom, fans.as_deref());
+        }
+        // Ruling HQ: every settlement's town origin and market (`bank_site::market_points`, which builds each one's
+        // layout context; 0.75 s at 234 settlements, Ruling HN's leftover (f)), here on the generation worker rather
+        // than at the first marker draw on the main thread. Only with `civ.bank_sites` on: off, the markers never
+        // read it. Pure Rust (no Godot value), like every warm above.
+        if self.params.civ.bank_sites {
+            let _ = self.settlement_points();
         }
         true
     }

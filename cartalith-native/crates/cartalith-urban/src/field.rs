@@ -575,7 +575,11 @@ pub struct Ground {
     /// [`Self::bank_m2`]: `grow_far_bank` stops when the far bank's streets
     /// reach that multiple of the market bank's, so ground past it cannot be
     /// grown into. **A labelled judgement**: the street-length cap read as an
-    /// area cap.
+    /// area cap. Ruling FB's 1.0 always: the gate does not know `bank_sites`,
+    /// whose town `grow_far_bank` caps at 2.0 (Ruling HQ,
+    /// `crate::riverbank::far_bank_max_ratio`), so with both switches on this
+    /// under-counts the far bank's ground. Not reached in the app
+    /// (`urban_parallel_streets` ships off).
     pub far_m2: f64,
 }
 

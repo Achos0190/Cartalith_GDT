@@ -1146,6 +1146,19 @@ fn cross_lane(site: &Site, g: &mut Graph, wall_state: &WallState, st: Vec2, ang:
 /// own per-epoch ceiling in [`grow`] (`tries < 2600`), for a pass that is one
 /// epoch long.
 pub const FAR_BANK_TRIES: i32 = 2600;
+
+/// [`FAR_BANK_TRIES`] for a town laid out with `GenOpts::bank_sites`
+/// (**Ruling HQ**, owner 2026-11-23). **A labelled judgement from a
+/// measurement**: on the owner's town (seed 532187, cell 1478, 1159) 2 600
+/// candidates ended with the far bank at 0.95 of the market bank's streets
+/// and the town at 78 % of its target; of the candidates, 56 % were edges
+/// under the 38 m branch rule and 31 % dead-end searches on a street with no
+/// dead end, so the far bank stopped for want of tries, not of ground or
+/// budget. 10 000 tries housed 85 %, 20 000 89 %, 40 000 91 %
+/// (`docs/evidence/town-on-bank-hq-2026-11-23/`). Most candidates are
+/// rejected before `legalize_street`, so the extra tries are cheap; the loop
+/// still stops at the budget (the town's shortfall) and the cap.
+pub const BANK_SITES_FAR_BANK_TRIES: i32 = 40_000;
 /// The share of [`grow_far_bank`]'s candidates that continue a dead end
 /// outward rather than branching off a street's middle. **A labelled
 /// judgement**: [`grow`]'s exploration share at mid-run (`exploration_start`
@@ -1170,7 +1183,8 @@ pub const FAR_BANK_EXPLORE: f64 = 0.35;
 /// housed against its `pop_target` (`crate::riverbank::second_pass`): the
 /// far bank houses the shortfall, not more.
 ///
-/// **What it does.** Up to [`FAR_BANK_TRIES`] candidates from its own random
+/// **What it does.** Up to [`FAR_BANK_TRIES`] candidates ([`BANK_SITES_FAR_BANK_TRIES`]
+/// with `bank_sites`, Ruling HQ) from its own random
 /// stream (`grow/far`), each an origin on a live far-bank edge (a dead end
 /// continued outward, [`FAR_BANK_EXPLORE`] of the time, else a branch off an
 /// edge's middle, as in [`grow`]), kept only where the far bank is buildable
@@ -1178,8 +1192,9 @@ pub const FAR_BANK_EXPLORE: f64 = 0.35;
 /// `far_centre` (the bridge's far end) and, for a branch, past [`grow`]'s own
 /// market-gradient draw measured from `far_centre`; then legalized by
 /// [`legalize_street`], the reference's own rules. Stops at the budget or
-/// when the far bank's streets reach `crate::riverbank::FAR_BANK_MAX_RATIO`
-/// times the market bank's. Returns the street length laid, metres.
+/// when the far bank's streets reach `crate::riverbank::far_bank_max_ratio`
+/// times the market bank's (Ruling FB's 1.0; Ruling HQ's 2.0 with
+/// `bank_sites`). Returns the street length laid, metres.
 ///
 /// **Must never** add a street on the market's bank, change a street that
 /// was there before it ran, or run on a site with no river.
@@ -1194,6 +1209,7 @@ pub fn grow_far_bank(
     ep: i32,
     share: f64,
     far_centre: Vec2,
+    bank_sites: bool,
 ) -> f64 {
     if site.river.len() < 2 || !(share > 0.0) {
         return 0.0;
@@ -1202,7 +1218,8 @@ pub fn grow_far_bank(
     let s = &rules.street;
     let mkt_side = site.bank_side(anchors.market);
     let (near_len, mut far_len) = crate::riverbank::bank_street_lengths(site, g, mkt_side);
-    let cap = near_len * crate::riverbank::FAR_BANK_MAX_RATIO;
+    let cap = near_len * crate::riverbank::far_bank_max_ratio(bank_sites);
+    let max_tries = if bank_sites { BANK_SITES_FAR_BANK_TRIES } else { FAR_BANK_TRIES };
     let budget = near_len * share;
     let mut r = stream(seed, "grow/far");
     // Live far-bank edges, classified once each as the graph grows (an edge
@@ -1211,7 +1228,7 @@ pub fn grow_far_bank(
     let mut scanned = 0usize;
     let mut len = 0.0f64;
     let mut tries = 0i32;
-    while len < budget && far_len < cap && tries < FAR_BANK_TRIES {
+    while len < budget && far_len < cap && tries < max_tries {
         tries += 1;
         while scanned < g.edges.len() {
             let e = &g.edges[scanned];
@@ -1367,3 +1384,4 @@ fn fmt_js_int(n: f64) -> String {
         format!("{n}")
     }
 }
+

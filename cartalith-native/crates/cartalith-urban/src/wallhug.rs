@@ -1257,7 +1257,7 @@ pub fn ring_off_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) ->
     let mut gone = vec![false; n];
     let build = |gone: &[bool]| -> Vec<Vec2> { (0..n).filter(|&i| !gone[i]).map(|i| ring[i]).collect() };
     let mut any = false;
-    for (i, len) in runs {
+    for &(i, len) in &runs {
         (0..len).for_each(|d| gone[(i + d) % n] = true);
         let out = build(&gone);
         if out.len() >= 3 && !ring_self_crosses(&out) {
@@ -1274,6 +1274,35 @@ pub fn ring_off_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) ->
                 } else {
                     gone[(i + d) % n] = false;
                 }
+            }
+        }
+    }
+    // **Ruling HQ** (owner 2026-11-23, *"route walls along a shore"*), after every run has been tried as above: a
+    // wet vertex that still cannot go alone is the tip of a spike whose base is a dry vertex beside its run (seed
+    // 246371 #8 at 384 cells: the tip's removal made the ring cross itself until the base went with it). It goes
+    // together with the run's dry neighbour before it, else after it, the first that leaves the ring uncrossed (never
+    // both: that took a whole side of a fixture's wall); the chord left is taken round the water by [`ring_round_water`]. Last, so it never takes a vertex another
+    // run needed to go on its own.
+    for &(i, len) in &runs {
+        let (before, after) = ((i + n - 1) % n, (i + len) % n);
+        for d in 0..len {
+            let v = (i + d) % n;
+            if gone[v] {
+                continue;
+            }
+            for base in [before, after] {
+                if gone[base] || w[base] {
+                    continue;
+                }
+                gone[v] = true;
+                gone[base] = true;
+                let out = build(&gone);
+                if out.len() >= 3 && !ring_self_crosses(&out) {
+                    any = true;
+                    break;
+                }
+                gone[v] = false;
+                gone[base] = false;
             }
         }
     }
@@ -1299,7 +1328,10 @@ pub fn wall_off_water(wall_state: &mut WallState, site: &Site) -> bool {
     let cut = ring_off_water(ring, &gates, &|p| site.is_water(p));
     let base: &[Vec2] = cut.as_deref().unwrap_or(ring);
     let snapped = if gates.is_empty() { site.water_ctx().filter(|w| w.mask.len() == w.mw * w.mh).and_then(|w| shore_snap_on(base, w, &w.mask)) } else { None };
-    let Some(r) = snapped.or(cut) else {
+    let r0 = snapped.or(cut);
+    // Ruling HQ: what is still over the water is taken round it along the shore.
+    let routed = ring_round_water(r0.as_deref().unwrap_or(ring), &gates, &|p| site.is_water(p));
+    let Some(r) = routed.or(r0) else {
         return false;
     };
     for gt in wall_state.gates.iter_mut() {
@@ -1307,6 +1339,112 @@ pub fn wall_off_water(wall_state: &mut WallState, site: &Site) -> bool {
     }
     wall_state.ring = Some(r);
     true
+}
+
+/// The lattice [`ring_round_water`] routes a wall round the water on, metres.
+/// **A labelled judgement**: a third of the 22 m water raster's cell (the
+/// town's own `WaterCtx`), so a route between two cells' shores is seen, and
+/// coarse enough that a detour round a 2 km river reach is a few tens of
+/// thousands of lattice points.
+pub const SHORE_ROUTE_CELL_M: f64 = 8.0;
+
+/// How far past the chord's own box [`ring_round_water`] may route, metres,
+/// and as a share of the chord's length (whichever is more). **A labelled
+/// judgement**: enough to go round a bay or a bend as deep as the chord is
+/// long, no further, so a wall is never sent round a whole lake.
+pub const SHORE_ROUTE_MARGIN_M: f64 = 200.0;
+/// See [`SHORE_ROUTE_MARGIN_M`].
+pub const SHORE_ROUTE_MARGIN_SHARE: f64 = 0.5;
+
+/// How near the water a lattice point of [`ring_round_water`] may stand,
+/// metres: a point is water when any of nine samples within this distance is.
+/// **A labelled judgement**, about a wall's own width, so the routed wall
+/// stands on the shore and not on its pixel edge.
+pub const SHORE_ROUTE_CLEAR_M: f64 = 6.0;
+
+/// **Not the reference** (**Ruling HQ**, owner 2026-11-23: walls *"routed
+/// along a shore"* instead of across the water; reached only with
+/// `GenOpts::bank_sites`, through [`wall_off_water`]; the adapter's own pass
+/// against the map's strokes does not call it, measured unneeded: Ruling HQ's
+/// census mutant W3): `ring` with every segment that runs over
+/// the water (`wet`, sampled every [`crate::cleanup::WET_STREET_STEP_M`]) and
+/// has no water gate within [`WATER_GATE_KEEP_M`] of its wet stretch replaced
+/// by the least-length dry route between its two ends ([`crate::astar::astar`]
+/// over a [`SHORE_ROUTE_CELL_M`] lattice of the chord's box grown by
+/// [`SHORE_ROUTE_MARGIN_M`] or [`SHORE_ROUTE_MARGIN_SHARE`] of its length,
+/// water impassable, clear of it by [`SHORE_ROUTE_CLEAR_M`]), pulled straight
+/// wherever the straight line stays dry. A segment with a wet end, no route
+/// in the box, or a route that would make the ring cross itself is left as it
+/// was. `None` when nothing moved.
+///
+/// Why: [`ring_off_water`] takes out wet vertices and [`shore_snap`] moves a
+/// wet stretch at most [`SHORE_MAX_M`], so a chord between two dry vertices
+/// across a bay (seed 483920 #4 at 2 048 cells, over the sea) or across a
+/// river the spike's removal leaves (seed 246371 #8 at 384) stayed in the
+/// water (Ruling HN's census, its two misses). **Must never** move a dry
+/// segment or a gated river wall, or return a ring that crosses itself.
+pub fn ring_round_water(ring: &[Vec2], water_gates: &[Vec2], wet: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
+    let n = ring.len();
+    if n < 3 {
+        return None;
+    }
+    let step = crate::cleanup::WET_STREET_STEP_M;
+    let wet_on = |a: Vec2, b: Vec2| -> Vec<Vec2> {
+        let k = (a.dist(b) / step).ceil().max(1.0) as usize;
+        (0..=k).map(|t| a.lerp(b, t as f64 / k as f64)).filter(|&p| wet(p)).collect()
+    };
+    let clear = |p: Vec2| {
+        let c = SHORE_ROUTE_CLEAR_M;
+        [(0.0, 0.0), (c, 0.0), (-c, 0.0), (0.0, c), (0.0, -c), (c, c), (-c, c), (c, -c), (-c, -c)].iter().all(|&(dx, dy)| !wet(Vec2::new(p.x + dx, p.y + dy)))
+    };
+    let mut out: Vec<Vec2> = Vec::with_capacity(n);
+    let mut moved = false;
+    for k in 0..n {
+        let (a, b) = (ring[k], ring[(k + 1) % n]);
+        out.push(a);
+        let w = wet_on(a, b);
+        if w.is_empty() || wet(a) || wet(b) || w.iter().any(|&p| water_gates.iter().any(|&g| g.dist(p) <= WATER_GATE_KEEP_M)) {
+            continue;
+        }
+        let Some(route) = dry_route(a, b, &clear) else { continue };
+        // Pulled straight: from each point, on to the farthest route point the straight line reaches dry.
+        let mut i = 0;
+        while i + 1 < route.len() {
+            let j = (i + 1..route.len()).rev().find(|&j| wet_on(route[i], route[j]).is_empty()).unwrap_or(i + 1);
+            if j < route.len() - 1 {
+                out.push(route[j]);
+            }
+            i = j;
+        }
+        moved = true;
+    }
+    (moved && !ring_self_crosses(&out)).then_some(out)
+}
+
+/// [`ring_round_water`]'s route from `a` to `b` over the [`SHORE_ROUTE_CELL_M`]
+/// lattice of their box grown by the margin, through points `dry` accepts:
+/// `a`, the lattice points' centres, `b`. `None` when there is none.
+fn dry_route(a: Vec2, b: Vec2, dry: &dyn Fn(Vec2) -> bool) -> Option<Vec<Vec2>> {
+    let c = SHORE_ROUTE_CELL_M;
+    let m = SHORE_ROUTE_MARGIN_M.max(SHORE_ROUTE_MARGIN_SHARE * a.dist(b));
+    let (x0, y0) = (a.x.min(b.x) - m, a.y.min(b.y) - m);
+    let (w, h) = ((((a.x.max(b.x) + m) - x0) / c).ceil() as usize + 1, (((a.y.max(b.y) + m) - y0) / c).ceil() as usize + 1);
+    let at = |i: usize, j: usize| Vec2::new(x0 + i as f64 * c, y0 + j as f64 * c);
+    let cell = |p: Vec2| (((p.x - x0) / c).round() as usize, ((p.y - y0) / c).round() as usize);
+    let (s, g) = (cell(a), cell(b));
+    let mut cost = vec![f64::INFINITY; w * h];
+    for j in 0..h {
+        for i in 0..w {
+            if (i, j) == s || (i, j) == g || dry(at(i, j)) {
+                cost[j * w + i] = 1.0;
+            }
+        }
+    }
+    let path = crate::astar::astar(&cost, w, h, s, g)?;
+    let mut pts = vec![a];
+    pts.extend(path.iter().skip(1).take(path.len().saturating_sub(2)).map(|&(i, j)| at(i, j)));
+    pts.push(b);
+    Some(pts)
 }
 
 /// The point of the closed loop `ring` nearest `p` (`p` itself when it lies

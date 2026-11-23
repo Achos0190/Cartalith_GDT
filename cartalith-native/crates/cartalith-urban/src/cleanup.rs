@@ -192,7 +192,10 @@ fn prune_components(g: &mut Graph, keep: Option<Vec2>, also_largest: bool) {
     {
         best = c;
     }
-    let kept = |c: Option<usize>| c == Some(best) || (also_largest && c == Some(largest));
+    // Ruling HQ: the piece at each ferry landing stays too (`Graph::ferries`, empty with `bank_sites` off).
+    let nearest = |p: Vec2| order.iter().min_by(|&&a, &&b| g.nodes[a].pt().dist(p).total_cmp(&g.nodes[b].pt().dist(p))).and_then(|n| comp.get(n).copied());
+    let landed: Vec<usize> = g.ferries.iter().flat_map(|&(a, b)| [nearest(a), nearest(b)]).flatten().collect();
+    let kept = |c: Option<usize>| c == Some(best) || (also_largest && c == Some(largest)) || c.is_some_and(|c| landed.contains(&c));
     let victims: Vec<usize> = g
         .edges
         .iter()
@@ -365,8 +368,11 @@ pub fn sweep_wet_streets(site: &Site, g: &mut Graph, market: Vec2) -> usize {
             }
         }
     }
-    let mut victims: Vec<usize> = wet.difference(&bridge).chain(off.iter()).copied().collect();
+    // Ruling HQ: a bridge longer than `BRIDGE_MAX_SPAN_M` is a ferry: its streets go, a landing on each bank.
+    let ferried = ferry_long_bridges(site, g, &bridge, market);
+    let mut victims: Vec<usize> = wet.difference(&bridge).chain(off.iter()).chain(ferried.iter()).copied().collect();
     victims.sort_unstable();
+    victims.dedup();
     for &id in &victims {
         kill_edge(g, id);
     }
@@ -374,6 +380,96 @@ pub fn sweep_wet_streets(site: &Site, g: &mut Graph, market: Vec2) -> usize {
         prune_components(g, Some(market), true);
     }
     victims.len()
+}
+
+/// The longest bridge a town lays across the map's water, metres: a longer
+/// crossing is a ferry ([`ferry_long_bridges`]). **Ruling HQ** (owner
+/// 2026-11-23: *"beyond a realistic span, about 400 m, a ferry landing instead
+/// of a bridge"*). **A labelled judgement**, the owner's figure; no source
+/// gives a limit, but the long medieval town bridges bracket it (lengths
+/// from Wikipedia's articles, read 2026-11-23): Regensburg's Stone Bridge
+/// 336 m when built (1135-46), Prague's Charles Bridge 516 m, and Avignon's
+/// Pont Saint-Benezet about 900 m over the Rhone, an exception. Measured over
+/// the water: the length of the bridge's streets that lies in it (each
+/// street's length times the share of its [`WET_STREET_STEP_M`] samples in
+/// the water), so the dry approaches a bridge road carries do not count. The
+/// census reports a bridge's whole chain (`town_measures::footprint_over`),
+/// approaches included, so its longest bridge can read a little over this.
+pub const BRIDGE_MAX_SPAN_M: f64 = 400.0;
+
+/// **Ruling HQ** (`GenOpts::bank_sites`, through [`sweep_wet_streets`]): each
+/// chain of `bridge` (streets in the water joined end to end, one of which
+/// crosses the town's centreline) longer than [`BRIDGE_MAX_SPAN_M`] becomes a
+/// ferry. Returns the chain's edges, for the caller to kill, and records in
+/// `Graph::ferries` a landing on each bank: on the market's bank and on the
+/// other, the waterline end of a chain street that leaves a dry node still
+/// joined to the rest of the town (walked from that node in
+/// [`WET_STREET_STEP_M`] steps to the last dry point). A long chain with no
+/// such end on both banks is still taken out, with no ferry.
+///
+/// Why: the census found towns bridging the map's river with spans up to
+/// 1 788 m (seed 246371 at 384 cells, Ruling HN), and the owner's own town
+/// with a 405 m one. **Must never** touch a chain of
+/// [`BRIDGE_MAX_SPAN_M`] or less, a street that is no part of `bridge`, or
+/// anything with `bank_sites` off (its only caller runs with the switch on).
+fn ferry_long_bridges(site: &Site, g: &mut Graph, bridge: &HashSet<usize>, market: Vec2) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    let mut ids: Vec<usize> = bridge.iter().copied().collect();
+    ids.sort_unstable();
+    let mkt_side = site.bank_side(market);
+    for &id in &ids {
+        if !seen.insert(id) {
+            continue;
+        }
+        let mut chain = vec![id];
+        let mut k = 0;
+        while k < chain.len() {
+            let e = chain[k];
+            for n in [g.edges[e].a, g.edges[e].b] {
+                for &j in &g.nodes[n].adj {
+                    if bridge.contains(&j) && seen.insert(j) {
+                        chain.push(j);
+                    }
+                }
+            }
+            k += 1;
+        }
+        // The span over the water: each chain street's length times the share of its samples in the water.
+        let len: f64 = chain
+            .iter()
+            .map(|&e| {
+                let (a, b) = (g.nodes[g.edges[e].a].pt(), g.nodes[g.edges[e].b].pt());
+                let k = (a.dist(b) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
+                a.dist(b) * (0..=k).filter(|&i| site.is_water(a.lerp(b, i as f64 / k as f64))).count() as f64 / (k + 1) as f64
+            })
+            .sum();
+        if len <= BRIDGE_MAX_SPAN_M {
+            continue;
+        }
+        // The landings: from each dry node of the chain still joined to a street outside it, along its chain street
+        // to the water's edge.
+        let mut near: Option<Vec2> = None;
+        let mut far: Option<Vec2> = None;
+        for &e in &chain {
+            for (n, o) in [(g.edges[e].a, g.edges[e].b), (g.edges[e].b, g.edges[e].a)] {
+                let p = g.nodes[n].pt();
+                if site.is_water(p) || !g.nodes[n].adj.iter().any(|j| !chain.contains(j) && g.edges[*j].alive) {
+                    continue;
+                }
+                let q = g.nodes[o].pt();
+                let steps = (p.dist(q) / WET_STREET_STEP_M).ceil().max(1.0) as usize;
+                let landing = (0..=steps).map(|i| p.lerp(q, i as f64 / steps as f64)).take_while(|&x| !site.is_water(x)).last().unwrap_or(p);
+                let slot = if site.bank_side(p) == mkt_side { &mut near } else { &mut far };
+                slot.get_or_insert(landing);
+            }
+        }
+        if let (Some(a), Some(b)) = (near, far) {
+            g.ferries.push((a, b));
+        }
+        out.extend(chain);
+    }
+    out
 }
 
 // --------------------------------------------------------- privatizeAlleys --

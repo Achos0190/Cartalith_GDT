@@ -895,8 +895,9 @@ pub fn second_pass(t: &crate::Town) -> Option<RiverbankPass> {
     // target it skipped the far bank today's layout takes. Its target is raised by the slack.
     let target = t.pop_target * if t.parallel.as_ref().is_some_and(|p| p.field.is_some()) { PARALLEL_FAR_BANK_SLACK } else { 1.0 };
     if t.both_banks && t.pop < target {
-        let share = if t.pop > 0.0 { target / t.pop - 1.0 } else { FAR_BANK_MAX_RATIO };
-        return Some(RiverbankPass::FarBank { share: share.min(FAR_BANK_MAX_RATIO) });
+        let max = far_bank_max_ratio(t.bank_sites);
+        let share = if t.pop > 0.0 { target / t.pop - 1.0 } else { max };
+        return Some(RiverbankPass::FarBank { share: share.min(max) });
     }
     if t.pop_target < BOTH_BANKS_MIN_POP && t.pop > t.pop_target * RIVER_HOUSING_CAP {
         return Some(RiverbankPass::Village { street_scale: t.pop_target / t.pop, trim: false });
@@ -1076,6 +1077,30 @@ pub fn far_bank_buildable(site: &Site, p: Vec2) -> bool {
 /// from 89 % to 44 % of its target that way before this cap and the bridge
 /// rule in [`lay_town_bridge`]).
 pub const FAR_BANK_MAX_RATIO: f64 = 1.0;
+
+/// [`FAR_BANK_MAX_RATIO`] for a town on the map's wide water
+/// (`GenOpts::bank_sites`, **Ruling HQ**, owner 2026-11-23: *"raise the
+/// far-bank cap for bank-site towns"*). **A labelled judgement**, 2.0: on the
+/// map's river (the owner's town, seed 532187 at cell 1478, 1159: 399 m wide)
+/// the market's bank keeps less ground than on the reference's 12 to 46 m
+/// channel, and the far bank, grown from the bridge's far end, is the
+/// town's other half rather than its suburb. Measured on that town
+/// (`docs/evidence/town-on-bank-hq-2026-11-23/`): with
+/// [`crate::growth::BANK_SITES_FAR_BANK_TRIES`] its far bank stops at 1.41
+/// times the market bank's streets, so 2.0 never binds there; 1.0 stopped it
+/// at 1.0 (78 % housed). Still a cap, so the market's bank stays the town's
+/// centre where the far bank has far more ground. The share it also bounds is
+/// the shortfall (`second_pass`), so a town is never grown past its target by it.
+pub const BANK_SITES_FAR_BANK_MAX_RATIO: f64 = 2.0;
+
+/// The far bank's cap as a multiple of the market bank's streets: Ruling HQ's
+/// [`BANK_SITES_FAR_BANK_MAX_RATIO`] for a town laid out with
+/// `GenOpts::bank_sites`, else Ruling FB's [`FAR_BANK_MAX_RATIO`] (so a town
+/// with the switch off is laid out as before). Read by [`second_pass`] and
+/// `crate::growth::grow_far_bank`.
+pub fn far_bank_max_ratio(bank_sites: bool) -> f64 {
+    if bank_sites { BANK_SITES_FAR_BANK_MAX_RATIO } else { FAR_BANK_MAX_RATIO }
+}
 
 /// The live street length on each bank of a river site, metres: `(the
 /// market's bank, the other)`, by each edge's midpoint

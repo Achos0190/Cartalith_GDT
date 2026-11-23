@@ -130,6 +130,14 @@ pub struct Graph {
     /// `makeGraph` leaves it absent, and `undefined` is falsy, so `false` is the
     /// faithful initial value.
     pub from_paths: bool,
+    /// **Not the reference** (Ruling HQ, `GenOpts::bank_sites`): the ferry
+    /// crossings `crate::cleanup::sweep_wet_streets` put in place of a bridge
+    /// longer than `crate::cleanup::BRIDGE_MAX_SPAN_M`, as (the landing on
+    /// the market's bank, the landing on the other). Every prune keeps the
+    /// street piece at each landing (`crate::cleanup::prune_keeping`), so a
+    /// bank joined to the town by a ferry is not deleted as a stray piece.
+    /// Empty with the switch off, so every prune is the reference's.
+    pub ferries: Vec<(Vec2, Vec2)>,
 }
 
 impl Default for Graph {
@@ -149,6 +157,7 @@ impl Graph {
             cell: 26.0,
             grid: HashMap::new(),
             from_paths: false,
+            ferries: Vec::new(),
         }
     }
 

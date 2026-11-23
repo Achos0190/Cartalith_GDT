@@ -59,7 +59,12 @@ use crate::urban_adapter::{
 /// streets, and lays no street, wall or house over the map's water or off its box; with the switch off every
 /// layout is still v1's (the six v1 fixture hashes did not move), v2's seventh fixture moved, and an eighth pins
 /// the map's shore.
-pub const URBAN_RULES_VERSION: u32 = 3;
+/// `4` (2026-11-23, Ruling HQ): with `civ.bank_sites` on a both-banks town's far bank may grow to twice the market
+/// bank's streets with more tries, a crossing wider than 400 m over the water is a ferry (a landing on each bank, no
+/// bridge street), and a wall still over the water after its wet vertices go is routed round it along the shore;
+/// with the switch off every layout is still v1's (the six v1 fixture hashes did not move), v2's fixture moved again,
+/// v3's did not, and a ninth pins a ferry town.
+pub const URBAN_RULES_VERSION: u32 = 4;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).

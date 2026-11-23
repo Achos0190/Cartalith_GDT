@@ -247,6 +247,10 @@ pub(crate) struct Over {
     pub of_s: usize,
     /// The longest bridge (the wet edges of one chain, summed), metres.
     pub span_m: f64,
+    /// The longest bridge's length over the water alone (each chain edge's length times the share of its
+    /// [`OVER_STEP_M`] samples in the water), metres: the measure the generator's ferry rule reads
+    /// (`cartalith_urban::cleanup::BRIDGE_MAX_SPAN_M`, Ruling HQ).
+    pub wet_span_m: f64,
     /// The classes of the edges counted in `s`, as `class count` pairs, for a cause dump.
     pub s_by: String,
     /// How deep in the water the deepest counted point of the buildings, the wall runs and the street edges is
@@ -371,16 +375,23 @@ pub(crate) fn footprint_over_parts(
     let mut chain = vec![usize::MAX; edges.len()];
     let crossings: &[(f64, f64)] = if exempt { bridges } else { &[] };
     let mut spans: Vec<f64> = Vec::new();
+    let mut wet_spans: Vec<f64> = Vec::new();
+    let wet_len = |a: (f64, f64), b: (f64, f64)| {
+        let v: Vec<_> = samples(a, b).collect();
+        (a.0 - b.0).hypot(a.1 - b.1) * v.iter().filter(|&&p| wet(p)).count() as f64 / v.len() as f64
+    };
     for (i, e) in edges.iter().enumerate() {
         if !wet_edge[i] || chain[i] != usize::MAX || !crossings.iter().any(|&b| seg_dist(b, e.0, e.1) <= BRIDGE_ON_EDGE_M) {
             continue;
         }
         let id = spans.len();
         spans.push(0.0);
+        wet_spans.push(0.0);
         let mut stack = vec![i];
         chain[i] = id;
         while let Some(j) = stack.pop() {
             spans[id] += (edges[j].0.0 - edges[j].1.0).hypot(edges[j].0.1 - edges[j].1.1);
+            wet_spans[id] += wet_len(edges[j].0, edges[j].1);
             for end in [key(edges[j].0), key(edges[j].1)] {
                 for &k in at.get(&end).into_iter().flatten() {
                     if chain[k] == usize::MAX {
@@ -392,6 +403,7 @@ pub(crate) fn footprint_over_parts(
         }
     }
     o.span_m = spans.iter().copied().fold(0.0, f64::max);
+    o.wet_span_m = wet_spans.iter().copied().fold(0.0, f64::max);
     let mut by: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for (i, e) in edges.iter().enumerate().filter(|(i, _)| wet_edge[*i]) {
         if chain[i] == usize::MAX {
@@ -405,6 +417,20 @@ pub(crate) fn footprint_over_parts(
     o.depth_m = deep.get();
     o.s_by = by.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" ");
     o
+}
+
+/// How near a town's market a street must come to count as one of the market's own
+/// ([`streets_near`]), metres. **A labelled judgement**: Ruling HN's finding on the
+/// owner's town was 641 streets and none within 150 m of its market (the rampart
+/// sweep had kept the far bank's piece only), so 150 m is the figure that miss was
+/// read at.
+pub(crate) const MARKET_STREET_NEAR_M: f64 = 150.0;
+
+/// How many of town `l`'s street edges come within `r` metres of `p` (the exact
+/// point-to-segment distance). For the census's gate on a town that kept no
+/// street round its market (Ruling HQ). A measurement; nothing here feeds generation.
+pub(crate) fn streets_near(l: &cartalith_civ::urban_adapter::UrbanLayout, p: cartalith_civ::urban_adapter::Vec2, r: f64) -> usize {
+    l.edges.iter().filter(|e| seg_dist((p.x, p.y), (e.a.x, e.a.y), (e.b.x, e.b.y)) <= r).count()
 }
 
 #[cfg(test)]
@@ -445,6 +471,8 @@ mod tests {
         assert_eq!((o.s, o.s_bridge, o.of_s), (2, 3, 7), "the dipping street and the deep quay count; the bridge's three pieces and the quay on the waterline do not");
         assert_eq!(o.s_by, "quay 1 street 1");
         assert!((o.span_m - 120.0).abs() < 1e-9, "the bridge road's three pieces, summed: {}", o.span_m);
+        // Ruling HQ: over the water alone, about the river's 40 m (the samples' spacing rounds it up a little).
+        assert!(o.wet_span_m > 38.0 && o.wet_span_m < 45.0, "the bridge over the water: {}", o.wet_span_m);
         assert!((o.depth_m[0] - 8.0).abs() < 1e-9 && (o.depth_m[2] - 6.0).abs() < 1e-9, "deepest house point 8 m, street (the quay) 6 m: {:?}", o.depth_m);
         let open = footprint_over_parts(&buildings, &ring, &gates, &edges, &bridges, &depth, false);
         assert_eq!((open.b, open.w, open.w_gated, open.s, open.s_bridge), (1, 4, 0, 5, 0), "no exemption over a lake or the sea");

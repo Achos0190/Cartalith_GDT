@@ -310,7 +310,12 @@ pub struct GenOpts {
     /// the map's). It turns on the layout rules that regime needs and that
     /// would move a town on the reference's 12 to 46 m channel:
     /// the rampart sweep keeps the market's streets
-    /// ([`crate::cleanup::clear_fort_zone_keeping`]). `false` is the
+    /// ([`crate::cleanup::clear_fort_zone_keeping`]). Since Ruling HQ (owner,
+    /// 2026-11-23) also: the far bank's cap and tries
+    /// (`crate::riverbank::far_bank_max_ratio`,
+    /// `crate::growth::BANK_SITES_FAR_BANK_TRIES`), a ferry for a crossing
+    /// longer than `crate::cleanup::BRIDGE_MAX_SPAN_M`, and a wall routed
+    /// round the water (`crate::wallhug::ring_round_water`). `false` is the
     /// reference, by control flow.
     pub bank_sites: bool,
 }
@@ -808,6 +813,9 @@ fn generate_laid(seed: u32, opts: &GenOpts, front: bool) -> Town {
         None => first,
     }
 }
+
+/// The provenance of a `ferry` detail (Ruling HQ).
+const FERRY_PROV: &str = "Ferry (not the reference; Ruling HQ, 2026-11-23): the river is wider here than a town would bridge (crate::cleanup::BRIDGE_MAX_SPAN_M), so a landing on each bank.";
 
 /// **Not the reference** -- Ruling FK item 1: whether a market at `q` can be
 /// joined by a dry line to one of the host's roads (`paths`, offsets from the
@@ -1426,7 +1434,7 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
             if tb != TownBridge::None
                 && let Some(far_centre) = far_end
             {
-                crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre);
+                crate::growth::grow_far_bank(seed, &site, &anchors, &mut g, &wall_state, &grow_opts, epochs, share, far_centre, opts.bank_sites);
             }
             town_bridge = Some(tb);
         }
@@ -1867,6 +1875,11 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         fields_swept = before - details.len();
     }
     let embankment = embankment.map(|e| crate::riverbank::Embankment { wet_swept, fields_swept, ..e });
+    // **Not the reference** (Ruling HQ, `GenOpts::bank_sites`): each crossing longer than
+    // `crate::cleanup::BRIDGE_MAX_SPAN_M` is a ferry (`Graph::ferries`, laid by
+    // `crate::cleanup::sweep_wet_streets`): a `ferry` detail from the landing on the market's bank to
+    // the one on the other, for the renderer's landings and the census. Last, so no sweep reads it.
+    details.extend(g.ferries.iter().enumerate().map(|(k, &(a, b))| Detail { id: format!("ferry{k}"), kind: "ferry", geom: DetailGeom::Seg(a, b), rr: None, orchard: false, prov: FERRY_PROV }));
 
     // v1.17 (S5). On the FINAL graph — after `removeWaterCrossings`,
     // `privatizeAlleys` AND `clearFortZone`, the last three passes that can kill

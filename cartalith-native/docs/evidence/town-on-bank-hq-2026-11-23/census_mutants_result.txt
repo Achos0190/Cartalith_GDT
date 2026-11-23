@@ -1,0 +1,20 @@
+Census mutants (census_mutants.py): each a literal on a wiring line, the dll rebuilt and mtime-checked, the census
+run on the world named. KILLED = exit 1 with a TOWN FAIL line. "no street near the market" is the U18 gate's count.
+
+U14 the wet street sweep is never called            owner's world   KILLED   (streets over the drawn river)
+U16 ground past a river's end not the market's bank  owner's world   SURVIVED (no bar moved)
+                                                     384 worlds      SURVIVED (moves 3 towns: 912345 #2 46 -> 21 %, 23 67 -> 65 %, 246371 #16 97 -> 102 %)
+                                                     384 worlds, --max-quartered 6 (the ratchet added for it)   KILLED (7 towns under a quarter)
+U18 the rampart sweep is never given the market      owner's world   KILLED   (no street near the market: 1, the owner's town)
+U19 a house off the box is never swept               2 048 world     SURVIVED
+                                                     384 worlds      SURVIVED, EQUIVALENT: every census row identical to the unmutated run
+N2 BANK_SITES_FAR_BANK_TRIES 40 000 to 2 600         owner's world   KILLED   (--cell-min-housed 90)
+N5 the tries ignore the switch                       owner's world   KILLED   (--cell-min-housed 90)
+W1 grow_far_bank is never told the switch            owner's world   KILLED   (--cell-min-housed 90)
+W2 the generator's wall never routed round water     2 048 world     KILLED   (a wall run over the sea)
+W3 the adapter's wall never routed round the strokes 246371 at 384   SURVIVED: the call was removed (it changed nothing); the final census is without it
+W4 MARKET_STREET_NEAR_M 150 to 15 000, with U18      owner's world   read: U18 alone counts 1 town; with 15 000 m it counts 0 and the run passes,
+                                                                     so the constant is what lets the gate see
+
+U14 and U16's first run reported LITERAL_NOT_ONCE: the edited files are CRLF in the working copy; the script now
+matches line breaks to the file. Logs: C:/cw/hq_mut/logs/ (not kept).

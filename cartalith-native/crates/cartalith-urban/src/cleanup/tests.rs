@@ -1558,3 +1558,43 @@ fn keep_rect_leaves_closed_rectangular_blocks_whole_and_cuts_the_rest() {
     assert_eq!(run(0.0, true), 0, "keep_rect leaves every closed rectangular block whole");
     assert!(run(1.0, true) > 0, "a sheared (parallelogram) block is not rectangular enough to keep");
 }
+
+/// Protects Ruling HQ's ferry rule (`ferry_long_bridges` through `sweep_wet_streets`, `BRIDGE_MAX_SPAN_M` 400 m)
+/// on a river along `y = 600`: over a channel 300 m wide a bridge road stays whole (its span over the water,
+/// 300 m, is under the limit); over one 500 m wide the same road's streets in the water go, a ferry is recorded
+/// with a landing on each bank at the water's edge (north landing within 8 m of y = 350, south within 8 m of
+/// y = 850), and the small street piece on the far bank stays though it is neither the market's nor the largest
+/// (the prune keeps a ferry's landings). MUTATION: `BRIDGE_MAX_SPAN_M` 400 to 4 000 keeps the long bridge; the
+/// prune's ferry keep dropped deletes the far piece; the wet share dropped (whole street lengths) ferries the
+/// 300 m one too (its street in the water is 560 m long, water and banks).
+#[test]
+fn a_crossing_longer_than_a_bridge_is_a_ferry_with_a_landing_on_each_bank() {
+    let lay = |river_w: f64| {
+        let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
+        site.river = vec![Vec2::new(0.0, 600.0), Vec2::new(850.0, 600.0), Vec2::new(1700.0, 600.0)];
+        site.river_w = river_w;
+        let mut g = Graph::new();
+        // The market's bank: a grid of four streets north of the water.
+        for k in 0..4 {
+            let y = 100.0 + k as f64 * 50.0;
+            g.add_street(200.0, y, 1000.0, y, "street", 6.0, 1, "north");
+        }
+        g.add_street(600.0, 100.0, 600.0, 250.0, "street", 6.0, 1, "north");
+        // The bridge road, from the north grid to the far bank, in three pieces.
+        g.add_polyline_street(&[Vec2::new(600.0, 250.0), Vec2::new(600.0, 320.0), Vec2::new(600.0, 880.0), Vec2::new(600.0, 1000.0)], "primary", 9.0, 1, "the bridge road");
+        // The far bank: one street off the road's end.
+        g.add_street(600.0, 1000.0, 900.0, 1000.0, "street", 6.0, 1, "south");
+        let live = |g: &Graph, why: &str| g.edges.iter().filter(|e| e.alive && e.prov == why).count();
+        let before = live(&g, "the bridge road");
+        sweep_wet_streets(&site, &mut g, Vec2::new(400.0, 150.0));
+        (live(&g, "the bridge road"), before, live(&g, "south"), g.ferries.clone())
+    };
+    let (road, before, south, ferries) = lay(300.0);
+    assert!(before >= 3 && ferries.is_empty() && road == before && south == 1, "300 m: a bridge, whole: {road}/{before}, {ferries:?}");
+    let (road, _, south, ferries) = lay(500.0);
+    assert_eq!(ferries.len(), 1, "500 m: one ferry");
+    let (a, b) = ferries[0];
+    assert!((a.y - 350.0).abs() < 8.0 && (b.y - 850.0).abs() < 8.0 && (a.x - 600.0).abs() < 1e-6, "the landings at the water's edge: {a:?} {b:?}");
+    assert!(road < before, "the bridge's streets in the water went");
+    assert_eq!(south, 1, "the far bank's piece stays, kept by its landing");
+}

@@ -1112,6 +1112,9 @@ pub struct CivParams {
     /// river's edge, its river is as wide as the map draws it, every other drawn river in its box
     /// is water to it and its roads keep to its bank (`cartalith_godot::bank_site::town_origin`,
     /// `cartalith_civ::urban_adapter::BankOrigin`). Off, every layout is as before the ruling.
+    /// Ruling HN made the town's lake and sea edges the map's, and Ruling HQ (2026-11-23) gives a
+    /// both-banks town more far bank, a ferry where a crossing is wider than 400 m over the water,
+    /// and walls routed round the water (`cartalith_urban::GenOpts::bank_sites`).
     ///
     /// **`false` here, `true` in the shipped app**, the same section 7p split. A save without the
     /// key loads it off.

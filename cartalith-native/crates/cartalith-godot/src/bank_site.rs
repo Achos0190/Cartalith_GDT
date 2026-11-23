@@ -792,6 +792,7 @@ impl WorldGen {
         {
             return v.clone();
         }
+        let t0 = std::time::Instant::now();
         let mpc = self.map_width_km * 1000.0 / f64::from(self.gw.max(1));
         let mut out: Vec<Option<(f64, f64)>> = civ
             .settlements
@@ -816,7 +817,20 @@ impl WorldGen {
             o.get_or_insert((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5));
         }
         *self.market_cache.borrow_mut() = Some((key, out.clone()));
+        let (main, off, _) = self.market_builds.get();
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        self.market_builds.set(if godot::sys::is_main_thread() { (main + 1, off, ms) } else { (main, off + 1, ms) });
         out
+    }
+
+    /// **Ruling HQ: where the markers' table was built** (`market_points`, the 0.75 s of Ruling HN's leftover
+    /// (f)): `{main, worker, last_ms}`, the builds on the main thread and off it since this object was made, and
+    /// the last one's milliseconds. Diagnostic for a probe (`_towncensus_probe.gd --time`); nothing in the shell
+    /// reads it.
+    #[func]
+    fn market_points_stats(&self) -> VarDictionary {
+        let (main, off, ms) = self.market_builds.get();
+        vdict! { "main" => main as i64, "worker" => off as i64, "last_ms" => ms }
     }
 
     /// One hash of everything [`Self::market_points`] reads, listed from what
@@ -966,6 +980,17 @@ impl WorldGen {
             d.set("gated_w", river_o.w_gated as i64);
             d.set("bridge_s", river_o.s_bridge as i64);
             d.set("span_m", river_o.span_m);
+            d.set("wet_span_m", river_o.wet_span_m);
+            // Ruling HQ: the ferries the layout put where a bridge would be longer than
+            // `cleanup::BRIDGE_MAX_SPAN_M`, and the longest of them (landing to landing).
+            let ferries: Vec<f64> = l.details.iter().filter(|d| d.kind == "ferry").filter_map(|d| match d.geom {
+                cartalith_civ::urban_adapter::DetailGeom::Seg(a, b) => Some(a.dist(b)),
+                _ => None,
+            }).collect();
+            d.set("ferries", ferries.len() as i64);
+            d.set("ferry_m", ferries.iter().copied().fold(0.0, f64::max));
+            // Ruling HQ (HN's survivor U18): live streets with a point within `MARKET_STREET_NEAR_M` of the market.
+            d.set("mkt_s", crate::town_measures::streets_near(&l, l.market, crate::town_measures::MARKET_STREET_NEAR_M) as i64);
             d.set("depth", format!("b {:.0} w {:.0} (run {:.0}) s {:.0} m", river_o.depth_m[0], river_o.depth_m[1], river_o.w_run_m, river_o.depth_m[2]).as_str());
             d.set("market_prov", l.market_prov);
             d.set("kind", l.site_kind.as_str());
