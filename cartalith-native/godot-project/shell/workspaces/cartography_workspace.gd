@@ -3671,6 +3671,10 @@ func _regenerate_labels() -> void:
 		"typography": typography,
 		"cull": cull,
 	})
+	## The runtime half of collision culling (`map_overlay.gd::_ensure_live_label_cull`): the list above is view-independent, the
+	## live fit and zoom are only known to the overlay, so the same toggle drives both.
+	if app.viewport != null and app.viewport.overlay != null:
+		app.viewport.overlay.set_label_live_cull(_label_cull)
 	_label_class_counts.clear()
 	_label_gen_ran = bool(res.get("ok", false))
 	for entry in res.get("classes", []):

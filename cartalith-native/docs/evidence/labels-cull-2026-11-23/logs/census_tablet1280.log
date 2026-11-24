@@ -1,0 +1,34 @@
+completed 
+SCRIPT ERROR: Invalid access to property or key 'rect' on a base object of type 'Dictionary'.
+form canvas (1280.0, 800.0) seed 4242 grid ["2048", "1311"] labels 144
+LABELS by class { "continental/gen": 1, "region/gen": 11, "settlement/gen": 123, "water/gen": 9 }
+CENSUS tablet1280_final_A_head_nolive_x1 zoom=1.02 drawn=15 inview=14 overlaps=1 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 3 }
+CENSUS tablet1280_final_B_pre4fcf0d94_x1 zoom=1.02 drawn=16 inview=15 overlaps=1 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 3 }
+CENSUS tablet1280_final_C_fixed_x1 zoom=1.02 drawn=14 inview=13 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 10, "water": 3 }
+CENSUS tablet1280_final_D_toggle_off_x1 zoom=1.02 drawn=22 inview=21 overlaps=2 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 9 }
+pinch step target=2.0 f=1.414 zoom 1.024 -> 2.048 (guard 0)
+CENSUS tablet1280_final_C_carry_x2 zoom=2.05 drawn=21 inview=8 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_A_head_nolive_x2 zoom=2.05 drawn=21 inview=8 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_B_pre4fcf0d94_x2 zoom=2.05 drawn=24 inview=8 overlaps=0 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 11 }
+CENSUS tablet1280_final_C_fixed_x2 zoom=2.05 drawn=21 inview=8 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_D_toggle_off_x2 zoom=2.05 drawn=57 inview=13 overlaps=3 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 44 }
+pinch step target=4.0 f=1.414 zoom 2.048 -> 4.097 (guard 0)
+CENSUS tablet1280_final_C_carry_x4 zoom=4.10 drawn=21 inview=3 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_A_head_nolive_x4 zoom=4.10 drawn=21 inview=3 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_B_pre4fcf0d94_x4 zoom=4.10 drawn=24 inview=3 overlaps=0 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 11 }
+CENSUS tablet1280_final_C_fixed_x4 zoom=4.10 drawn=21 inview=3 overlaps=0 ppc_live=0.6102 classes={ "continental": 1, "region": 11, "water": 9 }
+CENSUS tablet1280_final_D_toggle_off_x4 zoom=4.10 drawn=57 inview=4 overlaps=1 ppc_live=0.6102 classes={ "continental": 2, "region": 11, "water": 44 }
+pinch step target=8.0 f=1.414 zoom 4.097 -> 8.194 (guard 0)
+CENSUS tablet1280_final_C_carry_x8 zoom=8.19 drawn=20 inview=0 overlaps=0 ppc_live=0.6102 classes={ "region": 11, "water": 9 }
+CENSUS tablet1280_final_A_head_nolive_x8 zoom=8.19 drawn=20 inview=0 overlaps=0 ppc_live=0.6102 classes={ "region": 11, "water": 9 }
+CENSUS tablet1280_final_B_pre4fcf0d94_x8 zoom=8.19 drawn=22 inview=0 overlaps=0 ppc_live=0.6102 classes={ "region": 11, "water": 11 }
+CENSUS tablet1280_final_C_fixed_x8 zoom=8.19 drawn=20 inview=0 overlaps=0 ppc_live=0.6102 classes={ "region": 11, "water": 9 }
+CENSUS tablet1280_final_D_toggle_off_x8 zoom=8.19 drawn=55 inview=0 overlaps=0 ppc_live=0.6102 classes={ "region": 11, "water": 44 }
+pinch step target=16.0 f=1.414 zoom 8.194 -> 16.388 (guard 0)
+CENSUS tablet1280_final_C_carry_x16 zoom=16.39 drawn=9 inview=0 overlaps=0 ppc_live=0.6102 classes={ "water": 9 }
+CENSUS tablet1280_final_A_head_nolive_x16 zoom=16.39 drawn=9 inview=0 overlaps=0 ppc_live=0.6102 classes={ "water": 9 }
+CENSUS tablet1280_final_B_pre4fcf0d94_x16 zoom=16.39 drawn=11 inview=0 overlaps=0 ppc_live=0.6102 classes={ "water": 11 }
+CENSUS tablet1280_final_C_fixed_x16 zoom=16.39 drawn=9 inview=0 overlaps=0 ppc_live=0.6102 classes={ "water": 9 }
+CENSUS tablet1280_final_D_toggle_off_x16 zoom=16.39 drawn=44 inview=0 overlaps=0 ppc_live=0.6102 classes={ "water": 44 }
+POSITIVE CONTROL head arm overlaps summed over zooms: 1
+labels cull drive tablet1280_final: 0 failing zoom(s)

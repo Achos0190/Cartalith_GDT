@@ -2110,6 +2110,7 @@ func set_manual_icons(icons: Array) -> void:
 func set_labels(labels: Array) -> void:
 	_apply_generated_size_mode_override(labels)
 	_labels = labels
+	_labels_rev += 1
 	_label_weight_log_range = _compute_label_weight_log_range(labels)
 	queue_redraw()
 
@@ -2195,7 +2196,7 @@ func _label_fade_alpha(lb: Dictionary) -> float:
 ## (`_label_fade_alpha() <= 0`). The one test every label pass uses, so a hidden
 ## label also reserves no occupancy and costs no geometry or glyph warm-up.
 func _label_hidden(lb: Dictionary) -> bool:
-	return _label_below_lod(lb) or _label_fade_alpha(lb) <= 0.0 or _landmark_label_hidden(lb)
+	return _label_below_lod(lb) or _label_fade_alpha(lb) <= 0.0 or _landmark_label_hidden(lb) or bool(lb.get(LIVE_CULL_KEY, false))
 
 ## A GENERATED landmark-class label whose landmark is hidden (owner, 2026-10-19:
 ## a filtered-out waterfall must not leave "Waterfall" on the map). The label
@@ -2209,6 +2210,69 @@ func _landmark_label_hidden(lb: Dictionary) -> bool:
 		and bool(lb.get("generated", false))
 		and String(lb.get("class", "")) == "landmark"
 		and _lm_hidden_cells.has(_mark_cell(float(lb.get("x", 0.0)), float(lb.get("y", 0.0)))))
+
+## Row key `_ensure_live_label_cull()` sets on a generated row the LIVE collision pass suppressed (see there). Local to this
+## control's own copy of the rows, like the size-mode override `set_labels()` already applies; never sent back to the engine.
+const LIVE_CULL_KEY := "live_culled"
+
+## Whether the live pass runs: `collision culling` in the CARTO label panel (`CartographyWorkspace._label_cull`), mirrored here
+## by `set_label_live_cull()` on every labelling run. On by default, as the toggle is.
+var _label_live_cull := true
+var _labels_rev := 0   ## bumped by `set_labels()`: a cache key of the live pass
+var _live_cull_key: Array = []
+
+func set_label_live_cull(on: bool) -> void:
+	if on != _label_live_cull:
+		_label_live_cull = on
+		queue_redraw()
+
+## Rank of a generated class in the live pass: the engine's own rule ("a bigger class wins over a smaller one under it",
+## `cartalith-civ/src/labels.rs`), then the heavier feature within a class.
+const LIVE_CULL_CLASS_RANK := {"continental": 0, "region": 1, "water": 2, "landmark": 3}
+
+## **The generated label list is view-independent on purpose** (Shell batch B, `4fcf0d94`: the engine culls at a fixed reference
+## fit so one seed is one list on every form), so it cannot know the live fit, the zoom, or a "fixed" label's size. THIS is the
+## runtime half (owner, 2026-11-23: "collision culling and adaptive per zoom seem to no longer work on the tab"): with the live
+## font, tracking, unit and zoom (`_label_local_box`), walk the generated rows that survive the zoom-LOD gate in rank order and
+## suppress any whose box lands on one already kept. Hand-placed rows are never suppressed and are placed first (they take
+## space from the pass), `settlement` rows are never drawn here (the pin draws the name) so they reserve nothing.
+## Cached on everything the boxes read; O(n^2) over the few dozen non-settlement rows. Off with `_label_live_cull`.
+## Must never draw, and never touches a hand-placed row.
+func _ensure_live_label_cull() -> void:
+	var rect := _displayed_rect()
+	var key := [_label_live_cull, _labels_rev, _camera_zoom, rect.size, _sym_gain, _lm_hidden_cells.size(), size]
+	if key == _live_cull_key:
+		return
+	_live_cull_key = key
+	var gen: Array = []
+	var kept: Array[Rect2] = []
+	for lb: Dictionary in _labels:
+		lb.erase(LIVE_CULL_KEY)
+		if String(lb.get("text", "")).is_empty() or _label_hidden(lb):
+			continue
+		if not bool(lb.get("generated", false)):
+			kept.append(_label_local_box(lb, rect))
+		elif String(lb.get("class", "")) != "settlement":
+			gen.append(lb)
+	if not _label_live_cull:
+		return
+	gen.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ra: int = LIVE_CULL_CLASS_RANK.get(String(a.get("class", "")), 9)
+		var rb: int = LIVE_CULL_CLASS_RANK.get(String(b.get("class", "")), 9)
+		if ra != rb:
+			return ra < rb
+		return float(a.get("weight", 0.0)) > float(b.get("weight", 0.0)))
+	for lb: Dictionary in gen:
+		var box := _label_local_box(lb, rect)
+		var hit := false
+		for k in kept:
+			if k.intersects(box):
+				hit = true
+				break
+		if hit:
+			lb[LIVE_CULL_KEY] = true
+		else:
+			kept.append(box)
 
 ## `STORY_PLANNING_SCOPE.md` SP-2: one party marker per saved journey at the
 ## cursor date, in `journey_positions()`'s own dictionary shape. An entry with
@@ -4796,10 +4860,42 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 	return boxes
 
 
+## One label's footprint in local px: the box `_seed_label_boxes()` reserves and `_ensure_live_label_cull()` ranks. Font,
+## tracking, `_label_unit()` and the rotated AABB, i.e. what `_draw_labels()` inks. Pure: draws and mutates nothing.
+func _label_local_box(lb: Dictionary, rect: Rect2) -> Rect2:
+	var text: String = lb["text"]
+	var font := _label_font_for(lb)
+	var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
+	var font_px := _label_font_px(lb, rect)
+	## A fixed label is `_label_unit()` of its nominal size in local px (Ruling AP).
+	var lu := _label_unit(lb)
+	## The run's tracking is part of the drawn width (`_draw_labels()` adds
+	## `track_px` between every pair of glyphs); the box left it out, so a
+	## letter-spaced region or lake name reserved ~15-30% less than it inked
+	## and a pin name stepped around the wrong rectangle (measured: "Ithithhollow"
+	## inside "Saesaesilvelrest Province" at ratio 4, `_labeloverlap_probe`).
+	var track_w := float(font_px) * float(lb.get("tracking_em", 0.0)) * maxf(float(text.length()) - 1.0, 0.0)
+	var w := lu * (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x + track_w)
+	var h := lu * float(font_px) * 1.3
+	## A turned label's footprint is its rotated box's AABB, the same rule
+	## `labels.rs::label_cull_rect` uses; angle 0 (every generated label) is the
+	## exact pre-existing box.
+	var ang := float(lb.get("angle", 0.0))
+	if ang != 0.0:
+		var rad := deg_to_rad(ang)
+		var cs := absf(cos(rad))
+		var sn := absf(sin(rad))
+		var w0 := w
+		w = w0 * cs + h * sn
+		h = w0 * sn + h * cs
+	return Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h))
+
+
 ## The label and icon half of `_seed_label_occupancy()`, split out so the journey
 ## layout (`journey_label_rects()`) reads the same boxes without asking for its own
 ## blocks back. Local px, one box per drawn label and per drawn manual icon.
 func _seed_label_boxes(rect: Rect2) -> Array[Rect2]:
+	_ensure_live_label_cull()
 	var boxes: Array[Rect2] = []
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
@@ -4810,31 +4906,7 @@ func _seed_label_boxes(rect: Rect2) -> Array[Rect2]:
 		## and `_settlement_hidden()`'s identical reasoning above.
 		if _label_hidden(lb):
 			continue
-		var font := _label_font_for(lb)
-		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
-		var font_px := _label_font_px(lb, rect)
-		## A fixed label is `_label_unit()` of its nominal size in local px (Ruling AP).
-		var lu := _label_unit(lb)
-		## The run's tracking is part of the drawn width (`_draw_labels()` adds
-		## `track_px` between every pair of glyphs); the box left it out, so a
-		## letter-spaced region or lake name reserved ~15-30% less than it inked
-		## and a pin name stepped around the wrong rectangle (measured: "Ithithhollow"
-		## inside "Saesaesilvelrest Province" at ratio 4, `_labeloverlap_probe`).
-		var track_w := float(font_px) * float(lb.get("tracking_em", 0.0)) * maxf(float(text.length()) - 1.0, 0.0)
-		var w := lu * (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x + track_w)
-		var h := lu * float(font_px) * 1.3
-		## A turned label's footprint is its rotated box's AABB, the same rule
-		## `labels.rs::label_cull_rect` uses; angle 0 (every generated label) is the
-		## exact pre-existing box.
-		var ang := float(lb.get("angle", 0.0))
-		if ang != 0.0:
-			var rad := deg_to_rad(ang)
-			var cs := absf(cos(rad))
-			var sn := absf(sin(rad))
-			var w0 := w
-			w = w0 * cs + h * sn
-			h = w0 * sn + h * cs
-		boxes.append(Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h)))
+		boxes.append(_label_local_box(lb, rect))
 	for ic: Dictionary in _manual_icons:
 		## A mark that is not drawn must not push a name around. The only rows
 		## this can skip are generated POI icons with Landmarks off -- see
@@ -5482,6 +5554,7 @@ func _list_warm_queue() -> Array:
 ## and must be kept in step with it -- a size listed wrong only wastes the
 ## warm-up (the draw then rasterises as before); it can never change a pixel.
 func _list_label_glyphs(rect: Rect2, jobs: Dictionary) -> void:
+	_ensure_live_label_cull()
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
 		if text.is_empty() or _label_hidden(lb):
@@ -5877,6 +5950,7 @@ func _draw_top_chunk(rect: Rect2, interior: Rect2, idx: int, count: int, bounds:
 ## guard), and one already at `LABEL_RASTER_PX_MAX`, whose glyphs the previous
 ## zoom left in the font cache at that same size. A single label is never split.
 func _label_chunk_bounds(rect: Rect2, parts: int) -> PackedInt32Array:
+	_ensure_live_label_cull()
 	var n := _labels.size()
 	var w := PackedFloat64Array()
 	w.resize(n)
@@ -7710,6 +7784,7 @@ func _draw_landmark_rejects(rect: Rect2, interior: Rect2) -> void:
 func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> void:
 	if _labels.is_empty():
 		return
+	_ensure_live_label_cull()
 	if to < 0 or to > _labels.size():
 		to = _labels.size()
 	for li in range(from, to):

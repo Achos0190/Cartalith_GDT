@@ -1,0 +1,4 @@
+no_collision_test KILLED | ['FAIL overlaps 55 > 0 at x1 (fixed arm)']
+toggle_not_mirrored KILLED | ['FAIL toggle off left 0 overlaps while the head arm had 55 at x1']
+zoom_not_in_key KILLED | ['FAIL the live cull cache did not follow the zoom at x2: 9 drawn carried, 5 after a relabel']
+rank_inverted KILLED | ['FAIL the continental label was live-suppressed at x1 (rank inverted)']
