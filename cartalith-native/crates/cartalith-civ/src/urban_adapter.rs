@@ -3579,7 +3579,7 @@ pub fn um_market_offsets(ctx: &UrbanContext, rules: Option<&Rules>) -> Vec<Vec2>
         // The waters `generate_front` lays out from, and whether its harbour front may move the market.
         let seas: Vec<GenOpts> = opts.water_to_sea.clone().map(|ws| GenOpts { water: Some(ws), water_to_sea: None, ..opts.clone() }).into_iter().collect();
         // Ruling HS: `generate` keeps the layout without the setback where the rule's houses too few.
-        let unset: Vec<GenOpts> = if opts.setback.is_some() { std::iter::once(&opts).chain(&seas).map(|o| GenOpts { setback: None, ..o.clone() }).collect() } else { Vec::new() };
+        let unset: Vec<GenOpts> = if opts.setback.as_ref().is_some_and(|s| s.fine) { std::iter::once(&opts).chain(&seas).map(|o| GenOpts { setback: None, ..o.clone() }).collect() } else { Vec::new() };
         for o in std::iter::once(&opts).chain(&seas).chain(&unset) {
             for front in [false, true] {
                 if front && !o.harbour_front {

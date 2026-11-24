@@ -14,7 +14,7 @@ ROWS = [  # (before folder or None, after folder, index, label)
     ("base_w483920", "after_w483920", 3, "483920 #3 capital 1520:293 (class c): a cliff edge at the water, set back 77 m, quay at the water"),
     ("base_w483920", "after_w483920", 143, "483920 #143 hamlet 853:559: storm surge on an exposed shore, set back 121 m"),
     ("base_owner", "after_owner", 1, "532187 #1 capital 1478:1159 (owner's town): a sheltered harbour, no surge band, unchanged"),
-    ("base_owner", "after_owner", 0, "532187 #0 capital 146:1179: on its floodplain, walked back to the first ground 2 m up (551 m from the river)"),
+    ("base_owner", "after_owner", 0, "532187 #0 capital 146:1179: on its floodplain, walked back to the first ground 2 m up (551 m to the river's centreline)"),
     ("base_owner", "after_owner", 20, "532187 #20 hamlet 580:256: surge and marsh at the water, set back 117 m (was 365 m back with no reason)"),
     ("after_w483920", "after_h8", 151, "483920 #151 hamlet 824:695, the sweep: H_SURGE 4 m (left, at the water) and 8 m (right, set back 121 m)"),
 ]

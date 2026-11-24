@@ -1074,9 +1074,10 @@ Rulings HG, HM, HN, HQ and HU's bars are hard gates. Evidence: `cartalith-native
 | CS-1 | The hazard test (surge on an exposed shore only, the input-1 reading; cliff top within 50 m; marsh or flood; the river's floodplain and wetland flags) and the two point choosers, as pure functions with literal-boundary tests; 21 named literal mutants, all killed | `cartalith_civ::setback` (`land_bits`, `cliff_top`, `fine_grid`, `exposure`, `setback_ctx`), `cartalith_urban::setback` (`coast_market`, `river_market`) |
 | CS-2 | The coastal rule in the market placement (`sited`), the quay unchanged, the harbour street as the path, behind `urban_coastal_setback` | `cartalith_urban::generate` |
 | CS-3 | **Partly**: the path is the harbour street (coast) and the landing lane (river). The "hard" (landing sheds) and the Inspect line are **not built** | — |
-| CS-4 | The river floodplain walk (section 3.4) on the market's own bank, a landing lane back to the river, behind `urban_floodplain_setback`; the marker follows the market (the markers' table reads the generator's market code, and the candidates without the rule are listed for the bank test) | `cartalith_urban::setback::river_market`, `cartalith_civ::urban_adapter::um_market_offsets` |
+| CS-4 | The river floodplain walk (section 3.4) on the market's own bank, a landing lane back to the river, behind `urban_floodplain_setback`; the markers' table lists the candidates without the rule for its bank test, so no marker stands across a river from its market | `cartalith_urban::setback::river_market`, `cartalith_civ::urban_adapter::um_market_offsets` |
 | CS-5 | The census reports the setback records, the towns set back without one, the bodies past their setback, the guard's refusals and the input-1 sweep | `town_river_census::cs0_hazard_census` (`HS ...` lines) |
 | CS-6 | Not built (Q3: later) | — |
+| Q6, Q7 | **Not built**: the map marker does not follow a coastal market (the markers' table reads the market only to choose a river bank, so a coastal marker stays at its cell's point: the x16 frames of #25, #143 and 532187 #20 show it unmoved), and a trading port gets no continuous harbour quarter | — |
 | CS-7 | `URBAN_RULES_VERSION` 6, the switch record (16 names), a tenth fixture; old worlds are offered the update once on Ruling HN's card (`WorldGen::town_rules_offer`; parse-checked, **not driven in a windowed probe**) | `cartalith_civ::town_freeze`, `bank_site.rs`, `shell/app.gd` |
 
 **Constants.** `COAST_FRONT_M` 70 m (the market's distance from the sea raster with no reason: `HARBOUR_FRONT_M` less a
@@ -1113,7 +1114,9 @@ finding"). The frames of two swinging towns at 4 and 8 m are in the evidence fol
 | Quay or nearest building within 23 m of the sea, badged towns (B-FK1) | unchanged | 4 over -> 4 over (hamlets with no quay, nearest building 29-36 m; #7 behind its river) | 2 over -> 2 over (#20 365 -> 32 m, #33 70 -> 30 m) |
 | Quays over 23 m from the drawn sea | unchanged | 9 of 17 -> 8 of 18 (median 36 -> 21 m) | 0 of 1 |
 | Coast market-to-sea p90 | unchanged | 318 -> 232 m | 405 -> 133 m |
+| Ports (badges; no cell moves) | unchanged | 9 -> 9 | 3 -> 3 |
 | River (c) towns (on floodplain at the market) | unchanged | 41 -> 17 (25 towns set back to a terrace, each recorded) | 11 -> 4 (6 set back) |
+| River setback as recorded (market to the river's centreline, so the market's starting offset and half the river's width are in it; the walk itself is capped at 500 m) | — | 122-621 m | 327-745 m (#9 745, #16 568, #0 551) |
 | Guard refusals | 0 | 1 (#30) | 0 |
 | **Hard gates** (`_towncensus_probe.gd`, 2 048 x 1 536 for 483920): housed p10 | held (identical rows) | 97.5 -> **97.5** | 98.8 -> **99.8** |
 | Buildings, streets, ungated walls over drawn river / lake / sea | 0 | **0** | **0** |
@@ -1124,8 +1127,8 @@ finding"). The frames of two swinging towns at 4 and 8 m are in the evidence fol
 | Ferry gates (length, landing in water) | pass | pass (9 ferries in 8 towns) | pass (the owner's #1: ferry 404 m, housed 91 %, unchanged) |
 | Over-housed (over 125 %), not a gate | unchanged | 4 -> 5 | 1 -> 3 |
 
-**Left, for the owner:** (1) the guard refused #30, a capital, for fewer crossings: it stays 318 m back with no reason;
-(2) four badged hamlets per world have no quay, and their nearest building stands 29-36 m from the drawn sea, over
+**Research bars not met, for the owner:** (1) "set back without a reason: 0": the guard refused #30, a capital, because the rule's layout had fewer crossings (a count; whether it lost its crossing outright was not checked), so it stays 318 m back with no reason. Should the guard compare the count, or only refuse a town that loses every crossing?
+(2) B-FK1: four badged hamlets per world have no quay, and their nearest building stands 29-36 m from the drawn sea, over
 B-FK1's 23 m, because the harbour street stops 5 m short of the 22 m raster's sea, which stands up to a cell's diagonal
 landward of the drawn shore (CS-3's landing hard would close it); (3) boxes with under 2 % sea are not coastal to the rule
 (the badge's own test), so two hamlets keep markets 838 and 1 030 m from a sliver of sea at the box's edge.

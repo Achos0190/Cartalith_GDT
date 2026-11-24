@@ -1647,7 +1647,9 @@ impl WorldGen {
     ///
     /// **Since Ruling HS (2026-11-23)** the same card offers the coastal and
     /// floodplain setback to a save made before them ([`Self::town_rules_offer`]
-    /// lists what an Update writes), under the same key.
+    /// lists what an Update writes). Where the list holds only the setback
+    /// switches the key carries a `-hs` suffix, so a world whose HN offer was
+    /// already answered is still asked once about the setback.
     #[func]
     fn bank_sites_offer(&self) -> GString {
         let (Some(_), Some(crate::WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else { return GString::new() };
@@ -1668,7 +1670,8 @@ impl WorldGen {
         for v in ws.field.iter().step_by(61) {
             eat(u64::from(v.to_bits()));
         }
-        GString::from(&format!("{h:016x}"))
+        let hs = if self.town_rules_offer().contains(&GString::from("civ.bank_sites")) { "" } else { "-hs" };
+        GString::from(&format!("{h:016x}{hs}"))
     }
 
     /// **The switches an Update of the open world's offer writes** (Rulings HN and HS), in order: `civ.bank_sites`
