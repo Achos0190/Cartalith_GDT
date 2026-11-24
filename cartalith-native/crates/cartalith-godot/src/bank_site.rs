@@ -745,8 +745,260 @@ pub(crate) fn origin_in(w: &OriginIn, s: &cartalith_civ::NamedSettlement) -> Opt
     Some(cartalith_civ::urban_adapter::BankOrigin { at: (p.0 - 0.5, p.1 - 0.5), river_m: river_cells * cell_m })
 }
 
+/// **Owner report 2026-11-23: a route meets its town where the town is drawn.** *"the attachment from routes (sea
+/// and land) to the settlements when you zoom in."*
+///
+/// **What this is.** A route's drawn polyline (`pts`, the traced frame: [`WorldGen::route_drawn`]) with each end that a
+/// town reads as its own carried onto that town's own copy of the route. `ends[0]` is for `pts[0]`, `ends[1]` for the
+/// last point: `None` leaves that end alone, `Some(d)` is the shift, in cells, between the route and the town's copy of
+/// it (the town's bank move: [`WorldGen::town_anchors`]' point less the cell centre). Every point within `full` cells
+/// of path length from that end is moved by `d`, and the shift then falls linearly to zero over the next `full` cells,
+/// so the route bends onto the town's street instead of jumping. Where the route is shorter than four times `full`,
+/// each end's zone is a quarter of it, so the two ends' zones never overlap.
+///
+/// **Why the town's copy.** A town lays each road ending at its cell as metre offsets from the cell
+/// (`urban_adapter::um_primary_paths_reach`), anchored at its own box centre (`cartalith_urban::routes::
+/// build_primaries_from_paths_at`), which Ruling HM stands on the bank (`BankOrigin`) while the road was routed to the
+/// cell. So the drawn road ran beside the town's own street by the bank move (measured on seed 483920 at 384 cells,
+/// `_roadattach_probe.gd`: a median 745 m with the switch on, against 15 m after this and the frame fix of
+/// [`WorldGen::route_drawn`]).
+///
+/// Must never move a point farther than `|d|`, never move an end not handed a shift, and must keep `pts`' length
+/// (the breaks index into it).
+pub fn attach_ends(pts: &[(f64, f64)], ends: [Option<(f64, f64)>; 2], full: f64) -> Vec<(f64, f64)> {
+    let mut out = pts.to_vec();
+    if pts.len() < 2 || !(full > 0.0) {
+        return out;
+    }
+    let mut along = vec![0.0; pts.len()];
+    for i in 1..pts.len() {
+        along[i] = along[i - 1] + (pts[i].0 - pts[i - 1].0).hypot(pts[i].1 - pts[i - 1].1);
+    }
+    let len = along[pts.len() - 1];
+    let full = full.min(len / 4.0);
+    if !(full > 0.0) {
+        return out;
+    }
+    let w = |t: f64| if t <= full { 1.0 } else { (2.0 - t / full).clamp(0.0, 1.0) };
+    for (i, p) in out.iter_mut().enumerate() {
+        for (e, t) in [(ends[0], along[i]), (ends[1], len - along[i])] {
+            if let Some(d) = e {
+                let k = w(t);
+                p.0 += d.0 * k;
+                p.1 += d.1 * k;
+            }
+        }
+    }
+    out
+}
+
+/// How far, in cells of path, [`attach_ends`] carries a road wholly onto its town's copy, on a grid of `cell_m`
+/// metres a cell: half the reference's long box side (`urban_adapter::SITE_WM`), the reach inside which a town of
+/// that box lays its copy of the road. **A labelled judgement**: a larger box (a stretched or grown town) keeps its
+/// copy farther out and the road bends back to its own line from here.
+pub fn attach_full_cells(cell_m: f64) -> f64 {
+    0.5 * cartalith_civ::urban_adapter::SITE_WM / cell_m.max(1e-9)
+}
+
+/// **The end of a route at its town** (the owner's 2026-11-23 report), for [`WorldGen::route_attached`]: `moved` is the
+/// route already carried onto the town's copy ([`attach_ends`]) and `orig` the way's own points, both starting at the
+/// town's end and of one length; `market` the town's market on the map; `zone` how far along the route the move
+/// reaches, cells. Answers a list of the same length (repeated points, which the render collapses, take the place of
+/// the dropped ones, so a way's breaks still index it).
+///
+/// - **It ends at the market**, from the moved point within `zone` nearest the market (the stub past that point is
+///   dropped), unless that last leg would cross a drawn river, when it ends at that point. Why the market: where a
+///   town's layout moved its market off the box centre (a street village's landing, a harbour front) the town's copy
+///   of the road starts at the box centre and the layout prunes the stub, so a road ending there ended beside nothing
+///   (measured on seed 51203 at 4 096: hamlets with their nearest street 50 to 640 m from the road's end).
+/// - **The move never makes a river crossing.** If the end as it would be drawn crosses drawn centreline (`crosses`)
+///   within `zone` more often than the way's own points there do (counted over the zone, since the move slides a
+///   crossing along the line), the move took the road over the river from its far bank. That end is not moved: it ends
+///   at the way's own landing on its own bank, the first point out of the drawn stroke (`wet`) walking out from its
+///   end, in steps of a twentieth of a cell. A town's own bridge or ferry is the town's to draw; the map road meets
+///   the river at its bank.
+///
+/// The second answer is whether the route ends at the market (`false`: cut at its bank, or it stops a river short).
+///
+/// Must never answer a different length, and never move a point beyond `zone`.
+fn finish_end(orig: &[(f64, f64)], moved: &[(f64, f64)], market: (f64, f64), zone: f64, crosses: &dyn Fn((f64, f64), (f64, f64)) -> bool, wet: &dyn Fn((f64, f64)) -> bool) -> (Vec<(f64, f64)>, bool) {
+    let mut out = moved.to_vec();
+    if moved.len() < 2 || orig.len() != moved.len() {
+        return (out, false);
+    }
+    let mut along = 0.0;
+    let mut last = 0;
+    for i in 1..moved.len() {
+        along += (orig[i].0 - orig[i - 1].0).hypot(orig[i].1 - orig[i - 1].1);
+        if along > zone {
+            break;
+        }
+        last = i;
+    }
+    // A crossing the move made: counted over every segment with a moved point, so the one straddling the zone's edge
+    // too (on a coarse grid one way segment is longer than the whole zone: 0.8 cells at 384 cells over 800 km). Points
+    // are tested as the map holds them (`f32`, `get_roads`): a market standing on a centreline crosses nothing in
+    // `f64` and something once rounded (seen on seed 246371 at 384 cells).
+    let r = |p: (f64, f64)| (f64::from(p.0 as f32), f64::from(p.1 as f32));
+    let segs = 0..(last + 1).min(moved.len() - 1);
+    let count = |l: &[(f64, f64)]| segs.clone().filter(|&i| crosses(r(l[i]), r(l[i + 1]))).count();
+    let own = count(orig);
+    // It ends at the market, from the moved point nearest it, unless that leg crosses a drawn river; and the end as it
+    // will be drawn may cross no river the way itself does not.
+    let d = |p: (f64, f64)| (p.0 - market.0).hypot(p.1 - market.1);
+    let k = (0..=last).min_by(|&x, &y| d(moved[x]).total_cmp(&d(moved[y]))).unwrap_or(0);
+    let tail = moved[k];
+    for o in out.iter_mut().take(k + 1) {
+        *o = tail;
+    }
+    let at = !crosses(r(tail), r(market));
+    if at {
+        out[0] = market;
+    }
+    if count(&out) <= own {
+        return (out, at);
+    }
+    // The move would make a crossing: this end is not moved. It ends where the way itself first reaches dry ground,
+    // walking out from its own end in steps of a twentieth of a cell (its landing on its own bank), or at its own end
+    // if it never does in reach.
+    let mut out = moved.to_vec();
+    for (o, &w) in out.iter_mut().zip(orig).take((last + 1).min(orig.len() - 1) + 1) {
+        *o = w;
+    }
+    let mut landing = None;
+    'walk: for j in 0..=last.min(orig.len() - 2) {
+        let (p, q) = (orig[j], orig[j + 1]);
+        let n = (((q.0 - p.0).hypot(q.1 - p.1) / 0.05).ceil() as usize).clamp(1, 4000);
+        for k in 0..=n {
+            let x = (p.0 + (q.0 - p.0) * k as f64 / n as f64, p.1 + (q.1 - p.1) * k as f64 / n as f64);
+            if !wet(x) {
+                landing = Some((j, x));
+                break 'walk;
+            }
+        }
+    }
+    if let Some((j, x)) = landing {
+        for o in out.iter_mut().take(j + 1) {
+            *o = x;
+        }
+    }
+    (out, false)
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
+    /// **The point each settlement's town stands on, on the map** (traced frame, cells; the cell centre is
+    /// `x + 0.5`), in `get_settlements()` order: its town's box centre, which is its bank point
+    /// ([`Self::town_origin`], Ruling HM) or its cell centre. One point per settlement, the same at every zoom (a
+    /// marker moves with the zoom; the town does not). **Empty with `civ.bank_sites` off**, and before a world: the
+    /// routes then end at the cell as before the owner's 2026-11-23 report. The one source the land roads
+    /// ([`attach_ends`] in `get_roads`) and the sea lanes read for where a route meets its town.
+    pub(crate) fn town_anchors(&self) -> Vec<(f64, f64)> {
+        if !self.params.civ.bank_sites {
+            return Vec::new();
+        }
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        civ.settlements
+            .iter()
+            .map(|s| self.town_origin(s).map_or((s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5), |b| (b.at.0 + 0.5, b.at.1 + 0.5)))
+            .collect()
+    }
+
+    /// **A generated way as the map draws it with `civ.bank_sites` on** (the owner's 2026-11-23 report): its
+    /// densified polyline (`way_render_polyline`, the same curve and breaks as with the switch off), in the traced
+    /// frame, with each end a town reads as its own carried onto that town. Answers the points, the breaks, and per
+    /// end the settlement whose market it ends at (`None` for an end left alone or ended at its own bank), for the
+    /// map to draw that end at the town's marker where the town itself is not drawn (`map_overlay.gd`,
+    /// `town_a`/`town_b`).
+    ///
+    /// - **The traced frame.** A way's points are whole cells (the reference's `_civSmoothPath` rounds every sample
+    ///   to one, and every reader takes the cell `(x, y)` for the cell itself: `um_primary_paths_reach` measures a
+    ///   town's roads from it, `road_points` lays them round the cell centre), but the map drew them at `p / gw`, the
+    ///   cell's corner, half a cell north-west of the settlement's marker, its town, the rivers and the terrain,
+    ///   which all stand at `x + 0.5`. Measured on seed 483920 at 384 cells (`_roadattach_probe.gd`, switch off):
+    ///   every road ended 2.0 px from its marker at the opening view and 126 px at x64, the half cell's diagonal.
+    ///   So every point is moved by half a cell.
+    /// - **A town's ends.** An end within the adapter's own end test of a settlement's cell (`um_primary_paths_reach`:
+    ///   `max(1, gw / 250)` cells) **and** within [`attach_full_cells`] of it, the nearest such settlement (the town
+    ///   lays its copy of a road only from inside its box: `build_primaries_from_paths_at` drops a path whose first
+    ///   point is outside it, and on a fine grid the end test alone reaches 16 cells, where a road ends at something
+    ///   else). Such an end is carried onto the town's copy of the road by the town's bank move
+    ///   ([`attach_ends`]; the shift is [`Self::town_anchors`]' point less the cell centre, zero for a town round its
+    ///   cell) and finished ([`finish_end`]).
+    ///
+    /// `anchors` are [`Self::town_anchors`] (non-empty: the caller tests the switch).
+    pub(crate) fn route_drawn(&self, pts: &[(f64, f64)], brks: &[usize], anchors: &[(f64, f64)]) -> (Vec<(f64, f64)>, Vec<usize>, [Option<usize>; 2]) {
+        let (line, out_brks) = crate::way_render_polyline(pts, brks);
+        let line: Vec<(f64, f64)> = line.iter().map(|p| (p.0 + 0.5, p.1 + 0.5)).collect();
+        let (Some(civ), Some(&a), Some(&b)) = (self.civ.as_ref(), pts.first(), pts.last()) else { return (line, out_brks, [None, None]) };
+        if anchors.len() != civ.settlements.len() || line.len() < 2 {
+            return (line, out_brks, [None, None]);
+        }
+        let gw = self.gw.max(1) as f64;
+        let full = attach_full_cells(self.map_width_km * 1000.0 / gw);
+        let eps = (gw / 250.0).max(1.0).min(full);
+        let town = |p: (f64, f64)| {
+            civ.settlements
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, (p.0 - s.placement.x as f64).hypot(p.1 - s.placement.y as f64)))
+                .filter(|&(_, d)| d < eps)
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+                .map(|(i, _)| i)
+        };
+        let mut ends = [town(a), town(b)];
+        if ends == [None, None] {
+            return (line, out_brks, ends);
+        }
+        let shift = |i: Option<usize>| i.map(|i| (anchors[i].0 - civ.settlements[i].placement.x as f64 - 0.5, anchors[i].1 - civ.settlements[i].placement.y as f64 - 0.5));
+        let mut out = attach_ends(&line, [shift(ends[0]), shift(ends[1])], full);
+        let markets = self.market_points();
+        let (crosses, wet) = self.drawn_river_tests();
+        for (k, e) in ends.iter_mut().enumerate() {
+            let Some(i) = *e else { continue };
+            let Some(Some(m)) = markets.get(i).copied() else {
+                *e = None;
+                continue;
+            };
+            let at_market = if k == 0 {
+                let (o, at) = finish_end(&line, &out, m, 2.0 * full, &crosses, &wet);
+                out = o;
+                at
+            } else {
+                let (o, r): (Vec<_>, Vec<_>) = (out.iter().rev().copied().collect(), line.iter().rev().copied().collect());
+                let (mut o, at) = finish_end(&r, &o, m, 2.0 * full, &crosses, &wet);
+                o.reverse();
+                out = o;
+                at
+            };
+            if !at_market {
+                *e = None;
+            }
+        }
+        (out, out_brks, ends)
+    }
+
+    /// The two tests [`finish_end`] reads, on the drawn river at its width on the ground (the town's own water since
+    /// Ruling HN, as `town_bank_census` measures a town's footprint against it): whether a straight line crosses a
+    /// drawn centreline, and whether a point stands in a drawn stroke. Both `false` with no drawn network.
+    fn drawn_river_tests(&self) -> (impl Fn((f64, f64), (f64, f64)) -> bool + '_, impl Fn((f64, f64)) -> bool + '_) {
+        let bank = self.bank_index();
+        let bank2 = bank.clone();
+        let crosses = move |p: (f64, f64), q: (f64, f64)| bank.as_ref().is_some_and(|(g, ix)| ix.crosses(g, p, q, &|_| true));
+        let wet = move |p: (f64, f64)| {
+            let a0 = TerrainAppearance::default();
+            bank2.as_ref().is_some_and(|(g, ix)| BankQuery { geom: g, index: ix, a: &a0, ppc: 1.0, gap: 0.0, dry: &|_, _| true, wide: widest_ground_half(g), ground: Some(0.0), reach_widths: None, same_bank: false }.covering(p).is_some())
+        };
+        (crosses, wet)
+    }
+
+    /// **A measurement aid** (`_roadattach_probe.gd`): whether the straight line `a`-`b` (traced frame, cells) crosses
+    /// a drawn river's centreline, the test [`finish_end`] reads. `false` with no drawn network.
+    #[func]
+    fn drawn_river_crosses(&self, a: Vector2, b: Vector2) -> bool {
+        (self.drawn_river_tests().0)((f64::from(a.x), f64::from(a.y)), (f64::from(b.x), f64::from(b.y)))
+    }
+
     /// The index of the drawn river for [`bank_point`], built once per drawn
     /// network (cached on `river_network_key_str`, like the geometry itself).
     fn bank_index(&self) -> Option<(std::sync::Arc<RiverGeometry>, std::sync::Arc<StrokeIndex>)> {
@@ -1977,4 +2229,87 @@ mod tests {
         assert!(p.1 > 10.5 + 2.3, "south of the trunk, on its road: {p:?}");
     }
 
+
+    /// Protects the owner's 2026-11-23 report fix (`attach_ends`): a road's end that a town reads is carried by the
+    /// whole shift onto the town's copy, the shift falls to nothing a second reach out, an end handed no shift and
+    /// the point count stay as they were.
+    #[test]
+    fn a_roads_end_lands_on_its_towns_copy_and_bends_back() {
+        let pts: Vec<(f64, f64)> = (0..=20).map(|i| (i as f64, 0.0)).collect();
+        let out = attach_ends(&pts, [Some((0.5, 1.5)), None], 2.0);
+        assert_eq!(out.len(), 21);
+        assert_eq!(out[0], (0.5, 1.5), "the end is the town's point");
+        assert_eq!(out[2], (2.5, 1.5), "the whole shift out to the full reach");
+        assert_eq!(out[3], (3.25, 0.75), "half the shift half way down the ramp");
+        assert_eq!(out[4], (4.0, 0.0), "nothing past twice the reach");
+        assert_eq!(out[20], (20.0, 0.0), "the other end is not touched");
+    }
+
+    /// Protects: on a road shorter than four reaches each end's zone is a quarter of it, so the two ends' shifts never
+    /// add up on one point; each end is exactly its own town's.
+    #[test]
+    fn a_short_road_between_two_towns_meets_each_exactly() {
+        let pts: Vec<(f64, f64)> = (0..=8).map(|i| (i as f64, 0.0)).collect();
+        let out = attach_ends(&pts, [Some((0.0, 1.0)), Some((0.0, -1.0))], 10.0);
+        assert_eq!(out[0], (0.0, 1.0));
+        assert_eq!(out[8], (8.0, -1.0));
+        assert_eq!(out[4], (4.0, 0.0), "the middle is neither town's");
+        assert_eq!(out[3], (3.0, 0.5), "half the first town's shift and none of the second's");
+    }
+
+    /// Protects `finish_end`'s first rule: a road the move carried over a river (here the river is the line x = 5,
+    /// drawn half a cell either side, and the move pushed the road's end from x 5.2, in the stroke, to x 2.2) is not
+    /// moved and ends at its own landing, the stroke's edge (x 5.5), never at the market across the water; the length
+    /// is kept.
+    #[test]
+    fn a_road_the_move_took_over_the_river_ends_on_its_own_bank() {
+        let orig: Vec<(f64, f64)> = (0..=6).map(|i| (5.2 + i as f64, 0.0)).collect();
+        let moved = attach_ends(&orig, [Some((-3.0, 0.0)), None], 2.0);
+        let crosses = |p: (f64, f64), q: (f64, f64)| (p.0 - 5.0) * (q.0 - 5.0) < 0.0;
+        let wet = |p: (f64, f64)| (p.0 - 5.0).abs() < 0.5;
+        let (out, at) = finish_end(&orig, &moved, (2.0, 0.0), 4.0, &crosses, &wet);
+        assert!(!at, "cut at its bank, not at the market");
+        assert_eq!(out.len(), orig.len());
+        assert!((out[0].0 - 5.5).abs() < 0.1 && out[0].1 == 0.0, "the end is the far bank's edge: {:?}", out[0]);
+        assert!(out.iter().all(|p| p.0 >= 5.5 - 0.1), "nothing over the river: {out:?}");
+        assert_eq!(out[1], orig[1], "the end is not moved");
+    }
+
+    /// Protects `finish_end`'s second rule: with no river in the way the road ends at the market, from the road's point
+    /// nearest it (the stub past that point is dropped), and the points past the zone are the moved ones.
+    #[test]
+    fn a_road_ends_at_its_towns_market_from_its_nearest_point() {
+        let orig: Vec<(f64, f64)> = (0..=8).map(|i| (i as f64, 0.0)).collect();
+        let (out, at) = finish_end(&orig, &orig, (2.0, 1.0), 4.0, &|_, _| false, &|_| false);
+        assert!(at);
+        assert_eq!(out[0], (2.0, 1.0), "ends at the market");
+        assert_eq!(out[1], (2.0, 0.0), "from the road's point nearest it");
+        assert_eq!(out[2], (2.0, 0.0));
+        assert_eq!(out[3], (3.0, 0.0), "the rest is the road");
+        assert_eq!(out[8], (8.0, 0.0));
+    }
+
+    /// Protects `finish_end`'s "made" test: a road whose own line already crosses the river (the map routed it over
+    /// the water to the town) is the map's own crossing, not one the move made, so it still ends at the market.
+    #[test]
+    fn a_road_that_already_crossed_its_river_still_meets_the_market() {
+        let orig: Vec<(f64, f64)> = (0..=6).map(|i| (4.0 + i as f64, 0.0)).collect();
+        let moved = attach_ends(&orig, [Some((-1.0, 0.0)), None], 2.0);
+        let crosses = |p: (f64, f64), q: (f64, f64)| (p.0 - 4.5) * (q.0 - 4.5) < 0.0;
+        let (out, at) = finish_end(&orig, &moved, (2.0, 0.0), 4.0, &crosses, &|p| (p.0 - 4.5).abs() < 0.3);
+        assert!(at, "the map's own crossing: the road meets its market");
+        assert_eq!(out[0], (2.0, 0.0));
+    }
+
+    /// Protects: on a coarse grid the one segment straddling the zone's edge is where the move makes its crossing
+    /// (the zone at 384 cells over 800 km is 0.8 cells, a way segment several), and it is tested.
+    #[test]
+    fn a_crossing_in_the_segment_straddling_the_zone_is_seen() {
+        let orig = vec![(5.2, 0.0), (9.2, 0.0)];
+        let moved = vec![(2.2, 0.0), (9.2, 0.0)];
+        let crosses = |p: (f64, f64), q: (f64, f64)| (p.0 - 5.0) * (q.0 - 5.0) < 0.0;
+        let (out, at) = finish_end(&orig, &moved, (2.0, 0.0), 1.0, &crosses, &|p| (p.0 - 5.0).abs() < 0.5);
+        assert!(!at, "the straddling segment's crossing ends it at its own bank");
+        assert!(out[0].0 >= 5.4, "on its own bank: {:?}", out[0]);
+    }
 }

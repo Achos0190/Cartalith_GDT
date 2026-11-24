@@ -14410,6 +14410,10 @@ impl WorldGen {
     #[func]
     fn get_roads(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        // Owner report 2026-11-23: with `civ.bank_sites` on, a way is drawn in the frame its towns and rivers stand in
+        // and each end a town reads as its own meets that town (`bank_site::WorldGen::route_drawn`); off, `anchors` is
+        // empty and the points are drawn as before.
+        let anchors = self.town_anchors();
         // `brks` on every entry below: indices into `points` where that
         // way's own path has a real gap (two disjoint consolidated runs
         // sharing one `Way`, not a continuous curve) -- drawing straight
@@ -14421,7 +14425,13 @@ impl WorldGen {
             .iter()
             .filter(|w| !w.hidden)
             .map(|w| {
-                let (points, brks) = way_render_geometry(&w.pts, &w.brks);
+                let (points, brks, towns) = if anchors.is_empty() {
+                    let (p, b) = way_render_geometry(&w.pts, &w.brks);
+                    (p, b, [None, None])
+                } else {
+                    let (p, b, t) = self.route_drawn(&w.pts, &w.brks, &anchors);
+                    (p.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>(), b.iter().map(|&i| i as i32).collect::<PackedInt32Array>(), t)
+                };
                 let way_type = match w.way_type {
                     cartalith_civ::WayType::Highway => "highway",
                     cartalith_civ::WayType::Regional => "regional",
@@ -14442,7 +14452,16 @@ impl WorldGen {
                 // is never in a snapshot, so the key is OMITTED below rather
                 // than written as `0`, and the filters leave such ways alone,
                 // as the reference's own `rt.tid!=null` guard does.
-                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false, "village_addon" => village_addon, "tid" => w.tid as i64 }
+                let mut d = dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false, "village_addon" => village_addon, "tid" => w.tid as i64 };
+                // The `tid` of the settlement each end meets at its market (`bank_site::WorldGen::route_drawn`), so the
+                // map draws that end at the town's marker or plan (`map_overlay.gd`, `_road_points_drawn`). Omitted for
+                // an end that meets none.
+                for (k, t) in ["town_a", "town_b"].iter().zip(towns) {
+                    if let Some(s) = t.and_then(|i| civ.settlements.get(i)) {
+                        d.set(*k, s.tid as i64);
+                    }
+                }
+                d
             })
             .collect();
         if let Some(infra) = self.infra.as_ref() {

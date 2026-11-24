@@ -4646,6 +4646,69 @@ func _cut_to(line: PackedVector2Array, m: Vector2) -> PackedVector2Array:
 	return out
 
 
+## ── Owner report 2026-11-23: a road meets its town where the town is drawn ──
+##
+## *"the attachment from routes (sea and land) to the settlements when you zoom in."* With `civ.bank_sites` on, the
+## engine draws a road in the frame its towns stand in, carried onto its town's own copy of it, and ends it at the
+## town's market as the markers' table has it (`WorldGen.get_roads`, `bank_site::WorldGen::route_drawn`), naming that
+## settlement's `tid` in `town_a` (the first point's end) or `town_b` (the last). Two things only the map knows:
+## - **Below the town layer** only the marker is drawn, and the marker stands off the river as the river is drawn at
+##   this zoom (Ruling HG), up to 15 px from the market at x4 (`_roadattach_probe.gd`). There the end is drawn at the
+##   marker (`_settle_pos`'s point).
+## - **With the town layer drawn** the town is its laid-out plan, whose market is not always the markers' table's (a
+##   street village's landing, a harbour front: the table reads the layout's market code without laying the town out,
+##   `bank_site::market_points`). Where the plan is in hand (`_urban_layouts`), the end is drawn at the plan's market,
+##   unless the straight leg there crosses the plan's own river, where it stays the engine's.
+## A way without the keys (switch off, a hand-drawn way, an end left at its own bank) is drawn as it is.
+## Must never move any point but a named end, and never draw the end at a settlement not in `_settlements`.
+func _road_points_drawn(way: Dictionary, town_shown: bool) -> PackedVector2Array:
+	var points: PackedVector2Array = way["points"]
+	if points.size() < 2 or not (way.has("town_a") or way.has("town_b")):
+		return points
+	if not is_same(_road_town_src, _settlements):
+		_road_town_src = _settlements
+		_road_town_by_tid = {}
+		for i in _settlements.size():
+			if (_settlements[i] as Dictionary).has("tid"):
+				_road_town_by_tid[int(_settlements[i]["tid"])] = i
+	var out := points.duplicate()
+	for k in [["town_a", 0, 1], ["town_b", out.size() - 1, out.size() - 2]]:
+		if not (way.has(k[0]) and _road_town_by_tid.has(int(way[k[0]]))):
+			continue
+		var i: int = _road_town_by_tid[int(way[k[0]])]
+		var s: Dictionary = _settlements[i]
+		if not town_shown:
+			out[k[1]] = _settle_grid(s)
+			continue
+		var layout = _urban_layouts.get(i)
+		if not (layout is Dictionary) or not (layout as Dictionary).has("market"):
+			continue
+		var to_grid := _plan_to_grid(layout, s)
+		var m: Vector2 = to_grid.call(layout["market"])
+		var river: PackedVector2Array = layout.get("river", PackedVector2Array())
+		var wet := false
+		for j in maxi(0, river.size() - 1):
+			if Geometry2D.segment_intersects_segment(out[k[2]], m, to_grid.call(river[j]), to_grid.call(river[j + 1])) != null:
+				wet = true
+				break
+		if not wet:
+			out[k[1]] = m
+	return out
+
+## A town plan's point (metres in its box) on the map grid, as `_draw_urban_layouts` places it: the cell centre plus
+## the plan's offset from its `pin`, turned by `orient`.
+func _plan_to_grid(layout: Dictionary, s: Dictionary) -> Callable:
+	var anchor: Vector2 = layout.get("pin", layout.get("market", Vector2.ZERO))
+	var rot: float = float(layout.get("orient", 0.0))
+	var gpm := float(_gw) / (_map_width_km * 1000.0)
+	var c := Vector2(float(s["x"]) + 0.5, float(s["y"]) + 0.5)
+	return func(mp: Vector2) -> Vector2: return c + (mp - anchor).rotated(rot) * gpm
+
+## `_road_points_drawn`'s settlement lookup: `tid` -> index into `_settlements`, rebuilt when `_settlements` is replaced.
+var _road_town_src: Array = []
+var _road_town_by_tid: Dictionary = {}
+
+
 ## Roads' own `points` are already continuous full-resolution coordinates
 ## (Catmull-Rom-smoothed, not raw cell indices) -- no `+0.5` centering,
 ## unlike `_cell_to_screen`'s settlement markers.
@@ -5854,12 +5917,13 @@ func _draw_roads_chunk(rect: Rect2, idx: int, count: int) -> void:
 		return
 	var boxes := _run_boxes_for(_roads, true)
 	var b := _weighted_bounds(_roads, count)
+	var town_shown := _town_layer_zoom_reached(rect)
 	## Indexed, not `for way in _roads`: IN-13's trade load is keyed to a
 	## way's position in this same array (`get_roads()` order), so the
 	## index has to survive into the stroke.
 	for wi in range(b[idx], b[idx + 1]):
 		var way: Dictionary = _roads[wi]
-		var points: PackedVector2Array = way["points"]
+		var points: PackedVector2Array = _road_points_drawn(way, town_shown)
 		if points.size() < 2:
 			continue
 		## Type filter and both LOD gates -- one predicate, shared with the

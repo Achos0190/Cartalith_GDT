@@ -1,0 +1,7 @@
+completed 
+ok    a world and its towns
+ok    1. with the switch on the framed towns' roads name them  -- 21 ends
+ok    2. at x4 every named road end is drawn within 4 px of its marker  -- worst 0.0 px
+ok    3. at x16 and x64 every named road end is drawn within 4 px of its town's nearest drawn street  -- worst 0.0 px over 5 ends
+ok    (control) with the switch off a framed town's road end misses by more than 4 px, at x4 or at x16/x64  -- worst 7.2 px at x4, 103.0 px deeper
+RESULT PASS (0 failed)

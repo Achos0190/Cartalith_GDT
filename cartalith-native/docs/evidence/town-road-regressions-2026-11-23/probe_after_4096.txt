@@ -1,0 +1,720 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+
+ROAD seed 51203 at 4096x2048, 245 settlements, 195 m a cell, fit 0.281 px a cell, end test 4.4 cells
+ROAD     off #0 town road 27: end (0.00, 0.00) cell (3872, 1213) street 114 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 66 m FAIL x64
+ROAD     off #0 town road 33: end (0.00, 0.00) cell (3872, 1213) street 114 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 36 m FAIL x64
+ROAD     off #3 village road 9: end (0.00, 0.00) cell (2494, 1693) street 91 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #3 village road 23: end (0.00, 0.00) cell (2494, 1693) street 91 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 427 m FAIL x64
+ROAD     off #5 hamlet road 29: end (0.00, 0.00) cell (3900, 1484) street 1 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 30 m
+ROAD     off #5 hamlet road 30: end (0.00, 0.00) cell (3900, 1484) street 1 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 2 m
+ROAD     off #5 hamlet road 33: end (0.00, 0.00) cell (3900, 1484) street 1 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 83 m
+ROAD     off #5 hamlet road 47: end (-2.04, -3.73) cell (3900, 1484) street 242 m market 1054 m marker x1 1.4 px marker x4 5.5 px marker x16 22.2 px marker x64 88.6 px FAIL x4,x16,x64
+ROAD     off #5 hamlet road 113: end (-0.58, -3.57) cell (3900, 1484) street 230 m market 903 m marker x1 1.2 px marker x4 4.7 px marker x16 18.9 px marker x64 75.6 px FAIL x4,x16,x64
+ROAD     off #6 town road 14: end (0.00, 0.00) cell (2686, 554) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 203 m FAIL x64
+ROAD     off #6 town road 34: end (0.00, 0.00) cell (2686, 554) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 8 m FAIL x64
+ROAD     off #6 town road 98: end (-0.06, 3.96) cell (2686, 554) street 130 m market 685 m marker x1 1.0 px marker x4 3.9 px marker x16 15.8 px marker x64 63.0 px MADE 1 drawn river crossing(s) the way itself does not have FAIL x64
+ROAD     off #7 town road 10: end (0.00, 0.00) cell (2309, 1525) street 181 m market 185 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 90 m FAIL x16,x64
+ROAD     off #7 town road 21: end (0.00, 0.00) cell (2309, 1525) street 181 m market 185 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 40 m FAIL x16,x64
+ROAD     off #7 town road 22: end (0.00, 0.00) cell (2309, 1525) street 181 m market 185 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 61 m FAIL x16,x64
+ROAD     off #7 town road 51: end (2.49, 2.17) cell (2309, 1525) street 4 m market 463 m marker x1 0.7 px marker x4 2.9 px marker x16 11.7 px marker x64 46.7 px MADE 1 drawn river crossing(s) the way itself does not have along 89 m
+ROAD     off #8 village road 22: end (0.00, 0.00) cell (2413, 1221) street 103 m market 251 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 103 m FAIL x64
+ROAD     off #8 village road 35: end (0.00, 0.00) cell (2413, 1221) street 103 m market 251 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 100 m FAIL x64
+ROAD     off #8 village road 41: end (0.00, 0.00) cell (2413, 1221) street 103 m market 251 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #8 village road 99: end (-2.00, 0.00) cell (2413, 1221) street 98 m market 609 m marker x1 0.7 px marker x4 2.9 px marker x16 11.5 px marker x64 45.8 px along 93 m FAIL x64
+ROAD     off #9 hamlet road 23: end (0.00, 0.00) cell (2377, 1966) street 104 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 552 m FAIL x64
+ROAD     off #10 hamlet road 12: end (0.00, 0.00) cell (2427, 548) street 140 m market 149 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 68 m FAIL x64
+ROAD     off #10 hamlet road 167: end (2.17, 1.03) cell (2427, 548) street 48 m market 348 m marker x1 0.5 px marker x4 2.0 px marker x16 7.9 px marker x64 31.5 px along 41 m FAIL x64
+ROAD     off #11 village road 36: end (0.00, 0.00) cell (1229, 300) street 99 m market 155 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 115 m FAIL x64
+ROAD     off #11 village road 44: end (0.00, 0.00) cell (1229, 300) street 99 m market 155 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 113 m FAIL x64
+ROAD     off #11 village road 214: end (0.00, 0.00) cell (1229, 300) street 99 m market 155 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 124 m FAIL x64
+ROAD     off #12 hamlet road 11: end (0.00, 0.00) cell (2173, 488) street 73 m market 112 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 131 m FAIL x64
+ROAD     off #12 hamlet road 39: end (0.00, 0.00) cell (2173, 488) street 73 m market 112 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 85 m FAIL x64
+ROAD     off #12 hamlet road 96: end (-0.40, 1.15) cell (2173, 488) street 54 m market 226 m marker x1 0.3 px marker x4 1.2 px marker x16 5.0 px marker x64 19.9 px MADE 1 drawn river crossing(s) the way itself does not have along 53 m FAIL x64
+ROAD     off #12 hamlet road 138: end (0.00, 0.00) cell (2173, 488) street 73 m market 112 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 577 m FAIL x64
+ROAD     off #13 hamlet road 21: end (0.00, 0.00) cell (2055, 1639) street 131 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 294 m FAIL x64
+ROAD     off #15 hamlet road 44: end (0.00, 0.00) cell (1057, 206) street 113 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 44 m FAIL x64
+ROAD     off #15 hamlet road 242: end (1.00, 2.00) cell (1057, 206) street 44 m market 309 m marker x1 0.4 px marker x4 1.8 px marker x16 7.1 px marker x64 28.4 px along 149 m FAIL x64
+ROAD     off #16 hamlet road 30: end (0.00, 0.00) cell (4052, 1652) street 112 m market 176 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 540 m FAIL x64
+ROAD     off #16 hamlet road 31: end (0.00, 0.00) cell (4052, 1652) street 112 m market 176 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 54 m FAIL x64
+ROAD     off #16 hamlet road 32: end (0.00, 0.00) cell (4052, 1652) street 112 m market 176 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 113 m FAIL x64
+ROAD     off #17 hamlet road 28: end (0.00, 0.00) cell (3714, 1518) street 81 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #17 hamlet road 29: end (0.00, 0.00) cell (3714, 1518) street 81 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 129 m FAIL x64
+ROAD     off #19 capital road 16: end (0.00, 0.00) cell (207, 1450) street 82 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 67 m FAIL x64
+ROAD     off #19 capital road 17: end (0.00, 0.00) cell (207, 1450) street 82 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 100 m FAIL x64
+ROAD     off #20 hamlet road 17: end (0.00, 0.00) cell (430, 1402) street 172 m market 197 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 105 m FAIL x64
+ROAD     off #20 hamlet road 135: end (4.04, -0.13) cell (430, 1402) street 26 m market 684 m marker x1 1.0 px marker x4 4.0 px marker x16 16.1 px marker x64 64.6 px along 61 m FAIL x4
+ROAD     off #21 hamlet road 7: end (0.00, 0.00) cell (2673, 1780) street 78 m market 107 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 39 m FAIL x64
+ROAD     off #21 hamlet road 9: end (1.60, 0.80) cell (2673, 1780) street 40 m market 252 m marker x1 0.3 px marker x4 1.3 px marker x16 5.1 px marker x64 20.5 px along 343 m
+ROAD     off #21 hamlet road 121: end (0.37, 0.50) cell (2673, 1780) street 7 m market 18 m marker x1 0.0 px marker x4 0.1 px marker x16 0.6 px marker x64 2.4 px along 76 m
+ROAD     off #24 town road 13: end (0.00, 0.00) cell (2011, 1064) street 89 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 480 m FAIL x64
+ROAD     off #24 town road 37: end (0.00, 0.00) cell (2011, 1064) street 89 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #25 hamlet road 34: end (0.00, 0.00) cell (2914, 526) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #25 hamlet road 45: end (0.00, 0.00) cell (2914, 526) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #26 hamlet road 5: end (0.00, 0.00) cell (1285, 478) street 103 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 54 m FAIL x64
+ROAD     off #26 hamlet road 36: end (0.00, 0.00) cell (1285, 478) street 103 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 338 m FAIL x64
+ROAD     off #26 hamlet road 40: end (0.00, 0.00) cell (1285, 478) street 103 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 131 m FAIL x64
+ROAD     off #27 village road 35: end (0.00, 0.00) cell (2112, 1332) street 98 m market 110 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 127 m FAIL x64
+ROAD     off #27 village road 42: end (0.00, 0.00) cell (2112, 1332) street 98 m market 110 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 85 m FAIL x64
+ROAD     off #27 village road 176: end (-0.09, 1.97) cell (2112, 1332) street 90 m market 295 m marker x1 0.4 px marker x4 1.8 px marker x16 7.1 px marker x64 28.4 px along 51 m FAIL x64
+ROAD     off #28 hamlet road 18: end (0.00, 0.00) cell (443, 1104) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 416 m FAIL x64
+ROAD     off #29 hamlet road 43: end (0.00, 0.00) cell (3656, 1958) street 140 m market 151 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 24 m FAIL x64
+ROAD     off #29 hamlet road 94: end (1.53, 1.61) cell (3656, 1958) street 11 m market 380 m marker x1 0.4 px marker x4 1.7 px marker x16 6.8 px marker x64 27.2 px along 87 m
+ROAD     off #30 hamlet road 31: end (0.00, 0.00) cell (3872, 1716) street 80 m market 165 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 29 m FAIL x64
+ROAD     off #30 hamlet road 43: end (0.00, 0.00) cell (3872, 1716) street 80 m market 165 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 95 m FAIL x64
+ROAD     off #31 hamlet road 19: end (0.00, 0.00) cell (814, 663) street 337 m market 353 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 45 m FAIL x16,x64
+ROAD     off #31 hamlet road 186: end (0.53, 1.18) cell (814, 663) street 123 m market 182 m marker x1 0.2 px marker x4 0.8 px marker x16 3.1 px marker x64 12.3 px MADE 1 drawn river crossing(s) the way itself does not have along 103 m FAIL x64
+ROAD     off #33 hamlet road 6: end (0.00, 0.00) cell (3040, 1787) street 130 m market 168 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 132 m FAIL x64
+ROAD     off #34 hamlet road 27: end (0.00, 0.00) cell (3676, 1305) street 139 m market 567 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 106 m FAIL x64
+ROAD     off #34 hamlet road 28: end (0.00, 0.00) cell (3676, 1305) street 139 m market 567 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 55 m FAIL x64
+ROAD     off #35 hamlet road 32: end (0.00, 0.00) cell (4050, 1877) street 137 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 120 m FAIL x64
+ROAD     off #36 hamlet road 2: end (0.00, 0.00) cell (1034, 751) street 78 m market 179 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 28 m FAIL x64
+ROAD     off #36 hamlet road 24: end (0.00, 0.00) cell (1034, 751) street 78 m market 179 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 21 m FAIL x64
+ROAD     off #36 hamlet road 26: end (0.00, 0.00) cell (1034, 751) street 78 m market 179 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 289 m FAIL x64
+ROAD     off #36 hamlet road 111: end (0.02, 0.03) cell (1034, 751) street 72 m market 172 m marker x1 0.2 px marker x4 0.8 px marker x16 3.0 px marker x64 12.1 px along 80 m FAIL x64
+ROAD     off #37 hamlet road 16: end (0.00, 0.00) cell (19, 1440) street 6 m market 299 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 7 m
+ROAD     off #38 hamlet road 3: end (0.00, 0.00) cell (1312, 1206) street 113 m market 118 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 524 m FAIL x64
+ROAD     off #38 hamlet road 233: end (0.00, 0.00) cell (1312, 1206) street 113 m market 118 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 363 m FAIL x64
+ROAD     off #39 hamlet road 8: end (0.00, 0.00) cell (2775, 1431) street 160 m market 166 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 238 m FAIL x64
+ROAD     off #39 hamlet road 41: end (0.00, 0.00) cell (2775, 1431) street 160 m market 166 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 228 m FAIL x64
+ROAD     off #39 hamlet road 115: end (-0.43, 0.79) cell (2775, 1431) street 67 m market 112 m marker x1 0.3 px marker x4 1.1 px marker x16 4.4 px marker x64 17.5 px along 225 m FAIL x64
+ROAD     off #40 hamlet road 25: end (-0.65, 0.29) cell (1022, 810) street 151 m market 228 m marker x1 0.3 px marker x4 1.3 px marker x16 5.2 px marker x64 21.0 px along 134 m FAIL x64
+ROAD     off #40 hamlet road 46: end (0.00, 0.00) cell (1022, 810) street 129 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 95 m FAIL x64
+ROAD     off #40 hamlet road 107: end (3.85, 0.10) cell (1022, 810) street 75 m market 658 m marker x1 0.9 px marker x4 3.8 px marker x16 15.1 px marker x64 60.6 px MADE 1 drawn river crossing(s) the way itself does not have along 19 m FAIL x64
+ROAD     off #41 hamlet road 20: end (0.00, 0.00) cell (638, 870) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #41 hamlet road 160: end (0.00, 0.00) cell (638, 870) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #42 hamlet road 2: end (0.00, 0.00) cell (994, 926) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 138 m FAIL x64
+ROAD     off #42 hamlet road 63: end (0.00, 0.00) cell (994, 926) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #43 hamlet road 42: end (0.00, 0.00) cell (2138, 1566) street 98 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #43 hamlet road 66: end (0.00, 0.00) cell (2138, 1566) street 98 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 34 m FAIL x64
+ROAD     off #47 hamlet road 171: end (0.00, 0.00) cell (2725, 1661) street 96 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 144 m FAIL x64
+ROAD     off #48 hamlet road 153: end (0.00, 0.00) cell (3929, 1190) street 124 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 121 m FAIL x64
+ROAD     off #48 hamlet road 156: end (0.00, 0.00) cell (3929, 1190) street 124 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 74 m FAIL x64
+ROAD     off #49 hamlet road 87: end (0.00, 0.00) cell (3847, 1310) street 194 m market 198 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 29 m FAIL x16,x64
+ROAD     off #50 hamlet road 55: end (0.00, 0.00) cell (2930, 1747) street 115 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 23 m FAIL x64
+ROAD     off #51 hamlet road 59: end (0.00, 0.00) cell (2432, 1741) street 133 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 69 m FAIL x64
+ROAD     off #52 hamlet road 103: end (0.00, 0.00) cell (3942, 1353) street 75 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #52 hamlet road 119: end (0.00, 0.00) cell (3942, 1353) street 75 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 122 m FAIL x64
+ROAD     off #54 hamlet road 79: end (0.00, 0.00) cell (3900, 1322) street 177 m market 213 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 162 m FAIL x16,x64
+ROAD     off #54 hamlet road 87: end (-2.00, 2.00) cell (3900, 1322) street 33 m market 526 m marker x1 0.8 px marker x4 3.3 px marker x16 13.1 px marker x64 52.4 px along 31 m
+ROAD     off #54 hamlet road 103: end (-1.74, 3.87) cell (3900, 1322) street 216 m market 714 m marker x1 1.1 px marker x4 4.5 px marker x16 18.2 px marker x64 72.7 px MADE 2 drawn river crossing(s) the way itself does not have FAIL x4,x16,x64
+ROAD     off #55 hamlet road 88: end (0.00, 0.00) cell (2806, 1685) street 97 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #56 hamlet road 67: end (0.00, 0.00) cell (3789, 1262) street 57 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 16 m FAIL x64
+ROAD     off #57 hamlet road 139: end (0.00, 0.00) cell (2919, 1810) street 127 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #57 hamlet road 146: end (4.00, 0.00) cell (2919, 1810) street 98 m market 691 m marker x1 1.0 px marker x4 4.0 px marker x16 15.9 px marker x64 63.5 px MADE 1 drawn river crossing(s) the way itself does not have along 54 m FAIL x64
+ROAD     off #58 hamlet road 52: end (0.00, 0.00) cell (2974, 1777) street 94 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 102 m FAIL x64
+ROAD     off #58 hamlet road 55: end (0.00, 0.00) cell (2974, 1777) street 94 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 487 m FAIL x64
+ROAD     off #58 hamlet road 139: end (-1.00, -1.00) cell (2974, 1777) street 370 m market 414 m marker x1 0.6 px marker x4 2.4 px marker x16 9.5 px marker x64 38.1 px MADE 1 drawn river crossing(s) the way itself does not have along 578 m FAIL x16,x64
+ROAD     off #59 hamlet road 117: end (0.00, 0.00) cell (2536, 507) street 123 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 53 m FAIL x64
+ROAD     off #60 hamlet road 194: end (0.00, 0.00) cell (1079, 1067) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 109 m FAIL x64
+ROAD     off #61 hamlet road 54: end (0.00, 0.00) cell (2803, 1747) street 116 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 38 m FAIL x64
+ROAD     off #62 hamlet road 69: end (0.00, 0.00) cell (1122, 898) street 109 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 48 m FAIL x64
+ROAD     off #62 hamlet road 73: end (0.57, 1.19) cell (1122, 898) street 48 m market 136 m marker x1 0.2 px marker x4 0.8 px marker x16 3.1 px marker x64 12.5 px along 87 m FAIL x64
+ROAD     off #63 hamlet road 185: end (0.00, 0.00) cell (2519, 1835) street 117 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 90 m FAIL x64
+ROAD     off #63 hamlet road 192: end (-1.00, 3.00) cell (2519, 1835) street 77 m market 569 m marker x1 0.8 px marker x4 3.3 px marker x16 13.1 px marker x64 52.4 px along 32 m FAIL x64
+ROAD     off #64 hamlet road 140: end (0.00, 0.00) cell (2615, 1665) street 124 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #64 hamlet road 147: end (0.00, 0.00) cell (2615, 1665) street 124 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 107 m FAIL x64
+ROAD     off #65 hamlet road 125: end (0.00, 0.00) cell (2662, 1690) street 24 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 69 m
+ROAD     off #65 hamlet road 140: end (0.00, 0.00) cell (2662, 1690) street 24 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 23 m
+ROAD     off #66 hamlet road 108: end (0.00, 0.00) cell (2390, 1352) street 133 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 97 m FAIL x64
+ROAD     off #67 hamlet road 73: end (0.00, 0.00) cell (1165, 866) street 75 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 348 m FAIL x64
+ROAD     off #69 hamlet road 212: end (0.00, 0.00) cell (3020, 1655) street 123 m market 244 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 127 m FAIL x64
+ROAD     off #70 hamlet road 84: end (0.00, 0.00) cell (2697, 1734) street 60 m market 276 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #70 hamlet road 125: end (0.00, 0.00) cell (2697, 1734) street 60 m market 276 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 32 m FAIL x64
+ROAD     off #71 hamlet road 178: end (0.00, 0.00) cell (2062, 475) street 70 m market 145 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 318 m FAIL x64
+ROAD     off #72 hamlet road 192: end (0.00, 0.00) cell (2494, 1909) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m FAIL x64
+ROAD     off #72 hamlet road 199: end (0.00, 0.00) cell (2494, 1909) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 84 m FAIL x64
+ROAD     off #72 hamlet road 200: end (2.67, -0.87) cell (2494, 1909) street 118 m market 501 m marker x1 0.7 px marker x4 2.9 px marker x16 11.5 px marker x64 46.1 px along 22 m FAIL x64
+ROAD     off #73 hamlet road 85: end (0.00, 0.00) cell (1883, 599) street 127 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 43 m FAIL x64
+ROAD     off #74 hamlet road 156: end (0.00, 0.00) cell (3980, 1167) street 104 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 127 m FAIL x64
+ROAD     off #74 hamlet road 164: end (0.00, 0.00) cell (3980, 1167) street 104 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 88 m FAIL x64
+ROAD     off #74 hamlet road 228: end (2.96, 0.11) cell (3980, 1167) street 76 m market 486 m marker x1 0.7 px marker x4 2.8 px marker x16 11.2 px marker x64 44.7 px along 18 m FAIL x64
+ROAD     off #75 hamlet road 134: end (0.00, 0.00) cell (3876, 1535) street 11 m market 160 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 183 m
+ROAD     off #76 hamlet road 167: end (0.00, 0.00) cell (2458, 621) street 176 m market 276 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m FAIL x16,x64
+ROAD     off #77 hamlet road 98: end (0.00, 0.00) cell (2593, 523) street 108 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #78 hamlet road 166: end (0.00, 0.00) cell (2349, 1448) street 105 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 11 m FAIL x64
+ROAD     off #78 hamlet road 172: end (0.01, 0.01) cell (2349, 1448) street 103 m market 136 m marker x1 0.2 px marker x4 0.8 px marker x16 3.1 px marker x64 12.5 px along 116 m FAIL x64
+ROAD     off #79 hamlet road 92: end (-1.55, -1.67) cell (2429, 1849) street 50 m market 582 m marker x1 0.8 px marker x4 3.3 px marker x16 13.4 px marker x64 53.6 px along 121 m FAIL x64
+ROAD     off #80 hamlet road 76: end (0.00, 0.00) cell (1076, 933) street 32 m market 98 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 12 m
+ROAD     off #81 hamlet road 81: end (0.00, 0.00) cell (3927, 1736) street 44 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 55 m FAIL x64
+ROAD     off #81 hamlet road 126: end (0.00, 0.00) cell (3927, 1736) street 44 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 30 m FAIL x64
+ROAD     off #82 hamlet road 137: end (0.00, 0.00) cell (1294, 684) street 160 m market 230 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #83 hamlet road 51: end (0.00, 0.00) cell (2269, 1572) street 79 m market 91 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 119 m FAIL x64
+ROAD     off #83 hamlet road 62: end (0.00, 0.00) cell (2269, 1572) street 79 m market 91 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 111 m FAIL x64
+ROAD     off #84 hamlet road 106: end (0.00, 0.00) cell (2329, 1241) street 5 m market 40 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 87 m
+ROAD     off #84 hamlet road 122: end (0.00, 0.00) cell (2329, 1241) street 5 m market 40 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 16 m
+ROAD     off #85 hamlet road 198: end (0.00, 0.00) cell (2137, 1662) street 3 m market 82 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 21 m
+ROAD     off #86 hamlet road 49: end (0.00, 0.00) cell (2492, 548) street 180 m market 192 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 202 m FAIL x16,x64
+ROAD     off #87 hamlet road 146: end (0.00, 0.00) cell (2923, 1863) street 117 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 99 m FAIL x64
+ROAD     off #87 hamlet road 157: end (1.76, 0.07) cell (2923, 1863) street 85 m market 260 m marker x1 0.4 px marker x4 1.5 px marker x16 6.0 px marker x64 23.9 px along 161 m FAIL x64
+ROAD     off #88 hamlet road 110: end (0.00, 0.00) cell (1985, 490) street 57 m market 98 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 94 m FAIL x64
+ROAD     off #89 hamlet road 152: end (0.00, 0.00) cell (2943, 1671) street 47 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 3 drawn river crossing(s) the way itself does not have along 52 m FAIL x64
+ROAD     off #90 hamlet road 121: end (0.00, 0.00) cell (2655, 1832) street 141 m market 151 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 262 m FAIL x64
+ROAD     off #90 hamlet road 127: end (1.24, -0.57) cell (2655, 1832) street 129 m market 159 m marker x1 0.4 px marker x4 1.5 px marker x16 5.9 px marker x64 23.4 px along 84 m FAIL x64
+ROAD     off #91 hamlet road 207: end (0.00, 0.00) cell (2289, 555) street 4 m market 78 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m
+ROAD     off #92 hamlet road 149: end (0.00, 0.00) cell (2530, 1225) street 47 m market 236 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #93 hamlet road 82: end (0.00, 0.00) cell (2402, 1910) street 166 m market 264 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #94 hamlet road 70: end (0.00, 0.00) cell (3789, 1313) street 6 m market 82 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 33 m
+ROAD     off #95 hamlet road 56: end (0.00, 0.00) cell (2764, 546) street 88 m market 126 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 129 m FAIL x64
+ROAD     off #95 hamlet road 64: end (-0.40, 0.80) cell (2764, 546) street 69 m market 194 m marker x1 0.3 px marker x4 1.1 px marker x16 4.3 px marker x64 17.0 px along 44 m FAIL x64
+ROAD     off #96 hamlet road 58: end (0.00, 0.00) cell (3728, 1298) street 114 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 68 m FAIL x64
+ROAD     off #96 hamlet road 131: end (0.00, 0.00) cell (3728, 1298) street 114 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 103 m FAIL x64
+ROAD     off #97 hamlet road 138: end (0.00, 0.00) cell (2128, 453) street 103 m market 120 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m FAIL x64
+ROAD     off #97 hamlet road 178: end (1.00, 1.00) cell (2128, 453) street 5 m market 179 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 143 m
+ROAD     off #97 hamlet road 248: end (2.50, 2.50) cell (2128, 453) street 0 m market 587 m marker x1 0.8 px marker x4 3.2 px marker x16 12.7 px marker x64 50.8 px along 124 m
+ROAD     off #98 hamlet road 120: end (0.00, 0.00) cell (2876, 221) street 99 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 161 m FAIL x64
+ROAD     off #99 hamlet road 196: end (0.00, 0.00) cell (2729, 473) street 98 m market 137 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 96 m FAIL x64
+ROAD     off #100 hamlet road 78: end (0.00, 0.00) cell (2357, 1883) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 19 m FAIL x64
+ROAD     off #101 hamlet road 214: end (0.00, 0.00) cell (1252, 216) street 90 m market 122 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 53 m FAIL x64
+ROAD     off #101 hamlet road 218: end (0.00, 0.00) cell (1252, 216) street 90 m market 122 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 111 m FAIL x64
+ROAD     off #101 hamlet road 220: end (2.37, -0.69) cell (1252, 216) street 105 m market 439 m marker x1 0.6 px marker x4 2.5 px marker x16 10.0 px marker x64 39.8 px along 32 m FAIL x64
+ROAD     off #102 hamlet road 202: end (0.00, 0.00) cell (766, 940) street 111 m market 141 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 129 m FAIL x64
+ROAD     off #103 hamlet road 89: end (0.00, 0.00) cell (2477, 1207) street 124 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 131 m FAIL x64
+ROAD     off #104 hamlet road 107: end (0.00, 0.00) cell (1071, 830) street 95 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 120 m FAIL x64
+ROAD     off #105 hamlet road 133: end (0.00, 0.00) cell (1209, 476) street 108 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 8 m FAIL x64
+ROAD     off #106 hamlet road 218: end (0.00, 0.00) cell (1281, 172) street 3 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 31 m
+ROAD     off #106 hamlet road 241: end (0.00, 0.00) cell (1281, 172) street 3 m market 232 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 8 m
+ROAD     off #108 hamlet road 193: end (0.00, 0.00) cell (2992, 507) street 121 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 124 m FAIL x64
+ROAD     off #109 hamlet road 162: end (0.00, 0.00) cell (3951, 1255) street 119 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 118 m FAIL x64
+ROAD     off #110 hamlet road 95: end (0.00, 0.00) cell (1285, 735) street 21 m market 51 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 104 m
+ROAD     off #110 hamlet road 137: end (0.00, 0.00) cell (1285, 735) street 21 m market 51 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m
+ROAD     off #111 hamlet road 102: end (0.00, 0.00) cell (1142, 503) street 101 m market 189 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 44 m FAIL x64
+ROAD     off #113 hamlet road 164: end (0.00, 0.00) cell (3990, 1107) street 142 m market 185 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 25 m FAIL x64
+ROAD     off #116 hamlet road 92: end (0.00, 0.00) cell (2363, 1822) street 57 m market 110 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 70 m FAIL x64
+ROAD     off #116 hamlet road 240: end (1.05, 3.10) cell (2363, 1822) street 63 m market 665 m marker x1 0.7 px marker x4 3.0 px marker x16 11.9 px marker x64 47.8 px along 295 m FAIL x64
+ROAD     off #117 hamlet road 159: end (0.00, 0.00) cell (2378, 1157) street 97 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #118 hamlet road 47: end (0.00, 0.00) cell (3845, 1472) street 157 m market 234 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 46 m FAIL x64
+ROAD     off #119 hamlet road 231: end (0.00, 0.00) cell (2261, 1125) street 183 m market 308 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 36 m FAIL x16,x64
+ROAD     off #120 hamlet road 72: end (0.00, 0.00) cell (3724, 1373) street 136 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 121 m FAIL x64
+ROAD     off #121 hamlet road 104: end (0.00, 0.00) cell (2436, 1174) street 21 m market 113 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 102 m
+ROAD     off #121 hamlet road 159: end (0.00, 0.00) cell (2436, 1174) street 21 m market 113 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 27 m
+ROAD     off #122 hamlet road 122: end (0.00, 0.00) cell (2276, 1226) street 1 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 20 m
+ROAD     off #122 hamlet road 231: end (0.00, 0.00) cell (2276, 1226) street 1 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 17 m
+ROAD     off #123 hamlet road 128: end (0.00, 0.00) cell (2089, 1548) street 60 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #124 hamlet road 242: end (0.00, 0.00) cell (941, 297) street 20 m market 268 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 73 m
+ROAD     off #125 hamlet road 172: end (0.00, 0.00) cell (2298, 1452) street 94 m market 115 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 52 m FAIL x64
+ROAD     off #125 hamlet road 181: end (0.00, 0.00) cell (2298, 1452) street 94 m market 115 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 382 m FAIL x64
+ROAD     off #126 hamlet road 151: end (0.00, 0.00) cell (61, 1508) street 106 m market 277 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 98 m FAIL x64
+ROAD     off #127 hamlet road 97: end (0.00, 0.00) cell (3774, 1560) street 31 m market 61 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 122 m
+ROAD     off #127 hamlet road 148: end (0.00, 0.00) cell (3774, 1560) street 31 m market 61 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 80 m
+ROAD     off #128 hamlet road 57: end (0.00, 0.00) cell (1190, 818) street 28 m market 58 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 55 m
+ROAD     off #129 hamlet road 114: end (0.00, 0.00) cell (1177, 929) street 34 m market 127 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 226 m
+ROAD     off #129 hamlet road 136: end (-0.41, -1.00) cell (1177, 929) street 70 m market 138 m marker x1 0.5 px marker x4 2.0 px marker x16 7.9 px marker x64 31.6 px along 196 m FAIL x64
+ROAD     off #130 hamlet road 64: end (0.00, 0.00) cell (2815, 544) street 123 m market 216 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 118 m FAIL x64
+ROAD     off #130 hamlet road 234: end (0.05, 0.76) cell (2815, 544) street 26 m market 188 m marker x1 0.1 px marker x4 0.6 px marker x16 2.3 px marker x64 9.3 px along 93 m
+ROAD     off #131 hamlet road 186: end (0.00, 0.00) cell (831, 597) street 229 m market 279 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 23 m FAIL x16,x64
+ROAD     off #132 hamlet road 135: end (0.00, 0.00) cell (446, 1347) street 25 m market 337 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 56 m
+ROAD     off #132 hamlet road 165: end (0.00, 2.00) cell (446, 1347) street 92 m market 702 m marker x1 0.4 px marker x4 1.8 px marker x16 7.1 px marker x64 28.4 px along 82 m FAIL x64
+ROAD     off #133 hamlet road 217: end (0.00, 0.00) cell (4088, 1495) street 264 m market 555 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 124 m FAIL x16,x64
+ROAD     off #134 hamlet road 226: end (0.00, 0.00) cell (577, 1506) street 22 m market 358 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 49 m
+ROAD     off #134 hamlet road 236: end (0.00, 0.00) cell (577, 1506) street 22 m market 358 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 36 m
+ROAD     off #135 hamlet road 181: end (0.00, 0.00) cell (2245, 1435) street 63 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 18 m FAIL x64
+ROAD     off #136 hamlet road 144: end (0.00, 0.00) cell (1078, 510) street 119 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 66 m FAIL x64
+ROAD     off #137 hamlet road 232: end (0.00, 0.00) cell (2322, 700) street 104 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 126 m FAIL x64
+ROAD     off #138 hamlet road 180: end (0.00, 0.00) cell (141, 1407) street 561 m market 631 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 252 m FAIL x16,x64
+ROAD     off #139 hamlet road 74: end (0.00, 0.00) cell (4068, 1707) street 19 m market 374 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m
+ROAD     off #139 hamlet road 116: end (-2.12, 3.07) cell (4068, 1707) street 118 m market 816 m marker x1 1.0 px marker x4 4.1 px marker x16 16.5 px marker x64 65.9 px MADE 1 drawn river crossing(s) the way itself does not have along 71 m FAIL x4,x64
+ROAD     off #140 hamlet road 237: end (0.00, 0.00) cell (2954, 656) street 49 m market 276 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 44 m FAIL x64
+ROAD     off #141 hamlet road 187: end (0.00, 0.00) cell (3894, 1968) street 452 m market 644 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m FAIL x16,x64
+ROAD     off #141 hamlet road 190: end (-0.18, 2.05) cell (3894, 1968) street 87 m market 494 m marker x1 0.5 px marker x4 1.9 px marker x16 7.6 px marker x64 30.5 px along 70 m FAIL x64
+ROAD     off #141 hamlet road 225: end (0.01, 1.17) cell (3894, 1968) street 233 m market 506 m marker x1 0.2 px marker x4 0.9 px marker x16 3.7 px marker x64 14.9 px MADE 4 drawn river crossing(s) the way itself does not have along 64 m FAIL x16,x64
+ROAD     off #142 hamlet road 219: end (0.00, 0.00) cell (950, 487) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 3 m FAIL x64
+ROAD     off #143 hamlet road 109: end (0.00, 0.00) cell (3785, 1932) street 73 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #143 hamlet road 142: end (0.00, 0.00) cell (3785, 1932) street 73 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m FAIL x64
+ROAD     off #144 hamlet road 94: end (0.00, 0.00) cell (3728, 1856) street 580 m market 672 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 92 m FAIL x16,x64
+ROAD     off #145 hamlet road 241: end (0.00, 0.00) cell (1160, 84) street 44 m market 116 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 7 m FAIL x64
+ROAD     off #146 hamlet road 154: end (0.00, 0.00) cell (2553, 1623) street 104 m market 113 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 7 m FAIL x64
+ROAD     off #148 hamlet road 173: end (0.00, 0.00) cell (2609, 1514) street 164 m market 197 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 113 m FAIL x64
+ROAD     off #148 hamlet road 183: end (0.00, 0.00) cell (2609, 1514) street 164 m market 197 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 83 m FAIL x64
+ROAD     off #149 hamlet road 230: end (0.00, 0.00) cell (2617, 1302) street 99 m market 181 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 145 m FAIL x64
+ROAD     off #150 hamlet road 101: end (0.00, 0.00) cell (3702, 1989) street 189 m market 604 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x16,x64
+ROAD     off #150 hamlet road 161: end (0.00, 0.00) cell (3702, 1989) street 189 m market 604 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 46 m FAIL x16,x64
+ROAD     off #151 hamlet road 190: end (0.00, 0.00) cell (3888, 2027) street 349 m market 456 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 135 m FAIL x16,x64
+ROAD     off #152 hamlet road 116: end (0.00, 0.00) cell (4024, 1804) street 144 m market 391 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 138 m FAIL x64
+ROAD     off #153 hamlet road 161: end (0.00, 0.00) cell (3727, 2044) street 109 m market 352 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m FAIL x64
+ROAD     off #154 hamlet road 119: end (0.00, 0.00) cell (3990, 1332) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 138 m FAIL x64
+ROAD     off #155 hamlet road 62: end (0.00, 0.00) cell (2215, 1584) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 57 m FAIL x64
+ROAD     off #156 hamlet road 210: end (0.00, 0.00) cell (4089, 1377) street 246 m market 514 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 140 m FAIL x16,x64
+ROAD     off #156 hamlet road 223: end (0.00, 0.00) cell (4089, 1377) street 246 m market 514 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 109 m FAIL x16,x64
+ROAD     off #157 hamlet road 165: end (0.00, 0.00) cell (507, 1373) street 119 m market 664 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #157 hamlet road 177: end (0.00, 0.00) cell (507, 1373) street 119 m market 664 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 120 m FAIL x64
+ROAD     off #158 hamlet road 157: end (0.00, 0.00) cell (2928, 1924) street 83 m market 220 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 110 m FAIL x64
+ROAD     off #158 hamlet road 189: end (0.00, 0.00) cell (2928, 1924) street 83 m market 220 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 156 m FAIL x64
+ROAD     off #159 hamlet road 246: end (0.00, 0.00) cell (520, 1672) street 371 m market 545 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 239 m FAIL x16,x64
+ROAD     off #160 hamlet road 195: end (0.00, 0.00) cell (2882, 1547) street 24 m market 415 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m
+ROAD     off #160 hamlet road 201: end (0.00, 0.00) cell (2882, 1547) street 24 m market 415 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 9 m
+ROAD     off #161 hamlet road 225: end (0.00, 0.00) cell (3985, 1997) street 76 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 426 m FAIL x64
+ROAD     off #162 hamlet road 177: end (0.00, 0.00) cell (544, 1315) street 230 m market 666 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 107 m FAIL x16,x64
+ROAD     off #163 hamlet road 228: end (0.00, 0.00) cell (4091, 1166) street 110 m market 393 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 100 m FAIL x64
+ROAD     off #164 hamlet road 239: end (0.00, 0.00) cell (374, 1558) street 265 m market 276 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x16,x64
+ROAD     off #165 hamlet road 136: end (0.00, 0.00) cell (1229, 913) street 83 m market 362 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #165 hamlet road 197: end (0.00, 0.00) cell (1229, 913) street 83 m market 362 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 44 m FAIL x64
+ROAD     off #166 hamlet road 158: end (0.00, 0.00) cell (3845, 1913) street 78 m market 589 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #167 hamlet road 142: end (0.00, 0.00) cell (3819, 1975) street 404 m market 437 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 62 m FAIL x16,x64
+ROAD     off #167 hamlet road 187: end (3.00, -1.00) cell (3819, 1975) street 52 m market 215 m marker x1 0.8 px marker x4 3.3 px marker x16 13.1 px marker x64 52.4 px along 75 m FAIL x64
+ROAD     off #168 hamlet road 179: end (0.00, 0.00) cell (297, 1365) street 198 m market 611 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 120 m FAIL x16,x64
+ROAD     off #168 hamlet road 182: end (0.00, 0.00) cell (297, 1365) street 198 m market 611 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 138 m FAIL x16,x64
+ROAD     off #169 hamlet road 182: end (0.00, 0.00) cell (350, 1340) street 321 m market 378 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 205 m FAIL x16,x64
+ROAD     off #170 hamlet road 175: end (0.00, 0.00) cell (3741, 1168) street 107 m market 377 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 46 m FAIL x64
+ROAD     off #171 hamlet road 168: end (0.00, 0.00) cell (3020, 1898) street 98 m market 628 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #172 hamlet road 211: end (0.00, 0.00) cell (4036, 1499) street 170 m market 651 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 20 m FAIL x64
+ROAD     off #172 hamlet road 217: end (1.89, -0.73) cell (4036, 1499) street 49 m market 908 m marker x1 0.5 px marker x4 2.1 px marker x16 8.4 px marker x64 33.5 px along 70 m FAIL x64
+ROAD     off #173 hamlet road 184: end (0.00, 0.00) cell (956, 665) street 113 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 93 m FAIL x64
+ROAD     off #174 hamlet road 205: end (0.00, 0.00) cell (3776, 1662) street 0 m market 605 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 33 m
+ROAD     off #175 hamlet road 148: end (0.00, 0.00) cell (3729, 1592) street 103 m market 321 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 147 m FAIL x64
+ROAD     off #175 hamlet road 205: end (0.39, -0.42) cell (3729, 1592) street 138 m market 432 m marker x1 0.3 px marker x4 1.0 px marker x16 4.1 px marker x64 16.6 px along 40 m FAIL x64
+ROAD     off #176 hamlet road 183: end (0.00, 0.00) cell (2615, 1451) street 91 m market 125 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 42 m FAIL x64
+ROAD     off #177 hamlet road 223: end (0.00, 0.00) cell (4091, 1280) street 172 m market 374 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 44 m FAIL x64
+ROAD     off #178 hamlet road 222: end (0.00, 0.00) cell (566, 1445) street 80 m market 426 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 93 m FAIL x64
+ROAD     off #178 hamlet road 226: end (0.00, 0.00) cell (566, 1445) street 80 m market 426 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 31 m FAIL x64
+ROAD     off #179 hamlet road 105: end (0.00, 0.00) cell (3974, 1633) street 134 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 61 m FAIL x64
+ROAD     off #180 hamlet road 115: end (0.00, 0.00) cell (2759, 1545) street 282 m market 563 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 135 m FAIL x16,x64
+ROAD     off #181 hamlet road 204: end (0.00, 0.00) cell (4024, 1414) street 155 m market 527 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 6 drawn river crossing(s) the way itself does not have along 132 m FAIL x64
+ROAD     off #181 hamlet road 209: end (-0.41, 0.92) cell (4024, 1414) street 122 m market 695 m marker x1 0.3 px marker x4 1.1 px marker x16 4.5 px marker x64 18.0 px along 26 m FAIL x64
+ROAD     off #181 hamlet road 210: end (1.09, 2.24) cell (4024, 1414) street 16 m market 740 m marker x1 0.5 px marker x4 2.1 px marker x16 8.2 px marker x64 33.0 px along 95 m
+ROAD     off #181 hamlet road 211: end (0.84, 2.02) cell (4024, 1414) street 13 m market 719 m marker x1 0.4 px marker x4 1.7 px marker x16 7.0 px marker x64 28.0 px along 124 m
+ROAD     off #182 hamlet road 240: end (0.00, 0.00) cell (2214, 1823) street 332 m market 332 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 268 m FAIL x16,x64
+ROAD     off #183 hamlet road 71: end (0.00, 0.00) cell (3843, 1255) street 0 m market 399 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 33 m
+ROAD     off #184 hamlet road 227: end (0.00, 0.00) cell (1025, 433) street 46 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 138 m FAIL x64
+ROAD     off #185 hamlet road 145: end (0.00, 0.00) cell (3870, 1605) street 215 m market 588 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x16,x64
+ROAD     off #187 hamlet road 224: end (0.00, 0.00) cell (1493, 862) street 126 m market 213 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 4 drawn river crossing(s) the way itself does not have along 61 m FAIL x64
+ROAD     off #188 hamlet road 65: end (0.00, 0.00) cell (225, 1351) street 29 m market 345 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m
+ROAD     off #189 hamlet road 244: end (0.00, 0.00) cell (609, 1682) street 95 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 97 m FAIL x64
+ROAD     off #190 hamlet road 216: end (0.00, 0.00) cell (2687, 1932) street 166 m market 414 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 106 m FAIL x64
+ROAD     off #191 hamlet road 188: end (0.00, 0.00) cell (271, 1491) street 4 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m
+ROAD     off #191 hamlet road 239: end (0.00, 0.00) cell (271, 1491) street 4 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 27 m
+ROAD     off #192 hamlet road 50: end (0.00, 0.00) cell (805, 727) street 67 m market 182 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 309 m FAIL x64
+ROAD     off #192 hamlet road 160: end (0.00, 0.00) cell (805, 727) street 67 m market 182 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 138 m FAIL x64
+ROAD     off #193 hamlet road 111: end (0.00, 0.00) cell (1015, 697) street 64 m market 161 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 18 m FAIL x64
+ROAD     off #193 hamlet road 184: end (0.00, 0.00) cell (1015, 697) street 64 m market 161 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 267 m FAIL x64
+ROAD     off #194 hamlet road 197: end (0.00, 0.00) cell (1312, 914) street 101 m market 148 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 131 m FAIL x64
+ROAD     off #195 hamlet road 233: end (0.00, 0.00) cell (1361, 1098) street 112 m market 143 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 103 m FAIL x64
+ROAD     off #195 hamlet road 235: end (-0.70, 1.22) cell (1361, 1098) street 25 m market 370 m marker x1 0.4 px marker x4 1.6 px marker x16 6.3 px marker x64 25.1 px along 36 m
+ROAD     off #196 hamlet road 163: end (0.00, 0.00) cell (729, 871) street 44 m market 275 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 81 m FAIL x64
+ROAD     off #196 hamlet road 202: end (0.00, 0.00) cell (729, 871) street 44 m market 275 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m FAIL x64
+ROAD     off #197 hamlet road 124: end (0.00, 0.00) cell (3803, 1153) street 482 m market 614 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 57 m FAIL x16,x64
+ROAD     off #198 hamlet road 141: end (0.00, 0.00) cell (3811, 1362) street 176 m market 468 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 34 m FAIL x16,x64
+ROAD     off #199 hamlet road 100: end (0.00, 0.00) cell (3793, 1879) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 60 m FAIL x64
+ROAD     off #200 hamlet road 127: end (0.00, 0.00) cell (2706, 1836) street 484 m market 553 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 131 m FAIL x16,x64
+ROAD     off #200 hamlet road 203: end (0.07, 1.82) cell (2706, 1836) street 129 m market 198 m marker x1 0.4 px marker x4 1.6 px marker x16 6.2 px marker x64 24.9 px along 48 m FAIL x64
+ROAD     off #202 hamlet road 170: end (0.00, 0.00) cell (2575, 1563) street 167 m market 185 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 44 m FAIL x64
+ROAD     off #202 hamlet road 173: end (0.40, 0.80) cell (2575, 1563) street 39 m market 99 m marker x1 0.1 px marker x4 0.4 px marker x16 1.4 px marker x64 5.7 px MADE 1 drawn river crossing(s) the way itself does not have along 109 m
+ROAD     off #203 hamlet road 126: end (0.00, 0.00) cell (3971, 1768) street 290 m market 494 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 35 m FAIL x16,x64
+ROAD     off #204 hamlet road 247: end (0.00, 0.00) cell (2539, 193) street 42 m market 148 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 133 m
+ROAD     off #205 hamlet road 150: end (0.00, 0.00) cell (3839, 1844) street 321 m market 382 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 179 m FAIL x16,x64
+ROAD     off #206 hamlet road 174: end (0.00, 0.00) cell (3778, 1427) street 564 m market 645 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 84 m FAIL x16,x64
+ROAD     off #207 hamlet road 169: end (0.00, 0.00) cell (3646, 1884) street 121 m market 244 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 32 m FAIL x64
+ROAD     off #208 hamlet road 75: end (-0.35, 0.62) cell (3944, 1676) street 134 m market 167 m marker x1 0.2 px marker x4 1.0 px marker x16 3.8 px marker x64 15.4 px MADE 1 drawn river crossing(s) the way itself does not have along 11 m FAIL x64
+ROAD     off #209 hamlet road 221: end (0.00, 0.00) cell (2553, 640) street 91 m market 142 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 48 m FAIL x64
+ROAD     off #210 hamlet road 130: end (0.00, 0.00) cell (2869, 1628) street 628 m market 713 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 373 m FAIL x16,x64
+ROAD     off #211 hamlet road 143: end (0.00, 0.00) cell (3916, 1628) street 39 m market 542 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m
+ROAD     off #211 hamlet road 145: end (0.00, 0.00) cell (3916, 1628) street 39 m market 542 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 0 m
+ROAD     off #212 hamlet road 189: end (0.00, 0.00) cell (2859, 1901) street 51 m market 319 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 100 m FAIL x64
+ROAD     off #213 hamlet road 203: end (0.00, 0.00) cell (2785, 1867) street 205 m market 387 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x16,x64
+ROAD     off #214 hamlet road 132: end (0.00, 0.00) cell (3859, 1392) street 50 m market 380 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 74 m FAIL x64
+ROAD     off #214 hamlet road 141: end (0.00, 0.00) cell (3859, 1392) street 50 m market 380 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 10 m FAIL x64
+ROAD     off #215 hamlet road 176: end (0.00, 0.00) cell (2175, 1396) street 138 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 118 m FAIL x64
+ROAD     off #216 hamlet road 123: end (0.00, 0.00) cell (2999, 1841) street 195 m market 545 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 110 m FAIL x16,x64
+ROAD     off #216 hamlet road 168: end (1.61, -0.71) cell (2999, 1841) street 112 m market 683 m marker x1 0.5 px marker x4 1.8 px marker x16 7.4 px marker x64 29.5 px along 84 m FAIL x64
+ROAD     off #217 hamlet road 53: end (0.00, 0.00) cell (1181, 726) street 89 m market 183 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #218 hamlet road 245: end (0.00, 0.00) cell (1766, 396) street 168 m market 192 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 40 m FAIL x64
+ROAD     off #219 hamlet road 77: end (0.00, 0.00) cell (3881, 1774) street 36 m market 500 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 62 m
+ROAD     off #220 hamlet road 208: end (0.00, 0.00) cell (982, 531) street 3 m market 171 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 18 m
+ROAD     off #220 hamlet road 219: end (0.00, 0.00) cell (982, 531) street 3 m market 171 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 6 m
+ROAD     off #221 hamlet road 209: end (0.00, 0.00) cell (4089, 1430) street 200 m market 787 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 126 m FAIL x16,x64
+ROAD     off #222 hamlet road 112: end (0.00, 0.00) cell (2890, 1677) street 39 m market 579 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m
+ROAD     off #222 hamlet road 130: end (0.00, 0.00) cell (2890, 1677) street 39 m market 579 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 33 m
+ROAD     off #222 hamlet road 152: end (0.00, 0.00) cell (2890, 1677) street 39 m market 579 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 3 drawn river crossing(s) the way itself does not have along 134 m
+ROAD     off #223 hamlet road 93: end (0.00, 0.00) cell (2743, 1789) street 74 m market 389 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #224 hamlet road 236: end (0.00, 0.00) cell (650, 1546) street 0 m market 595 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 14 m
+ROAD     off #225 hamlet road 86: end (0.00, 0.00) cell (4072, 1604) street 410 m market 553 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 190 m FAIL x16,x64
+ROAD     off #226 hamlet road 229: end (0.00, 0.00) cell (1652, 791) street 104 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 0 m FAIL x64
+ROAD     off #227 hamlet road 201: end (0.00, 0.00) cell (2868, 1468) street 408 m market 510 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 204 m FAIL x16,x64
+ROAD     off #228 hamlet road 213: end (0.00, 0.00) cell (2639, 638) street 340 m market 676 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 149 m FAIL x16,x64
+ROAD     off #228 hamlet road 221: end (0.00, 0.00) cell (2639, 638) street 340 m market 676 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 2 drawn river crossing(s) the way itself does not have along 114 m FAIL x16,x64
+ROAD     off #229 hamlet road 61: end (0.00, 0.00) cell (240, 1407) street 162 m market 372 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 121 m FAIL x64
+ROAD     off #229 hamlet road 179: end (-0.57, 1.24) cell (240, 1407) street 122 m market 572 m marker x1 0.4 px marker x4 1.5 px marker x16 5.9 px marker x64 23.4 px along 55 m FAIL x64
+ROAD     off #230 hamlet road 68: end (0.00, 0.00) cell (2434, 1312) street 46 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #230 hamlet road 108: end (0.00, 0.00) cell (2434, 1312) street 46 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 31 m FAIL x64
+ROAD     off #231 hamlet road 234: end (0.00, 0.00) cell (2869, 661) street 102 m market 296 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 98 m FAIL x64
+ROAD     off #232 hamlet road 129: end (0.00, 0.00) cell (2320, 1951) street 116 m market 160 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 44 m FAIL x64
+ROAD     off #233 hamlet road 155: end (0.00, 0.00) cell (3912, 1138) street 177 m market 186 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 77 m FAIL x16,x64
+ROAD     off #234 hamlet road 215: end (0.00, 0.00) cell (173, 1543) street 273 m market 635 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 99 m FAIL x16,x64
+ROAD     off #235 hamlet road 199: end (0.00, 0.00) cell (2471, 1972) street 133 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 122 m FAIL x64
+ROAD     off #236 hamlet road 200: end (0.00, 0.00) cell (2587, 1904) street 117 m market 138 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 116 m FAIL x64
+ROAD     off #237 hamlet road 75: end (0.00, 0.00) cell (4013, 1694) street 103 m market 709 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 90 m FAIL x64
+ROAD     off #238 hamlet road 131: end (0.00, 0.00) cell (3728, 1242) street 512 m market 512 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px MADE 1 drawn river crossing(s) the way itself does not have along 219 m FAIL x16,x64
+ROAD     off #239 hamlet road 248: end (0.00, 0.00) cell (2442, 142) street 121 m market 157 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 104 m FAIL x64
+ROAD     off #240 hamlet road 118: end (0.00, 0.00) cell (2812, 1575) street 176 m market 451 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 130 m FAIL x16,x64
+ROAD     off #240 hamlet road 195: end (0.00, 0.00) cell (2812, 1575) street 176 m market 451 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 94 m FAIL x16,x64
+ROAD     off #241 hamlet road 220: end (0.00, 0.00) cell (1329, 200) street 28 m market 103 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 112 m
+ROAD     off #242 hamlet road 235: end (0.00, 0.00) cell (1334, 1054) street 174 m market 258 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 200 m FAIL x16,x64
+ROAD     off #243 hamlet road 243: end (0.00, 0.00) cell (679, 1648) street 9 m market 657 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 118 m
+ROAD     off #243 hamlet road 244: end (0.00, 0.00) cell (679, 1648) street 9 m market 657 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 12 m
+ROAD     off #244 hamlet road 48: end (0.00, 0.00) cell (3772, 1507) street 162 m market 640 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 138 m FAIL x64
+ROAD     off #244 hamlet road 97: end (-3.00, 3.00) cell (3772, 1507) street 138 m market 997 m marker x1 1.2 px marker x4 4.8 px marker x16 19.3 px marker x64 77.3 px MADE 1 drawn river crossing(s) the way itself does not have along 96 m FAIL x4,x64
+ROAD     off #244 hamlet road 174: end (0.00, 0.00) cell (3772, 1507) street 162 m market 640 m marker x1 0.2 px marker x4 0.8 px marker x16 3.2 px marker x64 12.7 px along 130 m FAIL x64
+ROAD   off: road ends at a town 403 (at a moved town 230), ending near it with no copy in its box 56, through a town cell 3 | street median 94 max 628 m | market median 161 max 1054 m | along median 95 m | marker x1 max 1.4 px | marker x4 max 5.5 px | marker x16 max 22.2 px | marker x64 max 88.6 px | ends the engine names 0 (not named, at its own bank or with no market: 0; at a market with no street: 0) | drawn end to street x16 max 14.4 px | drawn end to street x64 max 57.8 px | over its river in the box: at the town's crossing 27, with none 245 (made by the attach 225) | over 4.0 px: 290 | walled 11, rings with under 5 inside 0
+ROAD     on  #0 town road 27: end (0.68, 1.03) cell (3872, 1213) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #0 town road 33: end (0.68, 1.03) cell (3872, 1213) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #0 town road 153: end (0.68, 1.03) cell (3872, 1213) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #1 capital road 0: end (0.57, -0.42) cell (1075, 985) street 21 m market 287 m marker x1 0.3 px marker x4 3.6 px marker x16 7.4 px marker x64 23.6 px along 593 m NOT NAMED (at its own bank or no market)
+ROAD     on  #1 capital road 1: end (1.26, 0.88) cell (1075, 985) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #1 capital road 3: end (1.26, 0.88) cell (1075, 985) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 15 m
+ROAD     on  #2 capital road 6: end (1.26, 0.12) cell (2854, 1733) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #2 capital road 7: end (0.50, 1.39) cell (2854, 1733) street 210 m market 289 m marker x1 0.3 px marker x4 3.6 px marker x16 7.6 px marker x64 24.2 px along 373 m NOT NAMED (at its own bank or no market)
+ROAD     on  #2 capital road 8: end (1.26, 0.12) cell (2854, 1733) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 20 m
+ROAD     on  #3 village road 9: end (0.56, 0.04) cell (2494, 1693) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #3 village road 23: end (-0.67, 0.23) cell (2494, 1693) street 161 m market 244 m marker x1 0.3 px marker x4 1.4 px marker x16 6.5 px marker x64 22.6 px along 272 m NOT NAMED (at its own bank or no market)
+ROAD     on  #4 capital road 11: end (1.00, 0.49) cell (1935, 537) street 5 m market 182 m marker x1 0.1 px marker x4 3.3 px marker x16 4.6 px marker x64 12.4 px along 237 m NOT NAMED (at its own bank or no market)
+ROAD     on  #4 capital road 13: end (0.50, 0.75) cell (1935, 537) street 45 m market 153 m marker x1 0.1 px marker x4 3.4 px marker x16 4.8 px marker x64 11.7 px along 385 m NOT NAMED (at its own bank or no market)
+ROAD     on  #4 capital road 238: end (0.19, 0.03) cell (1935, 537) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #5 hamlet road 29: end (0.75, 0.74) cell (3900, 1484) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #5 hamlet road 30: end (0.75, 0.74) cell (3900, 1484) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 393 m
+ROAD     on  #5 hamlet road 33: end (0.75, 0.74) cell (3900, 1484) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 3 m
+ROAD     on  #5 hamlet road 47: end (0.75, 0.74) cell (3900, 1484) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #5 hamlet road 113: end (0.75, 0.74) cell (3900, 1484) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #6 town road 14: end (0.50, 1.34) cell (2686, 554) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 257 m
+ROAD     on  #6 town road 34: end (0.50, 1.34) cell (2686, 554) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #6 town road 98: end (0.50, 1.34) cell (2686, 554) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #7 town road 10: end (1.34, 0.50) cell (2309, 1525) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #7 town road 21: end (1.34, 0.50) cell (2309, 1525) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 39 m
+ROAD     on  #7 town road 22: end (1.34, 0.50) cell (2309, 1525) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 3 m
+ROAD     on  #7 town road 51: end (1.34, 0.50) cell (2309, 1525) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #8 village road 22: end (0.87, 0.70) cell (2413, 1221) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 185 m
+ROAD     on  #8 village road 35: end (0.87, 0.70) cell (2413, 1221) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #8 village road 41: end (0.87, 0.70) cell (2413, 1221) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 322 m
+ROAD     on  #8 village road 99: end (0.87, 0.70) cell (2413, 1221) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 27 m
+ROAD     on  #9 hamlet road 23: end (0.10, 0.59) cell (2377, 1966) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #10 hamlet road 12: end (1.23, 0.90) cell (2427, 548) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #10 hamlet road 167: end (1.23, 0.90) cell (2427, 548) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #12 hamlet road 11: end (0.36, 0.74) cell (2173, 488) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 233 m
+ROAD     on  #12 hamlet road 39: end (0.36, 0.74) cell (2173, 488) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 184 m
+ROAD     on  #12 hamlet road 96: end (0.36, 0.74) cell (2173, 488) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 24 m
+ROAD     on  #12 hamlet road 138: end (0.36, 0.74) cell (2173, 488) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 609 m
+ROAD     on  #14 city road 1: end (0.22, 0.50) cell (1223, 778) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #14 city road 15: end (0.22, 0.50) cell (1223, 778) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 635 m
+ROAD     on  #14 city road 24: end (0.22, 0.50) cell (1223, 778) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 3 m
+ROAD     on  #14 city road 57: end (1.20, 1.38) cell (1223, 778) street 187 m market 258 m marker x1 0.3 px marker x4 3.2 px marker x16 6.4 px marker x64 20.2 px along 325 m NOT NAMED (at its own bank or no market)
+ROAD     on  #14 city road 95: end (1.75, 1.90) cell (1223, 778) street 329 m market 406 m marker x1 0.5 px marker x4 4.0 px marker x16 9.8 px marker x64 33.8 px along 252 m NOT NAMED (at its own bank or no market)
+ROAD     on  #15 hamlet road 44: end (0.72, 0.70) cell (1057, 206) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 14 m
+ROAD     on  #15 hamlet road 242: end (0.72, 0.70) cell (1057, 206) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #16 hamlet road 30: end (0.47, 1.23) cell (4052, 1652) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #16 hamlet road 31: end (0.47, 1.23) cell (4052, 1652) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #16 hamlet road 32: end (0.47, 1.23) cell (4052, 1652) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #17 hamlet road 28: end (0.77, 0.73) cell (3714, 1518) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 231 m
+ROAD     on  #17 hamlet road 29: end (0.77, 0.73) cell (3714, 1518) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 422 m
+ROAD     on  #18 village road 0: end (0.72, 0.61) cell (898, 922) street 48 m market 78 m marker x1 0.1 px marker x4 0.3 px marker x16 3.4 px marker x64 7.4 px along 381 m NOT NAMED (at its own bank or no market)
+ROAD     on  #18 village road 20: end (0.69, 0.21) cell (898, 922) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 129 m
+ROAD     on  #20 hamlet road 17: end (0.39, 0.36) cell (430, 1402) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 504 m
+ROAD     on  #20 hamlet road 135: end (4.47, 0.03) cell (430, 1402) street 579 m market 799 m marker x1 1.1 px marker x4 4.5 px marker x16 18.3 px marker x64 71.6 px along 668 m NOT NAMED (at its own bank or no market)
+ROAD     on  #21 hamlet road 7: end (0.66, 0.35) cell (2673, 1780) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #21 hamlet road 9: end (0.66, 0.35) cell (2673, 1780) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 343 m
+ROAD     on  #21 hamlet road 121: end (0.66, 0.35) cell (2673, 1780) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #23 hamlet road 45: end (0.46, 0.23) cell (2845, 265) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 726 m
+ROAD     on  #23 hamlet road 247: end (0.46, 0.23) cell (2845, 265) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #24 EMPTY RING: 0 buildings inside its wall
+ROAD     on  #25 hamlet road 34: end (0.68, 0.88) cell (2914, 526) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #25 hamlet road 45: end (0.75, 0.50) cell (2914, 526) street 54 m market 76 m marker x1 0.1 px marker x4 0.3 px marker x16 3.6 px marker x64 7.0 px along 430 m NOT NAMED (at its own bank or no market)
+ROAD     on  #26 hamlet road 5: end (0.74, 0.92) cell (1285, 478) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #26 hamlet road 36: end (0.74, 0.92) cell (1285, 478) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 460 m
+ROAD     on  #26 hamlet road 40: end (0.74, 0.92) cell (1285, 478) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #27 village road 35: end (0.26, 0.50) cell (2112, 1332) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #27 village road 42: end (0.26, 0.50) cell (2112, 1332) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #27 village road 176: end (0.26, 0.50) cell (2112, 1332) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 148 m
+ROAD     on  #28 hamlet road 18: end (0.48, 0.41) cell (443, 1104) street 55 m market 67 m marker x1 0.0 px marker x4 0.1 px marker x16 0.4 px marker x64 4.8 px along 419 m NOT NAMED (at its own bank or no market)
+ROAD     on  #29 hamlet road 43: end (0.86, 0.82) cell (3656, 1958) street 5 m market 10 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #29 hamlet road 94: end (0.86, 0.82) cell (3656, 1958) street 5 m market 10 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 27 m
+ROAD     on  #30 hamlet road 31: end (1.14, 0.67) cell (3872, 1716) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #30 hamlet road 43: end (1.14, 0.67) cell (3872, 1716) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #31 hamlet road 19: end (1.00, 0.93) cell (814, 663) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 224 m
+ROAD     on  #31 hamlet road 186: end (1.27, 1.63) cell (814, 663) street 83 m market 146 m marker x1 0.4 px marker x4 1.5 px marker x16 6.2 px marker x64 24.6 px along 370 m NOT NAMED (at its own bank or no market)
+ROAD     on  #33 hamlet road 6: end (0.12, 1.20) cell (3040, 1787) street 1 m market 3 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #34 hamlet road 27: end (0.10, -1.88) cell (3676, 1305) street 508 m market 856 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #34 hamlet road 28: end (0.10, -1.88) cell (3676, 1305) street 508 m market 856 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 25 m
+ROAD     on  #35 hamlet road 32: end (0.68, 0.71) cell (4050, 1877) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #36 hamlet road 2: end (0.53, 0.68) cell (1034, 751) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 77 m
+ROAD     on  #36 hamlet road 24: end (0.53, 0.68) cell (1034, 751) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 236 m
+ROAD     on  #36 hamlet road 26: end (0.53, 0.68) cell (1034, 751) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 335 m
+ROAD     on  #36 hamlet road 111: end (0.53, 0.68) cell (1034, 751) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #37 hamlet road 16: end (-0.93, -1.06) cell (19, 1440) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #38 hamlet road 3: end (0.73, 0.40) cell (1312, 1206) street 1 m market 3 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #38 hamlet road 233: end (0.73, 0.40) cell (1312, 1206) street 1 m market 3 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 30 m
+ROAD     on  #39 hamlet road 8: end (0.21, 0.78) cell (2775, 1431) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 233 m
+ROAD     on  #39 hamlet road 41: end (0.21, 0.78) cell (2775, 1431) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 274 m
+ROAD     on  #39 hamlet road 115: end (0.07, 1.29) cell (2775, 1431) street 37 m market 104 m marker x1 0.3 px marker x4 1.0 px marker x16 4.0 px marker x64 16.1 px along 32 m NOT NAMED (at its own bank or no market)
+ROAD     on  #45 hamlet road 147: end (1.00, 0.75) cell (2563, 1675) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #45 hamlet road 154: end (0.19, 0.28) cell (2563, 1675) street 159 m market 184 m marker x1 0.1 px marker x4 0.4 px marker x16 4.8 px marker x64 15.7 px along 729 m NOT NAMED (at its own bank or no market)
+ROAD     on  #46 hamlet road 80: end (0.92, 1.09) cell (3814, 1204) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #46 hamlet road 124: end (0.92, 1.09) cell (3814, 1204) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 81 m
+ROAD     on  #47 hamlet road 171: end (0.63, 1.09) cell (2725, 1661) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #48 hamlet road 153: end (0.04, 1.03) cell (3929, 1190) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #48 hamlet road 156: end (0.04, 1.03) cell (3929, 1190) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 30 m
+ROAD     on  #49 hamlet road 87: end (1.25, 0.87) cell (3847, 1310) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #50 hamlet road 55: end (0.93, 0.99) cell (2930, 1747) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #51 hamlet road 59: end (0.80, 0.66) cell (2432, 1741) street 118 m market 147 m marker x1 0.1 px marker x4 0.4 px marker x16 4.6 px marker x64 12.6 px along 546 m NOT NAMED (at its own bank or no market)
+ROAD     on  #51 hamlet road 90: end (1.49, 1.53) cell (2432, 1741) street 241 m market 328 m marker x1 0.4 px marker x4 1.6 px marker x16 8.9 px marker x64 30.8 px along 353 m NOT NAMED (at its own bank or no market)
+ROAD     on  #52 hamlet road 103: end (-0.03, 0.44) cell (3942, 1353) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #52 hamlet road 119: end (-0.03, 0.44) cell (3942, 1353) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 563 m
+ROAD     on  #53 hamlet road 113: end (0.40, 0.50) cell (3940, 1433) street 102 m market 142 m marker x1 0.0 px marker x4 0.1 px marker x16 4.2 px marker x64 10.6 px along 605 m NOT NAMED (at its own bank or no market)
+ROAD     on  #53 hamlet road 204: end (1.09, 0.28) cell (3940, 1433) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 14 m
+ROAD     on  #54 hamlet road 79: end (0.26, 1.25) cell (3900, 1322) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 186 m
+ROAD     on  #54 hamlet road 87: end (0.26, 1.25) cell (3900, 1322) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #54 hamlet road 103: end (0.26, 1.25) cell (3900, 1322) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #55 hamlet road 88: end (2.20, 0.50) cell (2806, 1685) street 177 m market 326 m marker x1 0.5 px marker x4 3.8 px marker x16 7.9 px marker x64 29.9 px along 313 m NOT NAMED (at its own bank or no market)
+ROAD     on  #56 hamlet road 67: end (0.66, 0.28) cell (3789, 1262) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 181 m
+ROAD     on  #57 hamlet road 139: end (0.75, 0.27) cell (2919, 1810) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 203 m
+ROAD     on  #57 hamlet road 146: end (4.92, 0.11) cell (2919, 1810) street 499 m market 816 m marker x1 1.2 px marker x4 5.0 px marker x16 18.4 px marker x64 76.8 px along 570 m NOT NAMED (at its own bank or no market)
+ROAD     on  #58 hamlet road 52: end (0.14, 1.03) cell (2974, 1777) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 140 m
+ROAD     on  #58 hamlet road 55: end (0.14, 1.03) cell (2974, 1777) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 326 m
+ROAD     on  #58 hamlet road 139: end (0.14, 1.03) cell (2974, 1777) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 112 m
+ROAD     on  #59 hamlet road 117: end (0.50, 0.91) cell (2536, 507) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #60 hamlet road 194: end (1.54, 0.40) cell (1079, 1067) street 20 m market 22 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 24 m
+ROAD     on  #61 hamlet road 54: end (1.07, 0.77) cell (2803, 1747) street 165 m market 165 m marker x1 0.2 px marker x4 0.7 px marker x16 5.3 px marker x64 15.1 px along 572 m NOT NAMED (at its own bank or no market)
+ROAD     on  #62 hamlet road 69: end (0.16, 0.88) cell (1122, 898) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 46 m
+ROAD     on  #62 hamlet road 73: end (0.16, 0.88) cell (1122, 898) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 319 m
+ROAD     on  #63 hamlet road 185: end (0.50, 0.78) cell (2519, 1835) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 26 m
+ROAD     on  #63 hamlet road 192: end (0.50, 0.78) cell (2519, 1835) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #64 hamlet road 140: end (1.04, 0.47) cell (2615, 1665) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 3 m
+ROAD     on  #64 hamlet road 147: end (1.04, 0.47) cell (2615, 1665) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #65 hamlet road 125: end (0.67, 0.69) cell (2662, 1690) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 279 m
+ROAD     on  #65 hamlet road 140: end (0.67, 0.69) cell (2662, 1690) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 260 m
+ROAD     on  #66 hamlet road 108: end (1.03, 0.46) cell (2390, 1352) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 22 m
+ROAD     on  #67 hamlet road 73: end (0.22, 0.24) cell (1165, 866) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 21 m
+ROAD     on  #68 hamlet road 90: end (0.29, 0.29) cell (2463, 1790) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #68 hamlet road 185: end (1.60, 1.95) cell (2463, 1790) street 412 m market 412 m marker x1 0.5 px marker x4 2.0 px marker x16 11.3 px marker x64 37.6 px along 505 m NOT NAMED (at its own bank or no market)
+ROAD     on  #69 hamlet road 212: end (0.24, 0.95) cell (3020, 1655) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #70 hamlet road 84: end (0.91, 0.23) cell (2697, 1734) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 59 m
+ROAD     on  #70 hamlet road 125: end (0.91, 0.23) cell (2697, 1734) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 15 m
+ROAD     on  #71 hamlet road 178: end (0.50, 0.50) cell (2062, 475) street 83 m market 113 m marker x1 0.0 px marker x4 1.9 px marker x16 0.5 px marker x64 9.1 px along 151 m NOT NAMED (at its own bank or no market)
+ROAD     on  #72 hamlet road 192: end (0.84, 0.38) cell (2494, 1909) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #72 hamlet road 199: end (0.84, 0.38) cell (2494, 1909) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 63 m
+ROAD     on  #72 hamlet road 200: end (0.84, 0.38) cell (2494, 1909) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 38 m
+ROAD     on  #73 hamlet road 85: end (0.62, 0.07) cell (1883, 599) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 356 m
+ROAD     on  #74 hamlet road 156: end (1.10, 0.43) cell (3980, 1167) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #74 hamlet road 164: end (1.10, 0.43) cell (3980, 1167) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #74 hamlet road 228: end (1.10, 0.43) cell (3980, 1167) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #75 hamlet road 134: end (0.77, 0.07) cell (3876, 1535) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 111 m
+ROAD     on  #76 hamlet road 167: end (0.99, 0.50) cell (2458, 621) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 377 m
+ROAD     on  #77 hamlet road 98: end (0.48, 0.83) cell (2593, 523) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #78 hamlet road 166: end (-0.19, 0.93) cell (2349, 1448) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #78 hamlet road 172: end (-0.19, 0.93) cell (2349, 1448) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 39 m
+ROAD     on  #79 hamlet road 83: end (0.32, 0.27) cell (2429, 1849) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #79 hamlet road 92: end (0.32, 0.27) cell (2429, 1849) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #80 hamlet road 76: end (-0.12, 0.33) cell (1076, 933) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #81 hamlet road 81: end (-0.15, 0.16) cell (3927, 1736) street 109 m market 147 m marker x1 0.2 px marker x4 0.8 px marker x16 4.2 px marker x64 13.4 px along 316 m NOT NAMED (at its own bank or no market)
+ROAD     on  #81 hamlet road 126: end (0.73, 0.79) cell (3927, 1736) street 86 m market 113 m marker x1 0.1 px marker x4 0.4 px marker x16 4.3 px marker x64 10.1 px along 232 m NOT NAMED (at its own bank or no market)
+ROAD     on  #82 hamlet road 137: end (0.75, 0.56) cell (1294, 684) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 60 m
+ROAD     on  #83 hamlet road 51: end (1.67, -0.11) cell (2269, 1572) street 207 m market 304 m marker x1 0.4 px marker x4 3.2 px marker x16 7.8 px marker x64 27.5 px along 281 m NOT NAMED (at its own bank or no market)
+ROAD     on  #83 hamlet road 62: end (0.12, 0.12) cell (2269, 1572) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 21 m
+ROAD     on  #84 hamlet road 106: end (0.63, -0.14) cell (2329, 1241) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #84 hamlet road 122: end (0.63, -0.14) cell (2329, 1241) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 332 m
+ROAD     on  #85 hamlet road 198: end (-0.25, -0.39) cell (2137, 1662) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 200 m
+ROAD     on  #86 hamlet road 49: end (0.31, 0.26) cell (2492, 548) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #87 hamlet road 146: end (1.10, 0.31) cell (2923, 1863) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #87 hamlet road 157: end (1.10, 0.31) cell (2923, 1863) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #88 hamlet road 110: end (0.48, 0.34) cell (1985, 490) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #89 hamlet road 152: end (0.38, 1.25) cell (2943, 1671) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 33 m
+ROAD     on  #89 hamlet road 212: end (0.38, 1.25) cell (2943, 1671) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #90 hamlet road 121: end (0.72, 0.17) cell (2655, 1832) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 414 m
+ROAD     on  #90 hamlet road 127: end (1.74, -0.07) cell (2655, 1832) street 165 m market 205 m marker x1 0.4 px marker x4 1.5 px marker x16 6.1 px marker x64 24.5 px along 424 m NOT NAMED (at its own bank or no market)
+ROAD     on  #91 hamlet road 207: end (0.86, -0.11) cell (2289, 555) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #92 hamlet road 149: end (0.87, 0.75) cell (2530, 1225) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 219 m
+ROAD     on  #93 hamlet road 82: end (1.15, 0.49) cell (2402, 1910) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #94 hamlet road 70: end (0.18, -0.15) cell (3789, 1313) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #96 hamlet road 58: end (0.79, 0.25) cell (3728, 1298) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 212 m
+ROAD     on  #96 hamlet road 131: end (0.79, 0.25) cell (3728, 1298) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 27 m
+ROAD     on  #97 hamlet road 138: end (0.55, 0.33) cell (2128, 453) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #97 hamlet road 178: end (0.55, 0.33) cell (2128, 453) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #97 hamlet road 248: end (0.55, 0.33) cell (2128, 453) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 139 m
+ROAD     on  #98 hamlet road 120: end (0.79, 0.86) cell (2876, 221) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #99 hamlet road 196: end (-0.03, 0.72) cell (2729, 473) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 44 m
+ROAD     on  #100 hamlet road 78: end (0.57, 0.80) cell (2357, 1883) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 24 m
+ROAD     on  #102 hamlet road 202: end (0.53, 0.28) cell (766, 940) street 5 m market 29 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 195 m
+ROAD     on  #103 hamlet road 89: end (0.23, 0.82) cell (2477, 1207) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #105 hamlet road 133: end (0.86, 1.10) cell (1209, 476) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #106 hamlet road 218: end (0.68, 0.92) cell (1281, 172) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 253 m
+ROAD     on  #106 hamlet road 241: end (0.68, 0.92) cell (1281, 172) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #108 hamlet road 193: end (0.07, 0.85) cell (2992, 507) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #109 hamlet road 162: end (0.64, 0.80) cell (3951, 1255) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #110 hamlet road 95: end (0.47, -0.10) cell (1285, 735) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 92 m
+ROAD     on  #110 hamlet road 137: end (0.47, -0.10) cell (1285, 735) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 213 m
+ROAD     on  #111 hamlet road 102: end (0.89, -0.09) cell (1142, 503) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #112 hamlet road 99: end (0.34, 0.10) cell (2386, 1291) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #112 hamlet road 106: end (0.34, 0.10) cell (2386, 1291) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 21 m
+ROAD     on  #113 hamlet road 164: end (0.86, 0.41) cell (3990, 1107) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #114 hamlet road 238: end (0.81, 0.76) cell (1832, 477) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #114 hamlet road 245: end (0.81, 0.76) cell (1832, 477) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #115 hamlet road 206: end (0.59, 0.12) cell (1013, 580) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #115 hamlet road 208: end (0.11, 0.19) cell (1013, 580) street 54 m market 94 m marker x1 0.1 px marker x4 0.6 px marker x16 4.3 px marker x64 11.4 px along 347 m NOT NAMED (at its own bank or no market)
+ROAD     on  #116 hamlet road 92: end (0.50, -0.21) cell (2363, 1822) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #116 hamlet road 240: end (0.50, -0.21) cell (2363, 1822) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 57 m
+ROAD     on  #117 hamlet road 159: end (0.58, 0.50) cell (2378, 1157) street 53 m market 76 m marker x1 0.0 px marker x4 0.1 px marker x16 0.4 px marker x64 4.7 px along 232 m NOT NAMED (at its own bank or no market)
+ROAD     on  #118 hamlet road 47: end (0.31, 1.14) cell (3845, 1472) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 43 m
+ROAD     on  #119 hamlet road 231: end (1.10, 1.10) cell (2261, 1125) street 232 m market 403 m marker x1 0.2 px marker x4 0.9 px marker x16 5.8 px marker x64 17.0 px along 103 m NOT NAMED (at its own bank or no market)
+ROAD     on  #120 hamlet road 72: end (0.86, 0.28) cell (3724, 1373) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #121 hamlet road 104: end (0.36, 0.86) cell (2436, 1174) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #121 hamlet road 159: end (0.43, 0.45) cell (2436, 1174) street 52 m market 81 m marker x1 0.0 px marker x4 0.1 px marker x16 0.4 px marker x64 5.0 px along 635 m NOT NAMED (at its own bank or no market)
+ROAD     on  #122 hamlet road 122: end (0.82, 0.26) cell (2276, 1226) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #122 hamlet road 231: end (0.82, 0.26) cell (2276, 1226) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 293 m
+ROAD     on  #123 hamlet road 128: end (0.20, 0.28) cell (2089, 1548) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #124 hamlet road 242: end (1.23, 0.69) cell (941, 297) street 2 m market 510 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #126 hamlet road 151: end (1.21, 0.37) cell (61, 1508) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #127 hamlet road 97: end (0.42, 0.19) cell (3774, 1560) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #127 hamlet road 148: end (0.42, 0.19) cell (3774, 1560) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 283 m
+ROAD     on  #129 hamlet road 114: end (0.20, -0.55) cell (1177, 929) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 250 m
+ROAD     on  #129 hamlet road 136: end (0.20, -0.55) cell (1177, 929) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 234 m
+ROAD     on  #130 hamlet road 64: end (0.73, 1.10) cell (2815, 544) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 15 m
+ROAD     on  #130 hamlet road 234: end (0.73, 1.10) cell (2815, 544) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #131 hamlet road 186: end (1.02, 0.27) cell (831, 597) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 250 m
+ROAD     on  #132 hamlet road 135: end (-0.83, -1.43) cell (446, 1347) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #132 hamlet road 165: end (-0.83, -1.43) cell (446, 1347) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 22 m
+ROAD     on  #133 hamlet road 217: end (2.05, 1.76) cell (4088, 1495) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #134 hamlet road 226: end (-0.96, -1.53) cell (577, 1506) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 23 m
+ROAD     on  #134 hamlet road 236: end (-0.96, -1.53) cell (577, 1506) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #135 hamlet road 181: end (0.50, 0.50) cell (2245, 1435) street 79 m market 109 m marker x1 0.0 px marker x4 0.0 px marker x16 3.7 px marker x64 8.8 px along 217 m NOT NAMED (at its own bank or no market)
+ROAD     on  #136 hamlet road 144: end (0.55, 0.78) cell (1078, 510) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 291 m
+ROAD     on  #138 hamlet road 180: end (1.55, 2.75) cell (141, 1407) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 41 m
+ROAD     on  #139 hamlet road 74: end (-1.58, -1.07) cell (4068, 1707) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #139 hamlet road 116: end (-1.62, 3.57) cell (4068, 1707) street 195 m market 907 m marker x1 1.0 px marker x4 4.2 px marker x16 16.7 px marker x64 67.0 px along 195 m NOT NAMED (at its own bank or no market)
+ROAD     on  #140 hamlet road 237: end (-1.00, 0.12) cell (2954, 656) street 229 m market 381 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #141 hamlet road 187: end (2.27, 2.26) cell (3894, 1968) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #141 hamlet road 190: end (2.27, 2.26) cell (3894, 1968) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #141 hamlet road 225: end (2.27, 2.26) cell (3894, 1968) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 116 m
+ROAD     on  #142 hamlet road 219: end (0.92, 1.09) cell (950, 487) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #143 hamlet road 109: end (0.54, 0.15) cell (3785, 1932) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 3 m
+ROAD     on  #143 hamlet road 142: end (0.54, 0.15) cell (3785, 1932) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 406 m
+ROAD     on  #144 hamlet road 94: end (3.06, 1.40) cell (3728, 1856) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #145 hamlet road 241: end (0.79, 0.25) cell (1160, 84) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #146 hamlet road 154: end (0.32, 0.51) cell (2553, 1623) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #148 hamlet road 173: end (0.41, 0.92) cell (2609, 1514) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #148 hamlet road 183: end (0.41, 0.92) cell (2609, 1514) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 272 m
+ROAD     on  #149 hamlet road 230: end (0.89, 0.20) cell (2617, 1302) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #150 hamlet road 101: end (3.04, -0.30) cell (3702, 1989) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #150 hamlet road 161: end (3.04, -0.30) cell (3702, 1989) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #151 hamlet road 190: end (1.94, 1.25) cell (3888, 2027) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 20 m
+ROAD     on  #152 hamlet road 116: end (-0.99, 1.63) cell (4024, 1804) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 15 m
+ROAD     on  #153 hamlet road 161: end (-1.56, 0.88) cell (3727, 2044) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #154 hamlet road 119: end (0.33, 0.37) cell (3990, 1332) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 17 m
+ROAD     on  #155 hamlet road 62: end (1.61, 0.55) cell (2215, 1584) street 210 m market 313 m marker x1 0.3 px marker x4 2.6 px marker x16 5.7 px marker x64 20.5 px along 468 m NOT NAMED (at its own bank or no market)
+ROAD     on  #155 hamlet road 66: end (3.83, -1.12) cell (2215, 1584) street 637 m market 750 m marker x1 1.0 px marker x4 3.3 px marker x16 14.6 px marker x64 61.4 px along 661 m NOT NAMED (at its own bank or no market)
+ROAD     on  #156 hamlet road 210: end (1.37, 2.20) cell (4089, 1377) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 19 m
+ROAD     on  #156 hamlet road 223: end (1.37, 2.20) cell (4089, 1377) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 24 m
+ROAD     on  #157 hamlet road 165: end (2.78, 1.94) cell (507, 1373) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #157 hamlet road 177: end (2.78, 1.94) cell (507, 1373) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 26 m
+ROAD     on  #158 hamlet road 157: end (-0.07, -1.11) cell (2928, 1924) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #158 hamlet road 189: end (-0.07, -1.11) cell (2928, 1924) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 66 m
+ROAD     on  #159 hamlet road 246: end (2.15, 1.75) cell (520, 1672) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 35 m
+ROAD     on  #160 hamlet road 195: end (2.10, -0.12) cell (2882, 1547) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #160 hamlet road 201: end (2.10, -0.12) cell (2882, 1547) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #161 hamlet road 225: end (0.76, 0.58) cell (3985, 1997) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 480 m
+ROAD     on  #162 hamlet road 177: end (0.60, 0.15) cell (544, 1315) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 372 m
+ROAD     on  #163 hamlet road 228: end (0.78, -1.83) cell (4091, 1166) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #164 hamlet road 239: end (0.26, 1.20) cell (374, 1558) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 138 m
+ROAD     on  #165 hamlet road 136: end (1.79, -0.18) cell (1229, 913) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #165 hamlet road 197: end (1.79, -0.18) cell (1229, 913) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 24 m
+ROAD     on  #166 hamlet road 158: end (2.89, -0.62) cell (3845, 1913) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #167 hamlet road 142: end (2.90, -2.15) cell (3819, 1975) street 7 m market 276 m marker x1 1.0 px marker x4 4.0 px marker x16 16.1 px marker x64 64.2 px along 7 m NOT NAMED (at its own bank or no market)
+ROAD     on  #167 hamlet road 187: end (1.90, -1.15) cell (3819, 1975) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #168 hamlet road 179: end (0.70, 3.00) cell (297, 1365) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #168 hamlet road 182: end (0.70, 3.00) cell (297, 1365) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #169 hamlet road 182: end (-0.50, 1.86) cell (350, 1340) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #170 hamlet road 175: end (0.67, -1.77) cell (3741, 1168) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #171 hamlet road 168: end (2.45, 2.05) cell (3020, 1898) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #172 hamlet road 211: end (-0.39, 3.27) cell (4036, 1499) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #172 hamlet road 217: end (-0.39, 3.27) cell (4036, 1499) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 7 m
+ROAD     on  #174 hamlet road 205: end (3.05, -0.23) cell (3776, 1662) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #175 hamlet road 148: end (-1.03, 1.23) cell (3729, 1592) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #175 hamlet road 205: end (-1.03, 1.23) cell (3729, 1592) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 238 m
+ROAD     on  #177 hamlet road 223: end (1.82, -0.41) cell (4091, 1280) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #178 hamlet road 222: end (-0.90, 1.94) cell (566, 1445) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #178 hamlet road 226: end (-0.90, 1.94) cell (566, 1445) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 46 m
+ROAD     on  #179 hamlet road 105: end (0.71, 0.93) cell (3974, 1633) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #180 hamlet road 115: end (1.98, 1.98) cell (2759, 1545) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #181 hamlet road 204: end (2.58, -0.65) cell (4024, 1414) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #181 hamlet road 209: end (2.58, -0.65) cell (4024, 1414) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 81 m
+ROAD     on  #181 hamlet road 210: end (2.58, -0.65) cell (4024, 1414) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 45 m
+ROAD     on  #181 hamlet road 211: end (2.58, -0.65) cell (4024, 1414) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #182 hamlet road 240: end (1.40, 0.90) cell (2214, 1823) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 250 m
+ROAD     on  #183 hamlet road 71: end (1.99, -0.38) cell (3843, 1255) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #184 hamlet road 227: end (0.33, 0.92) cell (1025, 433) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #185 hamlet road 145: end (-0.60, 2.91) cell (3870, 1605) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #187 hamlet road 224: end (1.07, -0.01) cell (1493, 862) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #188 hamlet road 65: end (-1.50, -0.80) cell (225, 1351) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #189 hamlet road 244: end (0.85, 0.59) cell (609, 1682) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #190 hamlet road 216: end (-0.86, 1.90) cell (2687, 1932) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #191 hamlet road 188: end (0.97, 0.93) cell (271, 1491) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #191 hamlet road 239: end (0.97, 0.93) cell (271, 1491) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 293 m
+ROAD     on  #192 hamlet road 50: end (0.78, 0.46) cell (805, 727) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 38 m
+ROAD     on  #192 hamlet road 160: end (0.78, 0.46) cell (805, 727) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #193 hamlet road 111: end (0.67, 0.42) cell (1015, 697) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #193 hamlet road 184: end (0.67, 0.42) cell (1015, 697) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 125 m
+ROAD     on  #194 hamlet road 197: end (0.71, 0.69) cell (1312, 914) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD     on  #195 hamlet road 233: end (0.73, -0.02) cell (1361, 1098) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 10 m
+ROAD     on  #195 hamlet road 235: end (0.73, -0.02) cell (1361, 1098) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #196 hamlet road 163: end (-1.31, -0.41) cell (729, 871) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 21 m
+ROAD     on  #196 hamlet road 202: end (-1.31, -0.41) cell (729, 871) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #197 hamlet road 124: end (3.08, 0.40) cell (3803, 1153) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 61 m
+ROAD     on  #198 hamlet road 141: end (-1.16, 2.07) cell (3811, 1362) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #200 hamlet road 127: end (0.08, 2.78) cell (2706, 1836) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 19 m
+ROAD     on  #200 hamlet road 203: end (0.08, 2.78) cell (2706, 1836) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #202 hamlet road 170: end (0.88, 0.65) cell (2575, 1563) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #202 hamlet road 173: end (0.88, 0.65) cell (2575, 1563) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 5 m
+ROAD     on  #203 hamlet road 126: end (1.76, 1.76) cell (3971, 1768) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 20 m
+ROAD     on  #204 hamlet road 247: end (0.29, 0.69) cell (2539, 193) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #205 hamlet road 150: end (-1.16, -1.52) cell (3839, 1844) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #206 hamlet road 174: end (2.07, 2.51) cell (3778, 1427) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #207 hamlet road 169: end (0.39, 0.86) cell (3646, 1884) street 7 m market 8 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #208 hamlet road 60: end (0.17, 1.09) cell (3944, 1676) street 126 m market 173 m marker x1 0.2 px marker x4 0.8 px marker x16 6.2 px marker x64 18.2 px along 351 m NOT NAMED (at its own bank or no market)
+ROAD     on  #208 hamlet road 75: end (0.15, 1.12) cell (3944, 1676) street 132 m market 179 m marker x1 0.2 px marker x4 0.8 px marker x16 6.3 px marker x64 18.8 px along 106 m NOT NAMED (at its own bank or no market)
+ROAD     on  #208 hamlet road 143: end (0.20, 0.20) cell (3944, 1676) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #210 hamlet road 130: end (0.30, 3.59) cell (2869, 1628) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 18 m
+ROAD     on  #211 hamlet road 143: end (-1.12, 2.50) cell (3916, 1628) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #211 hamlet road 145: end (-1.12, 2.50) cell (3916, 1628) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #212 hamlet road 189: end (-0.38, -1.56) cell (2859, 1901) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #213 hamlet road 203: end (-0.60, 1.87) cell (2785, 1867) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 41 m
+ROAD     on  #214 hamlet road 132: end (-0.97, 1.65) cell (3859, 1392) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #214 hamlet road 141: end (-0.97, 1.65) cell (3859, 1392) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #215 hamlet road 176: end (0.46, 0.90) cell (2175, 1396) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 14 m
+ROAD     on  #216 hamlet road 123: end (0.76, 2.63) cell (2999, 1841) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 23 m
+ROAD     on  #216 hamlet road 168: end (0.76, 2.63) cell (2999, 1841) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 161 m
+ROAD     on  #217 hamlet road 53: end (0.03, 0.90) cell (1181, 726) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 117 m
+ROAD     on  #218 hamlet road 245: end (0.91, 0.94) cell (1766, 396) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 8 m
+ROAD     on  #219 hamlet road 77: end (2.50, -0.44) cell (3881, 1774) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #220 hamlet road 208: end (0.48, 0.68) cell (982, 531) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 243 m
+ROAD     on  #220 hamlet road 219: end (0.48, 0.68) cell (982, 531) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #221 hamlet road 209: end (3.90, 0.83) cell (4089, 1430) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #222 hamlet road 112: end (2.79, 0.31) cell (2890, 1677) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #222 hamlet road 130: end (2.79, 0.31) cell (2890, 1677) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 19 m
+ROAD     on  #222 hamlet road 152: end (2.79, 0.31) cell (2890, 1677) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 44 m
+ROAD     on  #223 hamlet road 93: end (-0.99, 1.65) cell (2743, 1789) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #224 hamlet road 236: end (2.21, 2.05) cell (650, 1546) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #225 hamlet road 86: end (1.17, 2.54) cell (4072, 1604) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 19 m
+ROAD     on  #226 hamlet road 229: end (0.84, 0.64) cell (1652, 791) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #227 hamlet road 201: end (1.79, 1.87) cell (2868, 1468) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 9 m
+ROAD     on  #228 hamlet road 213: end (2.82, 1.95) cell (2639, 638) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #228 hamlet road 221: end (2.82, 1.95) cell (2639, 638) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 22 m
+ROAD     on  #229 hamlet road 61: end (1.83, -0.36) cell (240, 1407) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #229 hamlet road 179: end (1.83, -0.36) cell (240, 1407) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 1 m
+ROAD     on  #230 hamlet road 68: end (0.50, 0.50) cell (2434, 1312) street 65 m market 107 m marker x1 0.0 px marker x4 0.0 px marker x16 3.3 px marker x64 7.2 px along 311 m NOT NAMED (at its own bank or no market)
+ROAD     on  #230 hamlet road 108: end (0.71, 1.00) cell (2434, 1312) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 2 m
+ROAD     on  #231 hamlet road 234: end (1.81, -0.25) cell (2869, 661) street 222 m market 328 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #232 hamlet road 129: end (0.72, 0.34) cell (2320, 1951) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 188 m
+ROAD     on  #233 hamlet road 155: end (0.98, 0.57) cell (3912, 1138) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 12 m
+ROAD     on  #234 hamlet road 215: end (3.04, -0.99) cell (173, 1543) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 29 m
+ROAD     on  #235 hamlet road 199: end (0.58, 0.46) cell (2471, 1972) street 36 m market 58 m marker x1 0.0 px marker x4 0.1 px marker x16 0.4 px marker x64 4.7 px along 194 m NOT NAMED (at its own bank or no market)
+ROAD     on  #237 hamlet road 75: end (3.30, 1.43) cell (4013, 1694) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 11 m
+ROAD     on  #238 hamlet road 131: end (1.15, 2.30) cell (3728, 1242) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 53 m
+ROAD     on  #239 hamlet road 248: end (0.50, 0.50) cell (2442, 142) street 83 m market 114 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 9.1 px along 166 m NOT NAMED (at its own bank or no market)
+ROAD     on  #240 hamlet road 118: end (-0.89, 2.03) cell (2812, 1575) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 61 m
+ROAD     on  #240 hamlet road 195: end (-0.89, 2.03) cell (2812, 1575) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 16 m
+ROAD     on  #241 hamlet road 220: end (0.47, -0.23) cell (1329, 200) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 14 m
+ROAD     on  #242 hamlet road 235: end (0.95, 0.90) cell (1334, 1054) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 141 m
+ROAD     on  #243 hamlet road 243: end (-0.43, 3.30) cell (679, 1648) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 13 m
+ROAD     on  #243 hamlet road 244: end (-0.43, 3.30) cell (679, 1648) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 6 m
+ROAD     on  #244 hamlet road 48: end (2.05, 2.49) cell (3772, 1507) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #244 hamlet road 97: end (2.05, 2.49) cell (3772, 1507) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 0 m
+ROAD     on  #244 hamlet road 174: end (2.05, 2.49) cell (3772, 1507) street 0 m market 0 m marker x1 0.0 px marker x4 0.0 px marker x16 0.0 px marker x64 0.0 px along 4 m
+ROAD   on : road ends at a town 403 (at a moved town 359), ending near it with no copy in its box 56, through a town cell 3 | street median 0 max 637 m | market median 0 max 907 m | along median 15 m | marker x1 max 1.2 px | marker x4 max 5.0 px | marker x16 max 18.4 px | marker x64 max 76.8 px | ends the engine names 363 (not named, at its own bank or with no market: 40; at a market with no street: 2) | drawn end to street x16 max 14.6 px | drawn end to street x64 max 58.6 px | over its river in the box: at the town's crossing 4, with none 139 (made by the attach 0) | over 4.0 px: 0 | walled 11, rings with under 5 inside 1
+exit 0
