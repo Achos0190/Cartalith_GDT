@@ -17,7 +17,8 @@
 //! **mean distance off the coast**, length-weighted along every lane, and the
 //! **threading** (`thread_km`, owner Ruling GS addendum): km of lane drawn
 //! side by side (within 20 degrees) with another lane across open sea, 0.75 to 4 routing cells apart, away from ports and from a fork
-//! (within 8 routing cells of a point where the lane touches another: one trunk about to part); and the
+//! (within 8 routing cells of a point where the lane touches another, and within `FORK_PART_KM` (5 km) of
+//! a point where the two have parted, more than 4 routing cells apart: one trunk about to part); and the
 //! **minimum standoff** (reported, not enforced since Ruling GS): the least
 //! distance to land at any sample of a lane farther than the call radius from every port.
 //!
@@ -40,7 +41,7 @@ struct World {
     km: f64,
 }
 
-const WORLDS: [World; 8] = [
+const WORLDS: [World; 10] = [
     World { tag: "483920@384", seed: 483_920, gw: 384, gh: 288, km: 800.0 },
     World { tag: "912345@384", seed: 912_345, gw: 384, gh: 288, km: 800.0 },
     World { tag: "246371@384", seed: 246_371, gw: 384, gh: 288, km: 800.0 },
@@ -50,7 +51,21 @@ const WORLDS: [World; 8] = [
     // The whole-planet world the road census uses (many ports): the stress case for lane bundles.
     World { tag: "246371@planet", seed: 246_371, gw: 2048, gh: 1311, km: 40_075.0 },
     World { tag: "owner83744", seed: 83_744, gw: 2048, gh: 1024, km: 200.0 },
+    // The owner's Pad world "Dungormkarcrag" (2026-11-23, v.26.11.23-001): app defaults, threading along a strait.
+    World { tag: "51203@2048", seed: 51_203, gw: 2048, gh: 1311, km: 800.0 },
+    // The same world as the owner made it (4 096 x 2 048, 800 km, his parameter list), read from the file
+    // `SEA_CENSUS_PARAMS` names; skipped when it is unset (the list is the owner's and is not committed).
+    World { tag: "owner51203", seed: 51_203, gw: 4096, gh: 2048, km: 800.0 },
 ];
+
+/// How near a threaded sample the two lanes must part for the stretch to count as a fork, km of map
+/// (2026-11-23, the owner's Pad report on seed 51203). A labelled judgement, checked by measurement, not derived:
+/// 483920 at 2 048 with lanes on (the fork the exemption was written for) still reads 0.00 km with it. An ideal
+/// straight fork is not fully exempt: at 18 degrees two lanes reach 4 routing cells (3.1 km at 800 km over
+/// 1 024 routing cells) about 9.6 km from where they touch, so the samples between about 1.8 km (past `lo`) and
+/// 4.6 km from the touch count, near 2.8 km per lane. Two lanes side by side for longer than that count wherever
+/// they touch.
+const FORK_PART_KM: f64 = 5.0;
 
 /// The owner's generation parameters (`OWNER_FINDINGS_2026-11-21.md`, seed
 /// 83744), as `key: value` lines, applied over the app's defaults through
@@ -207,26 +222,37 @@ fn params_of(w: &World) -> cartalith_engine::WorldParams {
     p.use_gpu = false;
     p.civ.villages = true;
     p.world = w.km >= 40_075.0;
-    if w.tag == "owner83744" {
+    let file = if w.tag == "owner51203" { std::env::var("SEA_CENSUS_PARAMS").ok().and_then(|f| std::fs::read_to_string(f).ok()) } else { None };
+    if w.tag == "owner83744" || file.is_some() {
         let mut skipped = 0;
-        for line in OWNER_PARAMS.lines() {
-            let (k, v) = line.split_once(": ").expect("key: value");
+        // The file opens with prose lines; only `key: value` lines whose key has a row are applied.
+        for line in file.as_deref().unwrap_or(OWNER_PARAMS).lines() {
+            let Some((k, v)) = line.split_once(": ") else { continue };
             let val = match v {
                 "true" => crate::params::Value::Bool(true),
                 "false" => crate::params::Value::Bool(false),
-                n => crate::params::Value::Num(n.parse().expect("number")),
+                n => match n.parse() {
+                    Ok(x) => crate::params::Value::Num(x),
+                    Err(_) => continue,
+                },
             };
             if crate::params::spec(k).is_none() {
                 skipped += 1;
                 continue;
             }
             crate::params::set(&mut p, k, val);
+            // A value the setter clamped or refused would measure another world: say so.
+            if crate::params::get(&p, k) != Some(val) {
+                println!("owner params: {k} did not apply as {v}");
+            }
         }
         println!("owner params: {skipped} keys without a row skipped");
         p.gw = w.gw;
         p.gh = w.gh;
         p.map_width_km = w.km;
-        p.tect.seed = 83_744;
+        p.tect.seed = w.seed as _;
+        // The census measures on the CPU path, as every other world here.
+        p.use_gpu = false;
     }
     p
 }
@@ -354,6 +380,12 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
             })
             .collect();
         let (lo, hi, junction) = (0.75 / sc, 4.0 / sc, 8.0 / sc);
+        // Per sample, the distance to the nearest sample of any other lane (no angle or water test): where
+        // it exceeds `hi` the lane has parted from every other.
+        let apart: Vec<f64> = samples
+            .iter()
+            .map(|a| samples.iter().filter(|o| o.0 != a.0).map(|o| (o.1 - a.1).hypot(o.2 - a.2)).fold(f64::INFINITY, f64::min))
+            .collect();
         let mut n = 0usize;
         for &(li, x, y, tx, ty) in &samples {
             if ports.iter().any(|pp| (pp.0 - x).hypot(pp.1 - y) <= junction) {
@@ -379,7 +411,14 @@ fn sea_row(c: &crate::CivData, p: &cartalith_engine::WorldParams) -> SeaRow {
                 // (a shared trunk's end, `lo` or less apart) the two lanes are one trunk about to part, as
                 // they are beside a harbour. 483920 at 2 048: the whole residue (8 samples, 3.12 km) was the
                 // first 3 km of one fork, lanes diverging 18 degrees off a shared trunk (2026-11-22).
-                let fork = samples.iter().any(|q| q.0 == li && (q.1 - x).hypot(q.2 - y) <= junction && samples.iter().any(|o| o.0 != li && (o.1 - q.1).hypot(o.2 - q.2) <= lo));
+                // 2026-11-23 (owner's Pad report, seed 51203): a fork must also PART. Two lanes threading a long
+                // strait touch now and then, and every touch exempted 8 routing cells either side of it, so the
+                // bar read 0 over real threading. Now the stretch is a fork only where this lane, within
+                // `FORK_PART_KM` of the sample, also stands more than `hi` from every other lane (the two have
+                // parted); threading that never parts counts.
+                let touch = samples.iter().any(|q| q.0 == li && (q.1 - x).hypot(q.2 - y) <= junction && samples.iter().any(|o| o.0 != li && (o.1 - q.1).hypot(o.2 - q.2) <= lo));
+                let part_r = FORK_PART_KM / km_cell;
+                let fork = touch && samples.iter().zip(&apart).any(|(q, &far)| q.0 == li && far > hi && (q.1 - x).hypot(q.2 - y) <= part_r);
                 if !fork {
                     n += 1;
                 }
@@ -424,6 +463,9 @@ fn dump(tag: &str, mode: &str, c: &crate::CivData, p: &cartalith_engine::WorldPa
 fn sea_lane_census() {
     let only = std::env::var("SEA_CENSUS_ONLY").ok();
     for w in WORLDS.iter().filter(|w| only.as_deref().is_none_or(|o| w.tag.contains(o))) {
+        if w.tag == "owner51203" && std::env::var("SEA_CENSUS_PARAMS").is_err() {
+            continue;
+        }
         let mut p = params_of(w);
         p.civ.site_map_terms = false;
         let ws = cartalith_engine::generate_terrain(&p);
@@ -447,6 +489,9 @@ fn sea_lane_census() {
 fn site_census() {
     let only = std::env::var("SEA_CENSUS_ONLY").ok();
     for w in WORLDS.iter().filter(|w| only.as_deref().is_none_or(|o| w.tag.contains(o))) {
+        if w.tag == "owner51203" && std::env::var("SEA_CENSUS_PARAMS").is_err() {
+            continue;
+        }
         let mut p = params_of(w);
         p.civ.sea_lanes = false;
         let ws = cartalith_engine::generate_terrain(&p);

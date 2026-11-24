@@ -1,0 +1,13 @@
+BASE
+  SEA owner51203   lanes=off lanes_n=19  km=2258.3   bundles=1   conv=1   shared=7   ports=20  unlaned=0  skipped=2  skipped5km=2  off_coast_km=6.06 min_standoff_km=0.00 thread_km=85.94
+  SEA owner51203   lanes=on  lanes_n=19  km=2383.6   bundles=0   conv=0   shared=12  ports=20  unlaned=0  skipped=3  skipped5km=3  off_coast_km=6.77 min_standoff_km=0.00 thread_km=26.95
+part distance 5 km -> 1000 km        KILLED
+  SEA owner51203   lanes=off lanes_n=19  km=2258.3   bundles=1   conv=1   shared=7   ports=20  unlaned=0  skipped=2  skipped5km=2  off_coast_km=6.06 min_standoff_km=0.00 thread_km=47.66
+  SEA owner51203   lanes=on  lanes_n=19  km=2383.6   bundles=0   conv=0   shared=12  ports=20  unlaned=0  skipped=3  skipped5km=3  off_coast_km=6.77 min_standoff_km=0.00 thread_km=0.00
+parted test -> any separation        KILLED
+  SEA owner51203   lanes=off lanes_n=19  km=2258.3   bundles=1   conv=1   shared=7   ports=20  unlaned=0  skipped=2  skipped5km=2  off_coast_km=6.06 min_standoff_km=0.00 thread_km=47.66
+  SEA owner51203   lanes=on  lanes_n=19  km=2383.6   bundles=0   conv=0   shared=12  ports=20  unlaned=0  skipped=3  skipped5km=3  off_coast_km=6.77 min_standoff_km=0.00 thread_km=0.00
+fork needs touch AND part -> OR      KILLED
+  SEA owner51203   lanes=off lanes_n=19  km=2258.3   bundles=1   conv=1   shared=7   ports=20  unlaned=0  skipped=2  skipped5km=2  off_coast_km=6.06 min_standoff_km=0.00 thread_km=33.59
+  SEA owner51203   lanes=on  lanes_n=19  km=2383.6   bundles=0   conv=0   shared=12  ports=20  unlaned=0  skipped=3  skipped5km=3  off_coast_km=6.77 min_standoff_km=0.00 thread_km=0.00
+restored 1d1eeb972868

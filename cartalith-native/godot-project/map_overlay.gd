@@ -1309,6 +1309,11 @@ var _rmb_press: Dictionary = {}
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
+## Settlement index by its cell, `Vector2i(x, y)`, for `_attach_route_ends`; rebuilt with the roster (`set_civ_data`).
+var _settle_by_cell := {}
+## Per sea lane drawn in the last pass, the polyline it was drawn with in grid units (`_draw_sea_chunk`), so a
+## measurement reads the stroke as drawn, not a recomputation. Read by `tools/sea_lane_ends_drive.gd`.
+var _sea_drawn := {}
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
@@ -2756,6 +2761,11 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	_fan_rev += 1   ## Ruling FF: settlement pins join the tilt and declutter rules, which are built from this roster
 	_roads = roads
 	_sea_routes = sea_routes
+	_settle_by_cell = {}
+	for i in settlements.size():
+		var st: Dictionary = settlements[i]
+		_settle_by_cell[Vector2i(int(st["x"]), int(st["y"]))] = i
+	_sea_drawn = {}
 	_gw = gw
 	_gh = gh
 	_border_frac = border_frac
@@ -4510,7 +4520,8 @@ func _cell_to_screen(cell: Vector2, rect: Rect2) -> Vector2:
 ## So the marker's point is the engine's answer for the density the map is drawn at now
 ## (`WorldGen.settlement_bank_offsets`, `bank_site.rs`): an offset in grid cells from the cell centre, zero for a
 ## settlement clear of every river. **Every reader of a settlement's marker position goes through `_settle_pos()`**: the
-## pin, its declutter and fan layout, the hover card, hit-testing and the context picks, so what is drawn is what is
+## pin, its declutter and fan layout, the hover card, hit-testing, the context picks and the sea lanes' ends
+## (`_attach_route_ends`, through `_settle_grid`), so what is drawn is what is
 ## picked. The settlement's cell (`x`, `y`) is untouched, and so is everything laid on the cell: roads, the town plan
 ## (`_draw_urban_layouts`) and the landmark declutter.
 ##
@@ -4569,10 +4580,70 @@ func _bank_sync() -> void:
 ## either: since Ruling HM its layout carries the cell's place in its own box (`pin`), which `_draw_urban_layouts`
 ## anchors on the cell centre, so the plan stands on the bank without reading this point.
 func _settle_pos(s: Dictionary, rect: Rect2) -> Vector2:
+	return _point_to_screen(_settle_grid(s), rect)
+
+## `_settle_pos()` in grid units (the units of a way's `points`, no `+0.5` to add): the cell centre plus the bank
+## offset for the density on screen. The one point a settlement's marker and the routes that end at it share.
+func _settle_grid(s: Dictionary) -> Vector2:
 	if _bank_dirty:
 		_bank_sync()
 	var b = s.get("bank")
-	return _cell_to_screen(Vector2(float(s["x"]), float(s["y"])) + (b if b is Vector2 else Vector2.ZERO), rect)
+	return Vector2(float(s["x"]), float(s["y"])) + (b if b is Vector2 else Vector2.ZERO) + Vector2(0.5, 0.5)
+
+## **A route ends on its settlement's marker** (owner report 2026-11-23: *"the attachment from routes (sea and land)
+## to the settlements when you zoom in"*). The engine ends a lane at its port's cell, `(x, y)` exactly (the cell's
+## corner in `_point_to_screen`'s units), while the marker stands at the cell centre plus Ruling HG's bank offset
+## (`_settle_grid`), so at x64 the stroke stopped up to 39 px from the pin, or ran past it to the corner and stopped
+## there (measured, `tools/sea_lane_ends_drive.gd`). This returns `points` with each end that lies on a settlement's
+## cell corner brought onto that settlement's marker at the density on screen now: the stroke is cut at its point
+## nearest the marker among its last vertices (those within the end-to-marker distance plus one cell of the end, so
+## the spur past the town to the corner goes) and runs from there straight to the marker. The course before that point
+## (Ruling GU's open-sea line) is untouched. An end not on a settlement's corner (a hand-drawn way's free end) is left
+## as it was; a stroke with pen breaks (`brks` not empty: a seam crossing) only has its end vertex moved, since cutting
+## would shift the break indices. Never changes `points` itself.
+func _attach_route_ends(points: PackedVector2Array, brks: PackedInt32Array = PackedInt32Array()) -> PackedVector2Array:
+	## A copy: a PackedVector2Array read out of a route's Dictionary is that route's own storage, and writing into it
+	## moved the stored end, so the next zoom found no corner to attach (measured, 2026-11-23).
+	var out := points.duplicate()
+	for e in [points.size() - 1, 0]:
+		var p: Vector2 = points[e]
+		var c := Vector2i(roundi(p.x), roundi(p.y))
+		## An exact corner only: the engine writes `placement.x as f64` itself.
+		if not (p.is_equal_approx(Vector2(c)) and _settle_by_cell.has(c)):
+			continue
+		var m := _settle_grid(_settlements[int(_settle_by_cell[c])])
+		if not brks.is_empty() or out.size() < 3:
+			out[0 if e == 0 else out.size() - 1] = m
+			continue
+		if e == 0:
+			out.reverse()
+		out = _cut_to(out, m)
+		if e == 0:
+			out.reverse()
+	return out
+
+## `line` cut at its point nearest `m` among its last vertices (within the end-to-`m` distance plus one cell of its
+## end), then `m` appended: the tail of a route brought onto its settlement's marker (`_attach_route_ends`).
+func _cut_to(line: PackedVector2Array, m: Vector2) -> PackedVector2Array:
+	var n := line.size()
+	var end: Vector2 = line[n - 1]
+	var reach := end.distance_to(m) + 1.0
+	var best_i := n - 2
+	var best_q: Vector2 = end
+	var best_d := INF
+	var i := n - 2
+	while i >= 0 and line[i + 1].distance_to(end) <= reach:
+		var q := Geometry2D.get_closest_point_to_segment(m, line[i], line[i + 1])
+		if q.distance_to(m) < best_d:
+			best_d = q.distance_to(m)
+			best_i = i
+			best_q = q
+		i -= 1
+	var out := line.slice(0, best_i + 1)
+	if not best_q.is_equal_approx(out[out.size() - 1]):
+		out.append(best_q)
+	out.append(m)
+	return out
 
 
 ## Roads' own `points` are already continuous full-resolution coordinates
@@ -5761,6 +5832,10 @@ func _draw_sea_chunk(rect: Rect2, idx: int, count: int) -> void:
 		var points: PackedVector2Array = route["points"]
 		if points.size() < 2:
 			continue
+		## The lane ends on its ports' markers (`_attach_route_ends`). ponytail: the run's cull box is the unmoved
+		## run's, so an end within a cell of the screen edge may be culled with its run; a pad covers it if it shows.
+		points = _attach_route_ends(points, route["brks"])
+		_sea_drawn[ri] = points
 		var rb: Array = boxes[ri]
 		var brks: PackedInt32Array = route["brks"]
 		var start := 0

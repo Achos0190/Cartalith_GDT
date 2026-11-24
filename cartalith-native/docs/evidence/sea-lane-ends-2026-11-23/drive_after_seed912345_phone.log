@@ -1,0 +1,26 @@
+completed 
+form phone, window (450.0, 975.0)
+ok    a world exists
+params: civ.sea_lanes true, civ.bank_sites true
+sea lanes 1, ends on a settlement's cell 2
+FAIL  the world has lane ends to measure  -- 2
+x1: ends 2 | drawn gap px median 0.00 max 0.00 | engine end (before) median 1.45 max 1.45
+ok    x1: every drawn sea-lane end within 1 px of its marker  -- max 0.00
+x1: spur past the marker px | drawn median 0.00 max 0.00 | engine (before) median 0.00 max 0.00
+ok    x1: no drawn sea-lane runs past its marker and back (spur within 1 px)  -- max 0.00
+x4: ends 2 | drawn gap px median 0.00 max 0.00 | engine end (before) median 2.10 max 2.10
+ok    x4: every drawn sea-lane end within 1 px of its marker  -- max 0.00
+x4: spur past the marker px | drawn median 0.00 max 0.00 | engine (before) median 0.00 max 0.00
+ok    x4: no drawn sea-lane runs past its marker and back (spur within 1 px)  -- max 0.00
+x16: ends 2 | drawn gap px median 0.00 max 0.00 | engine end (before) median 8.41 max 8.41
+ok    x16: every drawn sea-lane end within 1 px of its marker  -- max 0.00
+x16: spur past the marker px | drawn median 0.00 max 0.00 | engine (before) median 0.00 max 0.00
+ok    x16: no drawn sea-lane runs past its marker and back (spur within 1 px)  -- max 0.00
+x64: ends 2 | drawn gap px median 0.00 max 0.00 | engine end (before) median 24.86 max 24.86
+ok    x64: every drawn sea-lane end within 1 px of its marker  -- max 0.00
+x64: spur past the marker px | drawn median 0.00 max 0.00 | engine (before) median 0.00 max 0.00
+ok    x64: no drawn sea-lane runs past its marker and back (spur within 1 px)  -- max 0.00
+ok    positive control: the engine's own end stands off the marker at the deepest zoom  -- max 24.86 px
+ok    no moved end crosses land the engine's end did not, at x4 and deeper  -- 0
+moved ends crossing land at x1 (reported, not gated): 0
+done, 1 failed
