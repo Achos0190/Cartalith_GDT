@@ -5693,3 +5693,6 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - PS-5 measured no-go (`a15b2d27`); Ruling HW stops at PS-2 + fix E.
 - 6T device checks: TR-7 trace file on the device works; TL-5 33 of 34 (`046f177d`).
 - Vault connect on Android: the Java bridge rejected null String arguments silently; `_query` and `grant_is_held` fixed, a logcat line per attempt (`908b2fd1`); device check on the next APK.
+- Zoom regression: pin fan pair scan to a column sweep, pictogram triangulation fixed (`427b5b64`); bank offsets per notch still open.
+- Pin size law: every pin kind through one function (`47de6a65`); icons constant like pins (owner).
+- Ruling HV coastline (off by default, owner) and preset ink for borders (`ca94236f`).
