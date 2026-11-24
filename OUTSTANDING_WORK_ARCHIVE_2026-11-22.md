@@ -5698,3 +5698,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Ruling HV coastline (off by default, owner) and preset ink for borders (`ca94236f`).
 - Label collision culling, the live half: the overlay now culls at runtime on every form (`da74d998`).
 - Route attachment: sea lanes end at the marker (`77bfe5e7`); roads meet their towns and the half-cell road offset fixed (`409d2426`, `261d1249`).
+- Ruling HS, coastal setback CS-1/2/4/5/7 (`b3490466`, `d683bb49`, `9087364c`): reason-free markets to the water (26 -> 4 at 2048), every placement and road gate held, the setback update card.
