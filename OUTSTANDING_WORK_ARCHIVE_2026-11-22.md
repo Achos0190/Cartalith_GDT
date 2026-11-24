@@ -5699,3 +5699,5 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Label collision culling, the live half: the overlay now culls at runtime on every form (`da74d998`).
 - Route attachment: sea lanes end at the marker (`77bfe5e7`); roads meet their towns and the half-cell road offset fixed (`409d2426`, `261d1249`).
 - Ruling HS, coastal setback CS-1/2/4/5/7 (`b3490466`, `d683bb49`, `9087364c`): reason-free markets to the water (26 -> 4 at 2048), every placement and road gate held, the setback update card.
+- Ruling HZ: set-back towns gate their bridges and re-seek a crossing; 483920 #30 comes to the water (`2bdb4b90`).
+- Builds v.26.11.24-002 and -003 (APK on the 6T and D:, signed installers to D:).
