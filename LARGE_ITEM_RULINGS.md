@@ -4158,3 +4158,7 @@ Owner: *"A city states section in civil - factions would be good."* CIVIL > Fact
 ## Ruling HY: New World resets numeric rules to the app defaults too (owner, 2026-11-24)
 
 `77bfe5e7` found a New World made after opening an older save inherits that save's `civ.border_friction` (0) because `restore_new_world_rules` resets only on/off rules. Owner: **New World resets it to the app default as well** -- a new world always starts from the app's current rules. Queued (small).
+
+## Ruling HZ: HS's guard and landing (owner, 2026-11-24)
+
+After `9087364c`: on the guard that keeps 483920 #30 back 318 m because the set-back layout has one crossing fewer, the owner asked *"Can we run the roads after the setback?"* -- read as: **lay the town's crossings and road ends after the setback is applied**, so the set-back town seeks its own bridge or ferry from its new market (and the drawn roads attach to it, `261d1249`) instead of the setback being refused for a crossing the pre-setback layout had. The guard then compares crossings found after re-seeking; generated civ roads (computed before towns) are not re-routed. **CS-3's landing: later.**
