@@ -5696,3 +5696,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Zoom regression: pin fan pair scan to a column sweep, pictogram triangulation fixed (`427b5b64`); bank offsets per notch still open.
 - Pin size law: every pin kind through one function (`47de6a65`); icons constant like pins (owner).
 - Ruling HV coastline (off by default, owner) and preset ink for borders (`ca94236f`).
+- Label collision culling, the live half: the overlay now culls at runtime on every form (`da74d998`).
