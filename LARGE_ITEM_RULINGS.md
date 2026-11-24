@@ -4154,3 +4154,7 @@ PS-5 measured a no-go (`a15b2d27`, `PARALLEL_STREETS_SCOPE.md` section 18): the 
 ## Ruling HX: a city-states section in CIVIL > Factions (owner, 2026-11-24)
 
 Owner: *"A city states section in civil - factions would be good."* CIVIL > Factions gains a **City-states** section beside the faction list: each city-state seat (including Ruling HK's minor seats) with its population, aligned settlements and sphere size; select to show it on the map; "Make this sphere a faction" from the row (the same `civ_promote_sphere`, with undo/redo); and the `civ.city_states` switch state shown, with a short note when it is off (older saves). Desktop, tablet and phone forms. Queued after the current build (budget).
+
+## Ruling HY: New World resets numeric rules to the app defaults too (owner, 2026-11-24)
+
+`77bfe5e7` found a New World made after opening an older save inherits that save's `civ.border_friction` (0) because `restore_new_world_rules` resets only on/off rules. Owner: **New World resets it to the app default as well** -- a new world always starts from the app's current rules. Queued (small).
