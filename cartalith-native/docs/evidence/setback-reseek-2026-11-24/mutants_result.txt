@@ -1,0 +1,15 @@
+Unit mutants (cargo test -p cartalith-urban --lib setback), each one literal change to setback.rs, all red:
+  GATE_NEAR_M 12.0 -> 20.0                                  killed (a_bridge_road_at_the_wall_gets_a_gate_unless_one_is_near)
+  RESEEK_NEAR_RIVERS 12.0 -> 0.5                            killed (a_town_without_a_crossing_lays_one_from_its_street_end)
+  `if crossed` -> `if !crossed`                             killed
+  market-bank filter `==` -> `!=`                           killed
+  graze distance 15.0 -> 1.0                                killed (a_bridge_road_grazing_the_wall_gets_a_gate_at_its_midpoint)
+  graze distance 15.0 -> 50.0                               killed
+  `!point_in_poly(mid, ring)` -> `point_in_poly(mid, ring)` killed
+  far-bank `bank_side != mside` clause removed              survived, so the clause was removed: skip_while already puts the landing past the centreline
+End to end (#30's dump at 2 048 x 1 311, `_towncensus_probe.gd --dump`), from /c/cw/hz_mut.sh:
+  good refused False market [798, 897] bridges 1
+  ge_to_gt refused True market [960, 735] bridges 1
+  no_gate refused True market [960, 735] bridges 1
+  never_reseek refused True market [960, 735] bridges 1
+  (ge_to_gt: the guard's crossings test >= made >; no_gate: the gate_bridges call removed; never_reseek: the second layout's flag false. Each leaves #30 refused.)

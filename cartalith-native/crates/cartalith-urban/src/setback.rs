@@ -258,3 +258,116 @@ pub fn river_market(sc: &SetbackCtx, river: &[Vec2], mc: Vec2, wet: &dyn Fn(Vec2
 
 #[cfg(test)]
 mod tests;
+
+/// How far from the river's centreline, metres, [`reseek_crossing`] looks for a street end on the market's bank, in
+/// river widths. **A labelled judgement**: the town's own streets stand within a few widths of a river it grew
+/// beside; further than this the crossing would be a new road, not the town's own.
+pub const RESEEK_NEAR_RIVERS: f64 = 12.0;
+
+/// **Not the reference -- Ruling HZ (owner, 2026-11-24)**: where a set-back layout has no crossing of its river, the
+/// town seeks its own from its new market. The street end nearest the centreline on the market's bank (within
+/// [`RESEEK_NEAR_RIVERS`] river widths of it) is joined square across the river to the first dry ground on the other
+/// bank, within `reach_rivers` river widths past the centreline (`crate::cleanup::FERRY_REACH_RIVERS`, the ferry's
+/// reach). `crate::cleanup::sweep_wet_streets` then keeps it as a bridge or, past
+/// `crate::cleanup::BRIDGE_MAX_SPAN_M`, ferries it. Returns whether a street was laid. Never lays one where a live
+/// street already meets the centreline (the town's own, or the host's) and never re-routes any road.
+pub fn reseek_crossing(site: &crate::site::Site, g: &mut crate::graph::Graph, market: Vec2, reach_rivers: f64) -> bool {
+    let line = &site.river;
+    if line.len() < 2 || !site.real_river {
+        return false;
+    }
+    // The market's own street network: a crossing road the town's streets do not reach is pruned with its
+    // island (483920 #30: the host's road ends 20 m short of the river, joined to nothing).
+    let Some(start) = g.nearest_node(market.x, market.y, 200.0) else { return false };
+    let mut comp = std::collections::HashSet::from([start]);
+    let mut stack = vec![start];
+    while let Some(n) = stack.pop() {
+        for &k in &g.nodes[n].adj {
+            let e = &g.edges[k];
+            if e.alive && e.cls != "quay" {
+                for m in [e.a, e.b] {
+                    if comp.insert(m) {
+                        stack.push(m);
+                    }
+                }
+            }
+        }
+    }
+    let crossed = g.edges.iter().filter(|e| e.alive && e.cls != "quay" && comp.contains(&e.a)).any(|e| {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        // A street off the box is no crossing: the wet-street sweep kills it.
+        !site.off_box(a) && !site.off_box(b) && line.windows(2).any(|w| crate::geom::seg_int(a, b, w[0], w[1]).is_some())
+    });
+    if crossed {
+        return false;
+    }
+    let rw = site.river_w.max(1.0);
+    let mside = site.bank_side(market);
+    // The street end on the market's bank nearest the centreline.
+    let near = g
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| comp.contains(i) && !site.is_water(n.pt()) && site.bank_side(n.pt()) == mside)
+        .map(|(_, n)| n.pt())
+        .map(|p| (site.river_dist(p), p))
+        .filter(|(d, _)| *d <= RESEEK_NEAR_RIVERS * rw)
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, from)) = near else { return false };
+    let i = site.nearest_river_seg(from);
+    let (a, b) = (line[i], line[(i + 1).min(line.len() - 1)]);
+    let ab = b - a;
+    let t = if ab.len() > 1e-9 { ((from - a).dot(ab) / ab.dot(ab)).clamp(0.0, 1.0) } else { 0.0 };
+    let c = a + ab * t;
+    let d = c - from;
+    if d.len() < 1e-9 {
+        return false;
+    }
+    let step = d * (4.0 / d.len());
+    let n = ((d.len() + reach_rivers * rw) / 4.0) as usize;
+    let Some(x) = (1..=n).map(|k| from + step * k as f64).skip_while(|&x| x.dist(from) < d.len()).find(|&x| !site.is_water(x) && !site.off_box(x)) else {
+        return false;
+    };
+    g.add_street(from.x, from.y, x.x, x.y, "primary", 6.0, 0, RESEEK_PROV);
+    true
+}
+
+/// The provenance of a street [`reseek_crossing`] lays.
+const RESEEK_PROV: &str = "Crossing (not the reference; Ruling HZ, 2026-11-24): the set-back town's own street across its river, sought from its new market.";
+
+/// How near a street's wall passage an existing gate must stand for [`gate_bridges`] to add none, metres.
+/// **A labelled judgement**: under the sweep's own keep radius for the narrowest street
+/// (`crate::cleanup::clear_fort_zone_keeping`: 0.85 of the 15 m clear distance, 12.75 m).
+pub const GATE_NEAR_M: f64 = 12.0;
+
+/// **Not the reference -- Ruling HZ (owner, 2026-11-24)**: a bridge road meets the town's wall at a gate. Where a live
+/// street crosses the river and passes the wall (crosses the ring, or stands within the wall's clear distance outside
+/// it) with no gate near, a gate is added there, so the field-of-fire sweep
+/// (`crate::cleanup::clear_fort_zone_keeping`, which kills every street through the curtain away from a gate) keeps the
+/// town's crossing. 483920 #30 at 2 048: the host's road crossed the river 33 m from its wall's nearest gate and the
+/// sweep killed the only crossing. Returns the gates added. Never moves a wall or a street.
+pub fn gate_bridges(site: &crate::site::Site, g: &crate::graph::Graph, wall: &mut crate::growth::WallState) -> usize {
+    let (Some(ring), Some(land)) = (wall.ring.clone(), wall.land_arc.clone()) else { return 0 };
+    let mut added = 0;
+    for e in g.edges.iter().filter(|e| e.alive && e.cls != "quay") {
+        let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+        if !site.river.windows(2).any(|w| crate::geom::seg_int(a, b, w[0], w[1]).is_some()) {
+            continue;
+        }
+        let mid = a.lerp(b, 0.5);
+        let mut pts = crate::growth::ring_crossings(&ring, a, b);
+        if pts.is_empty() && !crate::geom::point_in_poly(mid, &ring) && crate::growth::dist_to_line(mid, &land) < 15.0 {
+            pts.push(mid);
+        }
+        for pt in pts {
+            if !wall.gates.iter().any(|gt| gt.pt.dist(pt) < GATE_NEAR_M) {
+                wall.gates.push(crate::growth::Gate { pt, water: false, prov: GATE_PROV.to_string() });
+                added += 1;
+            }
+        }
+    }
+    added
+}
+
+/// The provenance of a gate [`gate_bridges`] adds.
+const GATE_PROV: &str = "Gate (not the reference; Ruling HZ, 2026-11-24): where the town's bridge road meets its wall.";

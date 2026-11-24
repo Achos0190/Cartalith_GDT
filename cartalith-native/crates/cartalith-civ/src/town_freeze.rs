@@ -73,7 +73,10 @@ use crate::urban_adapter::{
 /// to the water or stands back on reason-free ground (storm surge on an exposed shore, a cliff, marsh); with
 /// `urban_floodplain_setback` on, a river town's market on floodplain walks back to the first ground above flood level
 /// on its own bank. Both off in `WorldParams::defaults`, so every fixture laid out without them is unmoved.
-pub const URBAN_RULES_VERSION: u32 = 6;
+/// `7` (2026-11-24, Ruling HZ): a set-back town the guard would refuse for fewer crossings is laid again seeking its
+/// own (a street from its market's streets across its river, a gate where a bridge road meets its wall) and kept if it
+/// then keeps them; no switch-off or fixture layout moves.
+pub const URBAN_RULES_VERSION: u32 = 7;
 
 /// The row encoding tag (scope §4.3): quantum 10 per metre, delta-coded vertex lists, version 1. A reader that does
 /// not know a row's `enc` keeps the row verbatim and generates the town (scope §7).

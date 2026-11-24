@@ -1,0 +1,258 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `ord` is never read
+   --> crates\cartalith-vault\src\timelines.rs:212:21
+    |
+212 |                     ord[3] += 1;
+    |                     ^^^^^^^^^^^
+...
+279 |     flush_table!();
+    |     -------------- in this macro invocation
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+    = note: this warning originates in the macro `flush_table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: `cartalith-vault` (lib) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:161:9
+    |
+161 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
+   Compiling jpeg-decoder v0.3.2
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1941:4
+     |
+1941 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2040:4
+     |
+2040 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: function `cpus_allowed_count` is never used
+    --> crates\cartalith-engine\src\lib.rs:2384:4
+     |
+2384 | fn cpus_allowed_count(status: &str) -> Option<usize> {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `run` is never read
+   --> crates\cartalith-engine\src\progress.rs:217:5
+    |
+214 | struct TraceRun {
+    |        -------- field in this struct
+...
+217 |     run: tracing::span::EnteredSpan,
+    |     ^^^
+
+warning: `cartalith-engine` (lib) generated 2 warnings
+warning: variable does not need to be mutable
+   --> crates\cartalith-civ\src\name_style.rs:344:9
+    |
+344 |     let mut err = |line: usize, m: String, issues: &mut Vec<StyleIssue>| issues.push(StyleIssue { line, error: true, message: m });
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:8190:9
+     |
+8190 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: constant `SALT_BIOMES_FOR_TEST` is never used
+   --> crates\cartalith-civ\src\landmark\natural_kinds.rs:371:18
+    |
+371 | pub(super) const SALT_BIOMES_FOR_TEST: [u8; 3] = [crate::BIOME_DESERT, crate::BIOME_TROP_DRY, crate::BIOME_SHRUB];
+    |                  ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 3 warnings (run `cargo fix --lib -p cartalith-civ` to apply 2 suggestions)
+   Compiling cartalith-godot v0.1.0 (C:\cw\hz\cartalith-native\crates\cartalith-godot)
+warning: trailing semicolon in macro used in expression position
+    --> crates\cartalith-godot\src\project_bridge.rs:4594:27
+     |
+4594 |                   Err(e) => godot_warn!(
+     |  ___________________________^
+4595 | |                     "cartalith-godot: this project's vault.json could not be read ({e}); \
+4596 | |                      its links were left out of the opened project rather than merged. \
+4597 | |                      The links already in memory are untouched."
+4598 | |                 ),
+     | |_________________^
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+     = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+     = note: this warning originates in the macro `godot_warn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+   --> crates\cartalith-godot\src\town_river_census.rs:295:17
+    |
+295 |             let mut moved: Vec<f64> = civ
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates\cartalith-godot\src\town_river_census.rs:2745:9
+     |
+2745 |     let mut pts = |eat: &mut dyn FnMut(u64), v: &[Vec2]| {
+     |         ----^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: method `dir` is never used
+   --> crates\cartalith-godot\src\asset_store.rs:196:12
+    |
+182 | impl LibraryStore {
+    | ----------------- method in this implementation
+...
+196 |     pub fn dir(&self) -> &Path {
+    |            ^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `preview_patch` is never used
+    --> crates\cartalith-godot\src\paint_bridge.rs:1225:12
+     |
+ 482 | impl PaintEditor {
+     | ---------------- method in this implementation
+...
+1225 |     pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+     |            ^^^^^^^^^^^^^
+
+warning: function `is_new_world_rule` is never used
+    --> crates\cartalith-godot\src\params.rs:1920:8
+     |
+1920 | pub fn is_new_world_rule(key: &str) -> bool {
+     |        ^^^^^^^^^^^^^^^^^
+
+warning: function `grain_lattice` is never used
+    --> crates\cartalith-godot\src\render.rs:6705:15
+     |
+6705 | pub(crate) fn grain_lattice(f: f64, gs: GrainScale) -> (f64, f64) {
+     |               ^^^^^^^^^^^^^
+
+warning: function `land_grain` is never used
+    --> crates\cartalith-godot\src\render.rs:6832:15
+     |
+6832 | pub(crate) fn land_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize, grain: Option<GrainScale>) -> (f64, f64, f64) {
+     |               ^^^^^^^^^^
+
+warning: function `lake_color` is never used
+    --> crates\cartalith-godot\src\render.rs:8824:4
+     |
+8824 | fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+     |    ^^^^^^^^^^
+
+warning: method `pixel` is never used
+     --> crates\cartalith-godot\src\render.rs:10663:12
+      |
+10588 | impl BakeFields {
+      | --------------- method in this implementation
+...
+10663 |     pub fn pixel(&self, ctx: &RenderCtx, gx: f64, gy: f64) -> (f64, f64, f64) {
+      |            ^^^^^
+
+warning: field `repainted` is never read
+     --> crates\cartalith-godot\src\render.rs:11686:9
+      |
+11685 | pub struct RiverPost {
+      |            --------- field in this struct
+11686 |     pub repainted: usize,
+      |         ^^^^^^^^^
+
+warning: function `add_tile_furrows` is never used
+     --> crates\cartalith-godot\src\render.rs:13054:8
+      |
+13054 | pub fn add_tile_furrows(ctx: &RenderCtx, data: &mut [f32], w: usize, h: usize, pad: usize, bounds: TileBounds) {
+      |        ^^^^^^^^^^^^^^^^
+
+warning: function `shore_depth_forced` is never used
+     --> crates\cartalith-godot\src\render.rs:15032:8
+      |
+15032 | pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, s...
+      |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `ref_fit_ppc` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1339:8
+     |
+1339 | pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+     |        ^^^^^^^^^^^
+
+warning: function `visible_share` is never used
+    --> crates\cartalith-godot\src\river_stroke.rs:1418:8
+     |
+1418 | pub fn visible_share(ppc: f32) -> f32 {
+     |        ^^^^^^^^^^^^^
+
+warning: method `is_empty` is never used
+   --> crates\cartalith-godot\src\undo.rs:150:12
+    |
+132 | impl ColumnSnapshot {
+    | ------------------- method in this implementation
+...
+150 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: `cartalith-godot` (lib test) generated 16 warnings (run `cargo fix --lib -p cartalith-godot --tests` to apply 2 suggestions)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 20s
+     Running unittests src\lib.rs (C:/cw/hz_target\debug\deps\cartalith_godot-4fde65f2a2f07d2d.exe)
+
+running 1 test
+test town_river_census::cs0_hazard_census ... CS0 params from the dump's header: 158 of 158 set
+CS0 seed 483920 at 2048x1311: 245 settlements; cell heights differing from the probe's: 0; sea 0.4200, peak 4545 m, 390.6 m a cell, lattice 8 m
+CS0 checks: box-to-grid transform vs the census's market offset, worst 0.00 m; lattice sea vs DrawnWater here: 0 of 1340125 samples differ
+CS0 coast seed 483920 at 2048: towns 33; classes a 2 b 23 c 4 d 4 (c with safe ground in the cap: 4); with a reason (the rule moves the core, or holds it back) 6, of them the rule moves the core 6; reasons [surge, cliff, marsh/flood] [3, 3, 2]; height reason splits the land within the cap 31; cell fields vary within the cap 24
+CS0 coast sweep H 4 m: a 2 b 23 c 4 d 4
+CS0 coast sweep H 6 m: a 3 b 15 c 12 d 3
+CS0 coast sweep H 8 m: a 3 b 8 c 19 d 3
+CS0 coast sweep H 4 m, input 1 (no surge band on a sheltered shore): a 2 b 24 c 3 d 4
+CS0 coast sweep H 6 m, input 1 (no surge band on a sheltered shore): a 3 b 16 c 11 d 3
+CS0 coast sweep H 8 m, input 1 (no surge band on a sheltered shore): a 3 b 9 c 18 d 3
+HS coast seed 483920 at 2048: recorded set-back towns 4; set back without a reason 3 ["#7 232 m", "#166 838 m", "#236 1030 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 coast market to the water, m: n 33 min 12 p10 76 median 93 p90 140 max 1030; in-box relief, m: n 33 min 13 p10 44 median 93 p90 194 max 813
+CS0 coast, section 3.2 input 1 (no surge band on a sheltered shore): a 2 b 24 c 3 d 4
+CS0 river seed 483920 at 2048: towns 217; classes a 2 b 171 c 17 d 27 (c with safe ground in the cap: 16); with a reason (the rule moves the core, or holds it back) 20, of them the rule moves the core 18; reasons [floodplain, -, wetland] [17, 0, 4]; height reason splits the land within the cap 194; cell fields vary within the cap 103
+CS0 river sweep H 2 m: a 2 b 171 c 17 d 27
+CS0 river sweep H 4 m: a 2 b 168 c 20 d 27
+CS0 river sweep H 8 m: a 2 b 167 c 21 d 27
+HS river seed 483920 at 2048: recorded set-back towns 25; set back without a reason 9 ["#5 214 m", "#25 528 m", "#29 264 m", "#35 251 m", "#90 324 m", "#136 188 m", "#164 531 m", "#179 626 m", "#199 167 m"]; body past its setback + 23 m 0 []; housing guard refusals 0
+CS0 river market to the water, m: n 217 min 12 p10 32 median 36 p90 214 max 626; in-box relief, m: n 217 min 1 p10 12 median 122 p90 813 max 1564
+CS0 river, section 3.4's terrace walk at H_FLOOD 2 m: applies to 17, a terrace found 11; distance from the market, m: n 11 min 4 p10 16 median 52 p90 176 max 316
+CS0 river, section 3.4's terrace walk at H_FLOOD 4 m: applies to 17, a terrace found 11; distance from the market, m: n 11 min 4 p10 68 median 136 p90 264 max 404
+CS0 river, section 3.4's terrace walk at H_FLOOD 8 m: applies to 17, a terrace found 10; distance from the market, m: n 10 min 16 p10 156 median 240 p90 320 max 344
+CS0 quays: 19, over 23 m from the drawn sea 8; quay gap, m: n 19 min 12 p10 14 median 20 p90 383 max 950; badged harbours with sea in the box: 9, nearest street or building over 23 m 4
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1527 filtered out; finished in 6.66s
+

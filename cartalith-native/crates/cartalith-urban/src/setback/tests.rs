@@ -166,3 +166,82 @@ fn the_river_rule_needs_floodplain_low_ground_and_the_switch_and_never_walks_on_
     let (m, rec) = river_market(&SetbackCtx { fine: false, ..sc }, &rv, mc, &dry).unwrap();
     assert_eq!(((m.x, m.y), rec.to), ((220.0, 150.0), None), "a coarse grid reports no terrace in reach");
 }
+
+/// The Ruling HZ fixture site: a 150 m channel (y 550 to 700, centreline y = 625) through a 1 700 x 1 250 m box on a
+/// real mask, as `cleanup`'s own real-map fixture lays it.
+fn river_site() -> crate::site::Site {
+    use crate::site::{SiteOpts, WaterCtx, build_site};
+    let (mw, mh, cell_m) = (34usize, 25usize, 50.0f64);
+    let mut mask = vec![0u8; mw * mh];
+    let mut dt = vec![0.0f64; mw * mh];
+    for j in 0..mh {
+        for i in 0..mw {
+            let yj = j as f64 * cell_m;
+            mask[j * mw + i] = u8::from((550.0..700.0).contains(&yj));
+            dt[j * mw + i] = (yj - 625.0).abs() / cell_m;
+        }
+    }
+    let w = WaterCtx { mask, dt, mw, mh, cell_m, river_path: Some(vec![Vec2::new(0.0, 625.0), Vec2::new(1700.0, 625.0)]), river_width_m: Some(150.0), river_order: 4.0, sea_lake_cells: 0.0, open_water: None };
+    let site = build_site(88, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+    assert!(site.real_river && site.uses_real_water);
+    site
+}
+
+/// Protects Ruling HZ's wall rule: a street that crosses the river and meets the wall with no gate within
+/// [`GATE_NEAR_M`] gets one; one with a gate 5 m away gets none, one 15 m away gets one (the bar is the 12 m).
+#[test]
+fn a_bridge_road_at_the_wall_gets_a_gate_unless_one_is_near() {
+    let site = river_site();
+    let mut g = crate::graph::Graph::new();
+    g.add_street(300.0, 500.0, 300.0, 730.0, "primary", 6.0, 0, "t");
+    let ring = vec![Vec2::new(100.0, 100.0), Vec2::new(1500.0, 100.0), Vec2::new(1500.0, 545.0), Vec2::new(100.0, 545.0)];
+    let mut wall = crate::growth::WallState { ring: Some(ring), land_arc: Some(vec![Vec2::new(100.0, 545.0), Vec2::new(1500.0, 545.0)]), ..Default::default() };
+    assert_eq!(gate_bridges(&site, &g, &mut wall), 1);
+    assert!((wall.gates[0].pt.y - 545.0).abs() < 1e-6 && (wall.gates[0].pt.x - 300.0).abs() < 1e-6);
+    wall.gates = vec![crate::growth::Gate { pt: Vec2::new(305.0, 545.0), water: false, prov: String::new() }];
+    assert_eq!(gate_bridges(&site, &g, &mut wall), 0);
+    wall.gates = vec![crate::growth::Gate { pt: Vec2::new(315.0, 545.0), water: false, prov: String::new() }];
+    assert_eq!(gate_bridges(&site, &g, &mut wall), 1);
+}
+
+/// Protects Ruling HZ's street rule: with none of the market's streets across the river, one is laid from the street
+/// end nearest it to the first dry ground past the centreline; with one already across, none; with the street end
+/// off the market's own streets (a different component), the market's end is the one used.
+#[test]
+fn a_town_without_a_crossing_lays_one_from_its_street_end() {
+    let site = river_site();
+    let mut g = crate::graph::Graph::new();
+    g.add_street(300.0, 400.0, 300.0, 520.0, "street", 4.0, 0, "t");
+    let before = g.edges.len();
+    assert!(reseek_crossing(&site, &mut g, Vec2::new(300.0, 400.0), 2.0));
+    assert_eq!(g.edges.len(), before + 1);
+    let e = g.edges.last().unwrap();
+    let (a, b) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+    assert!((a.y - 520.0).abs() < 1e-6, "from the street end {a:?}");
+    assert!((b.x - 300.0).abs() < 1e-6 && (700.0..=704.0).contains(&b.y), "to the far bank {b:?}");
+    assert!(!reseek_crossing(&site, &mut g, Vec2::new(300.0, 400.0), 2.0), "already across");
+    // A street end on the far bank's component only (not the market's): not used.
+    let mut h = crate::graph::Graph::new();
+    h.add_street(300.0, 400.0, 300.0, 440.0, "street", 4.0, 0, "t");
+    h.add_street(900.0, 720.0, 900.0, 760.0, "street", 4.0, 0, "t");
+    assert!(reseek_crossing(&site, &mut h, Vec2::new(300.0, 400.0), 2.0));
+    let e = h.edges.last().unwrap();
+    assert!((h.nodes[e.a].pt().y - 440.0).abs() < 1e-6);
+}
+
+/// Protects Ruling HZ's wall rule for a road that stands outside the ring within the clear distance (a graze, no true
+/// crossing): the gate goes at its midpoint when the land arc is 10 m away, not when it is 40 m away.
+#[test]
+fn a_bridge_road_grazing_the_wall_gets_a_gate_at_its_midpoint() {
+    let site = river_site();
+    let mut g = crate::graph::Graph::new();
+    g.add_street(300.0, 530.0, 300.0, 730.0, "primary", 6.0, 0, "t");
+    let ring = vec![Vec2::new(100.0, 100.0), Vec2::new(1500.0, 100.0), Vec2::new(1500.0, 500.0), Vec2::new(100.0, 500.0)];
+    let mut wall = crate::growth::WallState { ring: Some(ring.clone()), land_arc: Some(vec![Vec2::new(310.0, 600.0), Vec2::new(310.0, 660.0)]), ..Default::default() };
+    assert_eq!(gate_bridges(&site, &g, &mut wall), 1);
+    assert!((wall.gates[0].pt.y - 630.0).abs() < 1e-6);
+    wall.gates.clear();
+    wall.land_arc = Some(vec![Vec2::new(340.0, 600.0), Vec2::new(340.0, 660.0)]);
+    assert_eq!(gate_bridges(&site, &g, &mut wall), 0);
+}
+

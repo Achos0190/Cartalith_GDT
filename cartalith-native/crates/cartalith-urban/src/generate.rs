@@ -327,6 +327,10 @@ pub struct GenOpts {
     /// [`HARBOUR_HOUSING_KEEP`] of the layout without it. `None` is the
     /// reference, by control flow.
     pub setback: Option<crate::setback::SetbackCtx>,
+    /// **Not the reference** -- Ruling HZ (owner, 2026-11-24): the town seeks its own crossing from its market
+    /// ([`crate::setback::reseek_crossing`]) before the wet-street sweep. Set by [`generate`] alone, on the second
+    /// layout of a set-back town that lost its crossing. `false` is the layout before the ruling.
+    pub reseek_crossings: bool,
 }
 
 /// `maxRf` (reference line 30967): the growth front's full radius, metres, for
@@ -788,8 +792,16 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     let mut reference = generate_road(seed, &GenOpts { setback: None, ..opts.clone() });
     // Its crossings: the bridges the layout detected and its ferries (Rulings HQ and HU must hold).
     let crossings = |t: &Town| t.site.bridges.as_ref().map_or(0, Vec::len) + t.details.iter().filter(|d| d.kind == "ferry").count();
-    if town.pop >= HARBOUR_HOUSING_KEEP * reference.pop.min(reference.pop_target) && crossings(&town) >= crossings(&reference) {
+    let keeps = |t: &Town| t.pop >= HARBOUR_HOUSING_KEEP * reference.pop.min(reference.pop_target);
+    if keeps(&town) && crossings(&town) >= crossings(&reference) {
         return town;
+    }
+    // Ruling HZ: a set-back layout short of crossings seeks its own from its new market and is compared again.
+    if crossings(&town) < crossings(&reference) && !opts.reseek_crossings {
+        let again = generate_road(seed, &GenOpts { reseek_crossings: true, ..opts.clone() });
+        if keeps(&again) && crossings(&again) >= crossings(&reference) {
+            return again;
+        }
     }
     reference.setback_refused = true;
     reference
@@ -1615,6 +1627,9 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
     // draws it, no street stands in the water but a bridge (`cleanup::sweep_wet_streets`). After
     // the last street laid beside the water and before the faces become blocks.
     if opts.bank_sites {
+        if opts.reseek_crossings {
+            crate::setback::reseek_crossing(&site, &mut g, anchors.market, crate::cleanup::FERRY_REACH_RIVERS);
+        }
         crate::cleanup::sweep_wet_streets(&site, &mut g, anchors.market);
     }
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
@@ -1879,6 +1894,10 @@ pub(crate) fn generate_pass(seed: u32, opts: &GenOpts, pass: RiverbankPass, fron
         let building_polys: Vec<Vec<Vec2>> = buildings.iter().map(|b| b.poly.clone()).collect();
         let parcel_polys: Vec<Vec<Vec2>> = lots.iter().map(|l| l.par.poly.clone()).collect();
         let detail_pts: Vec<Option<Vec2>> = details.iter().map(Detail::anchor).collect();
+        // Ruling HZ: a bridge road meets the wall at a gate, so the sweep below keeps the crossing.
+        if opts.reseek_crossings {
+            crate::setback::gate_bridges(&site, &g, &mut wall_state);
+        }
         // Ruling HN: beside the map's wide water the walled town keeps its own streets (`GenOpts::bank_sites`).
         let sweep = clear_fort_zone_keeping(&wall_state, &mut g, &building_polys, &parcel_polys, &detail_pts, opts.bank_sites.then_some(anchors.market));
         // **Not the reference** (Ruling H, `crate::wallside`): a faubourg is a

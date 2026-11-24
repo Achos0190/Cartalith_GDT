@@ -3722,6 +3722,7 @@ fn layout_opts(ctx: &UrbanContext, rules: Option<&Rules>) -> GenOpts {
         river_stretch: ctx.river_stretch,
         // Ruling HS: the setback's hazard raster and switches.
         setback: ctx.setback.clone(),
+        reseek_crossings: false,
     }
 }
 

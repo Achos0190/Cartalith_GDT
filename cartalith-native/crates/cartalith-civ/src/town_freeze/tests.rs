@@ -146,7 +146,8 @@ fn setback_fields() -> crate::setback::SetbackFields {
 /// and the town on a river too wide to bridge is v4's, Ruling HQ: it crosses by ferry, moved by v5, Ruling HU, whose
 /// ferried streets keep their dry parts). The tenth is v6's, Ruling HS: the coastal town with both setback switches
 /// on, whose rule's layout the housing guard refuses, so its hash is the coastal town's own
-/// (`the_setback_fixture_keeps_the_reference_where_the_rule_houses_too_few`); v6 moved none of the nine.
+/// (`the_setback_fixture_keeps_the_reference_where_the_rule_houses_too_few`); v6 moved none of the nine. v7 (Ruling HZ) moves none of the ten: a set-back town seeks its crossing only
+/// where the guard refused it for fewer, which no fixture does.
 /// A behavioural change to the generator or the adapter moves a hash and turns this red; mutating the version alone
 /// turns it red too. The fix for a red here is to bump the version **and** re-pin the hashes in the same change
 /// (scope §4.1, R5).
@@ -154,7 +155,7 @@ fn setback_fields() -> crate::setback::SetbackFields {
 fn the_rules_version_and_fixture_hashes_are_pinned() {
     let got: Vec<(&str, String)> = fixtures().iter().map(|(n, l)| (*n, layout_hash(&encode(l)))).collect();
     let want: (u32, [(&str, &str); 10]) = (
-        6,
+        7,
         [
             ("hamlet", "f73d0b225a9deadc"),
             ("walled town", "e35063368a67a961"),

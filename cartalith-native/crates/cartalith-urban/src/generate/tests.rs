@@ -310,6 +310,7 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         parallel_streets: false,
         // Nor Ruling HS's setback.
         setback: None,
+        reseek_crossings: false,
     }
 }
 

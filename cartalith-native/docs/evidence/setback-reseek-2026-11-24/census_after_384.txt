@@ -1,0 +1,43 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+ERROR: Error loading GDExtension configuration file: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: parse_gdextension_file (core/extension/gdextension_library_loader.cpp:282)
+ERROR: GDExtension dynamic library not found: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: open_library (core/extension/gdextension.cpp:810)
+ERROR: Error loading extension: 'res://addons/godotsteam/godotsteam.gdextension'.
+   at: load_extensions (core/extension/gdextension_manager.cpp:333)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+
+TOWN seed 483920 at 384x288, view 1150x800: 234 settlements
+TOWN   bank_sites off: 234 rows in 40.7 s
+TOWN   bank_sites on: 234 rows in 67.6 s
+TOWN   off least housed: #190 0% #206 1% #187 12% #204 14% #78 16% #120 18% #58 20% #125 30%
+TOWN   off: river towns 234 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 3497/8014 (43.6 %) | housed p10 76.8 % (all towns 76.8 %) | over drawn river: buildings 41770 of 64162, wall runs 5 (gated 7), street edges 3740 of 13170 (bridge edges 5705 in 69 towns, longest bridge 32620 m, over the water 32452 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 6 w 0 s 4 | other bank x1 3/229 x4 5/229 x16 5/229 x64 5/229 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 1 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 2 | housed under a quarter of off 0
+TOWN   on  least housed: #190 0% (off 0%) #206 0% (off 1%) #201 11% (off 85%) #171 21% (off 100%) #124 37% (off 65%) #209 63% (off 95%) #6 69% (off 87%) #199 73% (off 73%)
+TOWN   on : river towns 234 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4656/8803 (52.9 %) | housed p10 92.3 % (all towns 92.3 %) | over drawn river: buildings 0 of 61466, wall runs 0 (gated 1), street edges 0 of 14606 (bridge edges 0 in 0 towns, longest bridge 0 m, over the water 0 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/229 x4 0/229 x16 0/229 x64 0/229 | moved 142 (median 275 m, max 1705 m), past the 625 m reach 26, box grown 218 | ferries 6 in 6 towns (longest 990 m) | no street near the market 0 | over-housed (over 125 %) 3 | housed under a quarter of off 2
+
+TOWN seed 912345 at 384x288, view 1150x800: 236 settlements
+TOWN   bank_sites off: 236 rows in 37.5 s
+TOWN   bank_sites on: 236 rows in 61.2 s
+TOWN   off least housed: #33 0% #34 0% #35 0% #204 3% #172 5% #191 11% #107 34% #82 46%
+TOWN   off: river towns 235 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4062/8188 (49.6 %) | housed p10 82.0 % (all towns 82.0 %) | over drawn river: buildings 38851 of 60087, wall runs 8 (gated 8), street edges 6327 of 13141 (bridge edges 3338 in 56 towns, longest bridge 23091 m, over the water 22615 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 15 w 1 s 20 | other bank x1 4/231 x4 4/231 x16 4/231 x64 4/231 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 0
+TOWN   on  least housed: #33 0% (off 0%) #34 0% (off 0%) #35 0% (off 0%) #172 0% (off 5%) #204 7% (off 3%) #203 21% (off 82%) #127 34% (off 81%) #1 34% (off 101%)
+TOWN   on : river towns 235 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4753/8910 (53.3 %) | housed p10 85.8 % (all towns 85.8 %) | over drawn river: buildings 0 of 53375, wall runs 0 (gated 0), street edges 0 of 13291 (bridge edges 4 in 2 towns, longest bridge 395 m, over the water 315 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/231 x4 0/231 x16 0/231 x64 0/231 | moved 121 (median 275 m, max 1265 m), past the 625 m reach 13, box grown 220 | ferries 7 in 7 towns (longest 1445 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 0
+
+TOWN seed 246371 at 384x288, view 1150x800: 239 settlements
+TOWN   bank_sites off: 239 rows in 22.1 s
+TOWN   bank_sites on: 239 rows in 48.9 s
+TOWN   off least housed: #36 0% #53 0% #198 1% #162 18% #58 22% #119 24% #168 24% #89 39%
+TOWN   off: river towns 239 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 3875/8084 (47.9 %) | housed p10 72.8 % (all towns 72.8 %) | over drawn river: buildings 49715 of 65402, wall runs 3 (gated 11), street edges 4890 of 14687 (bridge edges 6725 in 46 towns, longest bridge 32673 m, over the water 32673 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 5 w 1 s 0 | other bank x1 4/239 x4 4/239 x16 4/239 x64 4/239 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 1 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 2 | housed under a quarter of off 0
+TOWN   on  least housed: #36 0% (off 0%) #198 0% (off 1%) #205 9% (off 100%) #208 31% (off 100%) #58 46% (off 22%) #159 48% (off 100%) #53 51% (off 0%) #2 54% (off 53%)
+TOWN   on : river towns 239 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4987/9517 (52.4 %) | housed p10 88.5 % (all towns 88.5 %) | over drawn river: buildings 0 of 60424, wall runs 0 (gated 0), street edges 0 of 15172 (bridge edges 0 in 0 towns, longest bridge 0 m, over the water 0 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/239 x4 0/239 x16 0/239 x64 0/239 | moved 155 (median 353 m, max 1650 m), past the 625 m reach 41, box grown 225 | ferries 9 in 9 towns (longest 1784 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 1
+
+TOWN seed 83744 at 384x288, view 1150x800: 239 settlements
+TOWN   bank_sites off: 239 rows in 32.7 s
+TOWN   bank_sites on: 239 rows in 45.1 s
+TOWN   off least housed: #33 0% #35 0% #37 0% #236 14% #123 26% #197 26% #214 29% #230 42%
+TOWN   off: river towns 239 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4257/8591 (49.6 %) | housed p10 84.5 % (all towns 84.5 %) | over drawn river: buildings 41025 of 68472, wall runs 8 (gated 8), street edges 4996 of 14952 (bridge edges 5019 in 51 towns, longest bridge 36302 m, over the water 36244 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 1 s 1 | other bank x1 1/228 x4 1/228 x16 1/228 x64 1/228 | moved 0 (median 0 m, max 0 m), past the 625 m reach 0, box grown 2 | ferries 0 in 0 towns (longest 0 m) | no street near the market 0 | over-housed (over 125 %) 4 | housed under a quarter of off 0
+TOWN   on  least housed: #33 0% (off 0%) #35 0% (off 0%) #37 0% (off 0%) #54 0% (off 53%) #236 0% (off 14%) #170 13% (off 92%) #210 22% (off 100%) #214 29% (off 29%)
+TOWN   on : river towns 239 | lost river 0 | market in its river 0 | buildings in water 0 | fronted 4882/9465 (51.6 %) | housed p10 89.8 % (all towns 89.8 %) | over drawn river: buildings 0 of 63827, wall runs 0 (gated 0), street edges 0 of 16195 (bridge edges 0 in 0 towns, longest bridge 0 m, over the water 0 m) | over drawn lake: b 0 w 0 s 0 | over drawn sea: b 0 w 0 s 0 | other bank x1 0/228 x4 0/228 x16 0/228 x64 0/228 | moved 122 (median 275 m, max 1045 m), past the 625 m reach 1, box grown 212 | ferries 12 in 12 towns (longest 2053 m) | no street near the market 0 | over-housed (over 125 %) 2 | housed under a quarter of off 3
+
+TOWN run: bridge edges 4, ferries 34, gated wall runs 1 (switch on); footprint over the map's lake or sea with the switch off 54
