@@ -1,3 +1,4 @@
+    Blocking waiting for file lock on build directory
 warning: variable does not need to be mutable
    --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
     |
@@ -8,6 +9,7 @@ warning: variable does not need to be mutable
     |
     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
 warning: value assigned to `ord` is never read
    --> crates\cartalith-vault\src\timelines.rs:212:21
     |
@@ -21,9 +23,18 @@ warning: value assigned to `ord` is never read
     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
     = note: this warning originates in the macro `flush_table` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
 warning: `cartalith-vault` (lib) generated 1 warning
-   Compiling cartalith-urban v0.1.0 (C:\cw\cs\cartalith-native\crates\cartalith-urban)
+warning: variable does not need to be mutable
+   --> crates\cartalith-urban\src\riverbank.rs:161:9
+    |
+161 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
 warning: function `dispatch_gpu_height` is never used
     --> crates\cartalith-gpu\src\lib.rs:1941:4
      |
@@ -58,17 +69,6 @@ warning: field `run` is never read
 
 warning: `cartalith-engine` (lib) generated 2 warnings
 warning: variable does not need to be mutable
-   --> crates\cartalith-urban\src\riverbank.rs:161:9
-    |
-161 |     let mut push = |out: &mut Vec<Vec2>, p: Vec2| {
-    |         ----^^^^
-    |         |
-    |         help: remove this `mut`
-    |
-    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
-
-   Compiling cartalith-civ v0.1.0 (C:\cw\cs\cartalith-native\crates\cartalith-civ)
-warning: variable does not need to be mutable
    --> crates\cartalith-civ\src\name_style.rs:344:9
     |
 344 |     let mut err = |line: usize, m: String, issues: &mut Vec<StyleIssue>| issues.push(StyleIssue { line, error: true, message: m });
@@ -94,7 +94,6 @@ warning: constant `SALT_BIOMES_FOR_TEST` is never used
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-warning: `cartalith-urban` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-urban` to apply 1 suggestion)
 warning: `cartalith-civ` (lib) generated 3 warnings (run `cargo fix --lib -p cartalith-civ` to apply 2 suggestions)
    Compiling cartalith-godot v0.1.0 (C:\cw\cs\cartalith-native\crates\cartalith-godot)
 warning: trailing semicolon in macro used in expression position
@@ -226,7 +225,7 @@ warning: method `is_empty` is never used
     |            ^^^^^^^^
 
 warning: `cartalith-godot` (lib test) generated 16 warnings (run `cargo fix --lib -p cartalith-godot --tests` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 7m 16s
+    Finished `release` profile [optimized] target(s) in 8m 52s
      Running unittests src\lib.rs (C:/cw/cs_target\release\deps\cartalith_godot-b23e1d50349921aa.exe)
 
 running 12 tests
@@ -243,6 +242,6 @@ test g1_baseline::g1_comparison_report ... ok
 test g1_baseline::g1_forced_forms_are_ordered_and_near_their_anchor ... ok
 test g1_baseline::ia_dump_industrial_rows ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 1510 filtered out; finished in 139.98s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 1516 filtered out; finished in 145.02s
 
 exit 0

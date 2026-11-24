@@ -1,0 +1,16 @@
+completed 
+ok    the older save is copied  -- C:/cw/cs_frames/hs_offer/pre_hs.cartalith
+ok    it opens
+ok    the engine offers exactly the two setback switches  -- ["urban_coastal_setback", "urban_floodplain_setback"]
+ok    under a key of their own  -- key 'dcfa1a1f87fd7d56-hs'
+ok    both loaded off
+ok    one card is shown
+ok    with the setback sentence, word for word  -- This world was made before coastal and floodplain markets were placed by their hazards — update?
+ok    Update closes the card
+FAIL  Update turns both setback switches on
+ok    and leaves civ.bank_sites as it was  -- true
+ok    Update marks the world changed
+ok    the answer is recorded
+ok    the same save opens again
+ok    and is not asked again
+RESULT FAIL (1 failed)

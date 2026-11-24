@@ -1,0 +1,5 @@
+world | state | ends | street median | street max m | along median m | end-street x16 px | end-street x64 px | named | at own bank | market no street | made crossings | over 4 px | empty rings
+483920 2048x1536 | before (e74e7312, on) | 365 | 0 | 778 | 19 | 16.6 | 66.4 | 333 | 32 | 0 | 0 | 0 | 0
+483920 2048x1536 | after (on) | 365 | 0 | 778 | 17 | 16.6 | 66.4 | 332 | 33 | 0 | 0 | 0 | 0
+532187 2048x1311 | before (e74e7312, on) | 88 | 0 | 545 | 23 | 12.5 | 50.1 | 76 | 12 | 0 | 0 | 0 | 0
+532187 2048x1311 | after (on) | 88 | 0 | 545 | 23 | 12.5 | 50.1 | 76 | 12 | 0 | 0 | 0 | 0

@@ -24,7 +24,7 @@ while True:
 lost = False
 try:
     OWNER.write_text("Ruling HS lane (worktree C:/cw/cs), town_bank_drive desktop, pid %d, %s\n" % (os.getpid(), time.ctime()))
-    st, lines = fd.drive(GODOT, root + "/godot-project", "res://tools/town_bank_drive.gd", "res://shell/app.tscn", fd.FORMS["desktop"], timeout, env, None)
+    st, lines = fd.drive(GODOT, root + "/godot-project", os.environ.get("CS_SCRIPT", "res://tools/town_bank_drive.gd"), "res://shell/app.tscn", fd.FORMS["desktop"], timeout, env, None)
     lost = not OWNER.exists()
 finally:
     if OWNER.exists():

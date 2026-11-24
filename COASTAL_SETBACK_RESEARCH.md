@@ -1078,7 +1078,7 @@ Rulings HG, HM, HN, HQ and HU's bars are hard gates. Evidence: `cartalith-native
 | CS-5 | The census reports the setback records, the towns set back without one, the bodies past their setback, the guard's refusals and the input-1 sweep | `town_river_census::cs0_hazard_census` (`HS ...` lines) |
 | CS-6 | Not built (Q3: later) | — |
 | Q6, Q7 | **Not built**: the map marker does not follow a coastal market (the markers' table reads the market only to choose a river bank, so a coastal marker stays at its cell's point: the x16 frames of #25, #143 and 532187 #20 show it unmoved), and a trading port gets no continuous harbour quarter | — |
-| CS-7 | `URBAN_RULES_VERSION` 6, the switch record (16 names), a tenth fixture; old worlds are offered the update once on Ruling HN's card (`WorldGen::town_rules_offer`; parse-checked, **not driven in a windowed probe**) | `cartalith_civ::town_freeze`, `bank_site.rs`, `shell/app.gd` |
+| CS-7 | `URBAN_RULES_VERSION` 6, the switch record (16 names), a tenth fixture; old worlds are offered the update once on Ruling HN's card, under a key of their own where only the setback is offered (`WorldGen::town_rules_offer`; driven by `tools/setback_offer_drive.gd` on a save written before the setback, its mutant red) | `cartalith_civ::town_freeze`, `bank_site.rs`, `shell/app.gd` |
 
 **Constants.** `COAST_FRONT_M` 70 m (the market's distance from the sea raster with no reason: `HARBOUR_FRONT_M` less a
 raster diagonal, because the raster calls a cell sea where the map draws sea at any corner; CS-0's (d) markets stood

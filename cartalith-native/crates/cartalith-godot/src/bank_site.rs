@@ -1677,11 +1677,13 @@ impl WorldGen {
     /// **The switches an Update of the open world's offer writes** (Rulings HN and HS), in order: `civ.bank_sites`
     /// where [`Self::bank_sites_offer`]'s HN conditions hold (a save without the key, the switch still off, a drawn
     /// river to stand beside), then `urban_coastal_setback` and `urban_floodplain_setback` where the save carried
-    /// neither key and both are still off. Empty with no settlement, or nothing to offer.
+    /// neither key and both are still off. Empty for a world without its generated substrate or a settlement, or
+    /// with nothing to offer.
     #[func]
     fn town_rules_offer(&self) -> PackedStringArray {
         let mut out = PackedStringArray::new();
-        if self.civ.as_ref().is_none_or(|c| c.settlements.is_empty()) {
+        // A world that can lay towns out at all: its substrate generated (a legacy archive has none) and a settlement.
+        if !matches!(self.source.as_ref(), Some(crate::WorldSource::Generated(_))) || self.civ.as_ref().is_none_or(|c| c.settlements.is_empty()) {
             return out;
         }
         if self.bank_sites_absent && !self.params.civ.bank_sites && self.river_geometry_any().is_some() {
