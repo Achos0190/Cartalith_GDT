@@ -19,7 +19,7 @@ UNIT = [
     ("R3 the drawn end makes no crossing", BS, "    if count(&out) <= own {", "    if true {"),
     ("R4 the straddling segment", BS, "let segs = 0..(last + 1).min(moved.len() - 1);", "let segs = 0..last.min(moved.len() - 1);"),
     ("R5 the landing is dry", BS, "            if !wet(x) {", "            if wet(x) {"),
-    ("R6 the end is the market", BS, "            out[0] = market;", "            out[0] = tail;"),
+    ("R6 the end is the market", BS, "        out[0] = market;", "        out[0] = tail;"),
 ]
 PROBE = [
     ("P1 the half-cell frame", BS, "line.iter().map(|p| (p.0 + 0.5, p.1 + 0.5)).collect();", "line.iter().map(|p| (p.0, p.1)).collect();"),

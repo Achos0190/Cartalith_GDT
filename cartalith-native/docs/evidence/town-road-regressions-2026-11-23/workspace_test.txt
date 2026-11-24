@@ -1,0 +1,2 @@
+cargo test --workspace --no-fail-fast on the final tree (rebased onto 77bfe5e7), CARGO_TARGET_DIR separate:
+289 result lines, 9071 passed, 0 failed, 206 ignored

@@ -1,0 +1,12 @@
+Unit suite (cargo test -p cartalith-godot --lib bank_site), on the final tree:
+R1 the ramp's slope -> KILLED
+R2 the short road's quarter -> KILLED
+R3 the drawn end makes no crossing -> KILLED
+R4 the straddling segment -> KILLED
+R5 the landing is dry -> KILLED
+R6 the end is the market -> KILLED
+
+Built into the dll, against _roadattach_probe.gd on 483920 at 384 (exit 1 = KILLED), on the tree before the rebase onto 77bfe5e7 (the lines mutated are unchanged since):
+P1 the half-cell frame -> KILLED (ROAD FAIL: 131 drawn river crossings made by the attach (the way's own line does not cross there))
+P2 the town's bank move -> KILLED (ROAD FAIL: the drawn roads run a median 65 m beside their towns' own streets (over 50 m))
+P3 the named town is its tid -> KILLED (ROAD FAIL: no road end names its town with the switch on (town_a/town_b): the overlay has nothing to draw)

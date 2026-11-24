@@ -9,8 +9,8 @@ import hashlib, pathlib, subprocess, sys
 
 root, out = pathlib.Path(sys.argv[1]), sys.argv[2]
 f = root / "godot-project/map_overlay.gd"
-OLD = "\t\t\tout[k[1]] = Vector2(float(s[\"x\"]), float(s[\"y\"])) + Vector2(0.5, 0.5) + (bank if bank is Vector2 else Vector2.ZERO)\n"
-NEW = "\t\t\tout[k[1]] = out[k[1]]\n"
+OLD = "\t\t\tout[k[1]] = _settle_grid(s)"
+NEW = "\t\t\tout[k[1]] = out[k[1]]"
 src = f.read_bytes()
 h0 = hashlib.sha256(src).hexdigest()
 text = src.decode("utf-8")

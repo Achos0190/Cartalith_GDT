@@ -12,8 +12,9 @@ holds the evidence that entry was read from.
 | `drive_after_4096.txt`, `drive_after_384.txt` | `tools/road_attach_drive.gd` in the real shell (desktop 1 600 x 900): at x4 every named road end is drawn within 4 px of its marker; at x16 and x64 within 4 px of its town's entry as the overlay draws the plan. |
 | `census_clean_4096.txt` | `_towncensus_probe.gd` on 51203 at 4 096 x 2 048, app defaults: the clean-world record for the walls and pieces part of the report. |
 | `census_owner_mix_*.txt` | The same census on the owner's world file `seed51203_params.txt` (`civ.bank_sites` on with `urban_river_smooth` and three other urban switches off): `owner` as sent, `B` with `urban_river_smooth` on, `D` with the nine switches at the app's defaults. |
-| `mutants.py`, `mutants_result.txt` | Literal mutants: six on the unit suite, four built into the dll against the probe on 483920 at 384. |
+| `mutants.py`, `mutants_result.txt` | Literal mutants: six on the unit suite, three built into the dll against the probe on 483920 at 384. All killed. |
 | `drive_mutant.py`, `drive_mutant_result.txt` | The overlay's mutant (a named end not drawn at its marker below the town layer) against the drive. |
+| `workspace_test.txt`, `baseline_test.txt` | `cargo test --workspace --no-fail-fast` and the 12 ignored `fh_r2_baseline`/`g1_baseline` tests on the final tree. |
 | `combined.png`, `combine.py` | The frames: per town, BEFORE (`e74e7312`, switch on; its frame script takes no City Viewer, the grey cell) and AFTER (switch on), map x4, x16, x64 and the City Viewer. 51203 at 4 096 (#24, #130, #14, #1) and 483920 at 384 (#19, #0, #10; the drive's #1 at 384 stands at the map's edge and its crops are off the map, so it is left out). The single frames were not kept in the tree (11 MB). |
 
 How to run: the probe, `Godot_v4.7.2-stable_win64_console.exe --headless --path <project copy> --script
