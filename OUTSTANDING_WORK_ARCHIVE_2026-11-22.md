@@ -5703,3 +5703,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Builds v.26.11.24-002 and -003 (APK on the 6T and D:, signed installers to D:).
 - Ruling HX City-states section in CIVIL > Factions and Ruling HY New World numeric reset (`8813554a`, `48f4f9d0`).
 - Hand routes snapped to roads up to 58 cells away: snap now scales with zoom and targets POIs (`53245646`); routes already saved keep their snapped ends (owner re-draws).
+- Export 7-30 min: a window-visibility stall in `ExportOverlay.render_tile` (frame_post_draw never fires for a background window); force_draw fix, PNGs byte-identical (`fb160e53`).
