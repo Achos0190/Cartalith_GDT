@@ -63,6 +63,7 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
+- An export with `content.coast` on but the live Coastline layer off still copies the plain raster province line along coasts (`580900b5`).
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.
 - Ruling FG bars B1, B4, B5 (x4-x32) need real sub-cell landforms; goes with world-scale terrain.
@@ -88,6 +89,7 @@ GUI, then engine, then the LLM interface).
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 
 ### Desktop, tablet and phone shell
+- Godot 4.7.2 delivers `parse_input_event` gestures twice (`580900b5`): the magnify is guarded in `viewport_host.gd`; the pan gesture and `city_viewer_window.gd`'s own magnify are not; confirm on a device whether a real Android pinch doubles.
 - **Owner report 2026-11-23, landmark and every other pin kind did not scale like settlement pins: built** (`STATUS.md`, "Pin size law"; probe `godot-project/_lmsize_probe.gd`, runner and mutant `tools/lmsize_run.py`, frames `docs/evidence/landmark-size-2026-11-23/`). Not yet device-checked on the Pad or phone. Open from it: placed icons now size by the shared law too (`_icon_radius`, no floor), which changes their on-screen size at every zoom and is for the owner's eye; the engine's icon resize handle (`icon_handles`) still has its own formula.
 - **Owner report 2026-11-23, "collision culling and adaptive per zoom seem to no longer work on the tab": built** (`STATUS.md`, "Label collision culling, the live half"; `map_overlay.gd::_ensure_live_label_cull`; drive `godot-project/tools/labels_cull_drive.gd`).
 - **Owner report 2026-11-23, "on the phone its impossible to modify existing labels": built** (`STATUS.md`, "Labels on touch"; drive `godot-project/tools/labels_touch_drive.gd`). Still open from it: the Icon and Point-of-interest tools' drags pan the map on touch exactly as Label's did (`ViewportHost.touch_grab_cb` is the hook, set only by the Label tool today); the Labels category in CARTO's phone sheet was not reached by a synthetic finger scroll, so confirm on a device that the category row is reachable; the tablet's other dock sliders now fill their 44 px line, so re-measure the tablet shell's slider rows on a device.
