@@ -1,0 +1,7 @@
+completed 
+ok    worlds list shows + NEW WORLD
+ok    positive control: the table holds the older save's 0  -- 0.0
+ok    the New World screen is up
+ok    the create button is visible
+ok    the new world starts at the app's border friction 0.6, not the older save's 0  -- 0.6
+HY PASS

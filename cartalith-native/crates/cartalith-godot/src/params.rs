@@ -1734,7 +1734,8 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// `DECISIONS.md` §7p, or a geology switch measured off): opening an old save
 /// turns them off for that world only, and a new world -- New World's Create,
 /// a heightmap import, or a generate at another seed than the open world's --
-/// puts them back to [`defaults`] ([`restore_new_world_rules`]). The two numeric rows are
+/// puts them back to [`defaults`] ([`restore_new_world_rules`]), as does the numeric rule
+/// `civ.border_friction` ([`NUMERIC_RULES`], Ruling HY). The other two numeric rows are
 /// **settings** a user moves on a dial; their absence means only that the
 /// save predates the dial, and a New World carries them like every other
 /// setting of the world on screen.
@@ -1927,6 +1928,9 @@ pub fn new_world_rule_key(key: &str) -> Option<&'static str> {
     LOADS_WHEN_ABSENT.iter().find(|&&(k, v)| k == key && matches!(v, Value::Bool(_))).map(|&(k, _)| k)
 }
 
+/// The numeric rows of [`LOADS_WHEN_ABSENT`] that are generation rules, not settings (Ruling HY).
+pub const NUMERIC_RULES: &[&str] = &["civ.border_friction"];
+
 /// **Puts the generation rules back to [`defaults`] for a new world**
 /// (owner Ruling EV, 2026-11-13). Opening an older save writes its
 /// generation rules into the live table -- off, for a rule the save predates
@@ -1957,7 +1961,11 @@ pub fn restore_new_world_rules(p: &mut WorldParams, chosen: &dyn Fn(&str) -> Opt
     let app = defaults();
     let mut changed = Vec::new();
     for &(key, absent) in LOADS_WHEN_ABSENT {
-        if !matches!(absent, Value::Bool(_)) {
+        // Ruling HY (2026-11-24): a numeric row that is a generation RULE (a §7p
+        // switch with a strength, `civ.border_friction`) restarts from the app's value
+        // like the on/off rules; the numeric rows that are user SETTINGS (`geo.age`,
+        // `civ.garrison_exposure_scale`) are carried, as before.
+        if !matches!(absent, Value::Bool(_)) && !NUMERIC_RULES.contains(&key) {
             continue;
         }
         let Some(want) = chosen(key).or_else(|| get(&app, key)) else { continue };

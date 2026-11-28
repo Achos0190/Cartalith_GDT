@@ -1,0 +1,8 @@
+completed 
+ok    start card shows Continue
+ok    positive control: the table holds the older save's 0  -- 0.0
+ok    File > New world opens
+ok    the New World screen is up
+ok    the create button is visible
+ok    the new world starts at the app's border friction 0.6, not the older save's 0  -- 0.6
+HY PASS

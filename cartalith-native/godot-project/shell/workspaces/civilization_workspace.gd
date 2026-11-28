@@ -2343,6 +2343,8 @@ func _fill_factions(parent: Control) -> void:
 	var types_btn := DccWidgets.action(sec, "Settlement types…", func(): app.open_settlement_types())
 	types_btn.tooltip_text = "Named bundles (kind, specialisation, traits, walls, age policy) the settlement tool applies on drop. Each faction's default type is picked in Factions > Identity. A faction left on None behaves exactly as today."
 
+	_fill_city_states(parent)
+
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
 	if provinces.is_empty():
@@ -2387,6 +2389,47 @@ func _fill_factions(parent: Control) -> void:
 	## - **Not built**: that was the emblem note, above.
 	## What stays is what the hub does not carry: the Settlement types library door
 	## and the by-province tally.
+
+## Ruling HX (2026-11-24): CIVIL ▸ Factions ▸ City-states. One row per city-state seat (`bridge.civ_spheres()`, the read
+## Inspect's `Sphere` row already uses, minor seats of Ruling HK included): name, population, aligned places and sphere
+## size. Pressing a row selects the seat (Inspect, and the map's pin) and moves the view to it; the button under it is
+## "Make this sphere a faction" (`app.promote_sphere`: `civ_promote_sphere`, one undo step, which refills this section
+## through `polity_moved`). With `civ.city_states` off (a world opened from before it existed) the section says so and
+## names the switch, rather than listing nothing. Reads the engine and writes nothing itself.
+func _fill_city_states(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "City-states")
+	if not bridge.has_world:
+		DccWidgets.note(sec, "No world generated yet.")
+		return
+	if bridge.param_get("civ.city_states") != true:
+		DccWidgets.note(sec, "City-states are off for this world (an older save made before they existed). Turn on Generation rules > City-states with spheres of influence to read them; the world is not regenerated.")
+		return
+	var seats: Array = bridge.civ_spheres().get("seats", [])
+	if seats.is_empty():
+		DccWidgets.note(sec, "No city-states: no unclaimed settlement is large enough to hold a sphere.")
+		return
+	seats = seats.duplicate()
+	seats.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return int(x.get("population", 0)) > int(y.get("population", 0)))
+	var settlements := bridge.settlements()
+	for k in seats.size():
+		var d: Dictionary = seats[k]
+		var idx := int(d.get("index", -1))
+		var n := (d.get("members", PackedInt64Array()) as PackedInt64Array).size()
+		var text := "%s -- pop %d, %d aligned, sphere %d km²" % [String(d.get("name", "?")), int(d.get("population", 0)), n, int(round(float(d.get("km2", 0.0))))]
+		var row := DccWidgets.action(sec, text, func() -> void:
+			if idx >= 0:
+				app.select("settlement", idx)
+				if idx < settlements.size():
+					var st: Dictionary = settlements[idx]
+					app.viewport.move_view_to(float(int(st.get("x", 0))), float(int(st.get("y", 0)))))
+		row.name = "CityStateRow%d" % k
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.disabled = idx < 0
+		row.tooltip_text = "Select this city-state and show it on the map. Its sphere of influence holds the unclaimed land around it; the %d aligned places are not a faction until you make one." % n
+		var mk := DccWidgets.action(sec, "Make this sphere a faction", func() -> void: app.promote_sphere(idx))
+		mk.name = "CityStatePromote%d" % k
+		mk.disabled = idx < 0
+		mk.tooltip_text = "Make %s and its %d aligned places a new faction, with the sphere's land. Edit > Undo unmakes it." % [String(d.get("name", "?")), n]
 
 ## v3 CIVIL ▸ TERRITORIES: recompute, provinces, the territory brush, and the
 ## linked notes for the two entity kinds a territory is made of.

@@ -1,0 +1,24 @@
+completed 
+form: canvas (1600.0, 900.0) desktop/tablet
+ok    start card shows Continue
+ok    positive control: the world has 0 factions  -- 0
+ok    positive control: the engine reports city-state seats  -- 42
+seats 42, minor (pop < 5000) 34
+ok    the City-states section header is on screen or in the dock
+ok    one row per seat  -- 42 rows, 42 seats
+ok    one Make-this-sphere button per seat
+FAIL  row 0 names the most populous seat with its population and aligned count  -- Irehalholt -- pop 0, 0 aligned, sphere 1135 kmÂ²
+ok    a click lands on Make this sphere a faction
+ok    one faction now  -- 1
+FAIL  the seat and its aligned places are in it
+ok    the section refilled without that seat  -- 41
+ok    Edit > Undo pressed
+ok    undo: zero factions  -- 0
+ok    undo: the rows are back  -- 42
+ok    positive control: the seat is off screen before the click
+ok    a click lands on row 0
+FAIL  the seat is the selection  -- { "kind": "settlement", "id": 46 }
+FAIL  the seat is on screen after the click  -- (-793.8354, 2534.933)
+ok    off: no rows
+ok    off: the note says so
+CITY-STATES SECTION FAIL: 4 check(s)
