@@ -90,6 +90,7 @@ GUI, then engine, then the LLM interface).
 - Context card: faction rows only when the click hits no object; `_ctxpicks` fails 2 checks. `civilization_workspace.gd`.
 
 ### Desktop, tablet and phone shell
+- **(running, Opus; priority) Owner report 2026-11-28: generated labels cannot be selected, moved, edited or kept, on every form** (v.26.11.24-003), although F3/F4 and the labels-on-touch work were probed green: reproduce through the owner's real path, fix, and rewrite the probes to use it.
 - Godot 4.7.2 delivers `parse_input_event` gestures twice (`580900b5`): the magnify is guarded in `viewport_host.gd`; the pan gesture and `city_viewer_window.gd`'s own magnify are not; confirm on a device whether a real Android pinch doubles.
 - **Owner report 2026-11-23, landmark and every other pin kind did not scale like settlement pins: built** (`STATUS.md`, "Pin size law"; probe `godot-project/_lmsize_probe.gd`, runner and mutant `tools/lmsize_run.py`, frames `docs/evidence/landmark-size-2026-11-23/`). Not yet device-checked on the Pad or phone. Open from it: placed icons now size by the shared law too (`_icon_radius`, no floor), which changes their on-screen size at every zoom and is for the owner's eye; the engine's icon resize handle (`icon_handles`) still has its own formula.
 - **Owner report 2026-11-23, "collision culling and adaptive per zoom seem to no longer work on the tab": built** (`STATUS.md`, "Label collision culling, the live half"; `map_overlay.gd::_ensure_live_label_cull`; drive `godot-project/tools/labels_cull_drive.gd`).
