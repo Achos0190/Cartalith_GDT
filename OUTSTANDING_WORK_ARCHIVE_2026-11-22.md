@@ -5701,3 +5701,4 @@ Rows whose title says CLOSED but which still sat in a numbered section (`MISTAKE
 - Ruling HS, coastal setback CS-1/2/4/5/7 (`b3490466`, `d683bb49`, `9087364c`): reason-free markets to the water (26 -> 4 at 2048), every placement and road gate held, the setback update card.
 - Ruling HZ: set-back towns gate their bridges and re-seek a crossing; 483920 #30 comes to the water (`2bdb4b90`).
 - Builds v.26.11.24-002 and -003 (APK on the 6T and D:, signed installers to D:).
+- Ruling HX City-states section in CIVIL > Factions and Ruling HY New World numeric reset (`8813554a`, `48f4f9d0`).
