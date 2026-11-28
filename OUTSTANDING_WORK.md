@@ -63,7 +63,6 @@ GUI, then engine, then the LLM interface).
 - Ruling FF leftover: road crossings on low-flow map river cells cost nothing (gate on order instead moves every road; owner call). `civ_river_crossing_cost`.
 
 ### Rendering, 3D and export
-- (running, Sonnet) Export takes 7-30 minutes at 2048 px with or without the coastline (seen by the HV lane, 2026-11-23; not compared against an older build). Measure and find the cause.
 - Coastline (Ruling HV, `ca94236f`, off by default by owner choice): phone x16 colour reads miss by 2-3.5 px; a preset recolour inside an export not run; on `civ.border_friction` 0 worlds the raster province line still outlines coasts beside it.
 - 3D-4 to 3D-8 (lit drape, sea and atmosphere first). `3D_VIEWPORT_SCOPE.md`; `shell/view3d*.gd`. 3D-3's CDLOD morph has no measurable effect (keep or drop is the owner's).
 - Render target gap list: the open gaps. `RENDER_TARGET_GAP_ASSESSMENT_2026-10-17.md`.

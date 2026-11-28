@@ -99,6 +99,14 @@ var _cancelled := false
 ## `"readback"` (a tile's `get_image`). What a long frame during an export is
 ## made of -- a measurement aid, read by the probes; reset by every `run`.
 var step_ms: Dictionary = {}
+## Total wall time of each phase of the last `run`, in ms (`begin`, `setup`,
+## `urban`, `terrain_wait`, `tile_draw`, `readback`, `submit`, `close`): where
+## an export's minutes go, not its longest frame. Measurement aid; reset by `run`.
+var phase_ms: Dictionary = {}
+
+## Adds the time since `t0_usec` to `phase_ms[key]`.
+func _phase(key: String, t0_usec: int) -> void:
+	phase_ms[key] = float(phase_ms.get(key, 0.0)) + (Time.get_ticks_usec() - t0_usec) / 1000.0
 
 ## Records `ms` against `key` in `step_ms` if it is the longest yet.
 func _note(key: String, ms: float) -> void:
@@ -297,10 +305,12 @@ func _border_layer(src: TextureRect, q: Vector2) -> ColorRect:
 ## premultiplied RGBA8 (a `transparent_bg` readback, which is what
 ## `export_session_submit_tile` composites). Empty when `setup` did not run, the
 ## tile is empty or larger than `TILE_MAX` on a side (or `max_side`, for a
-## measurement), or the readback failed. Awaits two drawn frames: the copy's
+## measurement), or the readback failed. Awaits two scene frames (the copy's
 ## content redraw queues its layer items, which Godot draws later in the same
-## frame (`map_overlay.gd::_build_now`), and the second is margin for the
-## viewport's own update.
+## frame, `map_overlay.gd::_build_now`, and the second is margin for the
+## viewport's own update), then forces the draw (`RenderingServer.force_draw`), so the tile
+## never waits for the OS window to be presented. Must never await `frame_post_draw`:
+## that signal does not fire for a window that is not drawn.
 func render_tile(x: int, y: int, w: int, h: int, max_side: int = TILE_MAX) -> PackedByteArray:
 	if overlay == null or w <= 0 or h <= 0 or w > max_side or h > max_side:
 		return PackedByteArray()
@@ -314,8 +324,12 @@ func render_tile(x: int, y: int, w: int, h: int, max_side: int = TILE_MAX) -> Pa
 		(b.material as ShaderMaterial).set_shader_parameter("tile_origin", Vector2(x, y))
 	overlay.queue_redraw()
 	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	await RenderingServer.frame_post_draw
-	await RenderingServer.frame_post_draw
+	## Two scene frames let the copy's queued redraw run; then the draw is FORCED. `await RenderingServer.frame_post_draw`
+	## fires only when the window is actually presented, and an occluded or background window is not: a 2 048 px export
+	## then took 10 s to 10 minutes (measured, `docs/evidence/export-speed-2026-11-28/`) against 1 s in front.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	RenderingServer.force_draw(false)
 	_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	var t0 := Time.get_ticks_usec()
 	var img := _vp.get_texture().get_image()
@@ -325,6 +339,7 @@ func render_tile(x: int, y: int, w: int, h: int, max_side: int = TILE_MAX) -> Pa
 		img.convert(Image.FORMAT_RGBA8)
 	var data := img.get_data()
 	_note("readback", (Time.get_ticks_usec() - t0) / 1000.0)
+	_phase("readback", t0)
 	return data
 
 ## Ask `run` to stop: it aborts the session (removing the partial file) at its
@@ -355,6 +370,7 @@ func cancel() -> void:
 func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: Array = [], tile_max: int = TILE_MAX) -> Dictionary:
 	_cancelled = false
 	step_ms = {}
+	phase_ms = {}
 	if tile_max <= 0 or tile_max > TILE_MAX:
 		return {"ok": false, "error": "tile size %d is outside 1..%d" % [tile_max, TILE_MAX]}
 	## Ruling HV: the coastline is read from the engine BEFORE the session opens, so the export never depends on a read made
@@ -363,7 +379,9 @@ func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: A
 	if bool((opts.get("content", {}) as Dictionary).get("coast", false)) and live != null and live.has_method("ensure_coast_lines"):
 		live.ensure_coast_lines()
 	progress.emit(0.0, "Opening the export")
+	var tp := Time.get_ticks_usec()
 	var begun: Dictionary = await _engine(bridge, "export_session_begin", [path, opts])
+	_phase("begin", tp)
 	if not bool(begun.get("ok", false)):
 		return begun
 	var W := int(begun["width"])
@@ -373,14 +391,18 @@ func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: A
 	var ts := Time.get_ticks_usec()
 	var why := setup(live, W, H, opts.get("content", {}), borders)
 	_note("setup", (Time.get_ticks_usec() - ts) / 1000.0)
+	_phase("setup", ts)
+	tp = Time.get_ticks_usec()
 	if why != "":
 		return await _fail(bridge, why)
 	var fetched: String = await _fetch_urban(bridge)
+	_phase("urban", tp)
 	if fetched != "":
 		return await _fail(bridge, fetched)
 	for b in bands:
 		var y0 := b * band_rows
 		var rows := mini(band_rows, H - y0)
+		tp = Time.get_ticks_usec()
 		while true:
 			if _cancelled:
 				return await _fail(bridge, "cancelled")
@@ -393,15 +415,20 @@ func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: A
 				break
 			progress.emit(float(b) / bands, "Rendering terrain band %d of %d" % [b + 1, bands])
 			await get_tree().process_frame
+		_phase("terrain_wait", tp)
 		var tiles := band_tiles(W, y0, rows, tile_max)
 		for ti in tiles.size():
 			if _cancelled:
 				return await _fail(bridge, "cancelled")
 			var t: Array = tiles[ti]
+			tp = Time.get_ticks_usec()
 			var rgba := await render_tile(t[0], t[1], t[2], t[3], tile_max)
+			_phase("tile_draw", tp)
 			if rgba.is_empty():
 				return await _fail(bridge, "the overlay tile at (%d, %d) %dx%d could not be read back" % t)
+			tp = Time.get_ticks_usec()
 			var sub: Dictionary = await _engine(bridge, "export_session_submit_tile", [b, t[0], t[1], t[2], t[3], rgba])
+			_phase("submit", tp)
 			if not bool(sub.get("ok", false)):
 				return _done(sub)
 			progress.emit((float(b) + float(ti + 1) / tiles.size()) / bands,
@@ -409,9 +436,11 @@ func run(bridge: Node, path: String, opts: Dictionary, live: Control, borders: A
 	## Closed off the main thread: the writer's last band is ~270 ms of
 	## encoding at 4096 px (`export_session_finish` measured), so the file is
 	## handed to the engine's closer and polled once a frame.
+	tp = Time.get_ticks_usec()
 	while true:
 		var fin: Dictionary = await _engine(bridge, "export_session_close", [])
 		if not bool(fin.get("pending", false)):
+			_phase("close", tp)
 			if bool(fin.get("ok", false)):
 				progress.emit(1.0, "Export written")
 			return _done(fin)

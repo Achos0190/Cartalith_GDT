@@ -63,6 +63,7 @@ func _ready() -> void:
 	var tile := EXPORT_OVERLAY.TILE_MAX
 	var format := "png"
 	var quality := -1
+	var content_json := ""
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
@@ -82,8 +83,11 @@ func _ready() -> void:
 			"--quality":
 				quality = int(args[i + 1]) if i + 1 < args.size() else -1
 				i += 2
+			"--content":
+				content_json = args[i + 1] if i + 1 < args.size() else ""
+				i += 2
 			_:
-				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed, --tile, --format and --quality only" % args[i])
+				print("ABORT: unrecognised argument %s -- this probe reads --width, --seed, --tile, --format, --quality and --content only" % args[i])
 				get_tree().quit(2)
 				return
 	if width <= 0:
@@ -124,6 +128,8 @@ func _ready() -> void:
 
 	var content := {"settlements": true, "settlement_tier": "town", "ways": true, "labels": true,
 		"icons": true, "territory": true}
+	if content_json != "":   ## e.g. --content {"rivers":true,"coast":true,"territory":false}: the HV lane's export content
+		content = JSON.parse_string(content_json)
 	var opts := {"width": width, "content": content, "format": format}
 	if quality != -1:
 		opts["quality"] = quality
@@ -164,6 +170,7 @@ func _ready() -> void:
 	print("  wall %.1f s; frames %d, median %.1f ms, longest %.1f ms, %d over 50 ms, %d over 100 ms" % [
 		wall / 1000.0, L.size(), median, worst, over50, over100])
 	print("  longest main-thread step of each kind (ms): %s" % runner.step_ms)
+	print("  phase totals (ms): %s" % (runner.phase_ms if "phase_ms" in runner else "n/a (build predates phase_ms)"))
 	print("BANDROWS %s" % est.get("band_rows", 0))
 	print("FILE %s" % path)
 	print("RESULT: %s" % ("PASS" if bool(r.get("ok", false)) else "FAIL"))

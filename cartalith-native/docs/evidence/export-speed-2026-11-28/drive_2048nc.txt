@@ -1,0 +1,2 @@
+completed 
+EXPORT err=<null> ok=true wall 124.1 s phases { "begin": 3.72, "setup": 3.749, "urban": 0.003, "terrain_wait": 403.343, "readback": 2.416, "tile_draw": 123703.154, "submit": 0.915, "close": 20.949 }

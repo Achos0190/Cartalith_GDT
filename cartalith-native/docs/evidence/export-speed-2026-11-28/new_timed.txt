@@ -1,0 +1,24 @@
+== new 2048 r1
+  wall 1.0 s; frames 52, median 16.6 ms, longest 76.4 ms, 1 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 8.14, "setup": 4.347, "urban": 0.005, "terrain_wait": 863.89, "readback": 3.479, "tile_draw": 94.986, "submit": 3.558, "close": 19.825 }
+RESULT: PASS
+== new 2048 r2
+  wall 1.0 s; frames 50, median 16.7 ms, longest 84.2 ms, 1 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 10.187, "setup": 4.975, "urban": 0.008, "terrain_wait": 845.47, "readback": 2.344, "tile_draw": 83.903, "submit": 3.398, "close": 20.194 }
+RESULT: PASS
+== new 2048 r3
+  wall 1.0 s; frames 53, median 16.5 ms, longest 79.9 ms, 1 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 7.784, "setup": 4.151, "urban": 0.005, "terrain_wait": 872.105, "readback": 2.414, "tile_draw": 94.465, "submit": 3.386, "close": 19.674 }
+RESULT: PASS
+== new 4096 r1
+  wall 1.8 s; frames 100, median 16.7 ms, longest 60.2 ms, 1 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 7.771, "setup": 3.904, "urban": 0.005, "terrain_wait": 1577.819, "readback": 8.436, "tile_draw": 78.46, "submit": 13.954, "close": 69.545 }
+RESULT: PASS
+== new 4096 r2
+  wall 1.8 s; frames 104, median 16.6 ms, longest 61.7 ms, 1 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 8.424, "setup": 4.081, "urban": 0.006, "terrain_wait": 1632.33, "readback": 8.37, "tile_draw": 105.345, "submit": 13.208, "close": 71.244 }
+RESULT: PASS
+== new 4096 r3
+  wall 1.7 s; frames 96, median 16.6 ms, longest 61.9 ms, 2 over 50 ms, 0 over 100 ms
+  phase totals (ms): { "begin": 8.297, "setup": 4.178, "urban": 0.005, "terrain_wait": 1563.653, "readback": 8.916, "tile_draw": 81.418, "submit": 12.9, "close": 64.259 }
+RESULT: PASS

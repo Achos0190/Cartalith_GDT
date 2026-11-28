@@ -1,0 +1,3 @@
+completed 
+frames 68 fps_set 0 vsync 1
+EXPORT err=<null> ok=true wall 0.5 s phases { "begin": 3.586, "setup": 3.897, "urban": 0.004, "terrain_wait": 424.398, "readback": 2.073, "tile_draw": 27.973, "submit": 0.919, "close": 21.137 }

@@ -1,0 +1,7 @@
+  seed 20260906 generated 2048x1311 in 13.3 s; 242 settlements
+  run: ok, 2048 x 1311, 1 bands, 3.0 MB
+  wall 0.9 s; frames 53, median 16.6 ms, longest 75.5 ms, 1 over 50 ms, 0 over 100 ms
+  longest main-thread step of each kind (ms): { "export_session_begin": 7.91, "setup": 3.955, "export_session_poll": 0.021, "readback": 2.197, "export_session_submit_tile": 0.904, "export_session_close": 0.05 }
+  phase totals (ms): { "begin": 7.92, "setup": 3.957, "urban": 0.003, "terrain_wait": 856.016, "readback": 2.204, "tile_draw": 34.974, "submit": 0.909, "close": 30.257 }
+FILE C:/cw/expo_new/godot-project/../appdata/Godot/app_userdata/expo_new_scratch/_exportfull_probe/full_2048.png
+RESULT: PASS
