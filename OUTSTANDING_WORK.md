@@ -32,6 +32,7 @@ GUI, then engine, then the LLM interface).
 ## Open work by area
 
 ### Timeline and story
+- **(running, Opus xhigh) Owner report 2026-11-28:** the timeline import and the ladder do not work or look like the mockup (`design/timeline-designs-2026-11-22/timeline_designs.html`, Ruling GT option C); gap list per level and form, the import flow end to end, fixes.
 - Junction hamlets in the live list carry founding years 100-300; moving the cursor back and re-snapshotting there gives that year those hamlets. `adopt_junction_hamlets`.
 
 ### Towns and urban layout
