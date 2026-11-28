@@ -4162,3 +4162,7 @@ Owner: *"A city states section in civil - factions would be good."* CIVIL > Fact
 ## Ruling HZ: HS's guard and landing (owner, 2026-11-24)
 
 After `9087364c`: on the guard that keeps 483920 #30 back 318 m because the set-back layout has one crossing fewer, the owner asked *"Can we run the roads after the setback?"* -- read as: **lay the town's crossings and road ends after the setback is applied**, so the set-back town seeks its own bridge or ferry from its new market (and the drawn roads attach to it, `261d1249`) instead of the setback being refused for a crossing the pre-setback layout had. The guard then compares crossings found after re-seeking; generated civ roads (computed before towns) are not re-routed. **CS-3's landing: later.**
+
+## Ruling IA: reorganise tools and context menus by global function and selected item (owner, 2026-11-28)
+
+Owner: *"maybe we should move and order how the tools and context menu's work based on global function and selected menu item. But this will be for after we indexed all menu's and before the refactor."* After the menu and function placement audit (queue item 5) has indexed every menu, tool and context entry on desktop, tablet and phone, a design pass reorganises the tool strip, tool ring and context card/menus so they follow (a) global functions available everywhere and (b) what the selected menu item / domain / object offers -- one placement model, proposed with a mockup and owner questions before any build. Ordered between the audit and the refactor.

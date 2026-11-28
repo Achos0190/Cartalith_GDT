@@ -20,6 +20,7 @@ done on the list"*). "(verify)" marks a line that is probably done but not prove
    leftovers.
 5. **The menu and function placement audit** (owner, 2026-11-17; Sonnet walks; **the verifier is Opus at high effort with Fable as its advisor**, owner 2026-11-23): map every function to
    every home on desktop, tablet and phone, and report doubles, misplacements and dead entries. Last before the refactor.
+5a. **Ruling IA: reorganise the tools and context menus** by global function and by the selected menu item/domain/object, designed from the audit's index (mockup and owner questions first). After item 5, before the refactor.
 6. **The codebase refactor** (`CODEBASE_REFACTOR_PROPOSAL.md`; inventory `CODEBASE_INVENTORY.md`). It absorbs the
    serial generation floor (Ruling FL item 3, see Performance).
 7. **World-scale terrain** (`WORLD_SCALE_TERRAIN_PLAN.md`; parked until the refactor). It absorbs ZR's no-go decision
