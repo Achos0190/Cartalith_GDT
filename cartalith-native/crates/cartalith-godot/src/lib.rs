@@ -8005,6 +8005,9 @@ struct WorldGen {
     /// output, so it is not a `WorldParams` switch). Never read by generation or
     /// by a way commit; a saved route keeps the points it was committed with.
     route_join_ways: bool,
+    /// The map's camera zoom at the last click (`set_snap_zoom`), which scales the stop/waypoint snap radius so it is a constant
+    /// size on screen (`civ_zoom_pick_r`, the reference's own rule). 1.0 until the shell says; never read by generation.
+    snap_zoom: f64,
     /// SP-2's per-journey timeline cache -- see [`story_bridge::JourneyPlanCache`]
     /// for the key and why it is a content key, not an epoch.
     journey_plans: story_bridge::JourneyPlanCache,
@@ -8144,6 +8147,7 @@ impl IRefCounted for WorldGen {
             civ_day: 0,
             journey_carry: None,
             route_join_ways: true,
+            snap_zoom: 1.0,
             journey_plans: Default::default(),
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
@@ -18851,8 +18855,18 @@ impl WorldGen {
         if let Some(infra) = self.infra.as_ref() {
             ways.extend(infra.ways.iter().map(cartalith_civ::tools::WayRef::from));
         }
-        let radius = cartalith_civ::tools::civ_snap_radius(self.gw.max(0) as usize);
-        cartalith_civ::tools::civ_snap_point(&civ.settlements, &ways, gx, gy, radius)
+        // Hand-route bug 2026-11-28: the radius was the reference's *unzoomed* base (58 cells at 4096 wide), so a stop on a POI
+        // snapped onto a road 40 cells away and the route ended short of it. Scaled to the camera as the reference does.
+        let radius = cartalith_civ::tools::civ_zoom_pick_r(cartalith_civ::tools::civ_snap_radius(self.gw.max(0) as usize), self.snap_zoom.max(0.25));
+        let target = cartalith_civ::tools::civ_find_snap_target(&civ.settlements, &ways, gx, gy, radius);
+        // A hand-placed POI is a snap target too and wins a tie with nothing nearer: a stop on it is its own point, exactly.
+        let poi = self.pois.iter().map(|p| (p.x, p.y, (p.x - gx).powi(2) + (p.y - gy).powi(2))).filter(|t| t.2 < radius * radius)
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        match (poi, target) {
+            (Some((x, y, d2)), t) if t.as_ref().is_none_or(|t| d2 <= t.d2) => (x, y),
+            (_, Some(t)) => (t.x, t.y),
+            _ => (gx, gy),
+        }
     }
 }
 
@@ -19241,6 +19255,13 @@ impl WorldGen {
             }
             None => -1,
         }
+    }
+
+    /// Tells the stop/waypoint snap how far the map is zoomed (the camera zoom, 1.0 = fit), so its reach stays a constant size on
+    /// screen. Set by the shell before each click that appends a stop.
+    #[func]
+    fn set_snap_zoom(&mut self, zoom: f64) {
+        self.snap_zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
     }
 
     /// Ruling EU item 2: switches the way join for this session's route

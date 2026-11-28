@@ -1474,6 +1474,8 @@ func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	_camera.position = screen_pt - local_pt * new_zoom
 	_zoom = new_zoom
 	_camera.scale = Vector2(_zoom, _zoom)
+	if _bridge != null:
+		_bridge.snap_zoom = _zoom   ## the stop snap's reach follows the camera (`set_snap_zoom`)
 	_update_zoom_readout()
 	_update_scale_bar()   ## `lodSpanKm()` -- see its own doc comment.
 	## `overlay`'s settlement pins are re-scaled to compensate for
@@ -2132,6 +2134,8 @@ func _reset_view_2d() -> void:
 		origin = size * 0.5 - rect.get_center() * cover
 	_zoom = cover
 	_camera.scale = Vector2(_zoom, _zoom)
+	if _bridge != null:
+		_bridge.snap_zoom = _zoom
 	_camera.position = origin
 	## `zoomReset` clears `panMode` as well (13466) -- a reset that left the
 	## hand latched would put the view back but not the input mode, which is

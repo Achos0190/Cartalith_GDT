@@ -157,6 +157,10 @@ const _BUSY_TEXT := "The world is generating -- try again when it finishes."
 ## Replaced by a fresh instance when `close_world()` swaps it.
 var world_gen: WorldGen = WorldGen.new()
 
+## The map camera's zoom, kept by `viewport_host.gd`; the stop and waypoint snap's reach is a constant size on screen
+## (`WorldGen.set_snap_zoom`), so a stop on a POI or a free point is not pulled onto a road tens of cells away.
+var snap_zoom := 1.0
+
 ## True from the moment `generate`/import/resample/landmarks/viewshed start a run until its finish
 ## handler clears it; the gate every `world_gen` wrapper tests. `busy_kind` says which run.
 var generating := false
@@ -6601,6 +6605,8 @@ func way_append_point(gx: float, gy: float) -> bool:
 		return false
 	if not _has("way_append_point"):
 		return false
+	if _has("set_snap_zoom"):
+		world_gen.set_snap_zoom(snap_zoom)
 	return world_gen.way_append_point(gx, gy)
 
 ## Commits the Way draft by least-cost routing (`WorldGen.way_commit`); returns the new
@@ -6713,6 +6719,8 @@ func route_append_stop(gx: float, gy: float) -> bool:
 		return false
 	if not _has("route_append_stop"):
 		return false
+	if _has("set_snap_zoom"):
+		world_gen.set_snap_zoom(snap_zoom)
 	return world_gen.route_append_stop(gx, gy)
 
 ## Commits the Route draft (`WorldGen.route_commit`); returns the new route's index or

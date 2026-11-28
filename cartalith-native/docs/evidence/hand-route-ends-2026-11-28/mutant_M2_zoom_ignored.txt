@@ -1,0 +1,18 @@
+completed 
+ok    the save opens
+ok    two POIs  -- 2
+stored route 0: 9 pts, first (1113.648, 1381.84) (33.6 from POI1), last (1130.0, 1391.0) (41.3 from POI2)
+stored route 1: 9 pts, first (1113.28, 1382.498) (33.6 from POI1), last (1130.0, 1391.0) (41.3 from POI2)
+ok    the route commits
+fresh route: first (1083.81, 1366.355) last (1171.256, 1392.754) (POI1 (1083.81, 1366.355) POI2 (1171.256, 1392.754))
+ok    stored first point is POI1  -- 0.0
+ok    stored last point is POI2  -- 0.0
+FAIL  a free stop at x16 keeps its own point  -- (1130.0, 1374.0)
+ok    the drawn (render) points start on POI1 and end on POI2  -- (1083.81, 1366.355) (1171.256, 1392.754)
+ok    x1: the drawn route end is within 1 px of POI1  -- 0.00 px
+ok    x1: the drawn route end is within 1 px of POI2  -- 0.00 px
+ok    x4: the drawn route end is within 1 px of POI1  -- 0.00 px
+ok    x4: the drawn route end is within 1 px of POI2  -- 0.00 px
+ok    x16: the drawn route end is within 1 px of POI1  -- 0.00 px
+ok    x16: the drawn route end is within 1 px of POI2  -- 0.00 px
+FAIL ctx.error: FAIL 1
