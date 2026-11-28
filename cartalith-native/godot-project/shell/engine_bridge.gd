@@ -1471,7 +1471,9 @@ func territory_opacity_default() -> float:
 
 ## `WorldGen.build_province_boundary_texture`: province borders as a translucent RGBA
 ## line overlay, transparent elsewhere. May be `null` without a world.
-func province_boundary_texture() -> Texture2D:
+func province_boundary_texture(skip_coast: bool = false) -> Texture2D:
+	if skip_coast and _has("build_province_boundary_texture_inland"):
+		return world_gen.build_province_boundary_texture_inland()
 	return world_gen.build_province_boundary_texture()
 
 ## Ruling GO's O4: `WorldGen.civ_border_lines`, the faction borders as smoothed
@@ -7413,11 +7415,12 @@ func auto_label_list() -> Array:
 		return []
 	return world_gen.auto_label_list()
 
-## The topmost visible generated label under `(gx, gy)` as its key, or `""`. Selects nothing.
-func auto_label_hit(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> String:
+## The topmost visible generated label under `(gx, gy)` as its key, or `""`. Selects nothing. `skip` is the keys of rows the
+## overlay's live collision cull is not drawing (`MapOverlay.undrawn_label_keys()`): a label not on the map answers no tap.
+func auto_label_hit(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0, skip: PackedStringArray = PackedStringArray()) -> String:
 	if generating or not _has("auto_label_hit"):
 		return ""
-	return String(world_gen.auto_label_hit(gx, gy, px_per_cell, zoom))
+	return String(world_gen.auto_label_hit(gx, gy, px_per_cell, zoom, skip))
 
 ## One generated label by key (`{}` when the run does not hold it).
 func auto_label_get(key: String) -> Dictionary:

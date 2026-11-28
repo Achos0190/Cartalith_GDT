@@ -45,10 +45,12 @@ impl WorldGen {
     }
 
     /// The topmost visible generated label under `(gx, gy)`, as its `key`, or `""` on a miss. Selects nothing; same box
-    /// model and arguments as `label_hit_test`.
+    /// model and arguments as `label_hit_test`, plus `skip`: the keys (`labels_render_list`'s `key`) of generated rows the
+    /// shell's live collision cull suppressed, which are not on the map and so are not hit.
     #[func]
-    fn auto_label_hit(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> GString {
-        let hit = self.labels.as_ref().and_then(|b| b.auto_hit(gx, gy, px_per_cell, zoom));
+    fn auto_label_hit(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64, skip: PackedStringArray) -> GString {
+        let skip: Vec<String> = skip.as_slice().iter().map(|s| s.to_string()).collect();
+        let hit = self.labels.as_ref().and_then(|b| b.auto_hit(gx, gy, px_per_cell, zoom, &skip));
         GString::from(hit.unwrap_or_default().as_str())
     }
 

@@ -1,0 +1,13 @@
+completed 
+form: desktop, canvas (1600.0, 900.0), grid 1024
+ok    welcome card shows Continue
+ok    a world exists  -- 10971 ms
+ok    the engine traced a coastline  -- 45 lines, 14442 vertices, 1 runs hidden under a border; the first fetch (shore field contour plus both border traces) took 11 ms on the main thread
+ok    the world has national and province lines to compare with  -- 17 national, 32 province
+ok    the layer starts off
+ok    export off wrote  --  1 s; step_ms {  }
+ok    export on wrote  --  1 s; step_ms {  }
+ok    export onbp wrote  --  1 s; step_ms {  }
+ok    export with coast differs from one without (control: the other layers match)  -- 55153 px, size (2048, 1310)
+ok    a preset recolours the exported coast
+PROOF PASS

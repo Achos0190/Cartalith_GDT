@@ -2279,6 +2279,18 @@ func _ensure_live_label_cull() -> void:
 		else:
 			kept.append(box)
 
+## The `key` (`labels_render_list`, the engine's `auto_key`) of every generated row this frame does NOT draw -- suppressed by
+## the live collision pass, below its zoom floor, faded out, or a hidden landmark's name (`_label_hidden`, the test every label
+## pass uses): what `EngineBridge.auto_label_hit` must skip, because the engine boxes every generated row and a label that is
+## not on the map must answer no tap (nor mask the drawn label under it). Runs the pass if its inputs moved; never draws.
+func undrawn_label_keys() -> PackedStringArray:
+	_ensure_live_label_cull()
+	var out := PackedStringArray()
+	for lb: Dictionary in _labels:
+		if lb.has("key") and _label_hidden(lb):
+			out.append(String(lb["key"]))
+	return out
+
 ## `STORY_PLANNING_SCOPE.md` SP-2: one party marker per saved journey at the
 ## cursor date, in `journey_positions()`'s own dictionary shape. An entry with
 ## no `x`/`y` (a blocked plan) draws nothing -- there is no honest place for

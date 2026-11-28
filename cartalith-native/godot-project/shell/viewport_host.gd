@@ -1326,6 +1326,9 @@ func rebuild_chrome() -> void:
 ## reason the comment above gives -- it just stops *claiming* everything.
 ## Releases are deliberately exempt: a pan that began on the map and ended over
 ## a dock must still clear `_panning`, or the camera sticks to the cursor.
+## The last magnify gesture `_input` applied, `[process frame, pivot, factor]`: see the `InputEventMagnifyGesture` arm.
+var _last_magnify_sig: Array = []
+
 func _input(event: InputEvent) -> void:
 	## **3D-1: while the 3D view is shown, the 2D camera takes nothing.** This
 	## handler runs before GUI dispatch for every event (see above), so without
@@ -1414,6 +1417,18 @@ func _input(event: InputEvent) -> void:
 		## handler: zoom about the centroid **and** pan by the centroid's own
 		## delta, in the same `touchmove` (HTML lines 14014-14015).
 		var mg := event as InputEventMagnifyGesture
+		## **One pinch of factor f is zoom x f, not x f squared** (OUTSTANDING_WORK, labels-cull lane `da74d998`; measured
+		## 2026-11-28 on the real shell, `tools/pinch_drive.gd`): Godot 4.7.2 hands an `InputEventMagnifyGesture` sent through
+		## `Input.parse_input_event` -- the call Android's gesture handler makes -- to EVERY `_input` TWICE in the same frame
+		## as two distinct event objects (a bare node counts 2; `Viewport.push_input` counts 1; a mouse motion or a key counts
+		## 1), so factor 1.3 zoomed x1.69. The second delivery is the same event again: same frame, same pivot, same factor.
+		## Dropping it is the fix; two genuine events in one frame differ in factor or pivot and both apply. The accepted
+		## ceiling: two bit-identical events in one frame lose one.
+		var sig := [Engine.get_process_frames(), mg.position, mg.factor]
+		if sig == _last_magnify_sig:
+			get_viewport().set_input_as_handled()
+			return
+		_last_magnify_sig = sig
 		_zoom_at(mg.position - global_position, mg.factor)
 		get_viewport().set_input_as_handled()
 	elif event is InputEventPanGesture:
@@ -3324,7 +3339,7 @@ func refresh() -> void:
 		_bridge.set_river_view_size(size)
 	map_view.texture = _bridge.color_texture()
 	territory_view.texture = _bridge.territory_texture()
-	province_view.texture = _bridge.province_boundary_texture()
+	province_view.texture = _bridge.province_boundary_texture(overlay.layer_visible("coast"))
 	## A picked view survives a regenerate: same view id, new world's data.
 	## `set_debug_layer` clears itself if the new world cannot answer it.
 	set_debug_layer(_debug_view)
@@ -3681,6 +3696,11 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"coast":
 			if overlay.has_method("set_show_coast_lines"):
 				overlay.set_show_coast_lines(shown)
+			## Ruling HV's leftover: a world whose provinces do not follow the terrain (`civ.border_friction` 0) has a RASTER
+			## province line, which also outlines the coast; with the Coastline stroke on, that outline is dropped so the
+			## coast is not drawn twice. Only such a world has a texture; the others have nothing to rebuild.
+			if province_view.texture != null and _engine_readable():
+				province_view.texture = _bridge.province_boundary_texture(shown)
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)

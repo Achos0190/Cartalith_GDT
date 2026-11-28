@@ -143,8 +143,8 @@ func run(ctx) -> void:
 	for target in [1.0, 2.0, 4.0, 8.0, 16.0]:
 		var guard := 0
 		while absf(_app.viewport.zoom() / (target * _fit_zoom()) - 1.0) > 0.02 and guard < 12:
-			## The harness's pinch lands twice (measured: factor 2.0 took 1.6 to 6.4), so the factor sent is the square root.
-			var f: float = sqrt(clampf(target * _fit_zoom() / _app.viewport.zoom(), 0.25, 4.0))
+			## A pinch lands once since the `ViewportHost._input` guard (2026-11-28; it used to land twice: factor 2.0 took 1.6 to 6.4).
+			var f: float = (clampf(target * _fit_zoom() / _app.viewport.zoom(), 0.25, 4.0))
 			var ev := InputEventMagnifyGesture.new()
 			ev.position = _pivot()
 			ev.factor = f

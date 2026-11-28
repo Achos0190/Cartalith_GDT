@@ -15769,6 +15769,20 @@ impl WorldGen {
     /// survives that downscale the way an actual cartographic line does.
     #[func]
     fn build_province_boundary_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.province_boundary_texture_impl(false)
+    }
+
+    /// [`Self::build_province_boundary_texture`] for a map whose Coastline layer is on (Ruling HV's leftover): a cell
+    /// beside the **sea or a lake** (a neighbour with no province whose shore field is positive, the field the coast
+    /// stroke is contoured from) is not a boundary, so the raster line no longer outlines the coast beside the new stroke.
+    /// Provinces meeting provinces, and a province meeting unclaimed *land*, keep their line. With no shore field yet it
+    /// is the plain texture.
+    #[func]
+    fn build_province_boundary_texture_inland(&self) -> Option<Gd<ImageTexture>> {
+        self.province_boundary_texture_impl(true)
+    }
+
+    fn province_boundary_texture_impl(&self, skip_coast: bool) -> Option<Gd<ImageTexture>> {
         let civ = self.civ.as_ref()?;
         let gw = self.gw as usize;
         let gh = self.gh as usize;
@@ -15785,6 +15799,14 @@ impl WorldGen {
         // Pass 1: symmetric boundary detection (checks all four neighbours,
         // not just +x/+y) so a boundary is a property of the edge, not of
         // which cell happened to be scanned first.
+        let shore = self.shore_field_vals.borrow();
+        let coast_skip = skip_coast && shore.len() == gw * gh;
+        // A neighbour `j` differing from `here` is a boundary, unless the Coastline layer owns that edge: `j` unowned
+        // and wet (shore field > 0, water). `coast_skip` false is the exact pre-existing rule.
+        let differs = |here, j: usize| {
+            let p = civ.provinces[j];
+            p != here && !(coast_skip && p == 0 && shore[j] > 0.0)
+        };
         let mut boundary = vec![false; gw * gh];
         for y in 0..gh {
             for x in 0..gw {
@@ -15793,12 +15815,13 @@ impl WorldGen {
                 if here == 0 {
                     continue;
                 }
-                boundary[i] = (x + 1 < gw && civ.provinces[i + 1] != here)
-                    || (y + 1 < gh && civ.provinces[i + gw] != here)
-                    || (x > 0 && civ.provinces[i - 1] != here)
-                    || (y > 0 && civ.provinces[i - gw] != here);
+                boundary[i] = (x + 1 < gw && differs(here, i + 1))
+                    || (y + 1 < gh && differs(here, i + gw))
+                    || (x > 0 && differs(here, i - 1))
+                    || (y > 0 && differs(here, i - gw));
             }
         }
+        drop(shore);
 
         // Pass 2: dilate by one cell (3x3 neighbourhood) for a real ~3px
         // stroke instead of the single-pixel line that proved illegible.

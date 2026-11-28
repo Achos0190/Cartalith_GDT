@@ -1902,7 +1902,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 	var hit := bridge.label_hit_test_mode(gx, gy, app.viewport.label_px_per_cell(), sel_mode, app.viewport.zoom())
 	if hit < 0 and sel_mode == EngineBridge.SEL_REPLACE:
 		## F3/F4: a generated label under the pointer is edited and dragged through its override, never a second label.
-		var ak := bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom())
+		var ak := bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom(), app.viewport.overlay.undrawn_label_keys())
 		if ak != "":
 			bridge.label_select(-1)
 			_auto_sel = ak
@@ -2022,7 +2022,7 @@ func _label_touch_grab(at: Vector2) -> bool:
 		for h in req["hits"]:
 			if String(h["kind"]) == "label" and int(h["id"]) == sel:
 				return true
-	if _auto_sel != "" and bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom()) == _auto_sel:
+	if _auto_sel != "" and bridge.auto_label_hit(gx, gy, app.viewport.label_px_per_cell(), app.viewport.zoom(), app.viewport.overlay.undrawn_label_keys()) == _auto_sel:
 		return true
 	return false
 

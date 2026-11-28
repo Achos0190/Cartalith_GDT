@@ -293,9 +293,15 @@ impl LabelBridge {
     /// draws in, so a name the user typed is never buried under a generated
     /// one.
     pub fn render_order(&self) -> impl Iterator<Item = (&MapLabel, bool)> {
+        self.render_order_keyed().map(|(_, lb, g)| (lb, g))
+    }
+
+    /// [`Self::render_order`] with each generated row's [`auto_key`] (`None` for a hand-placed one), so the shell can tell
+    /// the engine which generated rows its live collision cull suppressed (`auto_hit`'s `skip`).
+    pub fn render_order_keyed(&self) -> impl Iterator<Item = (Option<String>, &MapLabel, bool)> {
         self.auto_visible()
-            .map(|(_, lb)| (lb, true))
-            .chain(self.labels.iter().map(|lb| (lb, false)))
+            .map(|(k, lb)| (Some(k), lb, true))
+            .chain(self.labels.iter().map(|lb| (None, lb, false)))
     }
 
     /// Every generated label with its [`auto_key`] and the label as it should look: the user's override where one exists,
@@ -337,9 +343,13 @@ impl LabelBridge {
 
     /// The topmost visible generated label whose box contains `(gx, gy)` — [`Self::pick_all`]'s one-box-at-a-time scan
     /// over the generated labels, so the containment rule is `label_hit_test`'s. Selects nothing.
-    pub fn auto_hit(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> Option<String> {
+    ///
+    /// `skip` holds the keys of generated rows the shell's live collision cull is not drawing (`map_overlay.gd`
+    /// `_ensure_live_label_cull`): a label that is not on the map must not answer a tap, and must not hide the kept
+    /// label beneath it.
+    pub fn auto_hit(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64, skip: &[String]) -> Option<String> {
         let none = LabelHandles::default();
-        let all: Vec<(String, &MapLabel)> = self.auto_visible().collect();
+        let all: Vec<(String, &MapLabel)> = self.auto_visible().filter(|(k, _)| !skip.contains(k)).collect();
         all.into_iter().rev().find_map(|(k, lb)| {
             let b = [shell_label_box(lb, px_per_cell, zoom)];
             cartalith_civ::labels::label_hit_test(&b, &none, gx, gy).is_some_and(|h| h.index.is_some()).then_some(k)
@@ -1617,8 +1627,9 @@ mod tests {
             o.label.x = 40.0;
         }
         assert_eq!(b.render_order().map(|(l, _)| l.name.clone()).collect::<Vec<_>>(), vec!["Renamed"]);
-        assert_eq!(b.auto_hit(40.0, 0.0, 2.0, 1.0).as_deref(), Some(key.as_str()), "found where it was moved to");
-        assert_eq!(b.auto_hit(5.0, 0.0, 2.0, 1.0), None, "nothing is left at the generated cell");
+        assert_eq!(b.auto_hit(40.0, 0.0, 2.0, 1.0, &[]).as_deref(), Some(key.as_str()), "found where it was moved to");
+        assert_eq!(b.auto_hit(5.0, 0.0, 2.0, 1.0, &[]), None, "nothing is left at the generated cell");
+        assert_eq!(b.auto_hit(40.0, 0.0, 2.0, 1.0, &[key.clone()]), None, "a row the live cull suppressed answers no tap");
         b.auto_edit(&key).unwrap().hidden = true;
         assert_eq!(b.render_order().count(), 0);
         assert_eq!(b.auto_all().count(), 1, "a hidden label stays listed so it can be shown again");

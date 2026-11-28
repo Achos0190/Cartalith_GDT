@@ -377,6 +377,8 @@ impl WorldGen {
     /// - `halo_em` / `tracking_em` — the class's type spec as multipliers of
     ///   the rendered font size (see [`class_dict`]).
     /// - `italic`.
+    /// - `key` — a generated row's [`label_bridge::auto_key`] (absent on a hand-placed row), the name the shell
+    ///   hands `auto_label_hit` for rows its live collision cull suppressed.
     /// - `generated` — `true` for a pass output, `false` for a hand-placed
     ///   label. The Label tool's own hit-testing and index-based editing
     ///   (`label_hit_test`, `label_select`, `label_set`) still see **only**
@@ -389,8 +391,8 @@ impl WorldGen {
     fn labels_render_list(&self) -> Array<VarDictionary> {
         let Some(bridge) = self.labels.as_ref() else { return Array::new() };
         bridge
-            .render_order()
-            .map(|(lb, generated)| {
+            .render_order_keyed()
+            .map(|(key, lb, generated)| {
                 let t = &bridge.typography[lb.class.index()];
                 let (halo_em, tracking_em) = class_multipliers(t);
                 let mut d = crate::label_dict(lb);
@@ -399,6 +401,10 @@ impl WorldGen {
                 d.set("tracking_em", tracking_em);
                 d.set("italic", t.italic);
                 d.set("generated", generated);
+                // The generated row's identity (`auto_key`), so the shell names its live-culled rows to `auto_label_hit`.
+                if let Some(k) = key {
+                    d.set("key", k.as_str());
+                }
                 d
             })
             .collect()
